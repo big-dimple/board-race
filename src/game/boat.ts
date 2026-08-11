@@ -30,6 +30,7 @@ export interface BoatOptions {
   wake: IWake;
   spray: ISpray;
   trail: IJetTrail;
+  detailedInk?: boolean;
 }
 
 // ---------------------------------------------------------------- tuning ----
@@ -86,7 +87,6 @@ const TUNING = {
   flightDriveGain: 3.2,
   flightHardCap: 50,
   flightDescentSpeed: 36,
-  flightTargetSpeeds: [42, 46, 48] as readonly number[],
   flightMissSpeedMul: 0.7,
   flightMissDriveMul: 0.3,
   flightMissDriveTime: 1.0,
@@ -680,6 +680,7 @@ export class Boat implements IBoat {
   private liftSplashPending = false;
   private flightMissFxTimer = 0;
   private airBrakeFx = 0;
+  private flightTargetSpeed = 42;
 
   constructor(opts: BoatOptions) {
     this.id = opts.id;
@@ -693,8 +694,10 @@ export class Boat implements IBoat {
     this.object.add(visual.root);
     this.riderMount = visual.riderMount;
 
-    addOutline(this.object); // once, after the whole mesh tree exists
-    markInk(this.object); // solid-ink prepass layer (normal/depth + foam ring)
+    if (opts.detailedInk !== false) {
+      addOutline(this.object);
+      markInk(this.object);
+    }
 
     // Ink blob shadow — added AFTER outline/ink passes so it stays out of
     // both (transparent, world-flat; posed each frame in update()).
@@ -727,6 +730,7 @@ export class Boat implements IBoat {
       flightThrust: 0,
       flightAirBrake: 0,
       flightsCleared: 0,
+      flightRouteCursor: 0,
       flightRouteIndex: -1,
       flightPressure: 0,
       flightDenied: false,
@@ -787,10 +791,9 @@ export class Boat implements IBoat {
       // longitudinal: tapered engine + quadratic drag (+ drift scrub)
       let aF: number;
       if (flightWasActive) {
-        const index = clamp(st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightsCleared, 0, 2);
         const cruiseTarget = st.flightPhase === 'descending'
           ? TUNING.flightDescentSpeed
-          : TUNING.flightTargetSpeeds[index];
+          : this.flightTargetSpeed;
         const target = cruiseTarget + (TUNING.airBrakeTargetSpeed - cruiseTarget) * this.airBrakeFx;
         const dragCompensation = TUNING.dragQuad * vF * Math.abs(vF);
         const maxDecel = TUNING.airBrakeDecel * Math.max(0.5, this.airBrakeFx);
@@ -856,7 +859,7 @@ export class Boat implements IBoat {
     this.wasDrifting = input.drift;
     boosting = this.boostTimer > 0;
 
-    // Process the trigger after drift payout so releasing Space and pressing F
+    // Process the trigger after drift payout so releasing Shift and pressing Space
     // on the same simulation frame is a valid combo.
     if (input.flightTrigger) {
       if (st.flightReady && st.flightPhase === 'surface') {
@@ -1240,11 +1243,12 @@ export class Boat implements IBoat {
     mesh.setMatrixAt(index, _fxMatrix);
   }
 
-  beginFlightRouteAttempt(routeIndex: number): void {
+  beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void {
     const st = this.state;
-    if (st.flightRouteState !== 'idle' || routeIndex !== st.flightsCleared) return;
+    if (st.flightRouteState !== 'idle' || routeCursor !== st.flightRouteCursor || routeIndex < 0) return;
     st.flightRouteState = 'active';
     st.flightRouteIndex = routeIndex;
+    this.flightTargetSpeed = clamp(targetSpeed, TUNING.topSpeed, TUNING.flightHardCap);
     st.flightRouteFailReason = 'none';
     st.flightFailure = null;
     st.flightGateProgress = 0;
@@ -1257,11 +1261,12 @@ export class Boat implements IBoat {
     st.flightGateProgress = gateIndex + 1;
   }
 
-  completeFlightRoute(routeIndex: number): void {
+  completeFlightRoute(routeIndex: number, routeCursor: number): void {
     const st = this.state;
-    if (st.flightRouteState !== 'active' || st.flightRouteIndex !== routeIndex || routeIndex !== st.flightsCleared) return;
+    if (st.flightRouteState !== 'active' || st.flightRouteIndex !== routeIndex || routeCursor !== st.flightRouteCursor) return;
     st.flightRouteState = 'passed';
-    st.flightsCleared = Math.min(3, st.flightsCleared + 1);
+    st.flightsCleared++;
+    st.flightRouteCursor++;
     // A clean third gate is the authored end of the maneuver. Start the same
     // smooth landing envelope immediately instead of leaving a fast racer
     // hovering for the unused portion of the ten-second safety window.
@@ -1279,6 +1284,18 @@ export class Boat implements IBoat {
     st.flightGateProgress = 0;
   }
 
+  recoverFailedFlightRoute(): void {
+    const st = this.state;
+    if (st.flightRouteState !== 'failed' || st.flightPhase !== 'surface') return;
+    st.flightRouteCursor++;
+    st.flightRouteState = 'idle';
+    st.flightRouteIndex = -1;
+    st.flightRouteFailReason = 'none';
+    st.flightFailure = null;
+    st.flightGateProgress = 0;
+    this.flightPenaltyApplied = false;
+  }
+
   /** Capture one stable miss; AI boats retain the physical slowdown while the player terminates. */
   applyFlightRouteMiss(failure: FlightFailureSnapshot): void {
     const st = this.state;
@@ -1289,7 +1306,7 @@ export class Boat implements IBoat {
     this.velZ *= TUNING.flightMissSpeedMul;
     st.flightPenaltyRemaining = TUNING.flightMissDriveTime;
     st.flightRouteState = 'failed';
-    st.flightRouteIndex = failure.flightNumber - 1;
+    st.flightRouteIndex = failure.routeSlot;
     st.flightRouteFailReason = failure.reason;
     st.flightFailure = failure;
     if (st.flightPhase !== 'surface') {
@@ -1386,6 +1403,7 @@ export class Boat implements IBoat {
     this.liftSplashPending = false;
     this.flightMissFxTimer = 0;
     this.airBrakeFx = 0;
+    this.flightTargetSpeed = 42;
 
     const st = this.state;
     st.boostCharge = 0;
@@ -1397,6 +1415,7 @@ export class Boat implements IBoat {
     st.flightThrust = 0;
     st.flightAirBrake = 0;
     st.flightsCleared = 0;
+    st.flightRouteCursor = 0;
     st.flightRouteIndex = -1;
     st.flightPressure = 0;
     st.flightDenied = false;

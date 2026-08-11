@@ -108,7 +108,8 @@ export class AIController {
   private readonly personality: Personality;
   private readonly tune: PersonalityTune;
   private readonly course: ICourse;
-  private readonly rng: () => number;
+  private rng: () => number;
+  private readonly seed: number;
   private readonly paceScale: number;
   private readonly preferredLane: number;
   private readonly input: BoatInput = {
@@ -146,6 +147,7 @@ export class AIController {
     this.personality = personality;
     this.tune = PERSONALITIES[personality];
     this.course = course;
+    this.seed = seed;
     this.rng = mulberry32(seed);
     this.paceScale = paceScale;
     this.preferredLane = preferredLane;
@@ -161,6 +163,21 @@ export class AIController {
   private mistakeEvery(): number {
     const [lo, hi] = this.tune.mistakeEvery;
     return lo + this.rng() * (hi - lo);
+  }
+
+  reset(): void {
+    this.rng = mulberry32(this.seed);
+    this.t = 0;
+    this.steerSm = 0;
+    this.drifting = false;
+    this.driftExitT = 0;
+    this.mistakeT = 0;
+    this.mistakeBias = 0;
+    this.nextMistakeAt = this.mistakeEvery();
+    this.flightWindowSeen = false;
+    this.flightWantsRoute = false;
+    this.qualifyingFlight = false;
+    this.upcomingFlightIndex = -1;
   }
 
   private buildTables(): void {
@@ -212,8 +229,8 @@ export class AIController {
     dt: number,
     me: IBoat,
     all: IBoat[],
-    _myProgress: number,
-    _playerProgress: number,
+    myProgress: number,
+    playerProgress: number,
   ): BoatInput {
     const tune = this.tune;
     this.t += dt;
@@ -223,7 +240,7 @@ export class AIController {
     const myU = _sample.u;
     const idx = Math.floor(myU * this.tableN) % this.tableN;
 
-    const upcomingIndex = Math.min(this.course.flightRoutes.length - 1, me.state.flightsCleared);
+    const upcomingIndex = me.state.flightRouteCursor % this.course.flightRoutes.length;
     const upcomingRoute = this.course.flightRoutes[upcomingIndex];
     if (upcomingIndex !== this.upcomingFlightIndex) {
       this.upcomingFlightIndex = upcomingIndex;
@@ -231,8 +248,7 @@ export class AIController {
       this.flightWantsRoute = false;
       this.qualifyingFlight = false;
     }
-    const flightWindow = me.state.flightsCleared < this.course.flightRoutes.length &&
-      myU >= upcomingRoute.qualifyFromU && myU <= upcomingRoute.exitU + 0.02;
+    const flightWindow = myU >= upcomingRoute.qualifyFromU && myU <= upcomingRoute.exitU + 0.02;
     const qualificationWindow = flightWindow && myU < upcomingRoute.launchFromU &&
       me.state.flightPhase === 'surface';
     if (me.state.flightReady || !qualificationWindow) {
@@ -240,7 +256,7 @@ export class AIController {
     } else if (!this.qualifyingFlight && me.state.boostCharge < 0.38 && speed > 14) {
       this.qualifyingFlight = true;
     } else if (this.qualifyingFlight && me.state.boostCharge >= 0.5) {
-      // Releasing here pays out the unchanged Space boost and earns F exactly
+      // Releasing here pays out the unchanged drift boost and earns flight exactly
       // as it does for the player.
       this.qualifyingFlight = false;
     }
@@ -249,7 +265,7 @@ export class AIController {
       this.flightWantsRoute = false;
     } else if (!this.flightWindowSeen && myU >= upcomingRoute.launchFromU - 0.006) {
       this.flightWindowSeen = true;
-      this.flightWantsRoute = this.personality !== 'erratic' || upcomingIndex < 2 || this.rng() < 0.9;
+      this.flightWantsRoute = this.personality !== 'erratic' || me.state.flightRouteCursor < 2 || this.rng() < 0.9;
     }
     const launchNow =
       this.flightWantsRoute &&
@@ -311,7 +327,9 @@ export class AIController {
       const v = this.vmax[(idx + s) % this.tableN];
       if (v < target) target = v;
     }
-    target *= this.paceScale * tune.cornerMul * (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
+    const catchup = clamp(1 + (playerProgress - myProgress) * 0.00035, 0.94, 1.07);
+    target *= this.paceScale * catchup * tune.cornerMul *
+      (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
     let throttle = clamp((target - speed) * 0.5, -1, 1);
     if (Math.abs(err) > 1.2) throttle = Math.min(throttle, 0.4); // spun out: recover gently
 

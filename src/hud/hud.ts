@@ -34,7 +34,7 @@ const BOOST_SEGS = 8;
 const FLIGHT_PIPS = 5;
 const TOAST_LIFE = 1.4; // matches the hud-toast keyframe duration
 const FINAL_LAP_FLASH = 3.0; // seconds the FINAL LAP banner stays up
-const GO_LINGER = 0.8;
+const GO_LINGER = 1.0;
 
 interface ImpactNotice {
   kind: string;
@@ -153,6 +153,7 @@ export class HUD {
   private readonly lessonCopy: HTMLDivElement;
   private readonly lessonMetric: HTMLDivElement;
   private readonly lessonPips: HTMLDivElement[] = [];
+  private bestFlights: number;
 
   // change-detection state (no per-frame DOM string churn)
   private lastSpeed = -1;
@@ -180,8 +181,9 @@ export class HUD {
   private finalLapTimer = 0;
   private readonly lastSplits: number[] = [];
 
-  constructor(container: HTMLElement, course: ICourse, onRetry: () => void) {
+  constructor(container: HTMLElement, course: ICourse, onRetry: () => void, bestFlights = 0) {
     this.course = course;
+    this.bestFlights = bestFlights;
     this.root = h('div', 'hud', container);
     // palette → CSS custom properties (single source of truth)
     const rs = this.root.style;
@@ -348,7 +350,7 @@ export class HUD {
     for (let i = 0; i < 6; i++) this.lessonPips.push(h('i', 'hud-lesson-pip', lessonProgress));
   }
 
-  update(dt: number, race: RaceView, player: IBoat, all: IBoat[]): void {
+  update(dt: number, race: RaceView, player: IBoat, _all: IBoat[]): void {
     const st = player.state;
     this.hudTime += dt;
 
@@ -368,14 +370,13 @@ export class HUD {
       this.lastSpeed = kmh;
       this.speedNum.textContent = String(kmh);
     }
-    const speedN = st.speed > 0 ? Math.min(1, st.speed / SPEED_MAX) : 0;
-    this.drawGauge(speedN, st.boosting);
-
     // ---- lap / final lap / position / wrong way ---------------------------------
     if (me) {
       if (st.flightsCleared !== this.lastLap) {
         this.lastLap = st.flightsCleared;
-        this.lapVal.textContent = `FLIGHTS ${st.flightsCleared} / 3`;
+        this.lapVal.textContent = st.flightsCleared < 3
+          ? `FLIGHTS ${st.flightsCleared} / 3`
+          : `本局 ${st.flightsCleared} 飞 · BEST ${this.bestFlights}`;
       }
       if (me.place !== this.lastPlace) {
         this.lastPlace = me.place;
@@ -393,9 +394,14 @@ export class HUD {
         this.lastGapText = gapText;
         this.posGap.textContent = gapText;
       }
-      this.finalLapEl.textContent = me.place === 1 ? '优秀资格' : '优秀资格丢失';
-      this.finalLapEl.classList.toggle('qualified', me.place === 1);
-      this.finalLapEl.classList.toggle('lost', me.place !== 1);
+      const excellent = race.challengeTier === 'excellent';
+      this.finalLapEl.textContent = excellent
+        ? '优秀已锁定'
+        : race.challengeTier === 'ordinary'
+          ? (me.place === 1 ? '优秀资格夺回' : '夺回第一升优秀')
+          : (me.place === 1 ? '优秀资格' : '优秀资格丢失');
+      this.finalLapEl.classList.toggle('qualified', excellent || me.place === 1);
+      this.finalLapEl.classList.toggle('lost', !excellent && me.place !== 1);
       if (me.wrongWay !== this.lastWrongWay) {
         this.lastWrongWay = me.wrongWay;
         this.wrongWayEl.classList.toggle('on', me.wrongWay);
@@ -478,32 +484,35 @@ export class HUD {
       this.powerPanel.classList.toggle('flying', flightActive);
     }
     if (race.phase === 'racing' && st.flightPhase !== this.lastFlightPhase && st.flightPhase === 'spool') {
-      const flightNumber = Math.min(3, st.flightsCleared + 1);
+      const flightNumber = st.flightsCleared + 1;
       this.enqueueImpact({
-        kind: 'flight-launch', kicker: `FLIGHT ${flightNumber} / 3`, title: `第 ${flightNumber} 飞`, detail: '',
-        color: PALETTE.flight, duration: 0.38, priority: 75,
+        kind: 'flight-launch', kicker: flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`,
+        title: `第 ${flightNumber} 飞`, detail: '',
+        color: PALETTE.flight, duration: 0.7, priority: 75,
       });
     }
     this.lastFlightPhase = st.flightPhase;
 
-    if (race.phase === 'racing' && st.flightGateProgress > this.lastFlightGateProgress) {
+    if (race.phase === 'racing' && st.flightGateProgress > this.lastFlightGateProgress &&
+        st.flightRouteState !== 'passed') {
       const flightNumber = Math.max(1, st.flightsCleared);
       this.enqueueImpact({
         kind: 'gate', kicker: `FLIGHT ${flightNumber} / 3`, title: '通过', detail: '',
-        color: PALETTE.flight, duration: 0.28, priority: 50,
+        color: PALETTE.flight, duration: 0.7, priority: 50,
       });
     }
     this.lastFlightGateProgress = st.flightGateProgress;
     if (race.phase === 'racing' && st.flightRouteState !== this.lastFlightRouteState) {
       if (st.flightRouteState === 'passed') {
         const flightNumber = st.flightsCleared;
-        const title = flightNumber === 1 ? '第一飞，谁都会。'
-          : flightNumber === 2 ? '两次不算。'
-            : '三飞完成';
-        this.enqueueImpact({
-          kind: 'route-clear', kicker: `${flightNumber} / 3`, title, detail: flightNumber === 2 ? '最后一飞，别停在普通。' : '',
-          color: PALETTE.flight, duration: 0.52, priority: 60,
-        });
+        if (flightNumber < 3) {
+          const title = flightNumber === 1 ? '第一飞，谁都会。' : '两次不算。';
+          this.enqueueImpact({
+            kind: 'route-clear', kicker: `${flightNumber} / 3`, title,
+            detail: flightNumber === 2 ? '最后一飞，别停在普通。' : '',
+            color: PALETTE.flight, duration: 1.1, priority: 60,
+          });
+        }
       }
     }
     this.lastFlightRouteState = st.flightRouteState;
@@ -544,8 +553,6 @@ export class HUD {
 
     this.updateImpact(dt, race.phase === 'racing');
 
-    // ---- minimap ------------------------------------------------------------------------
-    this.drawMinimap(player, all);
   }
 
   showBattle(event: RaceBattleEvent): void {
@@ -567,6 +574,37 @@ export class HUD {
       void this.posNum.offsetWidth;
       this.posNum.classList.add('battle-lost');
     }
+  }
+
+  setBestFlights(best: number, current: number): void {
+    this.bestFlights = Math.max(this.bestFlights, best);
+    if (current >= 3) this.lapVal.textContent = `本局 ${current} 飞 · BEST ${this.bestFlights}`;
+  }
+
+  showQualification(tier: 'ordinary' | 'excellent', medals: number, best: number): void {
+    this.bestFlights = Math.max(this.bestFlights, best);
+    this.enqueueImpact({
+      kind: 'qualified', kicker: '男人勋章 +1', title: '三飞只是入场券',
+      detail: `${tier === 'excellent' ? '优秀已锁定' : '无限挑战开始'} · 累计 ${medals}`,
+      color: PALETTE.uiAccent, duration: 1.5, priority: 95,
+    });
+  }
+
+  showExcellentLocked(total: number): void {
+    this.enqueueImpact({
+      kind: 'excellent', kicker: 'LEAD TAKEN', title: '优秀已锁定', detail: `优秀完成 × ${total}`,
+      color: PALETTE.uiAccent, duration: 1.2, priority: 90,
+    });
+  }
+
+  showEndlessPass(flights: number, best: number, newBest: boolean): void {
+    this.setBestFlights(best, flights);
+    if (flights <= 3) return;
+    this.enqueueImpact({
+      kind: 'endless', kicker: newBest ? 'NEW BEST' : `FLIGHT ${flights}`,
+      title: `第 ${flights} 飞通过`, detail: `本局 ${flights} 飞 · BEST ${best}`,
+      color: PALETTE.flight, duration: 0.75, priority: 58,
+    });
   }
 
   showChallengeResult(race: RaceView): void {
@@ -614,15 +652,16 @@ export class HUD {
     this.turnWarning.classList.remove('on', 'braking');
   }
 
-  showRetryLesson(result: ChallengeResult, attempt: number, repeatCount: number, newBest = false): void {
+  showRetryLesson(result: ChallengeResult, attempt: number, repeatCount: number, newBest = false, mobile = false): void {
     const failure = result.failure;
-    const lesson = this.lessonFor(failure, repeatCount);
+    const lesson = this.lessonFor(failure, mobile);
     this.hideResults();
-    const flight = failure?.flightNumber ?? Math.min(3, result.flightsCleared + 1);
-    this.lessonAttempt.textContent = `LOADING NEXT RUN // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞${newBest ? ' · NEW BEST' : ''}`;
+    const flight = failure?.flightNumber ?? result.flightsCleared + 1;
+    const medal = result.manMedalEarned ? ` · 勋章 +1 · 累计 ${result.manMedalsTotal}` : '';
+    this.lessonAttempt.textContent = `LOADING NEXT RUN // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞${medal}`;
     this.lessonTitle.textContent = lesson.title;
     this.lessonCopy.textContent = lesson.copy;
-    this.lessonMetric.textContent = lesson.metric;
+    this.lessonMetric.textContent = `本局 ${result.flightsCleared} 飞 · BEST ${result.bestFlights}${newBest ? ' · NEW BEST' : ''}`;
     this.updateRetryLesson(0);
     this.root.classList.add('lesson-on');
     this.lessonEl.classList.add('on');
@@ -653,7 +692,7 @@ export class HUD {
     streak: string,
     color: number,
   ): void {
-    this.battleTimer = kind === 'overtake' ? 1.0 : 0.65;
+    this.battleTimer = kind === 'overtake' ? 1.4 : 1.1;
     this.battleEl.dataset.kind = kind;
     this.battleEl.style.setProperty('--battle', css(color));
     this.battleLabel.textContent = label;
@@ -706,40 +745,69 @@ export class HUD {
     return why[reason];
   }
 
-  private lessonFor(failure: FlightFailureSnapshot | null, repeatCount: number): { title: string; copy: string; metric: string } {
-    if (!failure) return { title: '还差一飞', copy: '下一次：先漂移拿资格，再按 SPACE 起飞', metric: '' };
+  private lessonFor(failure: FlightFailureSnapshot | null, mobile: boolean): { title: string; copy: string; metric: string } {
+    if (!failure) return {
+      title: '还差一飞',
+      copy: mobile ? '下一次：按住「漂」拿资格，再点「飞」' : '下一次：先按 SHIFT 漂移，再按 SPACE 起飞',
+      metric: '',
+    };
     switch (failure.reason) {
       case 'no_launch':
-        return { title: '没有起飞', copy: '下一次：按住 SHIFT 漂移，松开后按 SPACE', metric: '' };
+        return {
+          title: '没有起飞',
+          copy: mobile ? '下一次：按住「漂」，松开后点「飞」' : '下一次：按住 SHIFT 漂移，松开后按 SPACE',
+          metric: '',
+        };
       case 'late': {
         const short = Math.max(0, 2.8 - failure.clearanceM);
-        return { title: `高度差 ${short.toFixed(1)}m`, copy: '下一次：更早按 SPACE', metric: '' };
+        return {
+          title: `高度差 ${short.toFixed(1)}m`,
+          copy: mobile ? '下一次：更早点「飞」' : '下一次：更早按 SPACE',
+          metric: '',
+        };
       }
       case 'gate_left':
       case 'gate_right': {
         const left = failure.reason === 'gate_left';
         const miss = failure.lateralOffsetM !== null && failure.lateralLimitM !== null
           ? Math.max(0, Math.abs(failure.lateralOffsetM) - failure.lateralLimitM) : 0;
-        const correction = left ? '向右少推一点' : '向左少推一点';
-        const advanced = '下一次：弯前按住 SHIFT 空刹，再轻推回正';
-        return { title: `差 ${miss.toFixed(1)}m`, copy: repeatCount >= 2 ? advanced : `下一次：${correction}`, metric: '' };
+        const direction = left ? (mobile ? '向右' : 'D') : (mobile ? '向左' : 'A');
+        return {
+          title: `偏航先空刹 · 差 ${miss.toFixed(1)}m`,
+          copy: mobile
+            ? `按住右下「刹」，再${direction}轻调回正`
+            : `按住 SHIFT 空刹，再用 ${direction} 轻调回正`,
+          metric: '',
+        };
       }
       case 'corridor':
         return {
-          title: `偏离 ${failure.corridorDistanceM?.toFixed(1) ?? '?'}m`,
-          copy: repeatCount >= 2 ? '下一次：弯前按住 SHIFT 空刹' : '下一次：盯住青色空中航线',
+          title: `偏航先空刹 · 偏离 ${failure.corridorDistanceM?.toFixed(1) ?? '?'}m`,
+          copy: mobile ? '按住右下「刹」减速，再轻调回青线' : '按住 SHIFT 空刹减速，再用 A / D 回青线',
           metric: '',
         };
       case 'landing':
-        return { title: '提前落水', copy: '下一次：靠近入口再按 SPACE', metric: '' };
+        return { title: '提前落水', copy: mobile ? '下一次：靠近入口再点「飞」' : '下一次：靠近入口再按 SPACE', metric: '' };
       case 'exit':
-        return { title: '飞行未完成', copy: '下一次：保持在青色航线内', metric: '' };
+        return {
+          title: '偏航先空刹 · 飞行未完成',
+          copy: mobile ? '按住右下「刹」，轻调回青色航线' : '按住 SHIFT 空刹，再用 A / D 回青线',
+          metric: '',
+        };
       case 'gate':
-        return { title: '只差这一门', copy: '下一次：对准两根发光杆的中点', metric: '' };
+        return {
+          title: '偏航先空刹 · 只差这一门',
+          copy: mobile ? '按住右下「刹」，对准两根发光杆中点' : '按住 SHIFT 空刹，对准两根发光杆中点',
+          metric: '',
+        };
       case 'teleport':
         return { title: '路线重置', copy: '下一次：从入口完整进入', metric: '' };
       default:
-        return { title: '还差一飞', copy: '下一次：先漂移，再按 SPACE', metric: '' };
+        return {
+          title: '还差一飞',
+          copy: mobile ? '下一次：先按「漂」，再点「飞」' : '下一次：先按 SHIFT，再按 SPACE',
+          metric: '',
+        };
     }
   }
 
@@ -785,7 +853,7 @@ export class HUD {
     }
     this.impactQueue.push(notice);
     this.impactQueue.sort((a, b) => b.priority - a.priority);
-    if (this.impactQueue.length > 6) this.impactQueue.length = 6;
+    if (this.impactQueue.length > 2) this.impactQueue.length = 2;
   }
 
   private activateImpact(notice: ImpactNotice): void {
@@ -794,6 +862,7 @@ export class HUD {
     this.activeImpact = notice;
     this.impactEl.dataset.kind = notice.kind;
     this.impactEl.style.setProperty('--impact', css(notice.color));
+    this.impactEl.style.setProperty('--impact-duration', `${notice.duration}s`);
     this.impactKicker.textContent = notice.kicker;
     this.impactTitle.textContent = notice.title;
     this.impactDetail.textContent = notice.detail;

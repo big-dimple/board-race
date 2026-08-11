@@ -14,6 +14,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { BoatState, RacePhase } from '../contracts';
 import { LAYER_ENERGY } from '../contracts';
 import type { PrePass } from '../core/prePass';
+import type { RenderQualityProfile } from '../core/stage';
 import { createEdgePass } from './edgePass';
 
 export type ImpactPulse = 'ready' | 'boost' | 'launch' | 'gate' | 'overtake' | 'lost' | 'defeat' | 'finish';
@@ -99,7 +100,7 @@ void main() {
   // of clipping the entire frame to white.
   col *= 1.0 - min(0.16, uImpact * 0.11 + uFlight * 0.035);
   vec3 energy = texture2D(tEnergy, clamp(vUv + dir * eLum * 0.003, 0.001, 0.999)).rgb;
-  col += energy * (0.28 + uFlight * 0.13 + uImpact * 0.16);
+  col += energy * (0.20 + uFlight * 0.08 + uImpact * 0.10);
   col += windColor * streak * (0.42 + uBoost * 0.68);
   col += vec3(0.42, 0.94, 1.0) * brakeBands * 0.48;
 
@@ -126,24 +127,31 @@ export function createPostPipeline(
   scene: THREE.Scene,
   camera: THREE.Camera,
   prePass: PrePass,
+  quality: RenderQualityProfile,
 ): PostPipeline {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const target = new THREE.WebGLRenderTarget(size.x, size.y, {
-    type: THREE.HalfFloatType,
-    samples: 4,
+    type: THREE.UnsignedByteType,
+    samples: quality.samples,
     depthBuffer: true,
     stencilBuffer: false,
   });
-  const energyTarget = new THREE.WebGLRenderTarget(Math.max(1, size.x >> 1), Math.max(1, size.y >> 1), {
+  const energyTarget = new THREE.WebGLRenderTarget(
+    Math.max(1, Math.floor(size.x * quality.energyScale)),
+    Math.max(1, Math.floor(size.y * quality.energyScale)), {
     type: THREE.HalfFloatType,
     depthBuffer: true,
     stencilBuffer: false,
-  });
+    },
+  );
 
   const energyComposer = new EffectComposer(renderer, energyTarget);
   energyComposer.renderToScreen = false;
   energyComposer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(size.x * 0.5, size.y * 0.5), 0.9, 0.45, 0.18);
+  const bloom = new UnrealBloomPass(
+    new THREE.Vector2(size.x * quality.energyScale, size.y * quality.energyScale),
+    0.58, 0.32, 0.38,
+  );
   energyComposer.addPass(bloom);
 
   const finalMaterial = new THREE.ShaderMaterial({
@@ -237,7 +245,10 @@ export function createPostPipeline(
       const dw = Math.max(1, Math.floor(w * pr));
       const dh = Math.max(1, Math.floor(h * pr));
       composer.setSize(dw, dh);
-      energyComposer.setSize(Math.max(1, Math.floor(dw * 0.5)), Math.max(1, Math.floor(dh * 0.5)));
+      energyComposer.setSize(
+        Math.max(1, Math.floor(dw * quality.energyScale)),
+        Math.max(1, Math.floor(dh * quality.energyScale)),
+      );
       finalMaterial.uniforms.uResolution.value.set(dw, dh);
     },
   };

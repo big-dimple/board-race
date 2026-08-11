@@ -1,6 +1,6 @@
 /**
- * race.ts — race state machine: countdown, laps, checkpoints, splits,
- * places, wrong-way detection, finish + extrapolation.
+ * race.ts — endless race state: countdown, laps, checkpoints, splits,
+ * places, challenge qualification, and wrong-way detection.
  *
  * Checkpoint gates live at course.ts's CHECKPOINT_US (shared const, so the
  * anti-cheat and the split events line up with the physical buoys).
@@ -28,6 +28,7 @@ import type {
   RaceBattleEvent,
   RaceBattleOpponent,
   FlightFailureSnapshot,
+  ChallengeTier,
 } from '../contracts';
 import { CHECKPOINT_US } from './course';
 import { RACER_DEFS } from './racers';
@@ -42,8 +43,8 @@ export interface RaceEvents {
   battle(event: RaceBattleEvent): void;
 }
 
-const COUNTDOWN_S = 3.6;
-const TICK_S = 1.2;
+const COUNTDOWN_S = 4.2;
+const TICK_S = 1.4;
 /** Per-frame |du| above this = cut/teleport. */
 const JUMP_U = 0.02;
 /** Must be this close to the spline (m) for a gate / the line to count. */
@@ -67,11 +68,13 @@ const _sample: CourseSample = {
 
 export class Race implements RaceView {
   readonly racers: RacerState[] = [];
-  readonly totalLaps = 1;
+  readonly totalLaps = null;
   phase: RacePhase = 'countdown';
   countdownValue = 3;
   raceTime = 0; // seconds since GO
   challengeResult: ChallengeResult | null = null;
+  challengeTier: ChallengeTier = 'unqualified';
+  qualificationTime: number | null = null;
 
   private readonly course: ICourse;
   private readonly boats: IBoat[];
@@ -92,7 +95,7 @@ export class Race implements RaceView {
   private legitLaps: number[] = []; // laps that passed the checkpoint sanity
   private lapStart: number[] = [];
   private wrongT: number[] = [];
-  private cpLeaderTimes: number[] = []; // earliest crossing time per (window, gate)
+  private cpLeaderTimes = new Map<number, number>(); // earliest crossing time per (window, gate)
   private order: RacerState[] = []; // preallocated place-sort scratch
   private battleRelation: number[] = [];
   private battlePrevDiff: number[] = [];
@@ -137,12 +140,14 @@ export class Race implements RaceView {
   /** Back to countdown, all progress cleared. */
   reset(quick = false): void {
     this.phase = 'countdown';
-    this.cdTimer = quick ? 0.45 : COUNTDOWN_S;
-    this.tickS = quick ? 0.45 : TICK_S;
+    this.cdTimer = quick ? 0.9 : COUNTDOWN_S;
+    this.tickS = quick ? 0.9 : TICK_S;
     this.countdownValue = quick ? 1 : 3;
     this.pendingTick = this.countdownValue;
     this.raceTime = 0;
     this.challengeResult = null;
+    this.challengeTier = 'unqualified';
+    this.qualificationTime = null;
     for (const r of this.racers) {
       r.lap = 1;
       r.progress = 0;
@@ -166,7 +171,7 @@ export class Race implements RaceView {
     this.legitLaps = new Array(n).fill(0);
     this.lapStart = new Array(n).fill(0);
     this.wrongT = new Array(n).fill(0);
-    this.cpLeaderTimes = new Array(CHECKPOINT_US.length * (this.totalLaps + 1)).fill(Infinity);
+    this.cpLeaderTimes.clear();
     this.order = this.racers.slice();
     this.battleRelation = new Array(n).fill(0);
     this.battlePrevDiff = new Array(n).fill(0);
@@ -187,7 +192,7 @@ export class Race implements RaceView {
     const gapM = Math.max(0, leader.progress - player.progress);
     const leaderSpeed = Math.max(1, Math.abs(this.boats[leader.id]?.state.speed ?? 0));
     this.challengeResult = {
-      outcome: 'defeated',
+      outcome: this.challengeTier === 'unqualified' ? 'defeated' : this.challengeTier,
       reason: failure.reason,
       gate: failure.targetGate ?? Math.min(3, failure.gatesPassed + 1),
       place: player.place,
@@ -199,57 +204,20 @@ export class Race implements RaceView {
       overtakes: this.totalOvertakes,
       excellentTotal: 0,
       ordinaryNew: false,
+      manMedalEarned: this.challengeTier !== 'unqualified',
+      manMedalsTotal: 0,
+      bestFlights: 0,
+      newBest: false,
       failure,
     };
   }
 
-  /** Mark an AI as having legally crossed the challenge finish. */
-  finishChallengeRacer(id: number): void {
-    if (this.phase !== 'racing') return;
-    const r = this.racers[id];
-    if (!r || r.finished || r.eliminated) return;
-    r.finished = true;
-    r.finishTime = this.raceTime;
-    this.events.finish(r);
-    this.sortPlaces();
-  }
-
-  /** The same mandatory-gate rule applies to rivals without ending the player's run. */
-  eliminateRacer(id: number): void {
-    const r = this.racers[id];
-    if (!r || r.isPlayer || r.finished || r.eliminated) return;
-    r.eliminated = true;
-    this.sortPlaces();
-  }
-
-  /** The third legal gate is the finish line for the short challenge. */
-  completeChallenge(): void {
-    if (this.phase !== 'racing') return;
-    const player = this.player();
-    player.finished = true;
-    player.finishTime = this.raceTime;
-    this.sortPlaces();
-    const leader = this.order[0] ?? player;
-    const leaderGapSeconds = player.place === 1 || leader.finishTime < 0
-      ? 0
-      : Math.max(0, player.finishTime - leader.finishTime);
-    this.phase = 'finished';
-    this.challengeResult = {
-      outcome: player.place === 1 ? 'excellent' : 'ordinary',
-      reason: 'none',
-      gate: 3,
-      place: player.place,
-      totalRacers: this.racers.length,
-      raceTime: this.raceTime,
-      flightsCleared: this.boats[player.id].state.flightsCleared,
-      leaderGapSeconds,
-      leaderGapMeters: 0,
-      overtakes: this.totalOvertakes,
-      excellentTotal: 0,
-      ordinaryNew: false,
-      failure: null,
-    };
-    this.events.finish(player);
+  /** The third flight grants the medal but deliberately leaves the run active. */
+  qualifyChallenge(): ChallengeTier {
+    if (this.phase !== 'racing' || this.challengeTier !== 'unqualified') return this.challengeTier;
+    this.qualificationTime = this.raceTime;
+    this.challengeTier = this.player().place === 1 ? 'excellent' : 'ordinary';
+    return this.challengeTier;
   }
 
   update(dt: number): void {
@@ -280,6 +248,7 @@ export class Race implements RaceView {
     this.raceTime += dt;
     this.track(dt, false);
     this.sortPlaces();
+    if (this.challengeTier === 'ordinary' && this.player().place === 1) this.challengeTier = 'excellent';
     this.trackBattles(dt);
   }
 
@@ -344,10 +313,9 @@ export class Race implements RaceView {
           if (_sample.distance > GATE_CREDIT_DIST) continue; // missed the gate: no credit
           this.passedCp[id]++;
           const key = this.lapWindow[id] * nCp + (this.nextCp[id] - 1);
-          if (key >= this.cpLeaderTimes.length) continue;
-          const best = this.cpLeaderTimes[key];
+          const best = this.cpLeaderTimes.get(key) ?? Infinity;
           r.splitDelta = this.raceTime <= best ? 0 : this.raceTime - best;
-          if (this.raceTime < best) this.cpLeaderTimes[key] = this.raceTime;
+          if (this.raceTime < best) this.cpLeaderTimes.set(key, this.raceTime);
           this.events.checkpoint(r, r.splitDelta);
         }
 
@@ -355,7 +323,7 @@ export class Race implements RaceView {
         if (cu >= this.lapWindow[id] + 1 && _sample.distance <= GATE_CREDIT_DIST) {
           this.completeWindow(r, id);
         }
-        r.lap = Math.min(this.legitLaps[id] + 1, this.totalLaps);
+        r.lap = this.legitLaps[id] + 1;
 
         // wrong-way: fast and facing against the spline for a sustained spell.
         // boat forward = (sin h, cos h); dot with the spline tangent.
@@ -398,34 +366,14 @@ export class Race implements RaceView {
       if (r.bestLapTime < 0 || r.lastLapTime < r.bestLapTime) r.bestLapTime = r.lastLapTime;
       this.lapStart[id] = this.raceTime;
       this.events.lapDone(r);
-      if (this.legitLaps[id] >= this.totalLaps) {
-        r.finished = true;
-        r.finishTime = this.raceTime;
-        this.events.finish(r);
-        if (r.isPlayer) {
-          this.phase = 'finished';
-          this.extrapolateFinishes();
-        }
-      }
     }
     // missed gates: the lap simply does not count
     this.lapWindow[id]++;
     this.nextCp[id] = 0;
     this.passedCp[id] = 0;
-  }
-
-  /**
-   * Player finished first: keep AI progress/places updating, but give every
-   * unfinished racer an estimated finishTime from current pace so the results
-   * table can complete. Overwritten by the real time if they actually finish.
-   */
-  private extrapolateFinishes(): void {
-    for (const r of this.racers) {
-      if (r.finished) continue;
-      const avgSpeed = r.progress / Math.max(this.raceTime, 1);
-      const remaining = this.totalLaps * this.course.length - r.progress;
-      r.finishTime = avgSpeed > 2 ? this.raceTime + remaining / avgSpeed : this.raceTime + 9999;
-    }
+    const oldestWindow = Math.max(0, Math.min(...this.lapWindow) - 1);
+    const minKey = oldestWindow * CHECKPOINT_US.length;
+    for (const key of this.cpLeaderTimes.keys()) if (key < minKey) this.cpLeaderTimes.delete(key);
   }
 
   private sortPlaces(): void {

@@ -1,8 +1,8 @@
 # 是男人就飞三次
 
-Cel-shaded arcade boat racing on an infinite open ocean. The boat moves automatically; complete three independently earned low-altitude flights and finish first to become `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. **Zero external assets**: every mesh is procedural geometry, every texture is generated in code, and every sound is synthesized with Web Audio.
+Cel-shaded arcade boat racing on an infinite open ocean. The boat moves automatically; three independently earned flights grant a `男人勋章`, then the same run continues as an endless flight-record chase. Take first place after qualifying to lock `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. **Zero external assets**: every mesh is procedural geometry, every texture is generated in code, and every sound is synthesized with Web Audio.
 
-**Play online:** [https://cnwinds.github.io/board-race/](https://cnwinds.github.io/board-race/)
+**Play online:** [https://big-dimple.github.io/board-race/](https://big-dimple.github.io/board-race/)
 
 ## Run
 
@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Open the printed localhost URL. You start fourth in a six-racer short challenge, with three rivals ahead and two behind.
+Open the printed localhost URL. You start fourth in a six-racer endless challenge, with three rivals ahead and two behind.
 
 ## Controls
 
@@ -21,11 +21,15 @@ Open the printed localhost URL. You start fourth in a six-racer short challenge,
 | `A` `D` / `←` `→` | Steer |
 | `Shift` (hold) | Drift on water; contextual vector air-brake while flying |
 | `Space` (press) | Spend the earned token and fly |
-| `Enter` / `R` | Request another run after success or defeat |
+| `Enter` / `R` | Skip a readable loading review after its minimum reading time |
 
-On mobile, landscape is required. Tilt steering is the default; the small mode control switches to touch steering when sensors are unavailable or unwanted. The lower-left half is the contextual `漂/刹` hold zone and the lower-right half is `飞`. Independent pointer tracking supports holding drift/air-brake while tapping flight. iOS pauses the countdown until motion permission is resolved. Audio starts on the first key or touch gesture.
+On mobile, landscape is required. The first `开始游戏` gesture requests motion permission, attempts fullscreen/landscape, and calibrates a stable neutral angle. Missing or denied sensors fall back to touch steering automatically. Manual mode has two large steering buttons at bottom-left and separate `漂/刹` plus `飞` buttons at bottom-right. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
-Each of the three flight segments requires a fresh `Shift` drift and release. The first is a wide straight launch, the second is an air-brake chicane, and the third is a faster precision loop. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately. Failure skips the old result modal and enters a focused loading review: first occurrence `3.2s` (`+0.4s` for a real PB), second `1.8s`, then `1.0s`, each with an earlier manual-skip threshold. Three flights without first place unlock `普通男人` once but do not count as the win; only three flights plus first place yields `优秀男人`.
+Every flight requires a fresh drift and release. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass immediately grants one medal for that run; flights 4-7 continue around the rest of the circuit and the seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
+
+Failure goes directly to one focused loading review. A new failure type displays for `4.5s`, the second occurrence for `3.2s`, and later repeats for `2.2s`; minimum reading times are `2.0s`, `1.4s`, and `1.0s`. A real PB adds `0.5s`, capped at `5s`. Course-deviation reviews always teach the contextual air brake. The screen also settles flights, PB, and any medal already earned before the mistake.
+
+Runs, medals, excellent finishes, PB flights, and closest misses are saved in browser `localStorage` with v1/v2 migration. This persists normal revisits on the same browser and origin, but it is not cloud storage: clearing site data, private browsing, changing domains, or changing devices will not carry records over.
 
 ## Architecture
 
@@ -71,16 +75,15 @@ src/
                     Animated from BoatState: lean ∝ lateral G, weight shift ∝ long G,
                     drift hip twist, throttle wrist, landing crouch spring, airborne
                     "whee" pose, idle breathing, celebration pump
-    course.ts       CatmullRom circuit plus three canonical-progress 3D flight branches,
-                    animated guide rails/portals, water racing line, gates/buoys with foam
+    course.ts       CatmullRom circuit plus seven repeating 3D flight branches, a single
+                    player-owned active guide, locally masked water line, gates/buoys with foam
                     collars, START/finish gantry + checker strip
     ai.ts           Spline-following AI with lookahead, fixed six-racer pace profiles,
                     collision avoidance, three-flight qualification, deliberate mistakes
     racers.ts       Single source of racer colors, grid ranks, lanes, and pace
-    records.ts      v2 local runs/PB/ordinary/excellent record store with v1 migration
-    race.ts         Short-run challenge state machine: countdown, hard flight failure,
-                    rival elimination/finish, near-zero-latency overtake/lost-position
-                    events, ordinary/excellent result contract
+    records.ts      v3 local runs/medals/endless-PB record store with v1/v2 migration
+    race.ts         Endless challenge state machine: countdown, third-flight qualification,
+                    hard flight failure, laps, and overtake/lost-position events
     chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
                     reduced-motion support, cinematic orbit for countdown/results
   hud/
@@ -92,17 +95,22 @@ src/
                     pressure, anti-gravity hum, impacts, countdown horn, finish jingle
 harness/
     screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
-                    (three-flight state, fresh-token rule, adaptive loading, ordinary/
-                    excellent, mobile controls, battle events), captures into shots/, responsive
-                    HUD overlap, driving-ROI, and gameplay assertions
+                    (qualification, endless PB, fresh-token rule, adaptive loading,
+                    mobile controls, route guidance, performance, and battle events)
 ```
 
 ## Performance notes
 
-- Fixed 60 Hz simulation, render decoupled; adaptive pixel ratio holds frame time under load.
+- Fixed 60 Hz simulation, render decoupled. Auto starts inside a 2.1M drawing-pixel budget,
+  reacts to fullscreen/resize within one animation frame, drops quality after 0.5s over
+  20ms, and only climbs after 5s below 15.5ms.
+- `?quality=performance` uses a 1.3M budget; `?quality=high` uses 4.1M, 2x MSAA,
+  half-resolution energy effects, and detailed AI ink. Auto uses an RGBA8 beauty target,
+  no MSAA, 0.35-scale energy effects, and simplified distant AI rider silhouettes.
 - Ocean is one draw call per LOD shell; wake is one draw call per boat; spray is one instanced draw call total.
-- The screenshot harness reports per-scenario draw calls, triangles, fixed-step frame time,
-  route state, and battle events; use it for before/after performance comparisons.
+- The harness reports drawing pixels, draw calls, triangles, route state, and battle events.
+  Its dedicated performance check samples real animation frames; headless software-renderer
+  timings are diagnostic only and must not be presented as hardware FPS.
 - Zero per-frame allocation in hot paths (ring buffers, module-scope temps).
 
 ## Verification harness
@@ -111,7 +119,9 @@ harness/
 node harness/screenshot.mjs                 # all scenarios → shots/*.png (retina)
 node harness/screenshot.mjs water rider     # subset
 node harness/screenshot.mjs --stats sweeper # + renderer.info stats
-npm run verify:flight                     # three-flight/hard-fail/loading/battle/result assertions
+npm run verify:flight                     # qualification/endless/failure/guidance assertions
+npm run verify:mobile                     # first gesture, fallback, bottom controls, multi-touch
+npm run verify:performance                # pixel budget, resize coalescing, draw-call ceiling
 node harness/screenshot.mjs --responsive flight-cruise # desktop + portrait + landscape
 node harness/screenshot.mjs --mobile start              # landscape tilt-control capture
 node harness/screenshot.mjs --mobile --touch-fallback start

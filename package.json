@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "shot": "node harness/screenshot.mjs",
-    "verify:flight": "node harness/screenshot.mjs --verify-flight"
+    "verify:flight": "node harness/screenshot.mjs --verify-flight",
+    "verify:mobile": "node harness/screenshot.mjs --mobile --verify-mobile",
+    "verify:performance": "node harness/screenshot.mjs --verify-performance"
   },
   "dependencies": {
     "three": "^0.185.1"

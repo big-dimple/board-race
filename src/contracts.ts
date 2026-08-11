@@ -24,7 +24,14 @@ export interface BoatInput {
 }
 
 export type FlightPhase = 'surface' | 'spool' | 'ascending' | 'cruise' | 'descending';
-export type FlightCourseRouteId = 'flight-1' | 'flight-2' | 'flight-3';
+export type FlightCourseRouteId =
+  | 'flight-1'
+  | 'flight-2'
+  | 'flight-3'
+  | 'flight-4'
+  | 'flight-5'
+  | 'flight-6'
+  | 'flight-7';
 export type CourseRouteId = 'surface' | FlightCourseRouteId;
 export type FlightRouteState = 'idle' | 'active' | 'passed' | 'failed';
 export type FlightRouteFailReason =
@@ -42,8 +49,10 @@ export type FlightRouteFailReason =
 /** Immutable evidence captured on the exact frame a flight attempt fails. */
 export interface FlightFailureSnapshot {
   reason: FlightRouteFailReason;
-  /** 1..3 authored flight segment that failed. */
+  /** Absolute 1-based flight attempt in this run. */
   flightNumber: number;
+  /** Zero-based physical route slot reused on later laps. */
+  routeSlot: number;
   /** Number of complete flight segments before this failure. */
   flightsCleared: number;
   gatesPassed: number;
@@ -114,6 +123,8 @@ export interface BoatState {
   flightAirBrake: number;
   /** Number of complete, independently earned flight segments. */
   flightsCleared: number;
+  /** Number of mandatory route slots consumed in this run. */
+  flightRouteCursor: number;
   /** Active/latest route index, or -1 while waiting for the next route. */
   flightRouteIndex: number;
   /** Actual-speed-derived 0..1 pressure used by camera, post and audio. */
@@ -154,10 +165,12 @@ export interface IBoat {
   readonly riderMount: THREE.Object3D;
   update(dt: number, input: BoatInput, t: number): void;
   teleport(x: number, z: number, heading: number): void;
-  beginFlightRouteAttempt(routeIndex: number): void;
+  beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void;
   applyFlightGatePass(gateIndex: number): void;
-  completeFlightRoute(routeIndex: number): void;
+  completeFlightRoute(routeIndex: number, routeCursor: number): void;
   settleFlightRoute(): void;
+  /** Recover an AI after a failed route and consume that route without scoring it. */
+  recoverFailedFlightRoute(): void;
   applyFlightRouteMiss(failure: FlightFailureSnapshot): void;
 }
 
@@ -223,9 +236,17 @@ export interface ICourse {
   sample(pos: THREE.Vector3, out: CourseSample, routeHint?: CourseRouteId): CourseSample;
   routeForBoat(id: number): CourseRouteId;
   flightTurnWarning(id: number): boolean;
+  guidanceStatus(): CourseGuidanceStatus;
   resetFlightChallenge(): void;
   updateFlightRoute(dt: number, boats: readonly IBoat[]): void;
   update(dt: number, t: number): void;
+}
+
+export interface CourseGuidanceStatus {
+  activeRouteIndex: number;
+  visibleRouteCount: number;
+  surfaceMaskRouteIndex: number;
+  playerSurfaceU: number;
 }
 
 /** What the HUD and camera are allowed to know about the race. */
@@ -234,9 +255,12 @@ export interface RaceView {
   /** 3, 2, 1, or 0 (GO). */
   readonly countdownValue: number;
   readonly raceTime: number;
-  readonly totalLaps: number;
+  /** null means the race has no lap finish. */
+  readonly totalLaps: number | null;
   readonly racers: readonly RacerState[];
   readonly challengeResult: ChallengeResult | null;
+  readonly challengeTier: ChallengeTier;
+  readonly qualificationTime: number | null;
 }
 
 // ----------------------------------------------------------------- race ----
@@ -244,11 +268,12 @@ export interface RaceView {
 export type RacePhase = 'countdown' | 'racing' | 'defeated' | 'finished';
 
 export type ChallengeOutcome = 'defeated' | 'ordinary' | 'excellent';
+export type ChallengeTier = 'unqualified' | 'ordinary' | 'excellent';
 
 export interface ChallengeResult {
   outcome: ChallengeOutcome;
   reason: FlightRouteFailReason;
-  /** 1..3 for a missed gate, 0 when not applicable. */
+  /** Gate inside the failed route, or 0 when not applicable. */
   gate: number;
   place: number;
   totalRacers: number;
@@ -259,6 +284,10 @@ export interface ChallengeResult {
   overtakes: number;
   excellentTotal: number;
   ordinaryNew: boolean;
+  manMedalEarned: boolean;
+  manMedalsTotal: number;
+  bestFlights: number;
+  newBest: boolean;
   failure: FlightFailureSnapshot | null;
 }
 

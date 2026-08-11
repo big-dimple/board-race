@@ -50,15 +50,12 @@ const SCENARIOS = {
   'retry-lesson': { scenario: 'retry-lesson', settleMs: 380 },
   'flight-route': { scenario: 'flight-route' },
   'flight-fresh-token': { scenario: 'flight-fresh-token' },
+  'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
+  'endless-four': { scenario: 'endless-four', timeout: 180000, settleMs: 180 },
+  'endless-medal-fail': { scenario: 'endless-medal-fail', timeout: 180000, settleMs: 180 },
   overtake: { scenario: 'overtake', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
   'overtake-chain': { scenario: 'overtake-chain', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
   'position-lost': { scenario: 'position-lost', freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
-  finish: { scenario: 'finish', timeout: 180000, settleMs: 800 },
-  // settleMs: let the wall-clock CSS panel-in animation finish before capture
-  results: { scenario: 'results', timeout: 180000, settleMs: 800 },
-  'results-medal': { scenario: 'results-medal', timeout: 180000, settleMs: 800 },
-  'results-ordinary': { scenario: 'results-ordinary', timeout: 180000, settleMs: 800 },
-  'results-excellent': { scenario: 'results-excellent', timeout: 180000, settleMs: 800 },
   // Free-camera close-ups, driven off the mid-race pack.
   rider: {
     scenario: 'sweeper',
@@ -98,36 +95,38 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightPhase, 'surface', 'flight without a token must stay on the surface');
   assert.equal(state.flightDenied, true, 'a rejected flight press must emit feedback');
 
-  // First occurrence is deliberately readable: 3.2s plus 0.4s for a new PB.
+  // First occurrence is deliberately readable: 4.5s plus 0.5s for a new PB.
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'defeated');
   assert.equal(await page.locator('.hud-results').evaluate((el) => el.classList.contains('on')), false,
     'failure must bypass the old result modal');
-  await page.evaluate(() => window.__harness.advance(0.31));
+  await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.retryLessonActive, true, 'failure must enter loading automatically');
-  assert.ok(Math.abs(state.retryLessonDuration - 3.6) < 0.05, `first/new-PB loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonDuration - 5) < 0.05, `first/new-PB loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonMinRead - 2) < 0.03);
   await page.evaluate(() => window.__harness.retry());
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.retryLessonActive, true, 'loading cannot skip before its reading gate');
-  await page.evaluate(() => window.__harness.advance(1.22));
+  await page.evaluate(() => window.__harness.advance(2.05));
   await page.evaluate(() => window.__harness.retry());
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'countdown', 'loading can skip after the reading gate');
 
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
-  await page.evaluate(() => window.__harness.advance(0.31));
+  await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.ok(Math.abs(state.retryLessonDuration - 1.8) < 0.05, `second loading duration ${state.retryLessonDuration}`);
-  await page.evaluate(() => window.__harness.advance(0.81));
+  assert.ok(Math.abs(state.retryLessonDuration - 3.2) < 0.05, `second loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonMinRead - 1.4) < 0.03);
+  await page.evaluate(() => window.__harness.advance(1.45));
   await page.evaluate(() => window.__harness.retry());
 
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
-  await page.evaluate(() => window.__harness.advance(0.31));
+  await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.ok(Math.abs(state.retryLessonDuration - 1.0) < 0.05, `third loading duration ${state.retryLessonDuration}`);
-  assert.ok(Math.abs(state.retryLessonMinRead - 0.35) < 0.03);
+  assert.ok(Math.abs(state.retryLessonDuration - 2.2) < 0.05, `third loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonMinRead - 1) < 0.03);
 
   await page.evaluate(() => window.__harness.scenario('flight-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -151,6 +150,10 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightPressure > 0.25, `flight pressure ${state.flightPressure}`);
   const flightStats = await page.evaluate(() => window.__harness.stats());
   assert.ok(flightStats.cameraFov >= 77 && flightStats.cameraFov <= 86, `flight FOV ${flightStats.cameraFov}`);
+  const guidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(guidance.visibleRouteCount, 1, 'only the current player flight guide may be visible');
+  assert.equal(guidance.activeRouteIndex, 0);
+  assert.equal(guidance.surfaceMaskRouteIndex, 0, 'the green surface ribbon must be masked through the active detour');
 
   await page.evaluate(() => window.__harness.scenario('flight-descent'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -218,19 +221,143 @@ async function verifyFlightContract(page) {
   assert.equal(state.battlePositionLosses, 1);
   assert.equal(state.lastBattleKind, 'lost');
 
-  await page.evaluate(() => window.__harness.scenario('results-ordinary'));
+  const medalsBefore = state.manMedalsTotal;
+  await page.evaluate(() => window.__harness.scenario('endless-qualified'));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.challengeOutcome, 'ordinary', 'three flights behind a rival is ordinary, not a win');
+  assert.equal(state.phase, 'racing', 'the third flight is a qualification threshold, not the finish');
   assert.equal(state.flightsCleared, 3);
-  assert.match(await page.locator('.hud-results-title').textContent() ?? '', /普通男人/);
+  assert.notEqual(state.challengeTier, 'unqualified');
+  assert.equal(state.manMedalsTotal, medalsBefore + 1, 'the third flight grants exactly one medal in the run');
 
-  await page.evaluate(() => window.__harness.scenario('results-excellent'));
+  await page.evaluate(() => window.__harness.scenario('endless-four'));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.challengeOutcome, 'excellent', 'three flights plus first place is the only excellent result');
-  assert.equal(state.place, 1);
-  assert.match(await page.locator('.hud-results-title').textContent() ?? '', /优秀男人/);
+  assert.equal(state.phase, 'racing', 'the fourth flight must remain playable');
+  assert.equal(state.flightsCleared, 4);
+  assert.ok(state.bestFlights >= 4, 'endless flight PB must persist');
+
+  await page.evaluate(() => window.__harness.scenario('endless-medal-fail'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'defeated');
+  assert.equal(state.retryLessonActive, true);
+  assert.equal(state.manMedalEarned, true, 'post-qualification failure must settle the earned medal');
+  assert.ok(state.manMedalsTotal >= medalsBefore + 3);
+  assert.match(await page.locator('.hud-lesson-attempt').textContent() ?? '', /勋章 \+1/);
+  assert.match(await page.locator('.hud-lesson-copy').textContent() ?? '', /空刹/,
+    'flight-course failures must teach the contextual air brake on first occurrence');
 
   console.log('gameplay contract: OK');
+}
+
+async function verifyMobileControls(page) {
+  const start = page.locator('.mobile-start');
+  assert.equal(await start.isVisible(), true, 'mobile must start behind one explicit gesture');
+  let status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.activation, 'idle');
+  await start.click();
+
+  // Headless Chrome may expose no orientation source. In that case the same
+  // timeout used on real unsupported devices must land in touch mode.
+  await page.waitForFunction(() => {
+    const s = window.__harness.mobileStatus();
+    return s.activation === 'calibrating' || s.activation === 'ready';
+  });
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  if (status.activation === 'calibrating') {
+    for (let i = 0; i < 8; i++) {
+      await page.evaluate(() => {
+        const event = new Event('deviceorientation');
+        Object.defineProperties(event, {
+          beta: { value: 0.6 },
+          gamma: { value: 0.4 },
+        });
+        window.dispatchEvent(event);
+      });
+      await page.waitForTimeout(55);
+    }
+  }
+  await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 2500 });
+
+  const mode = page.locator('.mobile-mode');
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  if (status.mode !== 'touch') await mode.click();
+  assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'touch');
+
+  await page.evaluate(() => window.__harness.scenario('start'));
+  const geometry = await page.evaluate(() => {
+    const result = {};
+    for (const action of ['left', 'right', 'drift', 'flight']) {
+      const el = document.querySelector(`[data-mobile-action="${action}"]`);
+      const r = el.getBoundingClientRect();
+      result[action] = { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+    }
+    return { controls: result, width: innerWidth, height: innerHeight };
+  });
+  for (const [name, r] of Object.entries(geometry.controls)) {
+    assert.ok(r.width >= 140 && r.height >= 100, `${name} touch target is too small: ${r.width}x${r.height}`);
+    assert.ok(r.top >= geometry.height - 170 && r.bottom <= geometry.height, `${name} must stay at the bottom edge`);
+  }
+  assert.ok(geometry.controls.right.right < geometry.controls.drift.left,
+    'steering and action groups must remain separate');
+
+  for (const [selector, pointerId] of [
+    ['[data-mobile-action="left"]', 31],
+    ['[data-mobile-action="drift"]', 32],
+    ['[data-mobile-action="flight"]', 33],
+  ]) {
+    await page.locator(selector).dispatchEvent('pointerdown', { pointerId, pointerType: 'touch', isPrimary: pointerId === 31 });
+  }
+  assert.deepEqual(await page.locator('.held').evaluateAll((els) => els.map((el) => el.dataset.mobileAction).sort()),
+    ['drift', 'flight', 'left'], 'multi-touch actions must be tracked independently');
+  await page.locator('[data-mobile-action="left"]').dispatchEvent('pointercancel', { pointerId: 31, pointerType: 'touch' });
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointercancel', { pointerId: 32, pointerType: 'touch' });
+  await page.locator('[data-mobile-action="flight"]').dispatchEvent('pointercancel', { pointerId: 33, pointerType: 'touch' });
+  assert.equal(await page.locator('.held').count(), 0, 'cancelled touches must never leave sticky controls');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.mobile-orientation').isVisible(), true, 'portrait must show the landscape blocker');
+  console.log('mobile controls contract: OK');
+}
+
+async function verifyPerformanceContract(page) {
+  const assertBudget = async (label) => {
+    const stats = await page.evaluate(() => window.__harness.stats());
+    assert.equal(stats.quality, 'auto');
+    assert.ok(stats.drawingPixels <= 2_120_000,
+      `${label} drawing buffer exceeds Auto budget: ${stats.drawingPixels}`);
+    assert.ok(stats.pixelRatio >= 0.5 && stats.pixelRatio <= 1.25,
+      `${label} pixel ratio out of bounds: ${stats.pixelRatio}`);
+    return stats;
+  };
+
+  await page.evaluate(() => window.__harness.scenario('start'));
+  await page.evaluate(() => window.__harness.render());
+  let stats = await assertBudget('1440x900');
+  assert.ok(stats.calls <= 600, `Auto start draw calls ${stats.calls} exceed 600`);
+
+  const beforeBurst = stats.resizeCount;
+  await page.evaluate(() => {
+    for (let i = 0; i < 12; i++) window.dispatchEvent(new Event('resize'));
+  });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  stats = await page.evaluate(() => window.__harness.stats());
+  assert.equal(stats.resizeCount, beforeBurst + 1, 'one resize burst must rebuild render targets exactly once');
+
+  for (const viewport of [
+    { label: '1920x1080', width: 1920, height: 1080 },
+    { label: '4k', width: 3840, height: 2160 },
+  ]) {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await assertBudget(viewport.label);
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const sample = await page.evaluate(() => window.__harness.perfSample(45));
+  assert.ok(sample.calls <= 600, `sampled Auto start draw calls ${sample.calls} exceed 600`);
+  console.log(`performance contract: OK (${sample.drawingPixels} px, calls ${sample.calls}, ` +
+    `software p50/p95/p99 ${Number(sample.p50).toFixed(1)}/${Number(sample.p95).toFixed(1)}/${Number(sample.p99).toFixed(1)}ms)`);
 }
 
 async function assertHudDoesNotOverlap(page, label) {
@@ -341,10 +468,12 @@ async function main() {
   const wantStats = args.includes('--stats');
   const responsive = args.includes('--responsive');
   const verifyFlight = args.includes('--verify-flight');
+  const verifyMobile = args.includes('--verify-mobile');
+  const verifyPerformance = args.includes('--verify-performance');
   const mobile = args.includes('--mobile');
   const touchFallback = args.includes('--touch-fallback');
   const names = args.filter((a) => !a.startsWith('--'));
-  const selected = names.length ? names : verifyFlight ? [] : Object.keys(SCENARIOS);
+  const selected = names.length ? names : (verifyFlight || verifyMobile || verifyPerformance) ? [] : Object.keys(SCENARIOS);
 
   mkdirSync(OUT, { recursive: true });
 
@@ -389,6 +518,8 @@ async function main() {
       await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
       await verifyFlightContract(page);
     }
+    if (verifyMobile) await verifyMobileControls(page);
+    if (verifyPerformance) await verifyPerformanceContract(page);
     if (mobile && touchFallback) {
       const mode = page.locator('.mobile-mode');
       if (await mode.isVisible()) await mode.click();

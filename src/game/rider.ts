@@ -154,7 +154,7 @@ export class Rider {
   // Scratch (no per-frame allocation).
   private readonly tmp = new THREE.Vector3();
 
-  constructor(opts: { color: number }) {
+  constructor(opts: { color: number; detailedInk?: boolean }) {
     // Rim turned up on every rider material: the silhouette must pop against
     // dark water even when the whole suit faces away from the sun. The suit
     // also carries a small self-color emissive so the racer color reads even
@@ -232,6 +232,18 @@ export class Rider {
     this.hipsBaseY = hips.position.y;
 
     // -------------------------------------------------------- flesh ----
+    // At race distance, AI riders only need a readable color silhouette.
+    // The full articulated mesh remains on the player and in High quality.
+    if (opts.detailedInk === false) {
+      const pelvis = ball(hips, 0.16, suit, 0, 0.02, 0.02);
+      pelvis.scale.set(1, 0.62, 0.78);
+      bone(spine, chest, 0.16, suit);
+      bone(chest, head, 0.14, suit);
+      bone(shoulderL, elbowL, 0.065, suit);
+      bone(shoulderR, elbowR, 0.065, suit);
+      ball(head, 0.15, white, 0, 0.1, 0.02);
+      box(head, 0.21, 0.065, 0.07, ink, 0, 0.1, 0.14).userData.noOutline = true;
+    } else {
     // Pelvis + wetsuit torso in rider color (slim — no bell silhouette).
     // Rounded pelvis: a square box read as a mecha "butt-pack" from behind.
     const pelvis = ball(hips, 0.15, suit, 0, 0.02, 0.02);
@@ -286,8 +298,9 @@ export class Rider {
     strap.userData.noOutline = true;
     ball(head, 0.05, ink, 0, 0.02, 0.1); // chin guard
 
-    markInk(root);
-    addOutline(root);
+      markInk(root);
+      addOutline(root);
+    }
     this.object = root;
   }
 

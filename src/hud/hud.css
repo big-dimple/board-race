@@ -775,7 +775,7 @@
 }
 
 .hud-impact.on .hud-impact-copy {
-  animation: hud-impact-copy 0.62s cubic-bezier(0.18, 1.5, 0.25, 1) both;
+  animation: hud-impact-copy var(--impact-duration, 0.7s) cubic-bezier(0.18, 1.5, 0.25, 1) both;
 }
 
 .hud-impact-kicker {
@@ -819,6 +819,23 @@
   font-size: 43px;
 }
 
+.hud-impact[data-kind='endless'] .hud-impact-flash,
+.hud-impact[data-kind='endless'] .hud-impact-lines { display: none; }
+.hud-impact[data-kind='endless'] .hud-impact-copy {
+  left: auto;
+  right: 22px;
+  top: 20px;
+  width: 290px;
+  text-align: right;
+  transform: none;
+}
+.hud-impact.on[data-kind='endless'] .hud-impact-copy {
+  animation: hud-endless-copy var(--impact-duration, 0.75s) ease-out both;
+}
+.hud-impact[data-kind='endless'] .hud-impact-kicker { font-size: 22px; }
+.hud-impact[data-kind='endless'] .hud-impact-title { margin-top: 3px; font-size: 18px; }
+.hud-impact[data-kind='endless'] .hud-impact-detail { margin-top: 4px; font-size: 12px; }
+
 @keyframes hud-impact-flash {
   0% { opacity: 0; }
   30% { opacity: 1; }
@@ -843,6 +860,12 @@
   42% { transform: translateX(-50%) scale(1.04) rotate(-1deg) skew(-8deg); }
   78% { opacity: 1; }
   100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.96) skew(-8deg); }
+}
+
+@keyframes hud-endless-copy {
+  0% { opacity: 0; transform: translateX(16px); }
+  18%, 76% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateY(-8px); }
 }
 
 .hud-pos-num.battle-hit {
@@ -1953,15 +1976,22 @@
 .hud-lesson-attempt { font-size: 13px; color: rgba(244, 254, 255, 0.62); }
 .hud-lesson-title { margin-top: 18px; font-size: 62px; line-height: 1; }
 .hud-lesson-copy { margin-top: 14px; font-size: 19px; line-height: 1.3; }
-.hud-lesson-metric { display: none; }
+.hud-lesson-metric {
+  display: block;
+  margin-top: 10px;
+  color: var(--flight);
+  font: 800 14px/1.25 system-ui, sans-serif;
+}
 .hud-lesson-progress {
   grid-template-columns: repeat(6, 1fr);
-  gap: 3px;
+  gap: 0;
   width: min(500px, 76%);
   margin-top: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(85, 231, 255, 0.35);
 }
-.hud-lesson-pip { height: 3px; border: 0; transform: none; }
-.hud-lesson-pip.on { box-shadow: 0 0 8px var(--flight); }
+.hud-lesson-pip { height: 3px; border: 0; transform: none; opacity: 0.12; }
+.hud-lesson-pip.on { opacity: 1; box-shadow: none; }
 
 .hud-results-energy,
 .hud-results-panel::before,
@@ -1997,9 +2027,11 @@
   .hud-turn-warning-title { font-size: 13px; }
   .hud-turn-warning-detail { font-size: 9px; }
   .hud-impact-title { font-size: 28px; }
+  .hud-impact[data-kind='endless'] .hud-impact-copy { display: none; }
   .hud-lesson-inner { width: calc(100% - 30px); padding: 13px 18px 12px; }
   .hud-lesson-attempt { font-size: 9px; }
   .hud-lesson-title { margin-top: 10px; font-size: 34px; }
   .hud-lesson-copy { margin-top: 8px; font-size: 13px; }
+  .hud-lesson-metric { margin-top: 7px; font-size: 11px; }
   .hud-lesson-progress { margin-top: 12px; }
 }

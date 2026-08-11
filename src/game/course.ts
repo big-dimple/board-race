@@ -237,6 +237,94 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     turnWarningFromU: 0.39,
     turnWarningToU: 0.445,
   },
+  {
+    id: 'flight-4',
+    index: 3,
+    entryU: 0.515,
+    exitU: 0.58,
+    gateUs: [0.565],
+    nodes: [
+      { u: 0.515, lateral: 0, height: 0 },
+      { u: 0.535, lateral: 0, height: 4.5 },
+      { u: 0.55, lateral: 0, height: 4.5 },
+      { u: 0.565, lateral: 0, height: 4.5 },
+      { u: 0.58, lateral: 0, height: 0 },
+    ],
+    corridorHalfWidth: 6.5,
+    gateHalfWidth: 6.5,
+    targetSpeed: 46,
+    qualifyFromU: 0.482,
+    launchFromU: 0.503,
+    launchToU: 0.522,
+    turnWarningFromU: 0.548,
+    turnWarningToU: 0.568,
+  },
+  {
+    id: 'flight-5',
+    index: 4,
+    entryU: 0.635,
+    exitU: 0.72,
+    gateUs: [0.705],
+    nodes: [
+      { u: 0.635, lateral: 0, height: 0 },
+      { u: 0.655, lateral: -18, height: 4.5 },
+      { u: 0.68, lateral: -36, height: 4.5 },
+      { u: 0.705, lateral: -20, height: 4.5 },
+      { u: 0.72, lateral: 0, height: 0 },
+    ],
+    corridorHalfWidth: 5.5,
+    gateHalfWidth: 5.5,
+    targetSpeed: 48,
+    qualifyFromU: 0.59,
+    launchFromU: 0.62,
+    launchToU: 0.642,
+    turnWarningFromU: 0.65,
+    turnWarningToU: 0.71,
+  },
+  {
+    id: 'flight-6',
+    index: 5,
+    entryU: 0.775,
+    exitU: 0.855,
+    gateUs: [0.84],
+    nodes: [
+      { u: 0.775, lateral: 0, height: 0 },
+      { u: 0.8, lateral: 12, height: 4.5 },
+      { u: 0.825, lateral: 22, height: 4.5 },
+      { u: 0.84, lateral: 14, height: 4.5 },
+      { u: 0.855, lateral: 0, height: 0 },
+    ],
+    corridorHalfWidth: 5,
+    gateHalfWidth: 5,
+    targetSpeed: 50,
+    qualifyFromU: 0.73,
+    launchFromU: 0.76,
+    launchToU: 0.782,
+    turnWarningFromU: 0.79,
+    turnWarningToU: 0.845,
+  },
+  {
+    id: 'flight-7',
+    index: 6,
+    entryU: 0.905,
+    exitU: 0.975,
+    gateUs: [0.96],
+    nodes: [
+      { u: 0.905, lateral: 0, height: 0 },
+      { u: 0.925, lateral: -3, height: 4.5 },
+      { u: 0.945, lateral: -6, height: 4.5 },
+      { u: 0.96, lateral: -3, height: 4.5 },
+      { u: 0.975, lateral: 0, height: 0 },
+    ],
+    corridorHalfWidth: 5.5,
+    gateHalfWidth: 5.5,
+    targetSpeed: 50,
+    qualifyFromU: 0.865,
+    launchFromU: 0.89,
+    launchToU: 0.912,
+    turnWarningFromU: 0.914,
+    turnWarningToU: 0.968,
+  },
 ] as const;
 
 /** Compatibility aliases used by a few deterministic harness helpers. */
@@ -577,7 +665,7 @@ function makeFlightLockTexture(): THREE.CanvasTexture {
   g.font = '900 27px Arial Black, system-ui, sans-serif';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillText('F // FLIGHT ONLY', 128, 64);
+  g.fillText('AIR ONLY', 128, 64);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.NoColorSpace;
   tex.magFilter = THREE.NearestFilter;
@@ -668,6 +756,11 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
       uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
+      uPlayerS: { value: 0 },
+      uLapLength: { value: LAP_LENGTH },
+      uMaskStart: { value: 0 },
+      uMaskEnd: { value: 0 },
+      uGuideActive: { value: 0 },
     },
     vertexShader: /* glsl */ `
       uniform float uTime;
@@ -692,10 +785,19 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
       uniform float uTime;
       uniform vec3 uColor;
       uniform vec3 uInk;
+      uniform float uPlayerS;
+      uniform float uLapLength;
+      uniform float uMaskStart;
+      uniform float uMaskEnd;
+      uniform float uGuideActive;
       varying float vS;
       varying float vSide;
       varying float vDist;
       void main() {
+        float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
+        float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
+        if (ahead > 170.0 && behind > 12.0) discard;
+        if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
         // hard dash band flowing along the ribbon (~14m period)
         float dash = step(fract(vS * 0.07 - uTime * 0.6), 0.62);
         float a = abs(vSide);
@@ -707,7 +809,8 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
         float edge = step(0.64, a) * (1.0 - step(0.78, a));
         float halo = step(0.78, a) * (1.0 - smoothstep(0.78, 1.0, a));
         // 2-step banded distance fade
-        float fade = vDist < 220.0 ? 1.0 : (vDist < 600.0 ? 0.62 : 0.3);
+        float localFade = ahead <= 135.0 ? 1.0 : 1.0 - smoothstep(135.0, 170.0, ahead);
+        float fade = (vDist < 220.0 ? 1.0 : 0.62) * max(localFade, step(0.001, behind) * step(behind, 12.0));
         vec3 col = uColor * (core * (0.55 + 0.75 * dash) + rail * 0.85 + halo * 0.6)
                  + uInk * edge;
         float alpha = (core * dash + rail * 0.9 + edge * 0.95 + halo * 0.22) * fade;
@@ -728,6 +831,7 @@ interface Floater {
   x: number;
   z: number;
   yawQ: THREE.Quaternion;
+  routeU?: number;
 }
 
 interface FlightGate {
@@ -745,6 +849,7 @@ interface FlightGate {
 
 interface FlightRouteVisual {
   runtime: FlightRouteRuntime;
+  group: THREE.Group;
   ribbon: THREE.ShaderMaterial;
   rail: THREE.MeshBasicMaterial;
   ring: THREE.MeshBasicMaterial;
@@ -817,6 +922,8 @@ export class Course implements ICourse {
   private playerFlightIndex = 0;
   private playerFlightPressure = 0;
   private flightFlowTime = 0;
+  private playerSurfaceU = 0;
+  private activeGuideRoute = -1;
 
   constructor() {
     this.object = new THREE.Group();
@@ -928,7 +1035,11 @@ export class Course implements ICourse {
     this.playerFlightIndex = 0;
     this.playerFlightPressure = 0;
     this.flightFlowTime = 0;
+    this.playerSurfaceU = 0;
+    this.activeGuideRoute = -1;
+    this.ribbonMat.uniforms.uGuideActive.value = 0;
     for (const visual of this.flightVisuals) {
+      visual.group.visible = false;
       visual.deployActive = false;
       visual.deployTime = 0;
       for (const gate of visual.gates) {
@@ -936,6 +1047,17 @@ export class Course implements ICourse {
         gate.pulse = 0;
       }
     }
+    for (const floater of this.floaters) floater.obj.visible = true;
+  }
+
+  /** Deterministic harness diagnostic for the single-guide contract. */
+  guidanceStatus(): { activeRouteIndex: number; visibleRouteCount: number; surfaceMaskRouteIndex: number; playerSurfaceU: number } {
+    return {
+      activeRouteIndex: this.activeGuideRoute,
+      visibleRouteCount: this.flightVisuals.reduce((sum, visual) => sum + (visual.group.visible ? 1 : 0), 0),
+      surfaceMaskRouteIndex: this.activeGuideRoute,
+      playerSurfaceU: this.playerSurfaceU,
+    };
   }
 
   /** Deterministic harness diagnostic; updated only on route state edges. */
@@ -956,7 +1078,8 @@ export class Course implements ICourse {
     const gatesPassed = boat.state.flightGateProgress;
     boat.applyFlightRouteMiss({
       reason,
-      flightNumber: visual.runtime.def.index + 1,
+      flightNumber: boat.state.flightRouteCursor + 1,
+      routeSlot: visual.runtime.def.index,
       flightsCleared: boat.state.flightsCleared,
       gatesPassed,
       gateCount: visual.gates.length,
@@ -977,7 +1100,9 @@ export class Course implements ICourse {
       if (st.flightRouteState === 'idle') this.flightDebug[id] = 'idle';
       if (id === 0) {
         this.playerFlightReady = st.flightReady;
-        this.playerFlightIndex = Math.min(FLIGHT_ROUTES.length - 1, st.flightsCleared);
+        this.playerFlightIndex = st.flightRouteIndex >= 0
+          ? st.flightRouteIndex
+          : st.flightRouteCursor % FLIGHT_ROUTES.length;
         this.playerFlightPressure = st.flightPressure;
       }
       let prev = this.flightPrev[id];
@@ -994,8 +1119,11 @@ export class Course implements ICourse {
       const jump = prev.distanceToSquared(pos) > 60 * 60;
       this.sample(pos, _routeSample, 'surface');
       const surfaceU = _routeSample.u;
+      if (id === 0) this.playerSurfaceU = surfaceU;
       const flightActive = st.flightPhase !== 'surface';
-      const routeIndex = st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightsCleared;
+      const routeIndex = st.flightRouteIndex >= 0
+        ? st.flightRouteIndex
+        : st.flightRouteCursor % FLIGHT_ROUTES.length;
       const visual = this.flightVisuals[routeIndex];
       if (!visual) {
         prev.copy(pos);
@@ -1006,9 +1134,8 @@ export class Course implements ICourse {
       const def = runtime.def;
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
-      if (id === 0 && routeIndex === st.flightsCleared && (st.flightReady || flightActive ||
-          (surfaceU >= def.qualifyFromU && surfaceU <= def.exitU))) visual.deployActive = true;
-      if (flightActive) visual.deployActive = true;
+      if (id === 0 && (flightActive || st.flightRouteState !== 'idle' ||
+          (surfaceU >= def.qualifyFromU && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
 
@@ -1035,8 +1162,8 @@ export class Course implements ICourse {
       const insideAttemptSpan = surfaceU >= def.entryU - FLIGHT_ATTEMPT_EARLY_U && surfaceU <= def.exitU + 0.006;
       const crossedChallengeEntry = surfaceU >= def.entryU - 0.001;
       if (flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
-          routeIndex === st.flightsCleared && (near.distance <= def.corridorHalfWidth || crossedChallengeEntry)) {
-        boat.beginFlightRouteAttempt(routeIndex);
+          (near.distance <= def.corridorHalfWidth || crossedChallengeEntry)) {
+        boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed);
         this.flightDebug[id] = 'active';
         this.flightLatched[id] = routeIndex;
         this.flightOffCorridorT[id] = 0;
@@ -1047,8 +1174,8 @@ export class Course implements ICourse {
       }
 
       if (!flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
-          routeIndex === st.flightsCleared && surfaceU >= def.gateUs[0] - FLIGHT_GATE_BYPASS_U) {
-        boat.beginFlightRouteAttempt(routeIndex);
+          surfaceU >= def.gateUs[0] - FLIGHT_GATE_BYPASS_U) {
+        boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed);
         this.flightDebug[id] = 'no-launch';
         this.failFlight(boat, visual, 'no_launch', surfaceU, 1);
       }
@@ -1076,7 +1203,7 @@ export class Course implements ICourse {
               boat.applyFlightGatePass(gateIndex);
               if (id === 0) gate.pulse = 0.36;
               if (gateIndex + 1 >= visual.gates.length) {
-                boat.completeFlightRoute(routeIndex);
+                boat.completeFlightRoute(routeIndex, st.flightRouteCursor);
                 this.flightDebug[id] = 'passed';
               }
             } else {
@@ -1142,10 +1269,48 @@ export class Course implements ICourse {
       prev.copy(pos);
       this.flightPrevClearance[id] = st.flightClearance;
     }
+    this.updatePlayerGuidance(boats[0]);
+  }
+
+  private updatePlayerGuidance(player: IBoat | undefined): void {
+    let next = -1;
+    if (player) {
+      const st = player.state;
+      const slot = st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
+      const def = FLIGHT_ROUTES[slot];
+      if (def && (st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
+          (this.playerSurfaceU >= def.qualifyFromU && this.playerSurfaceU <= def.exitU + 0.01))) {
+        next = slot;
+      }
+    }
+    if (next !== this.activeGuideRoute) {
+      for (let i = 0; i < this.flightVisuals.length; i++) {
+        const visual = this.flightVisuals[i];
+        visual.group.visible = i === next;
+        if (i !== next) {
+          visual.deployActive = false;
+          visual.deployTime = 0;
+          for (const gate of visual.gates) {
+            gate.deploy = 0;
+            gate.pulse = 0;
+          }
+        }
+      }
+      this.activeGuideRoute = next;
+    }
+    const active = next >= 0 ? FLIGHT_ROUTES[next] : null;
+    this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
+    this.ribbonMat.uniforms.uMaskStart.value = active ? Math.max(0, active.entryU * LAP_LENGTH - 4) : 0;
+    this.ribbonMat.uniforms.uMaskEnd.value = active ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + 8) : 0;
+    for (const floater of this.floaters) {
+      floater.obj.visible = !active || floater.routeU === undefined ||
+        floater.routeU <= active.entryU + 0.002 || floater.routeU > active.exitU;
+    }
   }
 
   update(dt: number, t: number): void {
     this.ribbonMat.uniforms.uTime.value = t;
+    this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
     this.stripMat.uniforms.uTime.value = t;
     this.flightWarn = Math.max(0, this.flightWarn - dt);
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
@@ -1188,6 +1353,10 @@ export class Course implements ICourse {
 
   private buildFlightRoute(runtime: FlightRouteRuntime): FlightRouteVisual {
     const def = runtime.def;
+    const routeGroup = new THREE.Group();
+    routeGroup.name = `${def.id}-guide`;
+    routeGroup.visible = false;
+    this.object.add(routeGroup);
     const SEG = Math.max(64, Math.ceil(runtime.curve.getLength() / 1.8));
     const HALF_W = def.corridorHalfWidth;
     const pos = new Float32Array((SEG + 1) * 2 * 3);
@@ -1276,7 +1445,7 @@ export class Course implements ICourse {
     ribbon.name = `${def.id}-ribbon`;
     ribbon.renderOrder = 3;
     ribbon.layers.enable(LAYER_ENERGY);
-    this.object.add(ribbon);
+    routeGroup.add(ribbon);
 
     const railMat = new THREE.MeshBasicMaterial({
       color: PALETTE.flight,
@@ -1299,7 +1468,7 @@ export class Course implements ICourse {
       rail.name = `${def.id}-rail-${side > 0 ? 'r' : 'l'}`;
       rail.renderOrder = 4;
       rail.layers.enable(LAYER_ENERGY);
-      this.object.add(rail);
+      routeGroup.add(rail);
     }
 
     const ringMat = new THREE.MeshBasicMaterial({
@@ -1349,22 +1518,24 @@ export class Course implements ICourse {
       runtime.curve.getTangent(flightCurveT(def, u), tangent3).normalize();
       const normal = new THREE.Vector3(tangent3.x, 0, tangent3.z).normalize();
       const right = new THREE.Vector3(normal.z, 0, -normal.x);
-      const group = new THREE.Group();
-      group.name = `${def.id}-gate-${i + 1}`;
-      group.position.copy(center);
-      group.quaternion.setFromUnitVectors(forward, tangent3);
+      const gateGroup = new THREE.Group();
+      gateGroup.name = `${def.id}-gate-${i + 1}`;
+      gateGroup.position.copy(center);
+      gateGroup.quaternion.setFromUnitVectors(forward, tangent3);
       const pillarHeight = gateHalfHeight * 2 + 1.8;
+      const corePillars: THREE.Mesh[] = [];
       for (const side of [-1, 1]) {
         const outer = new THREE.Mesh(pillarGeo, ringMat);
         outer.position.set(side * def.gateHalfWidth, 0, 0);
         outer.scale.set(0.5, pillarHeight, 0.5);
         const core = new THREE.Mesh(corePillarGeo, coreMat);
+        corePillars.push(core);
         core.position.copy(outer.position);
         core.scale.set(0.16, pillarHeight * 1.04, 0.16);
         const buoy = new THREE.Mesh(buoyGeo, ringMat);
         buoy.position.set(side * def.gateHalfWidth, -pillarHeight * 0.46, 0);
         buoy.scale.set(0.95, 0.55, 0.95);
-        group.add(outer, core, buoy);
+        gateGroup.add(outer, core, buoy);
       }
       const beam = new THREE.Mesh(beamGeo, ringMat);
       beam.position.y = gateHalfHeight + 0.55;
@@ -1378,11 +1549,13 @@ export class Course implements ICourse {
       const lockBeam = new THREE.Mesh(beamGeo, lockBeamMat);
       lockBeam.position.set(0, -center.y + 2.8, 0.08);
       lockBeam.scale.set(def.gateHalfWidth * 2 + 0.6, 0.12, 0.18);
-      group.add(beam, beamCore, surfaceLock, lockBeam);
-      group.traverse((o) => o.layers.enable(LAYER_ENERGY));
+      gateGroup.add(beam, beamCore, surfaceLock, lockBeam);
+      gateGroup.traverse((o) => o.layers.enable(LAYER_ENERGY));
       surfaceLock.layers.disable(LAYER_ENERGY);
-      group.renderOrder = 5;
-      this.object.add(group);
+      beamCore.layers.disable(LAYER_ENERGY);
+      for (const core of corePillars) core.layers.disable(LAYER_ENERGY);
+      gateGroup.renderOrder = 5;
+      routeGroup.add(gateGroup);
       gates.push({
         u,
         center,
@@ -1392,13 +1565,14 @@ export class Course implements ICourse {
         halfHeight: gateHalfHeight,
         targetY: center.y,
         deploy: 0,
-        group,
+        group: gateGroup,
         pulse: 0,
       });
     }
 
     return {
       runtime,
+      group: routeGroup,
       ribbon: ribbonMat,
       rail: railMat,
       ring: ringMat,
@@ -1622,7 +1796,7 @@ export class Course implements ICourse {
         const z = p.z + rz * 7 * side;
         buoy.position.set(x, 0, z);
         this.object.add(buoy);
-        this.floaters.push({ obj: buoy, x, z, yawQ: new THREE.Quaternion() });
+        this.floaters.push({ obj: buoy, x, z, yawQ: new THREE.Quaternion(), routeU: u });
       }
     }
 

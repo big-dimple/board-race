@@ -1,6 +1,6 @@
 /**
  * main.ts — integration shell. Wires every subsystem together, owns the
- * game flow (countdown → racing → results), and exposes the deterministic
+ * game flow (countdown → racing → defeat/loading), and exposes the deterministic
  * screenshot-harness API (?harness=1) used by harness/screenshot.mjs.
  *
  * Step/render split: EVERYTHING that moves updates in step() at fixed
@@ -13,7 +13,7 @@ import * as THREE from 'three';
 // (no sRGB→linear→sRGB round trip). Must run before any Color is constructed.
 THREE.ColorManagement.enabled = false;
 
-import { Stage } from './core/stage';
+import { Stage, resolveQualityMode } from './core/stage';
 import { PrePass } from './core/prePass';
 import { Loop } from './core/loop';
 import { Input } from './core/input';
@@ -34,14 +34,14 @@ import { AIController } from './game/ai';
 import { CameraRig } from './game/chaseCamera';
 import { HUD } from './hud/hud';
 import { GameAudio } from './audio/audio';
-import type { BoatInput, FlightRouteState } from './contracts';
+import type { BoatInput, ChallengeTier, FlightRouteState } from './contracts';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
 
 // ------------------------------------------------------------ construction
 const app = document.getElementById('app')!;
-const stage = new Stage(app);
+const stage = new Stage(app, resolveQualityMode(params.get('quality')));
 const prePass = new PrePass(4, 4);
 
 const sky = new Sky();
@@ -69,13 +69,14 @@ const boats: Boat[] = [];
 const riders: Rider[] = [];
 const wakes: WakeRibbon[] = [];
 for (const racer of RACER_DEFS) {
+  const detailedInk = racer.id === 0 || stage.quality.detailedAiInk;
   const wake = new WakeRibbon();
   stage.scene.add(wake.object);
   wakes.push(wake);
-  const boat = new Boat({ id: racer.id, color: racer.color, wake, spray, trail: jetTrail });
+  const boat = new Boat({ id: racer.id, color: racer.color, wake, spray, trail: jetTrail, detailedInk });
   stage.scene.add(boat.object);
   boats.push(boat);
-  const rider = new Rider({ color: racer.color });
+  const rider = new Rider({ color: racer.color, detailedInk });
   boat.riderMount.add(rider.object);
   riders.push(rider);
 }
@@ -97,14 +98,14 @@ const hudLayer = document.createElement('div');
 hudLayer.id = 'hud-layer';
 hudLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;';
 app.appendChild(hudLayer);
-const hud = new HUD(hudLayer, course, requestRetry);
+const hud = new HUD(hudLayer, course, requestRetry, records.data.bestFlights);
 
 const input = new Input();
 const mobileInput = new MobileControls(app, () => audio.resume(), params.has('mobile'));
 const haptic = (pattern: number | number[]): void => {
   if (mobileInput.enabled && typeof navigator.vibrate === 'function') navigator.vibrate(pattern);
 };
-const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass);
+const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
 stage.onResize((w, h, pr) => {
   pipeline.setSize(w, h, pr);
   prePass.setSize(w * pr, h * pr);
@@ -113,7 +114,7 @@ stage.onResize((w, h, pr) => {
 
 // -------------------------------------------------------------- race events
 let resultsShown = false;
-const DEFEAT_FREEZE_S = 0.25;
+const DEFEAT_FREEZE_S = 0.35;
 let retryLessonActive = false;
 let retryLessonTimer = 0;
 let retryLessonDuration = 0;
@@ -122,6 +123,11 @@ let retryLessonMinRead = 0;
 let retryLessonFrozenT = 0;
 let defeatFreezeTimer = 0;
 let pendingFailureNewBest = false;
+let newBestThisRun = false;
+let medalEarnedThisRun = false;
+let ordinaryNewThisRun = false;
+let excellentRecordedThisRun = false;
+let previousChallengeTier: ChallengeTier = 'unqualified';
 let currentRun = 0;
 let currentSimT = 0;
 const retryReasonCounts = new Map<string, number>();
@@ -181,15 +187,15 @@ function requestRetry(): void {
 
 function startRetryLesson(): void {
   const result = race.challengeResult;
-  if (!result || result.outcome !== 'defeated') return;
+  if (!result?.failure) return;
   const failure = result.failure;
   const reason = failure?.reason ?? result.reason;
-  const key = `${failure?.flightNumber ?? 1}:${reason}`;
+  const key = `${failure?.routeSlot ?? 0}:${reason}`;
   const repeatCount = (retryReasonCounts.get(key) ?? 0) + 1;
   retryReasonCounts.set(key, repeatCount);
-  const baseDuration = repeatCount === 1 ? 3.2 : repeatCount === 2 ? 1.8 : 1.0;
-  retryLessonDuration = Math.min(3.6, baseDuration + (pendingFailureNewBest ? 0.4 : 0));
-  retryLessonMinRead = repeatCount === 1 ? 1.2 : repeatCount === 2 ? 0.8 : 0.35;
+  const baseDuration = repeatCount === 1 ? 4.5 : repeatCount === 2 ? 3.2 : 2.2;
+  retryLessonDuration = Math.min(5, baseDuration + (pendingFailureNewBest ? 0.5 : 0));
+  retryLessonMinRead = repeatCount === 1 ? 2 : repeatCount === 2 ? 1.4 : 1;
   retryLessonTimer = retryLessonDuration;
   retryLessonElapsed = 0;
   retryLessonActive = true;
@@ -197,7 +203,7 @@ function startRetryLesson(): void {
   input.reset();
   mobileInput.reset();
   audio.retryLesson();
-  hud.showRetryLesson(result, currentRun, repeatCount, pendingFailureNewBest);
+  hud.showRetryLesson(result, currentRun, repeatCount, pendingFailureNewBest, mobileInput.enabled);
 }
 
 function updateFrozenPresentation(dt: number): void {
@@ -219,6 +225,11 @@ function resetRace(quick = false): void {
   retryLessonMinRead = 0;
   defeatFreezeTimer = 0;
   pendingFailureNewBest = false;
+  newBestThisRun = false;
+  medalEarnedThisRun = false;
+  ordinaryNewThisRun = false;
+  excellentRecordedThisRun = false;
+  previousChallengeTier = 'unqualified';
   course.resetFlightChallenge();
   input.reset();
   mobileInput.reset();
@@ -249,6 +260,7 @@ function resetRace(quick = false): void {
     harnessRouteFails[i] = 0;
     harnessPrevRouteStates[i] = boats[i].state.flightRouteState;
     routeLifecycleStates[i] = boats[i].state.flightRouteState;
+    ais[i].reset();
   }
   cameraRig.mode = 'orbit';
 }
@@ -321,11 +333,17 @@ function step(dt: number, t: number): void {
 
   if (runActive) course.updateFlightRoute(dt, boats);
 
-  let playerCompletedChallenge = false;
+  let playerPassedFlight = false;
   if (runActive) {
     for (let i = 0; i < boats.length; i++) {
       const state = boats[i].state;
       const routeState = state.flightRouteState;
+      if (i > 0 && routeState === 'failed' && state.flightPhase === 'surface') {
+        boats[i].recoverFailedFlightRoute();
+        routeLifecycleStates[i] = boats[i].state.flightRouteState;
+        harnessPrevRouteStates[i] = boats[i].state.flightRouteState;
+        continue;
+      }
       if (HARNESS && routeState !== harnessPrevRouteStates[i]) {
         if (routeState === 'passed') harnessRoutePasses[i]++;
         else if (routeState === 'failed') harnessRouteFails[i]++;
@@ -336,26 +354,32 @@ function step(dt: number, t: number): void {
       if (routeState === 'failed') {
         if (i === 0) {
           if (state.flightFailure) race.defeatFlight(state.flightFailure);
-        } else {
-          race.eliminateRacer(i);
         }
       } else if (routeState === 'passed') {
-        if (state.flightsCleared < 3) continue;
-        if (i === 0) playerCompletedChallenge = true;
-        else race.finishChallengeRacer(i);
+        if (i === 0) playerPassedFlight = true;
       }
     }
   }
   if (!waitingForMobile && (race.phase === 'countdown' || race.phase === 'racing')) race.update(dt);
-  if (playerCompletedChallenge && race.phase === 'racing') {
-    race.completeChallenge();
-    const result = race.challengeResult;
-    if (result) {
-      const update = records.recordCompletion(result);
-      result.ordinaryNew = update.ordinaryNew;
-      result.excellentTotal = update.excellentTotal;
+  if (playerPassedFlight && race.phase === 'racing') {
+    const flights = boats[0].state.flightsCleared;
+    const pass = records.recordFlightPass(flights);
+    newBestThisRun ||= pass.newBest;
+    hud.showEndlessPass(flights, pass.bestFlights, pass.newBest);
+    if (flights === 3 && race.challengeTier === 'unqualified') {
+      const tier = race.qualifyChallenge();
+      const qualification = records.qualifyRun(race.raceTime);
+      medalEarnedThisRun = true;
+      ordinaryNewThisRun = qualification.ordinaryNew;
+      if (tier !== 'unqualified') hud.showQualification(tier, qualification.manMedalsTotal, pass.bestFlights);
     }
   }
+  if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
+    const excellent = records.recordExcellent(race.raceTime);
+    excellentRecordedThisRun = true;
+    if (previousChallengeTier === 'ordinary') hud.showExcellentLocked(excellent.excellentTotal);
+  }
+  previousChallengeTier = race.challengeTier;
 
   const playerState = boats[0].state;
   if (playerState.flightReady && !prevFlightReady) {
@@ -375,13 +399,16 @@ function step(dt: number, t: number): void {
   }
   if (playerState.flightGateProgress > prevFlightGateProgress) {
     const flightNumber = Math.max(1, playerState.flightsCleared);
-    audio.flightGate(flightNumber);
-    cameraRig.flightGateKick(flightNumber);
-    pipeline.pulse('gate', flightNumber >= 3 ? 0.72 : 0.4);
+    const feedbackStep = Math.min(3, ((flightNumber - 1) % 3) + 1);
+    audio.flightGate(feedbackStep);
+    cameraRig.flightGateKick(feedbackStep);
+    pipeline.pulse('gate', flightNumber === 3 ? 0.72 : 0.4);
     haptic(10);
   }
   if (playerState.flightRouteState !== prevFlightRouteState) {
-    if (playerState.flightRouteState === 'passed') audio.routeClear(playerState.flightsCleared);
+    if (playerState.flightRouteState === 'passed') {
+      audio.routeClear(Math.min(3, ((playerState.flightsCleared - 1) % 3) + 1));
+    }
     else if (playerState.flightRouteState === 'failed') cameraRig.routeMissKick();
   }
   prevFlightReady = playerState.flightReady;
@@ -439,7 +466,7 @@ function step(dt: number, t: number): void {
   pipeline.update(dt, t, ps, race.phase);
 
   // Failures freeze for one impact beat and then enter the adaptive loading
-  // loop directly. Completed runs retain a compact result screen.
+  // loop directly. The legacy finished branch remains available to scripted modes.
   if ((race.phase === 'finished' || race.phase === 'defeated') && !resultsShown) {
     resultsShown = true;
     cameraRig.mode = race.phase === 'defeated' ? 'defeat' : 'results';
@@ -448,7 +475,12 @@ function step(dt: number, t: number): void {
       audio.defeat();
       pipeline.pulse('defeat', 1.35);
       haptic([28, 35, 55]);
-      pendingFailureNewBest = race.challengeResult ? records.recordFailure(race.challengeResult) : false;
+      if (race.challengeResult) {
+        const progressBest = records.recordFailure(race.challengeResult);
+        pendingFailureNewBest = newBestThisRun || progressBest;
+        race.challengeResult.ordinaryNew = ordinaryNewThisRun;
+        records.decorateResult(race.challengeResult, pendingFailureNewBest, medalEarnedThisRun);
+      }
       defeatFreezeTimer = DEFEAT_FREEZE_S;
       retryLessonFrozenT = t;
       input.reset();
@@ -493,6 +525,9 @@ interface Harness {
   retry(): void;
   playerState(): Record<string, number | string | boolean>;
   stats(): Record<string, number | string>;
+  guidance(): Record<string, number>;
+  mobileStatus(): Record<string, number | string>;
+  perfSample(frames: number): Promise<Record<string, number | string>>;
 }
 
 let freeCamPose: { p: [number, number, number]; l: [number, number, number] } | null = null;
@@ -549,12 +584,14 @@ function earnHarnessFlight(combo = false): void {
   setHarnessInput(null);
 }
 
-function beginHarnessRouteFlight(routeIndex = 0): void {
+function beginHarnessRouteFlight(routeCursor = 0): void {
+  const routeIndex = routeCursor % course.flightRoutes.length;
   const route = course.flightRoutes[routeIndex];
   course.resetFlightChallenge();
   placePack(route.entryU - 0.035);
   for (const boat of boats) {
-    boat.state.flightsCleared = routeIndex;
+    boat.state.flightsCleared = routeCursor;
+    boat.state.flightRouteCursor = routeCursor;
     boat.state.flightRouteIndex = -1;
     boat.state.flightRouteState = 'idle';
   }
@@ -563,6 +600,21 @@ function beginHarnessRouteFlight(routeIndex = 0): void {
   boats[0].state.flightReady = true;
   setHarnessInput(null);
   advanceUntil(() => boats[0].state.flightPhase !== 'surface', 15);
+}
+
+function passHarnessFlight(routeCursor: number): void {
+  beginHarnessRouteFlight(routeCursor);
+  advanceUntil(() => boats[0].state.flightRouteState === 'passed' || race.phase === 'defeated', 14);
+  if (boats[0].state.flightRouteState !== 'passed') {
+    throw new Error(`harness could not pass flight ${routeCursor + 1}: ${boats[0].state.flightRouteFailReason}`);
+  }
+  loop.advance(0.05);
+}
+
+function qualifyHarnessRun(): void {
+  passHarnessFlight(0);
+  passHarnessFlight(1);
+  passHarnessFlight(2);
 }
 
 function placeHarnessBoat(id: number, u: number, lateral = 0): void {
@@ -727,6 +779,25 @@ function scenario(name: string): void {
       advanceUntil(() => boats[0].state.flightPhase === 'surface' && boats[0].state.flightRouteState === 'idle', 2);
       tapHarnessFlight();
       break;
+    case 'endless-qualified':
+      advanceUntil(() => race.phase === 'racing', 8);
+      qualifyHarnessRun();
+      break;
+    case 'endless-four':
+      advanceUntil(() => race.phase === 'racing', 8);
+      qualifyHarnessRun();
+      passHarnessFlight(3);
+      break;
+    case 'endless-medal-fail': {
+      advanceUntil(() => race.phase === 'racing', 8);
+      qualifyHarnessRun();
+      beginHarnessRouteFlight(3);
+      setHarnessInput({ throttle: 1, steer: 1 });
+      advanceUntil(() => race.phase === 'defeated', 10);
+      setHarnessInput(null);
+      advanceUntil(() => retryLessonActive, 1);
+      break;
+    }
     case 'overtake':
       advanceUntil(() => race.phase === 'racing', 8);
       loop.advance(1.25);
@@ -741,28 +812,6 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === 'racing', 8);
       loop.advance(1.25);
       stagePositionLoss();
-      break;
-    case 'finish':
-    case 'results':
-      advanceUntil(() => race.phase === 'racing', 8);
-      beginHarnessRouteFlight();
-      advanceUntil(() => race.phase === 'finished' || race.phase === 'defeated', 55);
-      loop.advance(name === 'results' ? 3.5 : 1.2);
-      break;
-    case 'results-medal':
-    case 'results-ordinary':
-      advanceUntil(() => race.phase === 'racing', 8);
-      race.finishChallengeRacer(1);
-      beginHarnessRouteFlight();
-      advanceUntil(() => race.phase === 'finished' || race.phase === 'defeated', 55);
-      loop.advance(3.5);
-      break;
-    case 'results-excellent':
-      advanceUntil(() => race.phase === 'racing', 8);
-      for (let i = 1; i < boats.length; i++) race.eliminateRacer(i);
-      beginHarnessRouteFlight();
-      advanceUntil(() => race.phase === 'finished' || race.phase === 'defeated', 55);
-      loop.advance(3.5);
       break;
     default:
       throw new Error(`unknown scenario: ${name}`);
@@ -830,6 +879,7 @@ if (HARNESS) {
         routePasses: harnessRoutePasses[0],
         routeFails: harnessRouteFails[0],
         phase: race.phase,
+        challengeTier: race.challengeTier,
         challengeOutcome: race.challengeResult?.outcome ?? 'none',
         challengeGate: race.challengeResult?.gate ?? 0,
         challengeReason: race.challengeResult?.reason ?? 'none',
@@ -837,6 +887,10 @@ if (HARNESS) {
         flightFailureNumber: failure?.flightNumber ?? 0,
         flightFailureGatesPassed: failure?.gatesPassed ?? 0,
         flightFailureClearance: failure?.clearanceM ?? -1,
+        flightRouteCursor: s.flightRouteCursor,
+        manMedalEarned: race.challengeResult?.manMedalEarned ?? medalEarnedThisRun,
+        manMedalsTotal: race.challengeResult?.manMedalsTotal ?? records.data.manMedalsTotal,
+        bestFlights: records.data.bestFlights,
         retryLessonActive,
         retryLessonTimer,
         retryLessonDuration,
@@ -877,6 +931,28 @@ if (HARNESS) {
       racers: race.racers
         .map((r) => `${r.name}:L${r.lap} p${Math.round(r.progress)}${r.finished ? ' FIN' : ''}${r.wrongWay ? ' WW' : ''}`)
         .join(' | '),
+    }),
+    guidance: () => course.guidanceStatus(),
+    mobileStatus: () => mobileInput.status(),
+    perfSample: (frames) => new Promise((resolve) => {
+      const times: number[] = [];
+      let previous = performance.now();
+      const tick = (now: number): void => {
+        const frameMs = Math.max(0.01, now - previous);
+        previous = now;
+        stage.renderer.info.reset();
+        pipeline.render();
+        stage.updatePerf(frameMs);
+        times.push(frameMs);
+        if (times.length < Math.max(1, frames)) {
+          requestAnimationFrame(tick);
+          return;
+        }
+        times.sort((a, b) => a - b);
+        const percentile = (p: number): number => times[Math.min(times.length - 1, Math.floor(times.length * p))];
+        resolve({ ...stage.stats(), p50: percentile(0.5), p95: percentile(0.95), p99: percentile(0.99) });
+      };
+      requestAnimationFrame(tick);
     }),
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

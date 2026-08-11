@@ -1,32 +1,33 @@
 import type { ChallengeResult, FlightFailureSnapshot } from '../contracts';
 
-const STORAGE_KEY = 'board-race:challenge:v2';
+const STORAGE_KEY = 'board-race:challenge:v3';
+const V2_KEY = 'board-race:challenge:v2';
 const LEGACY_MEDAL_KEY = 'board-race:man-medals:v1';
 
 export interface ChallengeRecords {
-  version: 2;
+  version: 3;
   runs: number;
   ordinaryUnlocked: boolean;
+  manMedalsTotal: number;
   excellentCount: number;
+  bestQualificationTime: number | null;
   bestExcellentTime: number | null;
-  bestCompleteTime: number | null;
-  bestFlightsCleared: number;
+  bestFlights: number;
   bestRouteProgress: number;
   closestMissM: number | null;
-  legacyMedals: number;
 }
 
 const defaults = (): ChallengeRecords => ({
-  version: 2,
+  version: 3,
   runs: 0,
   ordinaryUnlocked: false,
+  manMedalsTotal: readLegacyMedals(),
   excellentCount: 0,
+  bestQualificationTime: null,
   bestExcellentTime: null,
-  bestCompleteTime: null,
-  bestFlightsCleared: 0,
+  bestFlights: 0,
   bestRouteProgress: 0,
   closestMissM: null,
-  legacyMedals: readLegacyMedals(),
 });
 
 export class RecordsStore {
@@ -42,47 +43,55 @@ export class RecordsStore {
     return this.data.runs;
   }
 
+  recordFlightPass(flights: number): { newBest: boolean; bestFlights: number } {
+    const newBest = flights > this.data.bestFlights;
+    if (newBest) {
+      this.data.bestFlights = flights;
+      this.data.bestRouteProgress = 0;
+      this.save();
+    }
+    return { newBest, bestFlights: this.data.bestFlights };
+  }
+
+  qualifyRun(raceTime: number): { ordinaryNew: boolean; manMedalsTotal: number } {
+    const ordinaryNew = !this.data.ordinaryUnlocked;
+    this.data.ordinaryUnlocked = true;
+    this.data.manMedalsTotal++;
+    if (this.data.bestQualificationTime === null || raceTime < this.data.bestQualificationTime) {
+      this.data.bestQualificationTime = raceTime;
+    }
+    this.save();
+    return { ordinaryNew, manMedalsTotal: this.data.manMedalsTotal };
+  }
+
+  recordExcellent(raceTime: number): { excellentTotal: number; newBestTime: boolean } {
+    this.data.excellentCount++;
+    const newBestTime = this.data.bestExcellentTime === null || raceTime < this.data.bestExcellentTime;
+    if (newBestTime) this.data.bestExcellentTime = raceTime;
+    this.save();
+    return { excellentTotal: this.data.excellentCount, newBestTime };
+  }
+
   recordFailure(result: ChallengeResult): boolean {
     const failure = result.failure;
     if (!failure) return false;
-    const newBest = this.isProgressBest(failure);
-    if (newBest) {
-      this.data.bestFlightsCleared = failure.flightsCleared;
-      this.data.bestRouteProgress = failure.routeU;
-    }
+    const routeBest = failure.flightsCleared === this.data.bestFlights &&
+      failure.routeU > this.data.bestRouteProgress + 0.001;
+    if (routeBest) this.data.bestRouteProgress = failure.routeU;
     const miss = missDistance(failure);
     if (miss !== null && miss > 0 && (this.data.closestMissM === null || miss < this.data.closestMissM)) {
       this.data.closestMissM = miss;
     }
     this.save();
-    return newBest;
+    return routeBest;
   }
 
-  recordCompletion(result: ChallengeResult): { ordinaryNew: boolean; excellentTotal: number } {
-    let ordinaryNew = false;
-    this.data.bestFlightsCleared = 3;
-    this.data.bestRouteProgress = Math.max(this.data.bestRouteProgress, 1);
-    if (this.data.bestCompleteTime === null || result.raceTime < this.data.bestCompleteTime) {
-      this.data.bestCompleteTime = result.raceTime;
-    }
-    if (result.outcome === 'excellent') {
-      this.data.excellentCount++;
-      if (this.data.bestExcellentTime === null || result.raceTime < this.data.bestExcellentTime) {
-        this.data.bestExcellentTime = result.raceTime;
-      }
-    } else if (result.outcome === 'ordinary' && !this.data.ordinaryUnlocked) {
-      this.data.ordinaryUnlocked = true;
-      ordinaryNew = true;
-    }
-    this.save();
-    return { ordinaryNew, excellentTotal: this.data.excellentCount };
-  }
-
-  private isProgressBest(failure: FlightFailureSnapshot): boolean {
-    return failure.flightsCleared > this.data.bestFlightsCleared ||
-      // Ignore sub-frame crossing jitter; a PB must move the run forward by a
-      // visible amount (roughly 2.5m on the current course).
-      (failure.flightsCleared === this.data.bestFlightsCleared && failure.routeU > this.data.bestRouteProgress + 0.001);
+  decorateResult(result: ChallengeResult, newBest: boolean, medalEarned: boolean): void {
+    result.newBest = newBest;
+    result.bestFlights = this.data.bestFlights;
+    result.manMedalEarned = medalEarned;
+    result.manMedalsTotal = this.data.manMedalsTotal;
+    result.excellentTotal = this.data.excellentCount;
   }
 
   private save(): void {
@@ -98,20 +107,45 @@ function loadRecords(): ChallengeRecords {
   const fallback = defaults();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
-    if (parsed.version !== 2) return fallback;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
+      if (parsed.version === 3) {
+        return {
+          version: 3,
+          runs: finiteNonNegative(parsed.runs, 0),
+          ordinaryUnlocked: parsed.ordinaryUnlocked === true,
+          manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),
+          excellentCount: finiteNonNegative(parsed.excellentCount, 0),
+          bestQualificationTime: finitePositiveOrNull(parsed.bestQualificationTime),
+          bestExcellentTime: finitePositiveOrNull(parsed.bestExcellentTime),
+          bestFlights: finiteNonNegative(parsed.bestFlights, 0),
+          bestRouteProgress: finiteNonNegative(parsed.bestRouteProgress, 0),
+          closestMissM: finitePositiveOrNull(parsed.closestMissM),
+        };
+      }
+    }
+    const v2Raw = localStorage.getItem(V2_KEY);
+    if (!v2Raw) return fallback;
+    const v2 = JSON.parse(v2Raw) as Record<string, unknown>;
+    if (v2.version !== 2) return fallback;
+    const excellentCount = finiteNonNegative(v2.excellentCount, 0);
+    const ordinaryUnlocked = v2.ordinaryUnlocked === true;
     return {
-      version: 2,
-      runs: finiteNonNegative(parsed.runs, 0),
-      ordinaryUnlocked: parsed.ordinaryUnlocked === true,
-      excellentCount: finiteNonNegative(parsed.excellentCount, 0),
-      bestExcellentTime: finitePositiveOrNull(parsed.bestExcellentTime),
-      bestCompleteTime: finitePositiveOrNull(parsed.bestCompleteTime),
-      bestFlightsCleared: Math.min(3, finiteNonNegative(parsed.bestFlightsCleared, 0)),
-      bestRouteProgress: finiteNonNegative(parsed.bestRouteProgress, 0),
-      closestMissM: finitePositiveOrNull(parsed.closestMissM),
-      legacyMedals: finiteNonNegative(parsed.legacyMedals, fallback.legacyMedals),
+      version: 3,
+      runs: finiteNonNegative(v2.runs, 0),
+      ordinaryUnlocked,
+      manMedalsTotal: Math.max(
+        fallback.manMedalsTotal,
+        excellentCount,
+        ordinaryUnlocked ? 1 : 0,
+        finiteNonNegative(v2.legacyMedals, 0),
+      ),
+      excellentCount,
+      bestQualificationTime: finitePositiveOrNull(v2.bestCompleteTime),
+      bestExcellentTime: finitePositiveOrNull(v2.bestExcellentTime),
+      bestFlights: finiteNonNegative(v2.bestFlightsCleared, 0),
+      bestRouteProgress: finiteNonNegative(v2.bestRouteProgress, 0),
+      closestMissM: finitePositiveOrNull(v2.closestMissM),
     };
   } catch {
     return fallback;
