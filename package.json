@@ -1,0 +1,23 @@
+{
+  "name": "board-race",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Cel-shaded arcade boat racing on an infinite open ocean. Vite + Three.js + TypeScript, zero external assets.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "shot": "node harness/screenshot.mjs"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "playwright": "^1.62.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.2.1"
+  }
+}

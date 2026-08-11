@@ -1,0 +1,479 @@
+/**
+ * hud.css — cel/anime arcade HUD.
+ *
+ * Design language: chunky italic display type, panels skewed -8°, hard ink
+ * outlines (3px borders + offset box-shadows, stacked text-shadows), flat
+ * palette colors. Palette values are injected as CSS custom properties on the
+ * .hud root by HUD (from core/palette.ts); the declarations below are
+ * fallbacks that mirror the committed palette.
+ */
+
+.hud {
+  --ink: #14122b;
+  --panel: rgba(16, 23, 58, 0.82);
+  --text: #f4feff;
+  --accent: #39ff88;
+  --warn: #ff3d7f;
+  --boost: #7cfc00;
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 10;
+  font-family: 'Arial Black', 'Arial Bold', Impact, system-ui, sans-serif;
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  user-select: none;
+}
+
+.hud * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- shared bits ------------------------------------------------------- */
+
+.hud-panel {
+  background: var(--panel);
+  border: 3px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  transform: skew(-8deg);
+}
+
+/* stacked ink outline for display text */
+.hud-inked {
+  text-shadow:
+    3px 3px 0 var(--ink),
+    -2px -2px 0 var(--ink),
+    2px -2px 0 var(--ink),
+    -2px 2px 0 var(--ink),
+    0 3px 0 var(--ink),
+    3px 0 0 var(--ink),
+    6px 6px 0 var(--ink);
+}
+
+/* ---- top-left stack: lap / final lap / position ------------------------- */
+
+.hud-topleft {
+  position: absolute;
+  left: 24px;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hud-lap {
+  padding: 8px 24px 9px 16px;
+}
+
+.hud-lap-val {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.hud-finallap {
+  font-size: 28px;
+  line-height: 1;
+  color: var(--warn);
+  opacity: 0;
+  transform: skew(-8deg) rotate(-2deg);
+}
+
+.hud-finallap.on {
+  animation: hud-blink 0.45s steps(2, jump-none) infinite;
+}
+
+.hud-pos {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 22px 7px 16px;
+}
+
+.hud-pos-num {
+  font-size: 54px;
+  line-height: 0.95;
+  color: var(--text);
+}
+
+.hud-pos-num.first {
+  color: var(--accent);
+}
+
+.hud-pos-chip {
+  width: 22px;
+  height: 22px;
+  background: #fff;
+  border: 3px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  transform: skew(-14deg);
+}
+
+/* ---- minimap (top right) ------------------------------------------------- */
+
+.hud-map {
+  position: absolute;
+  right: 24px;
+  top: 20px;
+  padding: 9px;
+  background: #10173a; /* opaque: water shimmer must not bleed through */
+}
+
+.hud-map-canvas {
+  display: block;
+  width: 190px;
+  height: 190px;
+}
+
+/* ---- speedometer (bottom right) ------------------------------------------- */
+
+.hud-speedo {
+  position: absolute;
+  right: 28px;
+  bottom: 26px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.hud-gauge-wrap {
+  padding: 10px 12px 2px;
+  margin-right: -16px;
+  margin-bottom: 16px;
+}
+
+.hud-gauge {
+  display: block;
+  width: 200px;
+  height: 120px;
+}
+
+.hud-speed-panel {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 10px 20px 10px 24px;
+}
+
+.hud-speed-num {
+  min-width: 3ch;
+  text-align: right;
+  font-size: 66px;
+  line-height: 0.9;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.hud-speed-unit {
+  font-size: 18px;
+  color: var(--accent);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+/* ---- boost meter (bottom center) -------------------------------------------- */
+
+.hud-boost {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) skew(-8deg);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 16px;
+}
+
+.hud-boost-label {
+  margin-right: 8px;
+  font-size: 14px;
+  color: var(--accent);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.hud-boost-seg {
+  width: 26px;
+  height: 18px;
+  background: rgba(244, 254, 255, 0.12);
+  border: 2px solid var(--ink);
+  transform: skew(-14deg);
+}
+
+.hud-boost-seg.on {
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px rgba(244, 254, 255, 0.25);
+}
+
+/* last two segments fill in boost green */
+.hud-boost-seg.on.hot {
+  background: var(--boost);
+}
+
+.hud-boost.full .hud-boost-seg.on {
+  animation: hud-boost-pulse 0.5s steps(2, jump-none) infinite;
+}
+
+@keyframes hud-boost-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.1);
+    background: #fff;
+  }
+}
+
+/* ---- split toasts (top center) ------------------------------------------------ */
+
+.hud-toasts {
+  position: absolute;
+  left: 50%;
+  top: 15%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-toast {
+  font-size: 42px;
+  line-height: 1;
+  transform: skew(-8deg);
+  animation: hud-toast 1.4s ease-out forwards;
+}
+
+.hud-toast.good {
+  color: var(--accent);
+}
+
+.hud-toast.bad {
+  color: var(--warn);
+}
+
+@keyframes hud-toast {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(1.5) skew(-8deg);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1) skew(-8deg);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-30px) scale(0.92) skew(-8deg);
+  }
+}
+
+/* ---- wrong way -------------------------------------------------------------------- */
+
+.hud-wrongway {
+  position: absolute;
+  left: 50%;
+  top: 31%;
+  transform: translateX(-50%) skew(-8deg);
+  padding: 10px 32px;
+  font-size: 44px;
+  line-height: 1;
+  color: var(--warn);
+  text-shadow: 3px 3px 0 var(--ink);
+  background: var(--panel);
+  border: 4px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--ink);
+  opacity: 0;
+}
+
+.hud-wrongway.on {
+  animation: hud-wrongflash 0.55s steps(2, jump-none) infinite;
+}
+
+@keyframes hud-wrongflash {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) skew(-8deg) rotate(-1.5deg);
+  }
+  50% {
+    opacity: 0.2;
+    transform: translateX(-50%) skew(-8deg) rotate(1.5deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) skew(-8deg) rotate(-1.5deg);
+  }
+}
+
+/* ---- countdown ----------------------------------------------------------------------- */
+
+.hud-countdown {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  font-size: 190px;
+  line-height: 1;
+  color: var(--text);
+  opacity: 0;
+  text-shadow:
+    6px 6px 0 var(--ink),
+    -3px -3px 0 var(--ink),
+    3px -3px 0 var(--ink),
+    -3px 3px 0 var(--ink),
+    0 6px 0 var(--ink),
+    6px 0 0 var(--ink),
+    12px 12px 0 var(--ink);
+}
+
+.hud-countdown.pop {
+  animation: hud-pop 0.5s cubic-bezier(0.2, 1.8, 0.3, 1) forwards;
+}
+
+.hud-countdown.go {
+  color: var(--accent);
+}
+
+@keyframes hud-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(3) rotate(-16deg) skew(-8deg);
+  }
+  35% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(0.92) rotate(3deg) skew(-8deg);
+  }
+  60% {
+    transform: translate(-50%, -50%) scale(1.08) rotate(-2deg) skew(-8deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1) rotate(-4deg) skew(-8deg);
+  }
+}
+
+/* ---- shared blink --------------------------------------------------------------------- */
+
+@keyframes hud-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+/* ---- results ---------------------------------------------------------------------------- */
+
+.hud-results {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 18, 43, 0.38);
+}
+
+.hud-results.on {
+  display: flex;
+}
+
+.hud-results-panel {
+  min-width: 580px;
+  padding: 26px 44px 24px;
+  text-align: center;
+  background: #10173a; /* opaque — white wake must never bleed through the times */
+  border-width: 4px;
+  box-shadow: 10px 10px 0 var(--ink);
+  animation: hud-results-in 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+@keyframes hud-results-in {
+  from {
+    opacity: 0;
+    transform: skew(-8deg) translateY(60px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: skew(-8deg) translateY(0) scale(1);
+  }
+}
+
+.hud-results-title {
+  font-size: 64px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.hud-results-place {
+  margin-top: 4px;
+  font-size: 42px;
+  line-height: 1;
+}
+
+.hud-results-place.win {
+  color: var(--accent);
+}
+
+.hud-results-place.lose {
+  color: var(--warn);
+}
+
+.hud-results-rows {
+  margin: 20px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hud-results-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 140px 140px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text);
+  text-align: left;
+  border: 2px solid transparent;
+}
+
+.hud-results-row.head {
+  font-size: 14px;
+  color: var(--accent);
+  text-shadow: none;
+}
+
+.hud-results-row.me {
+  background: rgba(57, 255, 136, 0.14);
+  border-color: var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.hud-results-again {
+  margin-top: 16px;
+  font-size: 20px;
+  color: var(--text);
+  text-shadow: 2px 2px 0 var(--ink);
+  animation: hud-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes hud-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
