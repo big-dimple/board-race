@@ -31,12 +31,16 @@ export const PALETTE = {
   // Gameplay
   racingLine: 0x39ff88,
   boost: 0x7CFC00,
+  flight: 0x55e7ff,
+  flightDeep: 0x258cff,
 
   // Racer hull colors: player, REEF (aggressive), KAI (clean), JINX (erratic)
   hullPlayer: 0xff3d7f,
   hullReef: 0xff7847,
   hullKai: 0xffd23f,
   hullJinx: 0x8a5cff,
+  hullVolt: 0x2ee66b,
+  hullNova: 0x2dc7ff,
 
   // UI
   uiPanel: 0x10173a,
@@ -50,12 +54,3 @@ export const PALETTE = {
   /** Direction TOWARD the sun (normalize before use). Shared by sky, toon lighting, water spec. */
   sunDir: [0.5, 0.55, 0.55] as readonly number[],
 } as const;
-
-export const RACER_COLORS = [
-  PALETTE.hullPlayer,
-  PALETTE.hullReef,
-  PALETTE.hullKai,
-  PALETTE.hullJinx,
-];
-
-export const RACER_NAMES = ['YOU', 'REEF', 'KAI', 'JINX'];

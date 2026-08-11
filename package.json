@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "shot": "node harness/screenshot.mjs"
+    "shot": "node harness/screenshot.mjs",
+    "verify:flight": "node harness/screenshot.mjs --verify-flight"
   },
   "dependencies": {
     "three": "^0.185.1"

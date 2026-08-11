@@ -1,9 +1,9 @@
 /**
  * input.ts — keyboard state → BoatInput for the player.
  *
- * W/↑ throttle, S/↓ brake-reverse, A/D ←/→ steer, Space drift, Enter confirm.
- * Steering returns to center smoothly; throttle is binary-ish with a fast ramp
- * so keyboard play still feels weighty.
+ * The boat advances automatically. A/D or arrows steer, Shift is the single
+ * contextual hold action (surface drift / in-flight air brake), Space flies,
+ * and Enter confirms. Steering returns to center smoothly.
  */
 import type { BoatInput } from '../contracts';
 
@@ -11,7 +11,6 @@ export class Input {
   readonly keys = new Set<string>();
   /** Edge-triggered: true for one consume() call after keydown. */
   private pressed = new Set<string>();
-  private throttleVal = 0;
   private steerVal = 0;
 
   constructor(target: Window = window) {
@@ -19,10 +18,13 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       this.pressed.add(e.code);
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+      if (['ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
     });
     target.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    target.addEventListener('blur', () => this.keys.clear());
+    target.addEventListener('blur', () => {
+      this.keys.clear();
+      this.pressed.clear();
+    });
   }
 
   /** Was this key pressed since the last consume? Consumes the flag. */
@@ -32,23 +34,27 @@ export class Input {
     return had;
   }
 
-  read(dt: number): BoatInput {
-    const up = this.keys.has('KeyW') || this.keys.has('ArrowUp');
-    const down = this.keys.has('KeyS') || this.keys.has('ArrowDown');
+  read(dt: number, flightActive: boolean): BoatInput {
     const left = this.keys.has('KeyA') || this.keys.has('ArrowLeft');
     const right = this.keys.has('KeyD') || this.keys.has('ArrowRight');
+    const action = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
 
-    const throttleTarget = up ? 1 : down ? -0.6 : 0;
     const steerTarget = left ? -1 : right ? 1 : 0;
-    // Ramp toward targets: throttle slower (weight), steering fast but not instant.
-    this.throttleVal = approach(this.throttleVal, throttleTarget, (up || down ? 2.2 : 3.5) * dt);
     this.steerVal = approach(this.steerVal, steerTarget, 7 * dt);
 
     return {
-      throttle: this.throttleVal,
+      throttle: 1,
       steer: this.steerVal,
-      drift: this.keys.has('Space'),
+      drift: action && !flightActive,
+      flightTrigger: this.consumePress('Space'),
+      airBrake: action && flightActive,
     };
+  }
+
+  reset(): void {
+    this.keys.clear();
+    this.pressed.clear();
+    this.steerVal = 0;
   }
 }
 

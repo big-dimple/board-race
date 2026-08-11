@@ -15,6 +15,8 @@
   --accent: #39ff88;
   --warn: #ff3d7f;
   --boost: #7cfc00;
+  --flight: #55e7ff;
+  --flight-deep: #258cff;
 
   position: absolute;
   inset: 0;
@@ -24,7 +26,7 @@
   font-family: 'Arial Black', 'Arial Bold', Impact, system-ui, sans-serif;
   font-style: italic;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   user-select: none;
 }
 
@@ -176,24 +178,117 @@
   text-shadow: 2px 2px 0 var(--ink);
 }
 
-/* ---- boost meter (bottom center) -------------------------------------------- */
+/* ---- power unit (bottom center) --------------------------------------------- */
 
-.hud-boost {
+.hud-power {
   position: absolute;
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%) skew(-8deg);
+  width: 430px;
+  min-height: 72px;
+  padding: 8px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+}
+
+.hud-flight,
+.hud-boost {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 10px 16px;
+  min-width: 0;
+}
+
+.hud-flight {
+  padding-bottom: 6px;
+  border-bottom: 2px solid rgba(244, 254, 255, 0.18);
+}
+
+.hud-flight-label,
+.hud-boost-label {
+  width: 58px;
+  flex: 0 0 58px;
+  font-size: 13px;
+  line-height: 1;
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.hud-flight-label {
+  color: var(--flight);
 }
 
 .hud-boost-label {
-  margin-right: 8px;
-  font-size: 14px;
   color: var(--accent);
-  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.hud-flight-token {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  margin: 0 5px 0 1px;
+  transform: rotate(45deg);
+  background: rgba(244, 254, 255, 0.08);
+  border: 2px solid var(--flight-deep);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.hud-flight-token.ready {
+  background: var(--flight);
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--ink), 3px 3px 0 var(--ink);
+}
+
+.hud-flight-token.active {
+  background: var(--text);
+  border-color: var(--flight);
+  animation: hud-flight-token 0.42s steps(2, jump-none) infinite;
+}
+
+.hud-flight-pips {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hud-flight-pip {
+  height: 10px;
+  flex: 1 1 0;
+  background: rgba(244, 254, 255, 0.1);
+  border: 2px solid var(--ink);
+  transform: skew(-24deg);
+}
+
+.hud-flight-pip.on {
+  background: var(--flight);
+  box-shadow: inset 0 0 0 1px rgba(244, 254, 255, 0.55);
+}
+
+.hud-power.flying {
+  box-shadow: 6px 6px 0 var(--ink), inset 0 0 0 2px var(--flight-deep);
+}
+
+.hud-power.flight-alert {
+  animation: hud-flight-alert 0.16s steps(2, jump-none) 2;
+}
+
+.hud-power.flight-alert .hud-flight-token,
+.hud-power.flight-alert .hud-flight-pip.on {
+  background: var(--warn);
+  border-color: var(--text);
+}
+
+.hud-power.penalty {
+  border-color: var(--warn);
+  box-shadow: 6px 6px 0 var(--ink), inset 0 0 0 3px var(--warn);
+}
+
+.hud-power.penalty .hud-flight-pip,
+.hud-power.penalty .hud-boost-seg {
+  filter: saturate(0.35) brightness(0.72);
 }
 
 .hud-boost-seg {
@@ -214,8 +309,34 @@
   background: var(--boost);
 }
 
-.hud-boost.full .hud-boost-seg.on {
+.hud-boost.full .hud-boost-seg.on,
+.hud-boost.active .hud-boost-seg.on {
   animation: hud-boost-pulse 0.5s steps(2, jump-none) infinite;
+}
+
+.hud-boost.active {
+  outline: 2px solid var(--boost);
+  outline-offset: 2px;
+}
+
+@keyframes hud-flight-token {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
+@keyframes hud-flight-alert {
+  0%,
+  100% {
+    margin-left: 0;
+  }
+  50% {
+    margin-left: 6px;
+  }
 }
 
 @keyframes hud-boost-pulse {
@@ -227,6 +348,518 @@
     filter: brightness(1.1);
     background: #fff;
   }
+}
+
+/* ---- continuous drift pressure ---------------------------------------------- */
+
+.hud-drift-fx {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 90ms linear;
+}
+
+.hud-drift-fx::before,
+.hud-drift-fx::after {
+  content: '';
+  position: absolute;
+  top: 18%;
+  bottom: 12%;
+  width: 64px;
+  background: repeating-linear-gradient(
+    -18deg,
+    transparent 0 18px,
+    var(--boost) 19px 23px,
+    transparent 24px 38px
+  );
+  opacity: 0.34;
+}
+
+.hud-drift-fx::before {
+  left: 0;
+  clip-path: polygon(0 0, 100% 15%, 54% 100%, 0 82%);
+}
+
+.hud-drift-fx::after {
+  right: 0;
+  transform: scaleX(-1);
+  clip-path: polygon(0 0, 100% 15%, 54% 100%, 0 82%);
+}
+
+.hud-drift-fx.on {
+  opacity: 1;
+}
+
+.hud-drift-fx.full::before,
+.hud-drift-fx.full::after {
+  opacity: 0.72;
+  animation: hud-drift-edge 0.22s steps(2, jump-none) infinite;
+}
+
+@keyframes hud-drift-edge {
+  50% { transform: translateY(-8px); }
+}
+
+.hud-drift-fx.full::after {
+  animation-name: hud-drift-edge-right;
+}
+
+@keyframes hud-drift-edge-right {
+  50% { transform: scaleX(-1) translateY(-8px); }
+}
+
+/* ---- earned-flight prompt ---------------------------------------------------- */
+
+.hud-flight-prompt {
+  position: absolute;
+  left: 50%;
+  top: 5%;
+  bottom: auto;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 18px 34px 20px 26px;
+  color: var(--text);
+  opacity: 0;
+  background: rgba(8, 14, 44, 0.86);
+  border: 4px solid var(--flight);
+  box-shadow: 0 0 0 5px var(--ink), 12px 12px 0 var(--ink);
+  transform: translateX(-50%) translateY(-24px) scale(0.82) skew(-8deg);
+  transition: opacity 100ms linear, transform 200ms cubic-bezier(0.16, 1.6, 0.3, 1);
+}
+
+.hud-flight-prompt.on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1) skew(-8deg);
+}
+
+.hud-flight-prompt::before,
+.hud-flight-prompt::after {
+  content: '';
+  position: absolute;
+  inset: -22px -38px;
+  border-top: 5px solid var(--flight);
+  border-bottom: 5px solid var(--flight);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-flight-prompt.acquired::before {
+  animation: hud-flight-acquire-ring 0.72s cubic-bezier(0.1, 0.8, 0.2, 1) both;
+}
+
+.hud-flight-prompt.acquired::after {
+  animation: hud-flight-acquire-ring 0.72s 90ms cubic-bezier(0.1, 0.8, 0.2, 1) both;
+}
+
+.hud-keycap {
+  width: 88px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 88px;
+  font-size: 62px;
+  line-height: 1;
+  color: var(--ink);
+  background: var(--text);
+  border: 6px solid var(--flight);
+  box-shadow: 7px 7px 0 var(--ink);
+  transform: skew(8deg);
+}
+
+.hud-flight-prompt.on .hud-keycap {
+  animation: hud-keycap-hit 0.62s steps(2, jump-none) infinite;
+}
+
+.hud-flight-prompt-copy {
+  text-shadow: 3px 3px 0 var(--ink);
+}
+
+.hud-flight-prompt-en {
+  font-size: 23px;
+  line-height: 1;
+  color: var(--flight);
+}
+
+.hud-flight-prompt-cn {
+  margin-top: 5px;
+  font-size: 44px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hud-flight-prompt-rule {
+  margin-top: 7px;
+  font: 800 14px/1.2 system-ui, sans-serif;
+  color: var(--warn);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+@keyframes hud-keycap-hit {
+  50% { transform: skew(8deg) translateY(-8px) scale(1.08); }
+}
+
+@keyframes hud-flight-acquire-ring {
+  0% { opacity: 0; transform: scaleX(0.2) scaleY(1.8); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: scaleX(1.55) scaleY(0.74); }
+}
+
+/* ---- independent competitive impact ----------------------------------------- */
+
+.hud-battle {
+  --battle: var(--accent);
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-battle.on {
+  visibility: visible;
+  opacity: 1;
+}
+
+.hud-battle-sky {
+  position: absolute;
+  left: 50%;
+  top: max(18px, env(safe-area-inset-top));
+  width: min(560px, calc(100% - 620px));
+  min-width: 420px;
+  height: 132px;
+  transform: translateX(-50%);
+  overflow: hidden;
+  contain: layout paint;
+}
+
+.hud-battle.on[data-kind='overtake'] .hud-battle-sky::before,
+.hud-battle.on[data-kind='overtake'] .hud-battle-sky::after {
+  content: '✦';
+  position: absolute;
+  z-index: 2;
+  top: 28px;
+  font-size: 48px;
+  line-height: 1;
+  color: var(--battle);
+  text-shadow: 3px 3px 0 var(--ink), -2px -2px 0 var(--ink);
+  animation: hud-battle-star 0.58s steps(3, jump-none) both;
+}
+
+.hud-battle.on[data-kind='overtake'] .hud-battle-sky::before { left: 2%; transform: rotate(-16deg); }
+.hud-battle.on[data-kind='overtake'] .hud-battle-sky::after { right: 2%; transform: rotate(16deg); }
+
+.hud-battle-sky-flash {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 4px;
+  height: 5px;
+  background: var(--battle);
+  opacity: 0;
+}
+
+.hud-battle.on .hud-battle-sky-flash {
+  animation: hud-battle-sky-flash 0.24s steps(2, jump-none) both;
+}
+
+.hud-battle-firework {
+  position: absolute;
+  inset: 0;
+}
+
+.hud-battle-shard {
+  position: absolute;
+  left: var(--origin);
+  top: 72px;
+  display: block;
+  width: 9px;
+  height: 22px;
+  background: var(--battle);
+  border: 2px solid var(--ink);
+  opacity: 0;
+}
+
+.hud-battle-shard.shard-1 { width: 14px; height: 14px; background: var(--text); transform: rotate(45deg); }
+.hud-battle-shard.shard-2 { width: 7px; height: 26px; background: var(--accent); }
+.hud-battle.on[data-kind='overtake'] .hud-battle-shard {
+  animation: hud-battle-shard 0.72s var(--delay) cubic-bezier(0.08, 0.75, 0.18, 1) both;
+}
+
+.hud-battle-copy {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 300px;
+  text-align: center;
+  transform: translateX(-50%) skew(-8deg);
+}
+
+.hud-battle.on .hud-battle-copy {
+  animation: hud-battle-copy 0.98s cubic-bezier(0.12, 1.35, 0.2, 1) both;
+}
+
+.hud-battle-label {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--battle);
+}
+
+.hud-battle-places {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: -2px;
+  line-height: 0.9;
+}
+
+.hud-battle-from {
+  font-size: 28px;
+  color: rgba(244, 254, 255, 0.72);
+}
+
+.hud-battle-arrow { font-size: 28px; color: var(--text); }
+.hud-battle-to { font-size: 62px; color: var(--battle); }
+.hud-battle-opponent { margin-top: 1px; font-size: 22px; color: var(--text); }
+.hud-battle-streak { position: absolute; left: calc(100% + 10px); top: 40px; font-size: 18px; color: var(--accent); white-space: nowrap; }
+.hud-battle[data-kind='lost'] .hud-battle-label,
+.hud-battle[data-kind='lost'] .hud-battle-to { color: var(--warn); }
+.hud-battle[data-kind='lost'] .hud-battle-copy { top: 22px; }
+.hud-battle[data-kind='lost'] .hud-battle-sky-flash { background: var(--warn); }
+.hud-battle.safety-compact .hud-battle-label,
+.hud-battle.safety-compact .hud-battle-opponent,
+.hud-battle.safety-compact .hud-battle-streak { display: none; }
+.hud-battle.safety-compact .hud-battle-copy { top: 4px; }
+
+@keyframes hud-battle-sky-flash {
+  0% { opacity: 1; transform: scaleX(0.1); }
+  35% { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0; }
+}
+
+@keyframes hud-battle-shard {
+  0% { opacity: 1; transform: translate(var(--sx), var(--sy)) rotate(0); }
+  10% { opacity: 1; }
+  72% { opacity: 0.95; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+}
+
+@keyframes hud-battle-copy {
+  0% { opacity: 1; transform: translateX(-50%) scale(1.28) rotate(-3deg) skew(-8deg); }
+  14% { opacity: 1; transform: translateX(-50%) scale(0.94) rotate(1deg) skew(-8deg); }
+  28% { transform: translateX(-50%) scale(1.03) skew(-8deg); }
+  78% { opacity: 1; }
+  100% { opacity: 1; transform: translateX(-50%) translateY(-10px) scale(0.98) skew(-8deg); }
+}
+
+@keyframes hud-battle-star {
+  0% { opacity: 1; scale: 0.45; }
+  35% { opacity: 1; scale: 1.3; }
+  100% { opacity: 0.72; scale: 0.86; }
+}
+
+/* ---- flight turn callout ----------------------------------------------------- */
+
+.hud-turn-warning {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 24px 12px 14px;
+  color: var(--text);
+  background: rgba(18, 12, 42, 0.9);
+  border: 4px solid var(--warn);
+  box-shadow: 7px 7px 0 var(--ink);
+  opacity: 0;
+  transform: translateX(-50%) translateY(-20px) scale(0.9) skew(-8deg);
+}
+
+.hud-turn-warning.on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1) skew(-8deg);
+  animation: hud-turn-snap 0.38s cubic-bezier(0.12, 1.7, 0.2, 1) both;
+}
+
+.hud-turn-warning-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  font-size: 42px;
+  line-height: 1;
+  color: var(--warn);
+  background: var(--text);
+  border: 3px solid var(--ink);
+}
+
+.hud-turn-warning-title { font-size: 28px; line-height: 1; color: var(--warn); }
+.hud-turn-warning-detail { margin-top: 4px; font-size: 16px; color: var(--text); }
+.hud-turn-warning.braking { border-color: var(--flight); }
+.hud-turn-warning.braking .hud-turn-warning-title { color: var(--flight); }
+.hud-turn-warning.braking .hud-turn-warning-title::after { content: ' · 制动锁定'; }
+
+@keyframes hud-turn-snap {
+  0% { opacity: 0; transform: translateX(-50%) scaleX(1.5) scaleY(0.7) skew(-8deg); }
+  100% { opacity: 1; transform: translateX(-50%) scale(1) skew(-8deg); }
+}
+
+/* ---- semantic impact layer --------------------------------------------------- */
+
+.hud-impact {
+  --impact: var(--flight);
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.hud-impact.on {
+  opacity: 1;
+  visibility: visible;
+}
+
+.hud-impact-flash {
+  position: absolute;
+  inset: 0;
+  background: rgba(244, 254, 255, 0.12);
+  opacity: 0;
+}
+
+.hud-impact.on .hud-impact-flash {
+  animation: hud-impact-flash 0.16s steps(2, jump-none) both;
+}
+
+.hud-impact[data-kind='route-miss'] .hud-impact-flash,
+.hud-impact[data-kind='lost'] .hud-impact-flash {
+  background: rgba(255, 61, 127, 0.16);
+}
+
+.hud-impact-lines {
+  position: absolute;
+  top: 8%;
+  bottom: 8%;
+  width: 25%;
+  background: repeating-linear-gradient(
+    -16deg,
+    transparent 0 25px,
+    var(--impact) 26px 32px,
+    transparent 33px 55px
+  );
+  opacity: 0;
+}
+
+.hud-impact-lines.left { left: -4%; }
+.hud-impact-lines.right { right: -4%; transform: scaleX(-1); }
+
+.hud-impact.on .hud-impact-lines.left {
+  animation: hud-impact-lines-left 0.5s cubic-bezier(0.1, 0.8, 0.2, 1) both;
+}
+
+.hud-impact.on .hud-impact-lines.right {
+  animation: hud-impact-lines-right 0.5s cubic-bezier(0.1, 0.8, 0.2, 1) both;
+}
+
+.hud-impact-copy {
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  width: min(760px, calc(100% - 48px));
+  text-align: center;
+  transform: translateX(-50%) skew(-8deg);
+}
+
+.hud-impact.on .hud-impact-copy {
+  animation: hud-impact-copy 0.62s cubic-bezier(0.18, 1.5, 0.25, 1) both;
+}
+
+.hud-impact-kicker {
+  font-size: 58px;
+  line-height: 0.9;
+  color: var(--impact);
+}
+
+.hud-impact-title {
+  margin-top: 8px;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.hud-impact-detail {
+  margin-top: 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--impact);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.hud-impact[data-kind='drift'] .hud-impact-kicker,
+.hud-impact[data-kind='gate'] .hud-impact-kicker {
+  font-size: 34px;
+}
+
+.hud-impact[data-kind='drift'] .hud-impact-copy {
+  left: 19%;
+  top: 57%;
+  width: 330px;
+}
+
+.hud-impact[data-kind='drift'] .hud-impact-title,
+.hud-impact[data-kind='gate'] .hud-impact-title {
+  font-size: 23px;
+}
+
+.hud-impact[data-kind='lost'] .hud-impact-kicker {
+  font-size: 43px;
+}
+
+@keyframes hud-impact-flash {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes hud-impact-lines-left {
+  0% { opacity: 0; transform: translateX(-80px); }
+  30% { opacity: 0.7; }
+  100% { opacity: 0; transform: translateX(50px); }
+}
+
+@keyframes hud-impact-lines-right {
+  0% { opacity: 0; transform: scaleX(-1) translateX(-80px); }
+  30% { opacity: 0.7; }
+  100% { opacity: 0; transform: scaleX(-1) translateX(50px); }
+}
+
+@keyframes hud-impact-copy {
+  0% { opacity: 0; transform: translateX(-50%) scale(1.65) rotate(-4deg) skew(-8deg); }
+  22% { opacity: 1; transform: translateX(-50%) scale(0.94) rotate(1deg) skew(-8deg); }
+  42% { transform: translateX(-50%) scale(1.04) rotate(-1deg) skew(-8deg); }
+  78% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.96) skew(-8deg); }
+}
+
+.hud-pos-num.battle-hit {
+  animation: hud-place-hit 0.42s cubic-bezier(0.15, 1.7, 0.3, 1);
+}
+
+.hud-pos-num.battle-lost {
+  animation: hud-place-lost 0.36s steps(3, jump-none);
+}
+
+@keyframes hud-place-hit {
+  0% { transform: scale(1.8) rotate(-8deg); color: var(--impact, var(--accent)); }
+  100% { transform: scale(1); }
+}
+
+@keyframes hud-place-lost {
+  50% { transform: translateX(8px); color: var(--warn); }
 }
 
 /* ---- split toasts (top center) ------------------------------------------------ */
@@ -312,7 +945,42 @@
   }
 }
 
-/* ---- countdown ----------------------------------------------------------------------- */
+/* ---- brand / countdown --------------------------------------------------------------- */
+
+.hud-brand {
+  position: absolute;
+  left: 50%;
+  top: 10%;
+  width: min(720px, calc(100% - 48px));
+  transform: translateX(-50%) skew(-8deg);
+  text-align: center;
+  opacity: 0;
+}
+
+.hud-brand.on {
+  opacity: 1;
+}
+
+.hud-brand-lead {
+  font-size: 25px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.hud-brand-action {
+  margin-top: 5px;
+  font-size: 50px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hud-brand-drift {
+  color: var(--boost);
+}
+
+.hud-brand-flight {
+  color: var(--flight);
+}
 
 .hud-countdown {
   position: absolute;
@@ -372,6 +1040,110 @@
   }
 }
 
+/* ---- forced retry lesson -------------------------------------------------------------- */
+
+.hud-retry-lesson {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(4, 7, 24, 0.86);
+  pointer-events: auto;
+}
+
+.hud-retry-lesson.on {
+  display: grid;
+}
+
+.hud-lesson-grid {
+  position: absolute;
+  inset: -12%;
+  opacity: 0.3;
+  background: repeating-linear-gradient(
+    -18deg,
+    transparent 0 64px,
+    rgba(85, 231, 255, 0.22) 65px 70px,
+    transparent 71px 132px
+  );
+}
+
+.hud-lesson-inner {
+  position: relative;
+  width: min(920px, calc(100% - 64px));
+  padding: 26px 42px 30px;
+  text-align: center;
+  border-top: 6px solid var(--flight);
+  border-bottom: 6px solid var(--flight);
+  background: rgba(8, 13, 42, 0.92);
+  box-shadow: 0 12px 0 var(--ink), 0 -12px 0 var(--ink);
+  animation: hud-lesson-in 0.34s cubic-bezier(0.12, 1.35, 0.2, 1) both;
+}
+
+.hud-lesson-attempt {
+  font-size: 15px;
+  color: var(--flight);
+}
+
+.hud-lesson-rule {
+  margin-top: 10px;
+  font-size: 30px;
+  line-height: 1.08;
+  color: var(--text);
+}
+
+.hud-lesson-title {
+  margin-top: 25px;
+  font-size: 54px;
+  line-height: 0.95;
+  color: var(--warn);
+}
+
+.hud-lesson-copy {
+  max-width: 760px;
+  margin: 14px auto 0;
+  font: 800 20px/1.42 system-ui, sans-serif;
+  color: var(--text);
+  letter-spacing: 0;
+}
+
+.hud-lesson-metric {
+  margin-top: 11px;
+  font-size: 17px;
+  color: var(--flight);
+}
+
+.hud-lesson-progress {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  width: min(520px, 80%);
+  margin: 25px auto 0;
+}
+
+.hud-lesson-pip {
+  display: block;
+  height: 10px;
+  background: rgba(244, 254, 255, 0.1);
+  border: 2px solid var(--ink);
+  transform: skew(-18deg);
+}
+
+.hud-lesson-pip.on {
+  background: var(--flight);
+  box-shadow: inset 0 0 0 1px var(--text), 0 0 14px var(--flight);
+}
+
+.hud.lesson-on > :not(.hud-retry-lesson) {
+  opacity: 0;
+}
+
+@keyframes hud-lesson-in {
+  from { opacity: 0; transform: scaleX(0.72) scaleY(1.12) skew(-8deg); }
+  to { opacity: 1; transform: scale(1) skew(-8deg); }
+}
+
 /* ---- results ---------------------------------------------------------------------------- */
 
 .hud-results {
@@ -380,21 +1152,95 @@
   display: none;
   align-items: center;
   justify-content: center;
-  background: rgba(20, 18, 43, 0.38);
+  padding: 24px;
+  background: rgba(4, 7, 24, 0.72);
+  pointer-events: auto;
+  overflow: hidden;
 }
 
 .hud-results.on {
   display: flex;
 }
 
+.hud.results-on .hud-topleft,
+.hud.results-on .hud-map,
+.hud.results-on .hud-speedo,
+.hud.results-on .hud-power,
+.hud.results-on .hud-toasts,
+.hud.results-on .hud-wrongway,
+.hud.results-on .hud-flight-prompt,
+.hud.results-on .hud-impact,
+.hud.results-on .hud-battle,
+.hud.results-on .hud-turn-warning,
+.hud.results-on .hud-drift-fx {
+  opacity: 0;
+}
+
+.hud-results-energy {
+  position: absolute;
+  inset: -20%;
+  background: repeating-linear-gradient(
+    -18deg,
+    transparent 0 52px,
+    rgba(85, 231, 255, 0.16) 53px 58px,
+    transparent 59px 112px
+  );
+  transform: translateX(-12%);
+  animation: hud-results-storm 3.2s linear infinite;
+}
+
+.hud-results[data-outcome='defeated'] .hud-results-energy {
+  background: repeating-linear-gradient(
+    -18deg,
+    transparent 0 52px,
+    rgba(255, 61, 127, 0.2) 53px 60px,
+    transparent 61px 112px
+  );
+}
+
+@keyframes hud-results-storm {
+  to { transform: translateX(12%); }
+}
+
 .hud-results-panel {
-  min-width: 580px;
-  padding: 26px 44px 24px;
+  position: relative;
+  min-width: 660px;
+  max-width: min(840px, calc(100vw - 48px));
+  padding: 30px 50px 28px;
   text-align: center;
-  background: #10173a; /* opaque — white wake must never bleed through the times */
-  border-width: 4px;
-  box-shadow: 10px 10px 0 var(--ink);
-  animation: hud-results-in 0.5s cubic-bezier(0.2, 1.6, 0.4, 1);
+  background: rgba(9, 15, 48, 0.96);
+  border: 6px solid var(--flight);
+  box-shadow: 0 0 0 7px var(--ink), 18px 18px 0 rgba(20, 18, 43, 0.9);
+  animation: hud-results-in 0.62s cubic-bezier(0.13, 1.5, 0.2, 1);
+}
+
+.hud-results-panel.defeated {
+  border-color: var(--warn);
+}
+
+.hud-results-panel::before,
+.hud-results-panel::after {
+  content: '';
+  position: absolute;
+  left: -16vw;
+  right: -16vw;
+  height: 6px;
+  background: var(--flight);
+  box-shadow: 0 0 22px var(--flight);
+  z-index: 0;
+}
+
+.hud-results-panel > * { position: relative; z-index: 1; }
+
+.hud-results-panel::before { top: 24%; }
+.hud-results-panel::after { bottom: 22%; }
+.hud-results-panel.defeated::before,
+.hud-results-panel.defeated::after { background: var(--warn); box-shadow: 0 0 22px var(--warn); }
+
+.hud-results-eyebrow {
+  font-size: 15px;
+  color: var(--flight);
+  text-shadow: 2px 2px 0 var(--ink);
 }
 
 @keyframes hud-results-in {
@@ -409,14 +1255,17 @@
 }
 
 .hud-results-title {
-  font-size: 64px;
-  line-height: 1;
+  margin-top: 8px;
+  font-size: 78px;
+  line-height: 0.92;
   color: var(--text);
 }
 
+.hud-results-panel.defeated .hud-results-title { color: var(--warn); }
+
 .hud-results-place {
-  margin-top: 4px;
-  font-size: 42px;
+  margin-top: 12px;
+  font-size: 50px;
   line-height: 1;
 }
 
@@ -428,11 +1277,52 @@
   color: var(--warn);
 }
 
+.hud-results-reason {
+  max-width: 680px;
+  margin: 15px auto 0;
+  font-family: system-ui, sans-serif;
+  font-style: normal;
+  font-weight: 800;
+  font-size: 20px;
+  line-height: 1.38;
+  color: var(--text);
+  text-transform: none;
+}
+
+.hud-results-medal {
+  margin-top: 16px;
+  font-size: 26px;
+  color: var(--flight);
+}
+
+.hud-results-panel.defeated .hud-results-medal { color: var(--warn); }
+
 .hud-results-rows {
-  margin: 20px 0 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  margin: 22px auto 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hud-result-stat {
+  min-width: 0;
+  padding: 10px 8px;
+  background: rgba(244, 254, 255, 0.07);
+  border-top: 2px solid rgba(85, 231, 255, 0.55);
+}
+
+.hud-result-stat-label {
+  display: block;
+  font-size: 11px;
+  color: var(--flight);
+}
+
+.hud-result-stat-value {
+  display: block;
+  margin-top: 4px;
+  font-size: 25px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .hud-results-row {
@@ -461,11 +1351,45 @@
 }
 
 .hud-results-again {
-  margin-top: 16px;
-  font-size: 20px;
+  margin-top: 12px;
+  font-size: 14px;
   color: var(--text);
   text-shadow: 2px 2px 0 var(--ink);
   animation: hud-pulse 1.1s ease-in-out infinite;
+}
+
+.hud-retry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-width: 250px;
+  min-height: 60px;
+  padding: 10px 26px;
+  border: 4px solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--flight);
+  box-shadow: 7px 7px 0 var(--ink);
+  font: italic 900 26px/1 'Arial Black', Impact, system-ui, sans-serif;
+  text-transform: uppercase;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: skew(-8deg);
+}
+
+.hud-results-panel.defeated .hud-retry { background: var(--warn); color: var(--text); }
+.hud-retry:hover,
+.hud-retry:focus-visible { transform: skew(-8deg) translate(-3px, -3px); box-shadow: 10px 10px 0 var(--ink); outline: 3px solid var(--text); outline-offset: 3px; }
+.hud-retry:active { transform: skew(-8deg) translate(4px, 4px); box-shadow: 3px 3px 0 var(--ink); }
+.hud-retry-key {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--text);
+  background: var(--ink);
+  font-size: 19px;
 }
 
 @keyframes hud-pulse {
@@ -476,4 +1400,606 @@
   50% {
     opacity: 0.3;
   }
+}
+
+/* ---- compact layouts ---------------------------------------------------------------- */
+
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-topleft {
+    left: max(12px, env(safe-area-inset-left));
+    top: max(10px, env(safe-area-inset-top));
+    gap: 6px;
+  }
+
+  .hud-lap {
+    padding: 6px 14px 7px 10px;
+  }
+
+  .hud-lap-val {
+    font-size: 22px;
+  }
+
+  .hud-finallap {
+    font-size: 18px;
+  }
+
+  .hud-pos {
+    gap: 8px;
+    padding: 4px 12px 5px 10px;
+  }
+
+  .hud-pos-num {
+    font-size: 34px;
+  }
+
+  .hud-pos-chip {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+  }
+
+  .hud-map {
+    right: max(12px, env(safe-area-inset-right));
+    top: max(10px, env(safe-area-inset-top));
+    padding: 5px;
+  }
+
+  .hud-map-canvas {
+    width: 112px;
+    height: 112px;
+  }
+
+  .hud-gauge-wrap {
+    display: none;
+  }
+
+  .hud-speedo {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .hud-speed-panel {
+    padding: 7px 12px 7px 14px;
+  }
+
+  .hud-speed-num {
+    font-size: 38px;
+  }
+
+  .hud-speed-unit {
+    font-size: 12px;
+  }
+
+  .hud-power {
+    top: max(10px, env(safe-area-inset-top));
+    bottom: auto;
+    width: 320px;
+    min-height: 56px;
+    padding: 6px 11px 7px;
+    gap: 5px;
+  }
+
+  .hud-flight {
+    padding-bottom: 4px;
+  }
+
+  .hud-flight-label,
+  .hud-boost-label {
+    width: 48px;
+    flex-basis: 48px;
+    font-size: 11px;
+  }
+
+  .hud-boost-seg {
+    width: 21px;
+    height: 13px;
+  }
+
+  .hud-flight-pip {
+    height: 8px;
+  }
+
+  .hud-brand {
+    top: 24%;
+  }
+
+  .hud-brand-lead {
+    font-size: 18px;
+  }
+
+  .hud-brand-action {
+    font-size: 34px;
+  }
+
+  .hud-countdown {
+    top: 54%;
+    font-size: 112px;
+  }
+
+  .hud-flight-prompt {
+    top: 22%;
+    bottom: auto;
+    gap: 12px;
+    padding: 11px 20px 13px 14px;
+  }
+
+  .hud-keycap {
+    width: 62px;
+    height: 62px;
+    flex-basis: 62px;
+    font-size: 42px;
+  }
+
+  .hud-flight-prompt-en { font-size: 14px; }
+  .hud-flight-prompt-cn { font-size: 27px; }
+
+  .hud-battle-sky { min-width: 420px; }
+  .hud-battle-to { font-size: 52px; }
+  .hud-battle-from { font-size: 24px; }
+  .hud-battle-opponent { font-size: 19px; }
+
+  .hud-turn-warning {
+    top: 20%;
+    padding: 8px 15px 9px 9px;
+  }
+  .hud-turn-warning-mark { width: 42px; height: 42px; font-size: 32px; }
+  .hud-turn-warning-title { font-size: 21px; }
+  .hud-turn-warning-detail { font-size: 12px; }
+
+  .hud-impact-copy { top: 36%; }
+  .hud-impact-kicker { font-size: 40px; }
+  .hud-impact-title { font-size: 25px; }
+  .hud-impact-detail { font-size: 14px; }
+
+  .hud-results-panel {
+    min-width: 0;
+    width: min(620px, calc(100% - 32px));
+    max-height: calc(100% - 24px);
+    padding: 18px 24px 16px;
+  }
+
+  .hud-results-title {
+    font-size: 52px;
+  }
+
+  .hud-results-place {
+    font-size: 34px;
+  }
+
+  .hud-results-reason { margin-top: 10px; font-size: 16px; }
+  .hud-results-medal { margin-top: 10px; font-size: 19px; }
+
+  .hud-results-rows {
+    margin: 10px 0 4px;
+  }
+
+  .hud-result-stat { padding: 6px 4px; }
+  .hud-result-stat-value { font-size: 18px; }
+
+  .hud-retry { min-height: 50px; min-width: 220px; font-size: 21px; }
+
+  .hud-results-row {
+    grid-template-columns: 50px 1fr 92px 98px;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 16px;
+  }
+
+  .hud-results-again {
+    margin-top: 9px;
+    font-size: 15px;
+  }
+
+  .hud-lesson-inner { width: min(760px, calc(100% - 32px)); padding: 20px 28px 24px; }
+  .hud-lesson-rule { font-size: 25px; }
+  .hud-lesson-title { margin-top: 18px; font-size: 43px; }
+  .hud-lesson-copy { font-size: 17px; }
+}
+
+@media (max-width: 600px) {
+  .hud-topleft {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .hud-finallap {
+    position: absolute;
+    left: 4px;
+    top: 54px;
+    white-space: nowrap;
+  }
+
+  .hud-lap {
+    padding: 5px 10px 6px 8px;
+  }
+
+  .hud-lap-val {
+    font-size: 18px;
+  }
+
+  .hud-pos {
+    gap: 5px;
+    padding: 3px 8px 4px 7px;
+  }
+
+  .hud-pos-num {
+    font-size: 29px;
+  }
+
+  .hud-pos-chip {
+    width: 14px;
+    height: 14px;
+  }
+
+  .hud-map-canvas {
+    width: 108px;
+    height: 108px;
+  }
+
+  .hud-power {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 76px);
+    width: auto;
+    transform: skew(-8deg);
+  }
+
+  .hud-speedo {
+    bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .hud-brand {
+    top: 25%;
+  }
+
+  .hud-brand-action {
+    font-size: 31px;
+  }
+
+  .hud-countdown {
+    top: 49%;
+    font-size: 104px;
+  }
+
+  .hud-flight-prompt {
+    top: max(148px, calc(env(safe-area-inset-top) + 140px));
+    bottom: auto;
+    gap: 10px;
+    padding: 9px 13px 11px 10px;
+  }
+
+  .hud-keycap { width: 52px; height: 52px; flex-basis: 52px; border-width: 4px; font-size: 35px; }
+  .hud-flight-prompt-en { font-size: 12px; }
+  .hud-flight-prompt-cn { font-size: 25px; }
+  .hud-flight-prompt-rule { font-size: 10px; white-space: normal; }
+
+  .hud-battle-sky {
+    top: max(144px, calc(env(safe-area-inset-top) + 134px));
+    width: calc(100% - 20px);
+    min-width: 0;
+    height: 104px;
+  }
+  .hud-battle-copy { top: 6px; width: 250px; }
+  .hud-battle-to { font-size: 46px; }
+  .hud-battle-from { font-size: 22px; }
+  .hud-battle-opponent { font-size: 17px; }
+  .hud-battle-shard { top: 68px; }
+
+  .hud-impact-copy {
+    top: 34%;
+    width: calc(100% - 28px);
+  }
+
+  .hud-impact-kicker { font-size: 34px; }
+  .hud-impact-title { font-size: 22px; }
+  .hud-impact-detail { font-size: 13px; }
+
+  .hud-results-panel {
+    width: calc(100% - 24px);
+    padding: 14px 12px 12px;
+  }
+
+  .hud-results-title {
+    font-size: 42px;
+  }
+
+  .hud-results-place {
+    font-size: 29px;
+  }
+
+  .hud-results-reason { font-size: 15px; }
+  .hud-results-medal { font-size: 17px; }
+  .hud-results-rows { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hud-result-stat-label { font-size: 9px; }
+  .hud-result-stat-value { font-size: 15px; }
+  .hud-retry { width: min(260px, 100%); min-width: 0; }
+
+  .hud-lesson-inner { width: calc(100% - 24px); padding: 18px 14px 22px; }
+  .hud-lesson-attempt { font-size: 12px; }
+  .hud-lesson-rule { font-size: 21px; }
+  .hud-lesson-title { margin-top: 20px; font-size: 38px; }
+  .hud-lesson-copy { font-size: 16px; line-height: 1.35; }
+  .hud-lesson-metric { font-size: 14px; }
+  .hud-lesson-progress { width: 86%; margin-top: 20px; }
+
+  .hud-results-row {
+    grid-template-columns: 40px 1fr 74px 82px;
+    font-size: 13px;
+  }
+
+  .hud-results-row.head {
+    font-size: 11px;
+  }
+}
+
+@media (max-height: 520px) {
+  .hud-flight-prompt {
+    left: max(12px, env(safe-area-inset-left));
+    top: 148px;
+    width: 204px;
+    gap: 8px;
+    padding: 8px 9px 9px 8px;
+    transform: translateY(-14px) scale(0.9) skew(-8deg);
+  }
+  .hud-flight-prompt.on { transform: translateY(0) scale(1) skew(-8deg); }
+  .hud-flight-prompt::before,
+  .hud-flight-prompt::after { inset: -9px -3px; }
+  .hud-flight-prompt .hud-keycap { width: 46px; height: 46px; flex-basis: 46px; font-size: 32px; }
+  .hud-flight-prompt-en { font-size: 10px; }
+  .hud-flight-prompt-cn { margin-top: 2px; font-size: 20px; }
+  .hud-flight-prompt-rule { margin-top: 4px; font-size: 9px; white-space: normal; }
+
+  .hud-battle-sky {
+    top: max(4px, env(safe-area-inset-top));
+    width: 380px;
+    min-width: 0;
+    height: 62px;
+  }
+  .hud-battle-copy { display: none; }
+  .hud-battle-shard.side-left { --origin: 5% !important; }
+  .hud-battle-shard.side-right { --origin: 95% !important; }
+  .hud-battle-shard { top: 35px; width: 5px; height: 12px; }
+  .hud-battle.on[data-kind='overtake'] .hud-battle-sky::before,
+  .hud-battle.on[data-kind='overtake'] .hud-battle-sky::after { top: 4px; font-size: 52px; }
+
+  .hud-results { padding: 10px; }
+
+  .hud-results-panel {
+    width: min(650px, calc(100% - 28px));
+    max-height: calc(100% - 16px);
+    padding: 10px 28px 9px;
+  }
+
+  .hud-results-eyebrow { font-size: 11px; }
+  .hud-results-title { margin-top: 3px; font-size: 43px; }
+  .hud-results-place { margin-top: 4px; font-size: 29px; }
+  .hud-results-reason { margin-top: 6px; font-size: 13px; line-height: 1.2; }
+  .hud-results-medal { margin-top: 6px; font-size: 17px; }
+  .hud-results-rows { margin: 8px auto 7px; }
+  .hud-result-stat { padding: 4px; }
+  .hud-result-stat-label { font-size: 9px; }
+  .hud-result-stat-value { margin-top: 2px; font-size: 16px; }
+  .hud-retry { min-height: 43px; min-width: 205px; padding: 5px 18px; font-size: 19px; }
+  .hud-retry-key { width: 28px; height: 28px; font-size: 16px; }
+  .hud-results-again { display: none; }
+  .hud-turn-warning { top: 35%; }
+
+  .hud-lesson-inner { width: calc(100% - 26px); padding: 10px 24px 12px; }
+  .hud-lesson-attempt { font-size: 10px; }
+  .hud-lesson-rule { margin-top: 4px; font-size: 18px; }
+  .hud-lesson-title { margin-top: 8px; font-size: 30px; }
+  .hud-lesson-copy { margin-top: 6px; font-size: 13px; line-height: 1.25; }
+  .hud-lesson-metric { margin-top: 4px; font-size: 12px; }
+  .hud-lesson-progress { margin-top: 8px; }
+  .hud-lesson-pip { height: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud *,
+  .hud *::before,
+  .hud *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .hud-impact-lines,
+  .hud-impact-flash,
+  .hud-drift-fx,
+  .hud-battle-firework,
+  .hud-battle-sky-flash,
+  .hud-lesson-grid {
+    display: none;
+  }
+}
+
+/* ---- three-flight challenge: quiet, scan-first HUD --------------------------- */
+
+.hud-map,
+.hud-speedo {
+  display: none;
+}
+
+.hud-topleft {
+  left: max(18px, env(safe-area-inset-left));
+  top: max(16px, env(safe-area-inset-top));
+  width: 238px;
+  gap: 3px;
+}
+
+.hud-topleft .hud-panel {
+  width: 100%;
+  background: rgba(10, 16, 45, 0.72);
+  border: 0;
+  border-left: 3px solid var(--flight);
+  box-shadow: none;
+  transform: none;
+}
+
+.hud-lap { padding: 8px 12px 7px; }
+.hud-lap-val { font-size: 23px; line-height: 1; }
+
+.hud-finallap {
+  order: -1;
+  padding-left: 12px;
+  font: italic 900 12px/1.1 'Arial Black', Impact, system-ui, sans-serif;
+  color: var(--warn);
+  opacity: 1;
+  transform: none;
+}
+
+.hud-finallap.qualified { color: var(--accent); }
+
+.hud-pos {
+  display: grid;
+  grid-template-columns: auto 10px 1fr;
+  gap: 8px;
+  padding: 5px 12px 7px;
+}
+
+.hud-pos-num { font-size: 25px; line-height: 1; }
+.hud-pos-chip { width: 10px; height: 10px; border: 0; box-shadow: none; }
+.hud-pos-gap {
+  overflow: hidden;
+  color: var(--text);
+  font: 800 12px/1.1 system-ui, sans-serif;
+  font-style: normal;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-power {
+  width: min(350px, calc(100% - 48px));
+  min-height: 48px;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  padding: 6px 12px;
+  gap: 4px;
+  background: rgba(10, 16, 45, 0.62);
+  border: 0;
+  border-bottom: 3px solid var(--flight);
+  box-shadow: none;
+}
+
+.hud-flight { padding-bottom: 3px; }
+.hud-flight-label,
+.hud-boost-label { width: 48px; flex-basis: 48px; font-size: 11px; }
+.hud-flight-pip { height: 6px; border-width: 1px; }
+.hud-boost-seg { height: 9px; border-width: 1px; }
+
+.hud-flight-prompt {
+  left: max(18px, env(safe-area-inset-left));
+  top: max(122px, calc(env(safe-area-inset-top) + 106px));
+  width: 230px;
+  gap: 10px;
+  padding: 9px 12px;
+  border-width: 2px;
+  box-shadow: 4px 4px 0 var(--ink);
+  transform: translateY(-10px);
+}
+
+.hud-flight-prompt.on { transform: translateY(0); }
+.hud-flight-prompt::before,
+.hud-flight-prompt::after { display: none; }
+.hud-flight-prompt .hud-keycap {
+  width: 62px;
+  height: 38px;
+  flex-basis: 62px;
+  border-width: 2px;
+  box-shadow: 3px 3px 0 var(--ink);
+  font-size: 13px;
+}
+.hud-flight-prompt-en { font-size: 11px; }
+.hud-flight-prompt-cn { margin-top: 2px; font-size: 17px; }
+.hud-flight-prompt-rule { margin-top: 3px; font-size: 10px; color: var(--text); }
+
+.hud-turn-warning {
+  top: auto;
+  bottom: 82px;
+  width: min(330px, calc(100% - 48px));
+  padding: 8px 14px;
+  border-width: 2px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+.hud-turn-warning-mark { font-size: 30px; }
+.hud-turn-warning-title { font-size: 17px; }
+.hud-turn-warning-detail { font-size: 12px; }
+
+.hud-brand { top: max(7%, calc(env(safe-area-inset-top) + 10px)); }
+.hud-brand-lead { font-size: 34px; }
+.hud-brand-action { margin-top: 8px; font-size: 20px; }
+.hud-brand-drift::after { content: ' · '; color: var(--text); }
+.hud-brand .hud-inked {
+  text-shadow: 2px 2px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
+}
+
+.hud-impact-copy { max-width: min(440px, calc(100% - 40px)); }
+.hud-impact-title { font-size: 44px; }
+.hud-impact-detail { font-size: 14px; }
+
+.hud-retry-lesson {
+  background: rgba(4, 7, 20, 0.93);
+}
+.hud-lesson-grid { display: none; }
+.hud-lesson-inner {
+  width: min(820px, calc(100% - 48px));
+  padding: 22px 30px 20px;
+  border-top: 2px solid rgba(85, 231, 255, 0.7);
+  border-bottom: 2px solid rgba(85, 231, 255, 0.7);
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+.hud-lesson-attempt { font-size: 13px; color: rgba(244, 254, 255, 0.62); }
+.hud-lesson-title { margin-top: 18px; font-size: 62px; line-height: 1; }
+.hud-lesson-copy { margin-top: 14px; font-size: 19px; line-height: 1.3; }
+.hud-lesson-metric { display: none; }
+.hud-lesson-progress {
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+  width: min(500px, 76%);
+  margin-top: 22px;
+}
+.hud-lesson-pip { height: 3px; border: 0; transform: none; }
+.hud-lesson-pip.on { box-shadow: 0 0 8px var(--flight); }
+
+.hud-results-energy,
+.hud-results-panel::before,
+.hud-results-panel::after { display: none; }
+
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-topleft {
+    left: max(10px, env(safe-area-inset-left));
+    top: max(8px, env(safe-area-inset-top));
+    width: 180px;
+  }
+  .hud-lap { padding: 5px 8px; }
+  .hud-lap-val { font-size: 17px; }
+  .hud-finallap { padding-left: 8px; font-size: 9px; }
+  .hud-pos { grid-template-columns: auto 8px 1fr; padding: 4px 8px 5px; gap: 5px; }
+  .hud-pos-num { font-size: 18px; }
+  .hud-pos-chip { width: 8px; height: 8px; }
+  .hud-pos-gap { font-size: 9px; }
+  .hud-power,
+  .hud-flight-prompt,
+  .hud-turn-warning { display: none; }
+  .hud-brand-lead { font-size: 24px; }
+  .hud-brand-action { font-size: 14px; }
+  .hud-turn-warning {
+    left: max(10px, env(safe-area-inset-left));
+    right: auto;
+    bottom: max(20px, env(safe-area-inset-bottom));
+    width: 210px;
+    transform: none;
+  }
+  .hud-turn-warning.on { transform: none; }
+  .hud-turn-warning-mark { font-size: 23px; }
+  .hud-turn-warning-title { font-size: 13px; }
+  .hud-turn-warning-detail { font-size: 9px; }
+  .hud-impact-title { font-size: 28px; }
+  .hud-lesson-inner { width: calc(100% - 30px); padding: 13px 18px 12px; }
+  .hud-lesson-attempt { font-size: 9px; }
+  .hud-lesson-title { margin-top: 10px; font-size: 34px; }
+  .hud-lesson-copy { margin-top: 8px; font-size: 13px; }
+  .hud-lesson-progress { margin-top: 12px; }
 }

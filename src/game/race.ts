@@ -17,9 +17,20 @@
  *     never banks race distance, so cutting is never profitable.
  */
 import * as THREE from 'three';
-import type { RaceView, RacerState, IBoat, ICourse, RacePhase, CourseSample } from '../contracts';
-import { RACER_COLORS, RACER_NAMES } from '../core/palette';
+import type {
+  ChallengeResult,
+  RaceView,
+  RacerState,
+  IBoat,
+  ICourse,
+  RacePhase,
+  CourseSample,
+  RaceBattleEvent,
+  RaceBattleOpponent,
+  FlightFailureSnapshot,
+} from '../contracts';
 import { CHECKPOINT_US } from './course';
+import { RACER_DEFS } from './racers';
 
 export interface RaceEvents {
   countdownTick(n: number): void; // 3,2,1
@@ -28,6 +39,7 @@ export interface RaceEvents {
   checkpoint(r: RacerState, splitDelta: number): void; // split vs leader, seconds
   finish(r: RacerState): void;
   wrongWay(r: RacerState, on: boolean): void;
+  battle(event: RaceBattleEvent): void;
 }
 
 const COUNTDOWN_S = 3.6;
@@ -39,26 +51,34 @@ const GATE_CREDIT_DIST = 15;
 const WRONG_WAY_DOT = -0.3;
 const WRONG_WAY_SPEED = 3; // m/s
 const WRONG_WAY_HOLD = 0.7; // s sustained before the flag sets
+const BATTLE_ARM_M = 0.75;
+const BATTLE_CROSS_M = 0.25;
+const BATTLE_MIN_REL_SPEED = 0.5;
+const BATTLE_COOLDOWN_S = 0.45;
+const OVERTAKE_COMBO_S = 2.5;
 
 const _sample: CourseSample = {
   u: 0,
   distance: 0,
   point: new THREE.Vector3(),
   tangent: new THREE.Vector3(),
+  routeId: 'surface',
 };
 
 export class Race implements RaceView {
   readonly racers: RacerState[] = [];
-  readonly totalLaps = 3;
+  readonly totalLaps = 1;
   phase: RacePhase = 'countdown';
   countdownValue = 3;
   raceTime = 0; // seconds since GO
+  challengeResult: ChallengeResult | null = null;
 
   private readonly course: ICourse;
   private readonly boats: IBoat[];
   private readonly events: RaceEvents;
 
   private cdTimer = COUNTDOWN_S;
+  private tickS = TICK_S;
   private pendingTick = 0;
 
   // per-racer tracking, indexed by boat.id
@@ -74,24 +94,34 @@ export class Race implements RaceView {
   private wrongT: number[] = [];
   private cpLeaderTimes: number[] = []; // earliest crossing time per (window, gate)
   private order: RacerState[] = []; // preallocated place-sort scratch
+  private battleRelation: number[] = [];
+  private battlePrevDiff: number[] = [];
+  private battleCooldown: number[] = [];
+  private resynced: boolean[] = [];
+  private battleDisplayPlace = RACER_DEFS[0].startPlace;
+  private overtakeStreak = 0;
+  private lastOvertakeAt = -Infinity;
+  private totalOvertakes = 0;
 
   constructor(course: ICourse, boats: IBoat[], events: RaceEvents) {
     this.course = course;
     this.boats = boats;
     this.events = events;
     for (const boat of boats) {
+      const def = RACER_DEFS[boat.id];
       this.racers[boat.id] = {
         id: boat.id,
-        name: RACER_NAMES[boat.id] ?? `P${boat.id + 1}`,
-        isPlayer: boat === boats[0], // boats[0] is always the player
-        color: RACER_COLORS[boat.id] ?? 0xffffff,
+        name: def?.name ?? `P${boat.id + 1}`,
+        isPlayer: def?.isPlayer ?? boat === boats[0],
+        color: def?.color ?? 0xffffff,
         lap: 1,
         progress: 0,
-        place: boat.id + 1,
+        place: def?.startPlace ?? boat.id + 1,
         lastLapTime: -1,
         bestLapTime: -1,
         splitDelta: 0,
         finished: false,
+        eliminated: false,
         finishTime: -1,
         wrongWay: false,
       };
@@ -105,20 +135,23 @@ export class Race implements RaceView {
   }
 
   /** Back to countdown, all progress cleared. */
-  reset(): void {
+  reset(quick = false): void {
     this.phase = 'countdown';
-    this.cdTimer = COUNTDOWN_S;
-    this.countdownValue = 3;
-    this.pendingTick = 3; // fired on the first update, not from reset() itself
+    this.cdTimer = quick ? 0.45 : COUNTDOWN_S;
+    this.tickS = quick ? 0.45 : TICK_S;
+    this.countdownValue = quick ? 1 : 3;
+    this.pendingTick = this.countdownValue;
     this.raceTime = 0;
+    this.challengeResult = null;
     for (const r of this.racers) {
       r.lap = 1;
       r.progress = 0;
-      r.place = r.id + 1;
+      r.place = RACER_DEFS[r.id]?.startPlace ?? r.id + 1;
       r.lastLapTime = -1;
       r.bestLapTime = -1;
       r.splitDelta = 0;
       r.finished = false;
+      r.eliminated = false;
       r.finishTime = -1;
       r.wrongWay = false;
     }
@@ -135,6 +168,88 @@ export class Race implements RaceView {
     this.wrongT = new Array(n).fill(0);
     this.cpLeaderTimes = new Array(CHECKPOINT_US.length * (this.totalLaps + 1)).fill(Infinity);
     this.order = this.racers.slice();
+    this.battleRelation = new Array(n).fill(0);
+    this.battlePrevDiff = new Array(n).fill(0);
+    this.battleCooldown = new Array(n).fill(0);
+    this.resynced = new Array(n).fill(false);
+    this.battleDisplayPlace = RACER_DEFS[0].startPlace;
+    this.overtakeStreak = 0;
+    this.lastOvertakeAt = -Infinity;
+    this.totalOvertakes = 0;
+  }
+
+  /** End the player's run immediately. Idempotent so swept checks cannot double-fire. */
+  defeatFlight(failure: FlightFailureSnapshot): void {
+    if (this.phase !== 'racing') return;
+    this.phase = 'defeated';
+    const player = this.player();
+    const leader = this.order[0] ?? player;
+    const gapM = Math.max(0, leader.progress - player.progress);
+    const leaderSpeed = Math.max(1, Math.abs(this.boats[leader.id]?.state.speed ?? 0));
+    this.challengeResult = {
+      outcome: 'defeated',
+      reason: failure.reason,
+      gate: failure.targetGate ?? Math.min(3, failure.gatesPassed + 1),
+      place: player.place,
+      totalRacers: this.racers.length,
+      raceTime: this.raceTime,
+      flightsCleared: failure.flightsCleared,
+      leaderGapSeconds: player.place === 1 ? 0 : gapM / leaderSpeed,
+      leaderGapMeters: player.place === 1 ? 0 : gapM,
+      overtakes: this.totalOvertakes,
+      excellentTotal: 0,
+      ordinaryNew: false,
+      failure,
+    };
+  }
+
+  /** Mark an AI as having legally crossed the challenge finish. */
+  finishChallengeRacer(id: number): void {
+    if (this.phase !== 'racing') return;
+    const r = this.racers[id];
+    if (!r || r.finished || r.eliminated) return;
+    r.finished = true;
+    r.finishTime = this.raceTime;
+    this.events.finish(r);
+    this.sortPlaces();
+  }
+
+  /** The same mandatory-gate rule applies to rivals without ending the player's run. */
+  eliminateRacer(id: number): void {
+    const r = this.racers[id];
+    if (!r || r.isPlayer || r.finished || r.eliminated) return;
+    r.eliminated = true;
+    this.sortPlaces();
+  }
+
+  /** The third legal gate is the finish line for the short challenge. */
+  completeChallenge(): void {
+    if (this.phase !== 'racing') return;
+    const player = this.player();
+    player.finished = true;
+    player.finishTime = this.raceTime;
+    this.sortPlaces();
+    const leader = this.order[0] ?? player;
+    const leaderGapSeconds = player.place === 1 || leader.finishTime < 0
+      ? 0
+      : Math.max(0, player.finishTime - leader.finishTime);
+    this.phase = 'finished';
+    this.challengeResult = {
+      outcome: player.place === 1 ? 'excellent' : 'ordinary',
+      reason: 'none',
+      gate: 3,
+      place: player.place,
+      totalRacers: this.racers.length,
+      raceTime: this.raceTime,
+      flightsCleared: this.boats[player.id].state.flightsCleared,
+      leaderGapSeconds,
+      leaderGapMeters: 0,
+      overtakes: this.totalOvertakes,
+      excellentTotal: 0,
+      ordinaryNew: false,
+      failure: null,
+    };
+    this.events.finish(player);
   }
 
   update(dt: number): void {
@@ -144,7 +259,7 @@ export class Race implements RaceView {
         this.pendingTick = 0;
       }
       this.cdTimer -= dt;
-      const v = Math.ceil(this.cdTimer / TICK_S);
+      const v = Math.ceil(this.cdTimer / this.tickS);
       if (v >= 1 && v < this.countdownValue) {
         this.countdownValue = v;
         this.events.countdownTick(v);
@@ -157,19 +272,24 @@ export class Race implements RaceView {
         this.events.go();
       }
       this.track(dt, true); // keep position tracking warm; no gate/lap processing
+      this.sortPlaces();
+      this.syncBattleRelations();
       return;
     }
+    if (this.phase !== 'racing') return;
     this.raceTime += dt;
     this.track(dt, false);
     this.sortPlaces();
+    this.trackBattles(dt);
   }
 
   private track(dt: number, resyncOnly: boolean): void {
     const nCp = CHECKPOINT_US.length;
+    for (let i = 0; i < this.resynced.length; i++) this.resynced[i] = false;
     for (const boat of this.boats) {
       const id = boat.id;
       const r = this.racers[id];
-      this.course.sample(boat.state.position, _sample);
+      this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
       const u = _sample.u;
       if (!this.inited[id]) {
         // grid sits just behind the line (u ~ 0.996): unwrap to slightly negative
@@ -177,6 +297,7 @@ export class Race implements RaceView {
         this.prevU[id] = u;
         this.prevContU[id] = this.contU[id];
         this.inited[id] = true;
+        r.progress = this.windowedProgress(id);
         continue;
       }
       let du = u - this.prevU[id];
@@ -185,6 +306,7 @@ export class Race implements RaceView {
       this.prevU[id] = u;
 
       if (Math.abs(du) > JUMP_U) {
+        this.resynced[id] = true;
         // cut / teleport: resync tracking to the physical position and deny
         // every gate inside the jumped span (consumed without credit).
         let newCu = this.lapWindow[id] + u;
@@ -210,7 +332,7 @@ export class Race implements RaceView {
         this.prevContU[id] = cu;
         continue;
       }
-      if (!r.finished) {
+      if (!r.finished && !r.eliminated) {
         r.progress = this.windowedProgress(id);
 
         // checkpoint gates: rising edge, in order, near the spline
@@ -259,7 +381,9 @@ export class Race implements RaceView {
 
   /** Race distance: banked legit laps + current-window segment. Void laps bank nothing. */
   private windowedProgress(id: number): number {
-    const seg = Math.min(Math.max(this.contU[id] - this.lapWindow[id], 0), 1);
+    const raw = this.contU[id] - this.lapWindow[id];
+    const lo = this.legitLaps[id] === 0 && this.lapWindow[id] === 0 ? -0.1 : 0;
+    const seg = Math.min(Math.max(raw, lo), 1);
     return (this.legitLaps[id] + seg) * this.course.length;
   }
 
@@ -318,8 +442,95 @@ export class Race implements RaceView {
     for (let i = 0; i < ord.length; i++) ord[i].place = i + 1;
   }
 
+  private syncBattleRelations(): void {
+    const player = this.player();
+    for (const opponent of this.racers) {
+      if (opponent.isPlayer) continue;
+      const diff = player.progress - opponent.progress;
+      this.battleRelation[opponent.id] = diff <= -BATTLE_ARM_M ? -1 : diff >= BATTLE_ARM_M ? 1 : 0;
+      this.battlePrevDiff[opponent.id] = diff;
+      this.battleCooldown[opponent.id] = 0;
+    }
+    this.battleDisplayPlace = player.place;
+  }
+
+  private trackBattles(dt: number): void {
+    const player = this.player();
+    if (player.finished) return;
+    const passed: RaceBattleOpponent[] = [];
+    const lost: RaceBattleOpponent[] = [];
+    const playerResynced = this.resynced[player.id];
+    for (const opponent of this.racers) {
+      if (opponent.isPlayer || opponent.finished || opponent.eliminated) continue;
+      const id = opponent.id;
+      const diff = player.progress - opponent.progress;
+      const prevDiff = this.battlePrevDiff[id];
+      const relativeSpeed = (diff - prevDiff) / Math.max(dt, 1e-4);
+      this.battlePrevDiff[id] = diff;
+      this.battleCooldown[id] = Math.max(0, this.battleCooldown[id] - dt);
+      if (this.resynced[player.id] || this.resynced[id]) {
+        this.battleRelation[id] = diff <= -BATTLE_ARM_M ? -1 : diff >= BATTLE_ARM_M ? 1 : 0;
+        continue;
+      }
+      if (this.battleRelation[id] === 0) {
+        if (diff <= -BATTLE_ARM_M) this.battleRelation[id] = -1;
+        else if (diff >= BATTLE_ARM_M) this.battleRelation[id] = 1;
+      } else if (this.battleCooldown[id] <= 0 && this.battleRelation[id] < 0 &&
+          prevDiff < BATTLE_CROSS_M && diff >= BATTLE_CROSS_M && relativeSpeed >= BATTLE_MIN_REL_SPEED) {
+        this.battleRelation[id] = 1;
+        this.battleCooldown[id] = BATTLE_COOLDOWN_S;
+        passed.push({ id, name: opponent.name, color: opponent.color });
+      } else if (this.battleCooldown[id] <= 0 && this.battleRelation[id] > 0 &&
+          prevDiff > -BATTLE_CROSS_M && diff <= -BATTLE_CROSS_M && relativeSpeed <= -BATTLE_MIN_REL_SPEED) {
+        this.battleRelation[id] = -1;
+        this.battleCooldown[id] = BATTLE_COOLDOWN_S;
+        lost.push({ id, name: opponent.name, color: opponent.color });
+      }
+    }
+    // A teleport/cut is a tracking resync, not an overtake. Keep the displayed
+    // place aligned with the new physical order so the next real pass reports
+    // an honest from/to pair.
+    if (playerResynced) this.battleDisplayPlace = player.place;
+    if (passed.length > 0) {
+      this.overtakeStreak = this.raceTime - this.lastOvertakeAt <= OVERTAKE_COMBO_S
+        ? this.overtakeStreak + passed.length
+        : passed.length;
+      this.lastOvertakeAt = this.raceTime;
+      this.totalOvertakes += passed.length;
+      const fromPlace = this.battleDisplayPlace;
+      this.battleDisplayPlace = player.place;
+      this.events.battle({
+        kind: 'overtake',
+        opponents: passed,
+        fromPlace,
+        toPlace: player.place,
+        streak: this.overtakeStreak,
+        rankChanged: fromPlace !== player.place,
+        rankDelta: fromPlace - player.place,
+        raceTime: this.raceTime,
+      });
+    }
+    if (lost.length > 0) {
+      const fromPlace = this.battleDisplayPlace;
+      this.battleDisplayPlace = player.place;
+      this.overtakeStreak = 0;
+      this.lastOvertakeAt = -Infinity;
+      this.events.battle({
+        kind: 'lost',
+        opponents: lost,
+        fromPlace,
+        toPlace: player.place,
+        streak: 0,
+        rankChanged: fromPlace !== player.place,
+        rankDelta: fromPlace - player.place,
+        raceTime: this.raceTime,
+      });
+    }
+  }
+
   /** a ranks ahead of b? Finished by time, unfinished by progress, ties to lower id. */
   private better(a: RacerState, b: RacerState): boolean {
+    if (a.eliminated !== b.eliminated) return !a.eliminated;
     if (a.finished && b.finished) {
       return a.finishTime !== b.finishTime ? a.finishTime < b.finishTime : a.id < b.id;
     }
@@ -327,4 +538,5 @@ export class Race implements RaceView {
     if (a.progress !== b.progress) return a.progress > b.progress;
     return a.id < b.id;
   }
+
 }

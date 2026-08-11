@@ -1,0 +1,81 @@
+import type { RacerDefinition } from '../contracts';
+import { PALETTE } from '../core/palette';
+
+/** Single source of truth for construction, AI pace, lanes and the six-place grid. */
+export const RACER_DEFS: readonly RacerDefinition[] = [
+  {
+    id: 0,
+    name: 'YOU',
+    color: PALETTE.hullPlayer,
+    isPlayer: true,
+    personality: 'clean',
+    pace: 1,
+    lane: 0,
+    startPlace: 4,
+    startDistance: 22,
+    startLateral: 0,
+  },
+  {
+    id: 1,
+    name: 'REEF',
+    color: PALETTE.hullReef,
+    isPlayer: false,
+    personality: 'aggressive',
+    pace: 1,
+    lane: 0,
+    startPlace: 1,
+    startDistance: 9,
+    startLateral: 0,
+  },
+  {
+    id: 2,
+    name: 'KAI',
+    color: PALETTE.hullKai,
+    isPlayer: false,
+    personality: 'clean',
+    pace: 0.985,
+    lane: -4,
+    startPlace: 2,
+    startDistance: 15,
+    startLateral: -5.5,
+  },
+  {
+    id: 3,
+    name: 'JINX',
+    color: PALETTE.hullJinx,
+    isPlayer: false,
+    personality: 'erratic',
+    pace: 0.965,
+    lane: 4,
+    startPlace: 3,
+    startDistance: 15,
+    startLateral: 5.5,
+  },
+  {
+    id: 4,
+    name: 'VOLT',
+    color: PALETTE.hullVolt,
+    isPlayer: false,
+    personality: 'clean',
+    pace: 0.94,
+    lane: -4,
+    startPlace: 5,
+    startDistance: 28,
+    startLateral: -5.5,
+  },
+  {
+    id: 5,
+    name: 'NOVA',
+    color: PALETTE.hullNova,
+    isPlayer: false,
+    personality: 'erratic',
+    pace: 0.91,
+    lane: 4,
+    startPlace: 6,
+    startDistance: 28,
+    startLateral: 5.5,
+  },
+];
+
+export const RACER_COLORS: readonly number[] = RACER_DEFS.map((racer) => racer.color);
+export const RACER_NAMES: readonly string[] = RACER_DEFS.map((racer) => racer.name);

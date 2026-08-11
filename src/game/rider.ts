@@ -53,6 +53,12 @@ const TUNING = {
   airArmRise: 0.28, airElbowTuck: 0.2, airLegExtend: 0.22,
   airBodyOpen: 0.16, airHeadUp: 0.2,
 
+  // Controlled anti-gravity flight: a compact, braced pose rather than the
+  // natural-airborne "whee" animation used for wave jumps.
+  flightOmega: 7, flightZeta: 1,
+  flightHipsDrop: 0.08, flightHunch: 0.12,
+  flightArmBrace: 0.08, flightKnee: 0.14,
+
   // Landing crouch: kicked by landImpulse (m/s), springy ~0.4s recovery.
   landKick: 0.05, landMax: 1.2,
   landOmega: 16, landZeta: 0.35,
@@ -139,6 +145,7 @@ export class Rider {
   private readonly pitchS = new Spring();
   private readonly driftS = new Spring();
   private readonly airS = new Spring();
+  private readonly flightS = new Spring();
   private readonly crouchS = new Spring();
   private readonly celS = new Spring();
   private readonly boatPitchS = new Spring();
@@ -294,12 +301,14 @@ export class Rider {
     const pitchT = clamp(-boat.longG * T.pitchPerG, -T.pitchMax, T.pitchMax);
     const driftT = boat.drifting ? T.driftSign * boat.steer * T.driftTwist : 0;
     const airT = boat.airborne ? 1 : 0;
+    const flightT = boat.flightPhase !== 'surface' ? 1 : 0;
     const celT = celebrating ? 1 : 0;
 
     const lean = this.leanS.update(leanT, T.leanOmega, T.leanZeta, dt);
     const pitch = this.pitchS.update(pitchT, T.pitchOmega, T.pitchZeta, dt);
     const drift = this.driftS.update(driftT, T.driftOmega, T.driftZeta, dt);
     const air = this.airS.update(airT, T.airOmega, T.airZeta, dt);
+    const flight = this.flightS.update(flightT, T.flightOmega, T.flightZeta, dt);
     const cel = this.celS.update(celT, T.celOmega, T.celZeta, dt);
 
     // Landing crouch: impulse kicks the spring, underdamped ~0.4s recovery.
@@ -331,16 +340,17 @@ export class Rider {
     // ------------------------------------------------------ composite ----
     // Hips: lean roll, drift twist, crouch drop, breathing bob.
     j.hips.rotation.set(
-      -air * T.airBodyOpen * 0.4 - cel * 0.1,
+      -air * T.airBodyOpen * 0.4 + flight * 0.04 - cel * 0.1,
       drift * drive,
       lean * T.leanHips * drive + secR * 0.5,
     );
-    j.hips.position.y = this.hipsBaseY - crouch * T.landHipsDrop + bob;
+    j.hips.position.y = this.hipsBaseY - crouch * T.landHipsDrop - flight * T.flightHipsDrop + bob;
 
     // Spine: baked forward hunch + weight shift, lean, breathing, secondary
     // lag, celebration upright.
     j.spine.rotation.set(
-      POSE.hunchSpine + pitch + breath + secP + crouch * T.landSpine - air * T.airBodyOpen - cel * T.celUpright,
+      POSE.hunchSpine + pitch + breath + secP + crouch * T.landSpine
+        - air * T.airBodyOpen + flight * T.flightHunch - cel * T.celUpright,
       0,
       lean * T.leanSpine * drive,
     );
@@ -362,17 +372,17 @@ export class Rider {
     // crouch flexes both knees, airborne extends them a touch.
     const flareL = Math.max(0, -lean) / T.leanMax * T.kneeFlare * drive;
     const flareR = Math.max(0, lean) / T.leanMax * T.kneeFlare * drive;
-    j.hipL.rotation.set(crouch * T.landHip + air * 0.1, 0, flareL);
-    j.hipR.rotation.set(crouch * T.landHip + air * 0.1, 0, -flareR);
-    j.kneeL.rotation.set(-crouch * T.landKnee - air * T.airLegExtend, 0, 0);
-    j.kneeR.rotation.set(-crouch * T.landKnee - air * T.airLegExtend, 0, 0);
+    j.hipL.rotation.set(crouch * T.landHip + air * 0.1 + flight * T.flightKnee * 0.65, 0, flareL);
+    j.hipR.rotation.set(crouch * T.landHip + air * 0.1 + flight * T.flightKnee * 0.65, 0, -flareR);
+    j.kneeL.rotation.set(-crouch * T.landKnee - air * T.airLegExtend - flight * T.flightKnee, 0, 0);
+    j.kneeR.rotation.set(-crouch * T.landKnee - air * T.airLegExtend - flight * T.flightKnee, 0, 0);
 
     // Arms: bracing tension at speed, rise when airborne, outside elbow drops.
     const brace = (1 - idleW) * drive;
     const dropL = Math.max(0, lean) / T.leanMax * T.elbowDrop * drive;  // left elbow drops on right lean
     const dropR = Math.max(0, -lean) / T.leanMax * T.elbowDrop * drive;
-    const armBase = -brace * T.braceShoulder - air * T.airArmRise + vib;
-    const elbBase = brace * T.braceElbow + air * T.airElbowTuck + vib * 1.3;
+    const armBase = -brace * T.braceShoulder - air * T.airArmRise - flight * T.flightArmBrace + vib;
+    const elbBase = brace * T.braceElbow + air * T.airElbowTuck + flight * T.flightArmBrace * 0.75 + vib * 1.3;
 
     // Celebration pump: right arm overhead in a loop, left joins late and
     // returns to the grip every cycle.

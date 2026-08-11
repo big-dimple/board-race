@@ -20,11 +20,7 @@ import type { IBoat, ICourse, BoatInput, Personality, CourseSample } from '../co
 const VMAX = 34; // normalization reference top speed (m/s)
 const A_LAT = 6.5; // lateral grip budget (m/s^2) behind the corner speed table
 const V_MIN_CORNER = 10; // corner speed floor (m/s)
-const LANES = [-4, 0, 4]; // preferred lateral lanes by boat id — no single-file trains
 const AVOID_DIST = 9; // m
-const RUBBER_MIN = 0.94;
-const RUBBER_MAX = 1.07;
-const RUBBER_GAIN = 0.00035;
 
 interface PersonalityTune {
   cornerMul: number; // multiplier on the curvature-table speed targets
@@ -49,23 +45,23 @@ const PERSONALITIES: Record<Personality, PersonalityTune> = {
     cornerMul: 1.12, lookMul: 0.78, steerGain: 2.8, steerRate: 9, brake: 8.0,
     apexHug: 2.8, driftKappa: 0.018, driftMinSpeed: 13,
     wanderAmp: 0, paceJitter: 0,
-    mistakeEvery: [26, 44], mistakeDur: [0.5, 0.9], mistakeSteer: 0.5,
+    mistakeEvery: [42, 65], mistakeDur: [0.35, 0.6], mistakeSteer: 0.4,
   },
   // KAI — textbook: full table speeds, longest smoothest lookahead, earliest
   // braking, tiny apex trim, essentially never drifts, rarest mistakes.
   clean: {
-    cornerMul: 1.0, lookMul: 1.0, steerGain: 2.1, steerRate: 5, brake: 6.0,
-    apexHug: 0.6, driftKappa: 9, driftMinSpeed: 99,
+    cornerMul: 1.05, lookMul: 1.0, steerGain: 2.1, steerRate: 5, brake: 6.0,
+    apexHug: 0.6, driftKappa: 0.021, driftMinSpeed: 14,
     wanderAmp: 0, paceJitter: 0,
-    mistakeEvery: [40, 70], mistakeDur: [0.4, 0.7], mistakeSteer: 0.35,
+    mistakeEvery: [60, 90], mistakeDur: [0.3, 0.5], mistakeSteer: 0.25,
   },
   // JINX — wanders the course on smooth noise, random over/understeer events,
   // pace comes and goes, bins it often but never for long.
   erratic: {
-    cornerMul: 0.97, lookMul: 0.92, steerGain: 2.4, steerRate: 6, brake: 5.5,
-    apexHug: 0, driftKappa: 0.03, driftMinSpeed: 15,
+    cornerMul: 1.0, lookMul: 0.92, steerGain: 2.4, steerRate: 6, brake: 5.5,
+    apexHug: 0, driftKappa: 0.024, driftMinSpeed: 15,
     wanderAmp: 2.6, paceJitter: 0.05,
-    mistakeEvery: [11, 22], mistakeDur: [0.7, 1.3], mistakeSteer: 0.8,
+    mistakeEvery: [16, 28], mistakeDur: [0.55, 0.9], mistakeSteer: 0.7,
   },
 };
 
@@ -103,15 +99,25 @@ const _sample: CourseSample = {
   distance: 0,
   point: new THREE.Vector3(),
   tangent: new THREE.Vector3(),
+  routeId: 'surface',
 };
 const _tp = new THREE.Vector3();
 const _tt = new THREE.Vector3();
 
 export class AIController {
+  private readonly personality: Personality;
   private readonly tune: PersonalityTune;
   private readonly course: ICourse;
   private readonly rng: () => number;
-  private readonly input: BoatInput = { throttle: 0, steer: 0, drift: false };
+  private readonly paceScale: number;
+  private readonly preferredLane: number;
+  private readonly input: BoatInput = {
+    throttle: 0,
+    steer: 0,
+    drift: false,
+    flightTrigger: false,
+    airBrake: false,
+  };
 
   private t = 0;
   private steerSm = 0;
@@ -125,6 +131,10 @@ export class AIController {
   private readonly wanderW2: number;
   private readonly wanderP1: number;
   private readonly wanderP2: number;
+  private flightWindowSeen = false;
+  private flightWantsRoute = false;
+  private qualifyingFlight = false;
+  private upcomingFlightIndex = -1;
 
   // curvature / speed tables, built once from the course
   private tableN = 0;
@@ -132,10 +142,13 @@ export class AIController {
   private kappa = new Float32Array(0); // signed, + = left
   private vmax = new Float32Array(0); // per-sample speed targets (pre-personality)
 
-  constructor(personality: Personality, course: ICourse, seed = 1) {
+  constructor(personality: Personality, course: ICourse, seed = 1, paceScale = 1, preferredLane = 0) {
+    this.personality = personality;
     this.tune = PERSONALITIES[personality];
     this.course = course;
     this.rng = mulberry32(seed);
+    this.paceScale = paceScale;
+    this.preferredLane = preferredLane;
     this.nextMistakeAt = this.mistakeEvery();
     this.pacePhase = this.rng() * Math.PI * 2;
     this.wanderW1 = 0.4 + this.rng() * 0.3;
@@ -199,22 +212,63 @@ export class AIController {
     dt: number,
     me: IBoat,
     all: IBoat[],
-    myProgress: number,
-    playerProgress: number,
+    _myProgress: number,
+    _playerProgress: number,
   ): BoatInput {
     const tune = this.tune;
     this.t += dt;
     const speed = Math.max(0, me.state.speed);
 
-    this.course.sample(me.state.position, _sample);
+    this.course.sample(me.state.position, _sample, this.course.routeForBoat(me.id));
     const myU = _sample.u;
     const idx = Math.floor(myU * this.tableN) % this.tableN;
+
+    const upcomingIndex = Math.min(this.course.flightRoutes.length - 1, me.state.flightsCleared);
+    const upcomingRoute = this.course.flightRoutes[upcomingIndex];
+    if (upcomingIndex !== this.upcomingFlightIndex) {
+      this.upcomingFlightIndex = upcomingIndex;
+      this.flightWindowSeen = false;
+      this.flightWantsRoute = false;
+      this.qualifyingFlight = false;
+    }
+    const flightWindow = me.state.flightsCleared < this.course.flightRoutes.length &&
+      myU >= upcomingRoute.qualifyFromU && myU <= upcomingRoute.exitU + 0.02;
+    const qualificationWindow = flightWindow && myU < upcomingRoute.launchFromU &&
+      me.state.flightPhase === 'surface';
+    if (me.state.flightReady || !qualificationWindow) {
+      this.qualifyingFlight = false;
+    } else if (!this.qualifyingFlight && me.state.boostCharge < 0.38 && speed > 14) {
+      this.qualifyingFlight = true;
+    } else if (this.qualifyingFlight && me.state.boostCharge >= 0.5) {
+      // Releasing here pays out the unchanged Space boost and earns F exactly
+      // as it does for the player.
+      this.qualifyingFlight = false;
+    }
+    if (!flightWindow) {
+      this.flightWindowSeen = false;
+      this.flightWantsRoute = false;
+    } else if (!this.flightWindowSeen && myU >= upcomingRoute.launchFromU - 0.006) {
+      this.flightWindowSeen = true;
+      this.flightWantsRoute = this.personality !== 'erratic' || upcomingIndex < 2 || this.rng() < 0.9;
+    }
+    const launchNow =
+      this.flightWantsRoute &&
+      me.state.flightReady &&
+      me.state.flightPhase === 'surface' &&
+      myU >= upcomingRoute.launchFromU &&
+      myU <= upcomingRoute.launchToU;
+    const activeRoute = this.course.routeForBoat(me.id);
+    const flightRoute =
+      activeRoute !== 'surface' ||
+      launchNow ||
+      (me.state.flightPhase !== 'surface' && flightWindow);
+    const routeId = activeRoute !== 'surface' ? activeRoute : upcomingRoute.id;
 
     // --- lookahead target, with lateral lane/wander/apex offset
     const look = (12 + 30 * clamp01(speed / VMAX)) * tune.lookMul;
     const uAhead = myU + look / this.course.length;
-    this.course.pointAt(uAhead, _tp);
-    this.course.tangentAt(uAhead, _tt);
+    this.course.routePointAt(flightRoute ? routeId : 'surface', uAhead, _tp);
+    this.course.routeTangentAt(flightRoute ? routeId : 'surface', uAhead, _tt);
 
     // mean + peak signed curvature over the lookahead window (+ = turning left)
     const nAhead = Math.max(2, Math.round(look / this.tableStep));
@@ -227,7 +281,7 @@ export class AIController {
     }
     const kAvg = kSum / nAhead;
 
-    let lateral = LANES[me.id % 3];
+    let lateral = flightRoute ? 0 : this.preferredLane;
     if (tune.wanderAmp > 0) {
       lateral +=
         (tune.wanderAmp *
@@ -236,7 +290,7 @@ export class AIController {
         1.5;
     }
     // hug the apex: offset toward the inside of the upcoming corner
-    lateral += Math.sign(kAvg) * tune.apexHug * Math.min(1, Math.abs(kAvg) / 0.02);
+    if (!flightRoute) lateral += Math.sign(kAvg) * tune.apexHug * Math.min(1, Math.abs(kAvg) / 0.02);
     lateral = clamp(lateral, -5.5, 5.5);
     _tp.x += -_tt.z * lateral; // left normal of the tangent
     _tp.z += _tt.x * lateral;
@@ -257,9 +311,7 @@ export class AIController {
       const v = this.vmax[(idx + s) % this.tableN];
       if (v < target) target = v;
     }
-    // rubber band: subtle, invisible
-    const rubber = clamp(1 + (playerProgress - myProgress) * RUBBER_GAIN, RUBBER_MIN, RUBBER_MAX);
-    target *= rubber * tune.cornerMul * (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
+    target *= this.paceScale * tune.cornerMul * (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
     let throttle = clamp((target - speed) * 0.5, -1, 1);
     if (Math.abs(err) > 1.2) throttle = Math.min(throttle, 0.4); // spun out: recover gently
 
@@ -283,6 +335,7 @@ export class AIController {
       if (b === me) continue;
       const ox = b.state.position.x - me.state.position.x;
       const oz = b.state.position.z - me.state.position.z;
+      if (Math.abs(b.state.position.y - me.state.position.y) > 2.5) continue;
       const d2 = ox * ox + oz * oz;
       if (d2 > AVOID_DIST * AVOID_DIST || d2 < 1e-6) continue;
       const d = Math.sqrt(d2);
@@ -309,7 +362,12 @@ export class AIController {
     const out = this.input;
     out.throttle = throttle;
     out.steer = steer;
-    out.drift = this.drifting;
+    out.drift = me.state.flightPhase === 'surface' && (this.drifting || this.qualifyingFlight);
+    out.flightTrigger = launchNow;
+    // The authored air route has a hard first bend. AI uses the same vector
+    // air-brake available to the player, without changing water handling.
+    out.airBrake = flightRoute && me.state.flightPhase !== 'surface' &&
+      speed > 27 && (Math.abs(err) > 0.075 || this.course.flightTurnWarning(me.id));
     return out;
   }
 }

@@ -45,18 +45,39 @@ export class GameAudio {
   private engineGain: GainNode | null = null;
   private engineLp: BiquadFilterNode | null = null;
 
+  // anti-grav nodes
+  private flightOsc: OscillatorNode | null = null;
+  private flightHarm: OscillatorNode | null = null;
+  private flightGain: GainNode | null = null;
+  private flightNoiseGain: GainNode | null = null;
+  private flightNoiseBp: BiquadFilterNode | null = null;
+
+  // drift carve noise
+  private driftGain: GainNode | null = null;
+  private driftBp: BiquadFilterNode | null = null;
+
   // water rush nodes
   private rushBp: BiquadFilterNode | null = null;
   private rushGain: GainNode | null = null;
+  private airRushBp: BiquadFilterNode | null = null;
+  private airRushGain: GainNode | null = null;
+  private airRushPan: StereoPannerNode | null = null;
 
   // continuous-state mirrors (also used to skip redundant param events)
   private speedNorm = 0;
   private airborne = false;
+  private flightActive = false;
   private lastRpm = -1;
   private lastThrottle = -1;
   private lastBoost = false;
   private lastRushGain = -1;
   private lastRushFreq = -1;
+  private lastFlightThrust = -1;
+  private lastFlightIndex = -1;
+  private flightPressure = 0;
+  private flightClearance = 0;
+  private flightAirBrake = 0;
+  private flightSteer = 0;
 
   constructor() {
     // deliberately empty: nothing audible exists until resume()
@@ -107,7 +128,9 @@ export class GameAudio {
 
     if (boosting !== this.lastBoost) {
       this.lastBoost = boosting;
-      this.boostGain.gain.setTargetAtTime(boosting ? 0.16 : 0, t, boosting ? 0.025 : 0.09);
+      this.boostGain.gain.setTargetAtTime(boosting ? 0.23 : 0, t, boosting ? 0.018 : 0.11);
+      this.applyRush();
+      if (boosting) this.boostIgnition();
     }
   }
 
@@ -122,6 +145,136 @@ export class GameAudio {
     if (on === this.airborne) return;
     this.airborne = on;
     this.applyRush();
+  }
+
+  /** Controlled flight crossfades water into directional pressure and lift layers. */
+  setFlight(
+    thrust: number,
+    active: boolean,
+    pressure = 0,
+    clearance = 0,
+    airBrake = 0,
+    steer = 0,
+    flightIndex = 0,
+  ): void {
+    const c = this.ctx;
+    if (!c || !this.flightOsc || !this.flightHarm || !this.flightGain || !this.flightNoiseGain || !this.flightNoiseBp) return;
+    const t = c.currentTime;
+    const n = clamp01(thrust);
+    this.flightPressure = clamp01(pressure);
+    this.flightClearance = clamp01(clearance / 4.5);
+    this.flightAirBrake = clamp01(airBrake);
+    this.flightSteer = Math.max(-1, Math.min(1, steer));
+    const index = Math.max(0, Math.min(2, Math.floor(flightIndex)));
+    if (active !== this.flightActive) {
+      this.flightActive = active;
+      if (active) this.impactBurst(118, 42, 1, 0.28);
+      this.blip(active ? 740 : 420, t, active ? 0.22 : 0.09, active ? 0.19 : 0.08, 'triangle');
+    }
+    if (Math.abs(n - this.lastFlightThrust) > 0.004 || index !== this.lastFlightIndex) {
+      this.lastFlightThrust = n;
+      this.lastFlightIndex = index;
+      const harmonic = [1, 1.08, 1.15][index];
+      this.flightOsc.frequency.setTargetAtTime(92 + n * 78, t, 0.04);
+      this.flightHarm.frequency.setTargetAtTime((276 + n * 190) * harmonic, t, 0.04);
+      this.flightGain.gain.setTargetAtTime(active ? 0.055 + n * 0.17 : 0, t, active ? 0.025 : 0.16);
+    }
+    this.flightNoiseGain.gain.setTargetAtTime(active ? 0.025 + n * 0.07 + this.flightPressure * 0.04 : 0, t, active ? 0.018 : 0.14);
+    this.flightNoiseBp.frequency.setTargetAtTime(
+      (620 + this.flightPressure * 900) * (1 - this.flightAirBrake * 0.16),
+      t,
+      0.08,
+    );
+    if (this.engineGain) {
+      const engineLevel = (0.1 + 0.3 * Math.max(0, this.lastThrottle)) * (active ? 0.72 : 1);
+      this.engineGain.gain.setTargetAtTime(engineLevel, t, 0.12);
+    }
+    this.applyRush();
+  }
+
+  setDrift(intensity: number): void {
+    const c = this.ctx;
+    if (!c || !this.driftGain || !this.driftBp) return;
+    const n = clamp01(intensity);
+    const t = c.currentTime;
+    this.driftGain.gain.setTargetAtTime(n * 0.13, t, n > 0 ? 0.035 : 0.12);
+    this.driftBp.frequency.setTargetAtTime(760 + n * 1250, t, 0.055);
+  }
+
+  flightReady(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(160, 72, 0.5, 0.18);
+    this.blip(620, c.currentTime, 0.18, 0.2, 'triangle');
+    this.blip(930, c.currentTime + 0.07, 0.25, 0.19, 'triangle');
+    this.blip(1395, c.currentTime + 0.14, 0.32, 0.14, 'square');
+  }
+
+  flightGate(index: number): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(142 + index * 8, 76, 0.46 + index * 0.12, 0.14);
+    this.blip(680 + index * 150, c.currentTime, 0.2, 0.18, 'square');
+  }
+
+  routeClear(flightNumber = 1): void {
+    const c = this.ctx;
+    if (!c) return;
+    const step = Math.max(0, Math.min(2, flightNumber - 1));
+    this.blip(880 + step * 110, c.currentTime, 0.18, 0.14, 'triangle');
+    this.blip(1320 + step * 150, c.currentTime + 0.09, 0.3, 0.16, 'triangle');
+  }
+
+  flightMiss(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(92, 38, 0.62, 0.24);
+    this.blip(190, c.currentTime, 0.24, 0.18, 'square');
+  }
+
+  raceBattle(kind: 'overtake' | 'lost', count: number, newPlace: number): void {
+    const c = this.ctx;
+    if (!c) return;
+    const positive = kind === 'overtake';
+    const strength = positive ? Math.min(1, 0.95 + Math.max(0, count - 1) * 0.05) : 0.58;
+    this.impactBurst(positive ? 118 : 82, positive ? 48 : 34, strength, positive ? 0.25 : 0.18);
+    const t = c.currentTime;
+    this.blip(positive ? 560 : 260, t + 0.025, positive ? 0.16 : 0.2, 0.15 * strength, positive ? 'square' : 'sawtooth');
+    if (positive) {
+      this.blip(760 + count * 90, t + 0.1, 0.24, 0.14, 'triangle');
+      if (newPlace === 1) this.blip(1480, t + 0.18, 0.34, 0.17, 'triangle');
+    }
+  }
+
+  boostIgnition(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(155, 58, 0.88, 0.24);
+    this.blip(480, c.currentTime + 0.018, 0.18, 0.16, 'sawtooth');
+    this.blip(960, c.currentTime + 0.075, 0.25, 0.12, 'square');
+  }
+
+  airBrakeSnap(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(210, 86, 0.42, 0.16);
+    this.blip(360, c.currentTime, 0.12, 0.11, 'sawtooth');
+  }
+
+  defeat(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(78, 24, 1, 0.55);
+    this.blip(310, c.currentTime + 0.03, 0.42, 0.2, 'sawtooth');
+    this.blip(196, c.currentTime + 0.12, 0.52, 0.18, 'square');
+  }
+
+  retryLesson(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.impactBurst(126, 58, 0.34, 0.14);
+    this.blip(248, c.currentTime, 0.12, 0.1, 'square');
+    this.blip(496, c.currentTime + 0.08, 0.16, 0.08, 'triangle');
   }
 
   /** Landing slam: sine 130→42 Hz pitch drop + lowpassed noise burst. */
@@ -264,8 +417,11 @@ export class GameAudio {
     const c = this.ctx;
     if (!c || !this.rushGain || !this.rushBp) return;
     const t = c.currentTime;
-    const g = 0.35 * this.speedNorm * (this.airborne ? 0.3 : 1);
-    const f = 500 + 1900 * this.speedNorm;
+    const airMix = this.flightActive ? this.flightClearance : this.airborne ? 0.7 : 0;
+    const modeGain = 1 - airMix * 0.84;
+    const boostGain = this.lastBoost ? 0.3 : 0;
+    const g = (0.32 + boostGain) * this.speedNorm * modeGain;
+    const f = 500 + 2400 * this.speedNorm + (this.lastBoost ? 850 : 0);
     if (Math.abs(g - this.lastRushGain) > 0.004) {
       this.lastRushGain = g;
       this.rushGain.gain.setTargetAtTime(g, t, 0.12);
@@ -274,6 +430,58 @@ export class GameAudio {
       this.lastRushFreq = f;
       this.rushBp.frequency.setTargetAtTime(f, t, 0.15);
     }
+    if (this.airRushGain && this.airRushBp && this.airRushPan) {
+      const pressureGain = this.flightActive
+        ? (0.08 + this.flightPressure * 0.24) * (0.45 + airMix * 0.55) * (1 + this.flightAirBrake * 0.35)
+        : 0;
+      const pressureFrequency = (760 + this.flightPressure * 2500) * (1 - this.flightAirBrake * 0.18);
+      this.airRushGain.gain.setTargetAtTime(pressureGain, t, this.flightActive ? 0.08 : 0.18);
+      this.airRushBp.frequency.setTargetAtTime(pressureFrequency, t, 0.1);
+      this.airRushPan.pan.setTargetAtTime(-this.flightSteer * this.flightAirBrake * 0.25, t, 0.06);
+    }
+  }
+
+  private impactBurst(startHz: number, endHz: number, strength: number, duration: number): void {
+    const c = this.ctx;
+    if (!c || !this.master || !this.noiseBuf) return;
+    const s = clamp01(strength);
+    const t0 = c.currentTime;
+    const osc = c.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(startHz, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, endHz), t0 + duration);
+    const og = c.createGain();
+    og.gain.setValueAtTime(0.3 * s, t0);
+    og.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+    osc.connect(og);
+    og.connect(this.master);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.03);
+    osc.onended = () => {
+      osc.disconnect();
+      og.disconnect();
+    };
+
+    const noise = c.createBufferSource();
+    noise.buffer = this.noiseBuf;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(900, t0);
+    bp.frequency.exponentialRampToValueAtTime(280, t0 + duration);
+    bp.Q.value = 0.8;
+    const ng = c.createGain();
+    ng.gain.setValueAtTime(0.2 * s, t0);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+    noise.connect(bp);
+    bp.connect(ng);
+    ng.connect(this.master);
+    noise.start(t0);
+    noise.stop(t0 + duration + 0.03);
+    noise.onended = () => {
+      noise.disconnect();
+      bp.disconnect();
+      ng.disconnect();
+    };
   }
 
   /** Shared short-envelope osc helper for beeps and the sting. */
@@ -366,6 +574,62 @@ export class GameAudio {
     this.boostOsc = bosc;
     this.boostGain = bg;
 
+    // ---- anti-grav: sine fundamental + triangle harmonic → flight gain --------
+    const fg = ctx.createGain();
+    fg.gain.value = 0;
+    fg.connect(master);
+    const flight = ctx.createOscillator();
+    flight.type = 'sine';
+    flight.frequency.value = 92;
+    const flightHarm = ctx.createOscillator();
+    flightHarm.type = 'triangle';
+    flightHarm.frequency.value = 276;
+    const flightBaseGain = ctx.createGain();
+    flightBaseGain.gain.value = 0.7;
+    const flightHarmGain = ctx.createGain();
+    flightHarmGain.gain.value = 0.18;
+    flight.connect(flightBaseGain);
+    flightHarm.connect(flightHarmGain);
+    flightBaseGain.connect(fg);
+    flightHarmGain.connect(fg);
+    flight.start();
+    flightHarm.start();
+    this.flightOsc = flight;
+    this.flightHarm = flightHarm;
+    this.flightGain = fg;
+
+    const flightNoise = ctx.createBufferSource();
+    flightNoise.buffer = buf;
+    flightNoise.loop = true;
+    const flightNoiseBp = ctx.createBiquadFilter();
+    flightNoiseBp.type = 'bandpass';
+    flightNoiseBp.frequency.value = 620;
+    flightNoiseBp.Q.value = 0.65;
+    const flightNoiseGain = ctx.createGain();
+    flightNoiseGain.gain.value = 0;
+    flightNoise.connect(flightNoiseBp);
+    flightNoiseBp.connect(flightNoiseGain);
+    flightNoiseGain.connect(master);
+    flightNoise.start();
+    this.flightNoiseGain = flightNoiseGain;
+    this.flightNoiseBp = flightNoiseBp;
+
+    const driftNoise = ctx.createBufferSource();
+    driftNoise.buffer = buf;
+    driftNoise.loop = true;
+    const driftBp = ctx.createBiquadFilter();
+    driftBp.type = 'bandpass';
+    driftBp.frequency.value = 760;
+    driftBp.Q.value = 1.1;
+    const driftGain = ctx.createGain();
+    driftGain.gain.value = 0;
+    driftNoise.connect(driftBp);
+    driftBp.connect(driftGain);
+    driftGain.connect(master);
+    driftNoise.start();
+    this.driftBp = driftBp;
+    this.driftGain = driftGain;
+
     // ---- water rush: looping noise → bandpass → level -------------------------
     const noise = ctx.createBufferSource();
     noise.buffer = buf;
@@ -382,5 +646,25 @@ export class GameAudio {
     noise.start();
     this.rushBp = bp;
     this.rushGain = rg;
+
+    // ---- in-air pressure: wider, brighter noise with directional air-brake ----
+    const airNoise = ctx.createBufferSource();
+    airNoise.buffer = buf;
+    airNoise.loop = true;
+    const airBp = ctx.createBiquadFilter();
+    airBp.type = 'bandpass';
+    airBp.frequency.value = 900;
+    airBp.Q.value = 0.55;
+    const airPan = ctx.createStereoPanner();
+    const airGain = ctx.createGain();
+    airGain.gain.value = 0;
+    airNoise.connect(airBp);
+    airBp.connect(airPan);
+    airPan.connect(airGain);
+    airGain.connect(master);
+    airNoise.start();
+    this.airRushBp = airBp;
+    this.airRushPan = airPan;
+    this.airRushGain = airGain;
   }
 }
