@@ -10,7 +10,7 @@
  *   node harness/screenshot.mjs                 # all scenarios
  *   node harness/screenshot.mjs hairpin water   # subset
  *   node harness/screenshot.mjs --stats         # also print perf stats
- *   node harness/screenshot.mjs --responsive flight-cruise # desktop + two compact layouts
+ *   node harness/screenshot.mjs --responsive ready # desktop + compact selection layouts
  *   node harness/screenshot.mjs --mobile start       # default tilt controls
  *   node harness/screenshot.mjs --mobile --touch-fallback start
  */
@@ -85,6 +85,7 @@ async function waitForServer(url, tries = 60) {
 
 async function verifyFlightContract(page) {
   // A fresh page waits forever. Only a new Enter edge may start the run.
+  await assertDriverSelectComposition(page, 'desktop-1440x900');
   let state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'ready');
   const readyPose = { x: state.playerX, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime };
@@ -551,6 +552,7 @@ async function verifyMobileControls(page) {
   const contractGo = page.locator('.driver-select-go');
   assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
   assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
+  await assertDriverSelectComposition(page, 'mobile-844x390');
   const selectedBefore = await page.locator('.driver-card.selected').getAttribute('data-driver');
   const featuredBefore = await page.locator('.driver-featured').boundingBox();
   const alternate = page.locator('.driver-card:not(.selected)').first();
@@ -574,6 +576,7 @@ async function verifyMobileControls(page) {
   for (const height of [390, 330, 300]) {
     await page.setViewportSize({ width: 844, height });
     await page.waitForTimeout(50);
+    await assertDriverSelectComposition(page, `mobile-844x${height}`);
     const contract = await page.evaluate(() => {
       const selectors = [
         '.driver-select-header', '.driver-featured', '.driver-rail', '.driver-select-footer',
@@ -777,6 +780,40 @@ async function verifyMobileControls(page) {
   assert.equal(await page.locator('.mobile-orientation').isVisible(), false, 'rotating back must dismiss the blocker');
   assert.equal(await page.locator('[data-mobile-action="flight"]').isVisible(), true, 'landscape controls must recover after rotation');
   console.log('mobile controls contract: OK');
+}
+
+async function assertDriverSelectComposition(page, label) {
+  const geometry = await page.evaluate(() => {
+    const rect = (selector) => {
+      const r = document.querySelector(selector)?.getBoundingClientRect();
+      return r && { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height,
+        centerX:(r.left + r.right) / 2, centerY:(r.top + r.bottom) / 2 };
+    };
+    return {
+      width:innerWidth,
+      height:innerHeight,
+      featured:rect('.driver-featured'),
+      portrait:rect('.driver-portrait-frame'),
+      identity:rect('.driver-identity'),
+      radar:rect('.driver-radar-wrap'),
+    };
+  });
+  const { featured, portrait, identity, radar } = geometry;
+  assert.ok(featured && portrait && identity && radar, `${label} driver composition is incomplete`);
+  assert.ok(Math.abs(featured.centerX - geometry.width / 2) <= 1.5,
+    `${label} featured stage is not centered: ${JSON.stringify(geometry)}`);
+  assert.ok(Math.abs(identity.centerX - geometry.width / 2) <= 1.5,
+    `${label} identity must anchor the screen center: ${JSON.stringify(identity)}`);
+  assert.ok(Math.abs(portrait.width - radar.width) <= 2,
+    `${label} portrait and radar need equal visual weight: ${portrait.width} vs ${radar.width}`);
+  assert.ok(Math.abs(portrait.centerY - radar.centerY) <= 2,
+    `${label} portrait and radar left their shared horizontal axis: ${portrait.centerY} vs ${radar.centerY}`);
+  assert.ok(Math.abs((portrait.centerX + radar.centerX) / 2 - geometry.width / 2) <= 1.5,
+    `${label} portrait/radar pair is not centered as one unit: ${JSON.stringify(geometry)}`);
+  for (const [name, surface] of Object.entries({ featured, portrait, identity, radar })) {
+    assert.ok(surface.left >= -1 && surface.right <= geometry.width + 1 && surface.top >= -1 && surface.bottom <= geometry.height + 1,
+      `${label} ${name} clips outside the viewport: ${JSON.stringify(surface)}`);
+  }
 }
 
 async function readMobileControlGeometry(page) {
@@ -1146,6 +1183,11 @@ async function main() {
           { suffix: touchFallback ? 'touch-844x330' : 'tilt-844x330', width:844, height:330 },
           { suffix: touchFallback ? 'touch-844x300' : 'tilt-844x300', width:844, height:300 },
           { suffix: touchFallback ? 'touch-932x430' : 'tilt-932x430', width:932, height:430 },
+        ] : name === 'ready' ? [
+          { suffix:'844x390', width:844, height:390 },
+          { suffix:'844x330', width:844, height:330 },
+          { suffix:'844x300', width:844, height:300 },
+          { suffix:'932x430', width:932, height:430 },
         ] : [
           { suffix:'landscape', width:844, height:390 },
         ];
@@ -1154,6 +1196,7 @@ async function main() {
           await page.waitForTimeout(120); // allow ResizeObserver + renderer targets to settle
           await page.evaluate(() => window.__harness.render());
           await page.waitForTimeout(20);
+          if (name === 'ready') await assertDriverSelectComposition(page, `${name}-${vp.suffix}`);
           if (mobile) await assertMobileControlLayout(page, `${name}-${vp.suffix}`, touchFallback ? 'touch' : 'tilt');
           await assertHudDoesNotOverlap(page, `${name}-${vp.suffix}`);
           await assertBattleLeavesDrivingRoiClear(page, `${name}-${vp.suffix}`);
