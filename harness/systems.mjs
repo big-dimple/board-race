@@ -9,7 +9,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.SYSTEMS_PORT || 5221);
 const chrome = existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
 const base = `http://127.0.0.1:${port}/?harness=1&quality=performance`;
-const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--port', String(port), '--strictPort'], {
+const server = spawn(process.execPath, [
+  path.join(root, 'node_modules/vite/bin/vite.js'),
+  '--host', '127.0.0.1',
+  '--port', String(port),
+  '--strictPort',
+], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
 });

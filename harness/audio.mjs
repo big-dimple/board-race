@@ -8,18 +8,31 @@ import { chromium } from 'playwright';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.AUDIO_PORT || 5216);
 const chrome = existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
-const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--port', String(port), '--strictPort'], {
+const server = spawn(process.execPath, [
+  path.join(root, 'node_modules/vite/bin/vite.js'),
+  '--host', '127.0.0.1',
+  '--port', String(port),
+  '--strictPort',
+], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
+let serverError = '';
+server.stderr.on('data', (chunk) => { serverError += String(chunk); });
 
-try {
-  for (let i = 0; i < 60; i++) {
+async function waitForServer() {
+  for (let i = 0; i < 120; i++) {
+    if (server.exitCode !== null) throw new Error(`audio Vite server exited (${server.exitCode}): ${serverError}`);
     try {
-      if ((await fetch(`http://127.0.0.1:${port}/`)).ok) break;
+      if ((await fetch(`http://127.0.0.1:${port}/`)).ok) return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  throw new Error(`audio Vite server was not ready on ${port}: ${serverError}`);
+}
+
+try {
+  await waitForServer();
   const browser = await chromium.launch({
     headless: true,
     ...(chrome ? { executablePath: chrome } : {}),

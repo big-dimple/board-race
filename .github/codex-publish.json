@@ -37,7 +37,6 @@
   ],
   "pages": {
     "workflow": "deploy.yml",
-    "requireGateParity": true,
     "timeout": 600,
     "interval": 5
   }

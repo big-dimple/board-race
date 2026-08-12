@@ -7,28 +7,49 @@ import { chromium } from 'playwright';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.COLLISION_PORT || 5208);
-const chrome = existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
-const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--port', String(port), '--strictPort'], {
+const useBundledChromium = process.env.PLAYWRIGHT_BUNDLED === '1';
+const chrome = !useBundledChromium && existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
+const server = spawn(process.execPath, [
+  path.join(root, 'node_modules/vite/bin/vite.js'),
+  '--host', '127.0.0.1',
+  '--port', String(port),
+  '--strictPort',
+], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
+let serverError = '';
+server.stderr.on('data', (chunk) => { serverError += String(chunk); });
 
-try {
-  for (let i = 0; i < 60; i++) {
+async function waitForServer() {
+  for (let i = 0; i < 120; i++) {
+    if (server.exitCode !== null) throw new Error(`collision Vite server exited (${server.exitCode}): ${serverError}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/`);
-      if (response.ok) break;
+      if (response.ok) return;
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  throw new Error(`collision Vite server was not ready on ${port}: ${serverError}`);
+}
+
+try {
+  await waitForServer();
   const browser = await chromium.launch({
     headless: true,
     ...(chrome ? { executablePath: chrome } : {}),
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
   });
   const page = await browser.newPage({ viewport: { width: 844, height: 390 } });
+  page.on('pageerror', (error) => console.error(`[collision pageerror] ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      console.error(`[collision console.${message.type()}] ${message.text()}`);
+    }
+  });
+  console.log(`collision browser: ${chrome ? 'system-chrome' : 'playwright-chromium'}`);
   await page.goto(`http://127.0.0.1:${port}/?harness=1&quality=performance`, { waitUntil: 'load', timeout: 60000 });
-  await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
+  await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 120000 });
 
   const run = (name) => page.evaluate((caseName) => window.__harness.collisionCase(caseName), name);
 
