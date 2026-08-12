@@ -604,6 +604,43 @@ function makeStartGantryVisuals(): {
   backEdges.name = 'start-banner-edges-back';
   bannerBack.add(backEdges);
 
+  // Restore the race-checker identity without restoring the CanvasTexture
+  // upload that could turn the entire landmark black on a cold mobile load.
+  // The approach face keeps one checker row above and below START; the exit
+  // face is the original full 16 x 4 finish checker.
+  const cellWidth = 17 / 16;
+  const cellHeight = 2.6 / 4;
+  const checkerParts = (fullFace: boolean): THREE.BufferGeometry[] => {
+    const parts: THREE.BufferGeometry[] = [];
+    for (let row = 0; row < 4; row++) {
+      if (!fullFace && row !== 0 && row !== 3) continue;
+      for (let col = 0; col < 16; col++) {
+        if ((row + col) % 2 !== 0) continue;
+        const part = new THREE.BoxGeometry(cellWidth, cellHeight, 0.12);
+        part.translate(
+          -8.5 + (col + 0.5) * cellWidth,
+          -1.3 + (row + 0.5) * cellHeight,
+          0.18,
+        );
+        parts.push(part);
+      }
+    }
+    return parts;
+  };
+  const addChecker = (target: THREE.Group, fullFace: boolean, name: string): void => {
+    const parts = checkerParts(fullFace);
+    const geometry = mergeGeometries(parts, false);
+    parts.forEach((part) => part.dispose());
+    if (!geometry) throw new Error(`Unable to merge ${name}`);
+    const checker = new THREE.Mesh(geometry, inkMat);
+    checker.name = name;
+    checker.userData.noOutline = true;
+    checker.userData.startCheckerInstances = fullFace ? 32 : 16;
+    target.add(checker);
+  };
+  addChecker(bannerFront, false, 'start-checker-front');
+  addChecker(bannerBack, true, 'start-checker-back');
+
   const text = 'START';
   const letterWidth = 2.05;
   const startX = -(text.length - 1) * letterWidth * 0.5;
@@ -628,10 +665,6 @@ function makeStartGantryVisuals(): {
   letters.userData.noOutline = true;
   letters.userData.startGlyphInstances = segmentCount;
   bannerFront.add(letters);
-  const backLetters = letters.clone();
-  backLetters.name = 'start-glyphs-back';
-  backLetters.userData.startGlyphInstances = segmentCount;
-  bannerBack.add(backLetters);
   bannerFront.name = 'start-banner-front';
   bannerBack.name = 'start-banner-back';
   return { towerMaterial: foamMat, bannerFront, bannerBack };
@@ -936,10 +969,12 @@ export class Course implements ICourse {
     let canvasTextures = 0;
     let meshes = 0;
     let glyphInstances = 0;
+    let checkerInstances = 0;
     this.startGantry?.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       meshes++;
       glyphInstances += Number(object.userData.startGlyphInstances ?? 0);
+      checkerInstances += Number(object.userData.startCheckerInstances ?? 0);
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) {
         for (const value of Object.values(material)) {
@@ -952,7 +987,7 @@ export class Course implements ICourse {
         }
       }
     });
-    return { canvasTextures, meshes, glyphInstances };
+    return { canvasTextures, meshes, glyphInstances, checkerInstances };
   }
 
   /** Closed loop; u wraps. Arc-length normalized. */
@@ -1856,8 +1891,24 @@ export class Course implements ICourse {
     const coneGeo = new THREE.ConeGeometry(0.66, 0.85, 14); // short squat cap, not a spire
     const foamRingGeo = makeFoamRingGeometry();
     const towerGeo = new THREE.CylinderGeometry(0.72, 1.05, 10.0, 12);
-    const towerBandGeo = new THREE.CylinderGeometry(0.78, 0.9, 0.48, 12);
-    const towerAccentGeo = new THREE.CylinderGeometry(0.77, 0.82, 0.72, 12);
+    const towerRadiusAt = (y: number): number => THREE.MathUtils.lerp(1.05, 0.72, y / 10);
+    const towerSection = (fromY: number, toY: number): THREE.BufferGeometry => {
+      const geometry = new THREE.CylinderGeometry(
+        towerRadiusAt(toY) + 0.035,
+        towerRadiusAt(fromY) + 0.035,
+        toY - fromY,
+        12,
+      );
+      geometry.translate(0, (fromY + toY) * 0.5, 0);
+      return geometry;
+    };
+    // Same proportions as the original texture: white / black / white /
+    // black / green from the waterline to the cap, now expressed as geometry.
+    const towerInkParts = [towerSection(1.875, 2.8125), towerSection(7.1875, 8.125)];
+    const towerBandGeo = mergeGeometries(towerInkParts, false);
+    towerInkParts.forEach((part) => part.dispose());
+    if (!towerBandGeo) throw new Error('Unable to merge START tower bands');
+    const towerAccentGeo = towerSection(8.125, 10);
     const towerCapGeo = new THREE.ConeGeometry(1.08, 1.5, 12);
 
     const makeBuoy = (): THREE.Group => {
@@ -1913,20 +1964,20 @@ export class Course implements ICourse {
       const tower = new THREE.Group();
       const shaft = new THREE.Mesh(towerGeo, towerMat);
       shaft.position.y = 5.0;
-      const lowerBand = new THREE.Mesh(towerBandGeo, towerBandMat);
-      lowerBand.position.y = 2.35;
-      const upperBand = new THREE.Mesh(towerBandGeo, towerBandMat);
-      upperBand.position.y = 7.15;
+      const bands = new THREE.Mesh(towerBandGeo, towerBandMat);
+      bands.name = 'start-tower-black-bands';
+      bands.userData.noOutline = true;
       const collar = new THREE.Mesh(towerAccentGeo, towerAccentMat);
-      collar.position.y = 8.55;
+      collar.name = 'start-tower-accent-collar';
+      collar.userData.noOutline = true;
       const cap = new THREE.Mesh(towerCapGeo, towerCapMat);
       cap.position.y = 10.6;
-      tower.add(shaft, lowerBand, upperBand, collar, cap);
+      tower.add(shaft, bands, collar, cap);
       tower.position.x = side * 8.5;
       gantry.add(tower);
     }
-    // Both faces carry START because the frozen selection camera can orbit to
-    // either side; local -Z faces the approaching pack (see yawQ below).
+    // START faces the approaching pack. The reverse restores the full finish
+    // checker instead of mirroring or duplicating the word.
     const bannerFront = startVisuals.bannerFront;
     bannerFront.rotation.y = Math.PI;
     bannerFront.position.set(0, 8.6, -0.06);

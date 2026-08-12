@@ -1977,6 +1977,22 @@
   height: 100%;
 }
 
+.hud-medal-art {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 1.5%;
+  width: min(430px, 38vw, 43vh);
+  height: auto;
+  transform: translateX(-50%);
+  object-fit: contain;
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.52));
+  pointer-events: none;
+}
+.hud-medal-ceremony.on .hud-medal-art {
+  animation: hud-medal-art-in .56s cubic-bezier(.12, 1.3, .2, 1) both;
+}
+
 .hud-medal-copy {
   position: absolute;
   z-index: 2;
@@ -2039,6 +2055,11 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+@keyframes hud-medal-art-in {
+  from { opacity: 0; transform: translateX(-50%) scale(.72) rotate(-3deg); }
+  to { opacity: 1; transform: translateX(-50%) scale(1) rotate(0); }
+}
+
 @keyframes hud-gold-shimmer {
   0%, 100% { color: #ffcf4a; filter: brightness(1); }
   50% { color: #fff3ae; filter: brightness(1.22); }
@@ -2081,6 +2102,7 @@
   .hud-ready-kicker { font-size: 11px; }
   .hud-ready-action { margin-top: 14px; font-size: 16px; }
 
+  .hud-medal-art { top: 0; width: min(220px, 34vw, 47vh); }
   .hud-medal-copy { top: 47%; width: calc(100% - 30px); }
   .hud-medal-kicker { font-size: 11px; }
   .hud-medal-title { font-size: 48px; }
@@ -2117,6 +2139,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .hud-medal-ceremony.on .hud-medal-art,
   .hud-medal-title,
   .hud-lesson-medal.earned { animation: none; filter: none; }
 }

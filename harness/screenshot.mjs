@@ -93,8 +93,10 @@ async function verifyFlightContract(page) {
   const coldStart = await page.evaluate(() => window.__harness.startGantryStatus());
   assert.equal(coldStart.canvasTextures, 0,
     `START landmark must not depend on a first-load CanvasTexture upload: ${JSON.stringify(coldStart)}`);
-  assert.equal(coldStart.glyphInstances, 36,
+  assert.equal(coldStart.glyphInstances, 18,
     `START must expose every authored geometry segment before the first render: ${JSON.stringify(coldStart)}`);
+  assert.equal(coldStart.checkerInstances, 48,
+    `START must preserve its approach and finish checkers: ${JSON.stringify(coldStart)}`);
   let state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'ready');
   const readyPose = { x: state.playerX, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime };
@@ -861,7 +863,8 @@ async function verifyMobileControls(page) {
   const coldStart = await page.evaluate(() => window.__harness.startGantryStatus());
   assert.equal(coldStart.canvasTextures, 0,
     `mobile cold load must use texture-independent START geometry: ${JSON.stringify(coldStart)}`);
-  assert.equal(coldStart.glyphInstances, 36);
+  assert.equal(coldStart.glyphInstances, 18);
+  assert.equal(coldStart.checkerInstances, 48);
   await page.evaluate(() => {
     window.__gamepadFixture.clearVibrations();
     window.__harness.hapticCue('gate');
