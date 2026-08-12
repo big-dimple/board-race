@@ -159,6 +159,7 @@ let pageWasHidden = false;
 let interruptionNeedsCountdown = false;
 const retryReasonCounts = new Map<string, number>();
 let prevFlightReady = false;
+let prevDriftReleaseReady = false;
 let prevFlightGateProgress = 0;
 let prevFlightRouteState = boats[0].state.flightRouteState;
 let prevFlightPhase = boats[0].state.flightPhase;
@@ -310,7 +311,7 @@ function startFreshCountdown(): void {
 
 function startResumeCountdown(): void {
   if (!race.startResumeCountdown()) return;
-  input.reset();
+  input.clearTransient();
   mobileInput.reset();
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
@@ -321,9 +322,9 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   if (!race.beginMedalCeremony()) return;
   medalElapsed = 0;
   retryLessonFrozenT = worldTime;
-  input.reset();
+  input.clearTransient();
   mobileInput.reset();
-  mobileInput.setRacing(false);
+  mobileInput.setControlPhase('inactive');
   hud.showQualification(tier, medals, best);
   hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, false);
   audio.setScene('medal');
@@ -395,6 +396,7 @@ function resetRace(): void {
   race.reset();
   currentRun = records.data.runs + 1;
   prevFlightReady = boats[0].state.flightReady;
+  prevDriftReleaseReady = boats[0].state.driftReleaseReady;
   prevFlightGateProgress = boats[0].state.flightGateProgress;
   prevFlightRouteState = boats[0].state.flightRouteState;
   prevFlightPhase = boats[0].state.flightPhase;
@@ -440,7 +442,7 @@ function step(dt: number, _t: number): void {
   if (mobileInput.enabled && !mobileInput.isLandscape) {
     input.reset();
     mobileInput.reset();
-    mobileInput.setRacing(false);
+    mobileInput.setControlPhase('inactive');
     return;
   }
   presentationTime += dt;
@@ -492,7 +494,7 @@ function step(dt: number, _t: number): void {
     if (selectLeft) driverSelect.move(-1);
     if (selectRight) driverSelect.move(1);
     mobileInput.consumeAnyPress();
-    mobileInput.setRacing(false);
+    mobileInput.setControlPhase('inactive');
     cameraRig.update(dt, boats[0], presentationTime);
     ocean.update(worldTime, stage.camera.position);
     sky.update(worldTime, stage.camera.position);
@@ -509,7 +511,7 @@ function step(dt: number, _t: number): void {
     const resuming = race.phase === 'resume-countdown';
     input.consumePress('Space');
     mobileInput.consumeAnyPress();
-    mobileInput.setRacing(false);
+    mobileInput.setControlPhase(resuming ? 'preparing' : 'inactive');
     race.update(dt);
     if (!resuming) {
       worldTime += dt;
@@ -527,7 +529,7 @@ function step(dt: number, _t: number): void {
 
   const waitingForMobile = mobileInput.enabled && !mobileInput.ready && !HARNESS;
   const racing = race.phase === 'racing' && !waitingForMobile;
-  mobileInput.setRacing(racing && (!HARNESS || params.has('mobile')));
+  mobileInput.setControlPhase(racing && (!HARNESS || params.has('mobile')) ? 'racing' : 'inactive');
 
   // Inputs: player keyboard (or AI autopilot in harness), AI for the rest.
   const flightActive = boats[0].state.flightPhase !== 'surface';
@@ -545,6 +547,8 @@ function step(dt: number, _t: number): void {
     if (!racing) {
       inp = ZERO_INPUT;
     } else if (i === 0 && !HARNESS) {
+      inp = playerInput;
+    } else if (i === 0 && harnessUsePlayerInput) {
       inp = playerInput;
     } else if (i === 0 && harnessPlayerInput) {
       inp = harnessPlayerInput;
@@ -623,6 +627,10 @@ function step(dt: number, _t: number): void {
   previousChallengeTier = race.challengeTier;
 
   const playerState = boats[0].state;
+  if (playerState.driftReleaseReady && !prevDriftReleaseReady) {
+    audio.driftReleaseReady();
+    haptic(7);
+  }
   if (playerState.flightReady && !prevFlightReady) {
     audio.flightReady();
     cameraRig.flightReadyKick();
@@ -653,6 +661,7 @@ function step(dt: number, _t: number): void {
     else if (playerState.flightRouteState === 'failed') cameraRig.routeMissKick();
   }
   prevFlightReady = playerState.flightReady;
+  prevDriftReleaseReady = playerState.driftReleaseReady;
   prevFlightGateProgress = playerState.flightGateProgress;
   prevFlightRouteState = playerState.flightRouteState;
   prevFlightPhase = playerState.flightPhase;
@@ -688,6 +697,7 @@ function step(dt: number, _t: number): void {
   audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
   mobileInput.setActionState(
     ps.boosting ? ps.boostRemaining : ps.boostCharge,
+    ps.driftReleaseReady,
     ps.flightReady,
     ps.flightPhase !== 'surface',
     course.flightTurnWarning(boats[0].id),
@@ -729,7 +739,7 @@ function step(dt: number, _t: number): void {
       retryLessonFrozenT = worldTime;
       input.reset();
       mobileInput.reset();
-      mobileInput.setRacing(false);
+      mobileInput.setControlPhase('inactive');
     } else {
       const excellent = race.challengeResult?.outcome === 'excellent';
       if (excellent) {
@@ -757,7 +767,7 @@ function handleVisibility(hidden: boolean): void {
   audio.setVisibility(hidden);
   input.reset();
   mobileInput.reset();
-  mobileInput.setRacing(false);
+  mobileInput.setControlPhase('inactive');
   if (hidden) {
     pageWasHidden = true;
     interruptionNeedsCountdown = race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown';
@@ -795,6 +805,8 @@ interface Harness {
   playerPose(): { x: number; y: number; z: number; heading: number };
   driftingOpponentPose(): { x: number; y: number; z: number; heading: number };
   setPlayerInput(input: Partial<BoatInput> | null): void;
+  usePlayerInput(enabled: boolean): void;
+  passFlight(routeCursor: number): void;
   retry(): void;
   playerState(): Record<string, number | string | boolean>;
   stats(): Record<string, number | string>;
@@ -805,6 +817,7 @@ interface Harness {
   setVisibility(hidden: boolean): void;
   resumeInterruption(): void;
   perfSample(frames: number): Promise<Record<string, number | string>>;
+  perfFrames(frameMs: number, frames: number): void;
   collisionCase(name: string): Record<string, number | string | boolean>;
   recordsState(): Record<string, unknown>;
   recordsExport(): string;
@@ -816,6 +829,7 @@ interface Harness {
 }
 
 let freeCamPose: { p: [number, number, number]; l: [number, number, number] } | null = null;
+let harnessUsePlayerInput = false;
 
 function advanceUntil(cond: () => boolean, maxSeconds: number): void {
   let elapsed = 0;
@@ -1385,6 +1399,7 @@ function runEnduranceCase(requestedFlights: number): Record<string, unknown> {
 
 function scenario(name: string): void {
   freeCamPose = null;
+  harnessUsePlayerInput = false;
   setHarnessInput(null);
   resetRace();
   if (name !== 'ready') startFreshCountdown();
@@ -1498,6 +1513,31 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === 'defeated', 8);
       setHarnessInput(null);
       break;
+    case 'surface-off-course':
+      advanceUntil(() => race.phase === 'racing', 8);
+      placeHarnessBoat(0, 0.14, 55);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => race.phase === 'defeated', 3);
+      setHarnessInput(null);
+      break;
+    case 'surface-off-course-grace':
+      advanceUntil(() => race.phase === 'racing', 8);
+      placeHarnessBoat(0, 0.14, 55);
+      setHarnessInput({ throttle: 0 });
+      loop.advance(0.55);
+      placeHarnessBoat(0, 0.14, 0);
+      loop.advance(0.4);
+      setHarnessInput(null);
+      break;
+    case 'surface-wrong-way':
+      advanceUntil(() => race.phase === 'racing', 8);
+      course.pointAt(0.14, tmpP);
+      course.tangentAt(0.14, tmpT);
+      boats[0].teleport(tmpP.x, tmpP.z, Math.atan2(tmpT.x, tmpT.z) + Math.PI);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => race.phase === 'defeated', 6);
+      setHarnessInput(null);
+      break;
     case 'retry-lesson':
       advanceUntil(() => race.phase === 'racing', 8);
       placePack(course.flightEntryU - 0.025);
@@ -1523,6 +1563,11 @@ function scenario(name: string): void {
     case 'endless-qualified':
       advanceUntil(() => race.phase === 'racing', 8);
       qualifyHarnessRun();
+      break;
+    case 'endless-two':
+      advanceUntil(() => race.phase === 'racing', 8);
+      passHarnessFlight(0);
+      passHarnessFlight(1);
       break;
     case 'medal-ceremony':
       advanceUntil(() => race.phase === 'racing', 8);
@@ -1604,13 +1649,20 @@ if (HARNESS) {
       };
     },
     setPlayerInput: setHarnessInput,
+    usePlayerInput: (enabled) => {
+      harnessUsePlayerInput = enabled;
+      if (enabled) setHarnessInput(null);
+    },
+    passFlight: passHarnessFlight,
     retry: requestRetry,
     playerState: () => {
       const s = boats[0].state;
       const failure = race.challengeResult?.failure;
       return {
         speed: s.speed,
+        drifting: s.drifting,
         boostCharge: s.boostCharge,
+        driftReleaseReady: s.driftReleaseReady,
         boosting: s.boosting,
         boostRemaining: s.boostRemaining,
         flightReady: s.flightReady,
@@ -1629,6 +1681,7 @@ if (HARNESS) {
         flightPressure: s.flightPressure,
         flightPenaltyRemaining: s.flightPenaltyRemaining,
         place: race.racers[0].place,
+        wrongWay: race.racers[0].wrongWay,
         totalRacers: race.racers.length,
         battleEvents: harnessBattleEvents,
         battleOvertakes: harnessOvertakes,
@@ -1748,6 +1801,7 @@ if (HARNESS) {
       };
       requestAnimationFrame(tick);
     }),
+    perfFrames: (frameMs, frames) => stage.debugPerfFrames(frameMs, frames),
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
   (window as unknown as { __scene: THREE.Scene }).__scene = stage.scene; // harness debugging

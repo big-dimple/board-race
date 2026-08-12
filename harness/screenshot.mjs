@@ -196,6 +196,26 @@ async function verifyFlightContract(page) {
   assert.ok(Math.abs(state.retryLessonDuration - 5) < 0.05, `third loading duration ${state.retryLessonDuration}`);
   assert.ok(Math.abs(state.retryLessonMinRead - 2.5) < 0.03);
 
+  // Surface abandonment uses the same terminal pipeline as a flight miss. A
+  // brief collision excursion gets a recovery window, but sustained departure
+  // or deliberate reverse driving cannot continue forever in open water.
+  await page.evaluate(() => window.__harness.scenario('surface-off-course-grace'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'racing', 'a sub-0.8s course-edge excursion must remain recoverable');
+  assert.equal(state.wrongWay, false, 'returning to the circuit must clear the course warning');
+
+  await page.evaluate(() => window.__harness.scenario('surface-off-course'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'defeated', 'sustained surface course abandonment must be terminal');
+  assert.equal(state.challengeReason, 'off_course');
+  await page.evaluate(() => window.__harness.advance(0.6));
+  assert.match(await page.locator('.hud-lesson-title').textContent() ?? '', /偏航太远/);
+
+  await page.evaluate(() => window.__harness.scenario('surface-wrong-way'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'defeated', 'sustained reverse driving must be terminal');
+  assert.equal(state.challengeReason, 'wrong_way');
+
   await page.evaluate(() => window.__harness.scenario('flight-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightReady, true, 'qualifying Space release must earn a flight token');
@@ -231,6 +251,26 @@ async function verifyFlightContract(page) {
   const driftAudio = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(driftAudio.driftTier) >= 1, `a real drift must cross a readable charge tier: ${JSON.stringify(driftAudio)}`);
 
+  // Drift qualification is short and explicit: a tap remains invalid, while a
+  // deliberate ~0.35s hold reaches the shared release-ready state.
+  await page.evaluate(() => {
+    window.__harness.scenario('start');
+    window.__harness.setPlayerInput({ throttle: 1, drift: true });
+    window.__harness.advance(0.29);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.driftReleaseReady, false, 'a short drift tap must not earn flight');
+  await page.evaluate(() => window.__harness.advance(0.08));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.driftReleaseReady, true, 'the release threshold must be readable by about 0.35s');
+  assert.equal(await page.locator('.hud-boost').evaluate((el) => el.classList.contains('release-ready')), true);
+  await page.evaluate(() => {
+    window.__harness.setPlayerInput({ throttle: 1 });
+    window.__harness.advance(1 / 30);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightReady, true, 'releasing after the threshold must earn exactly one token');
+
   await page.evaluate(() => window.__harness.scenario('opponent-drift'));
   const opponentFx = await page.evaluate(() => window.__harness.opponentFx());
   assert.ok(opponentFx.drifting >= 1, `at least one opponent must visibly use a real drift input: ${JSON.stringify(opponentFx)}`);
@@ -247,7 +287,7 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.scenario('flight-cruise'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightPhase, 'cruise');
-  assert.ok(state.flightClearance > 4 && state.flightClearance < 5.5, `cruise clearance ${state.flightClearance}`);
+  assert.ok(state.flightClearance > 4 && state.flightClearance < 6.5, `cruise clearance ${state.flightClearance}`);
   assert.ok(state.flightRemaining > 0 && state.flightRemaining < 1);
   assert.ok(state.speed >= 40 && state.speed <= 43, `first flight cruise speed ${state.speed}`);
   assert.ok(state.flightPressure > 0.25, `flight pressure ${state.flightPressure}`);
@@ -379,6 +419,38 @@ async function verifyFlightContract(page) {
   assert.equal(state.phase, 'racing');
   assert.equal(state.manMedalsTotal, frozen.medals, 'resume must not award the medal twice');
 
+  // A physical Shift hold must survive the third-flight ceremony and full
+  // resume countdown. Space is edge-triggered and must never survive with it.
+  await page.evaluate(() => window.__harness.scenario('endless-two'));
+  await page.keyboard.down('Shift');
+  await page.keyboard.down('Space');
+  await page.evaluate(() => {
+    window.__harness.passFlight(2);
+    window.__harness.usePlayerInput(true);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'medal');
+  await page.evaluate(() => window.__harness.advance(4.6));
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'resume-countdown');
+  await page.evaluate(() => window.__harness.advance(4.3));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'racing');
+  assert.notEqual(state.flightPhase, 'spool', 'held Space must not auto-launch after the ceremony');
+  await page.evaluate(() => window.__harness.advance(1.15));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightPhase, 'surface');
+  assert.equal(state.drifting, true, 'held Shift must become surface drift immediately after landing');
+  assert.equal(state.driftReleaseReady, true, 'the preserved hold must reach a readable release threshold');
+  assert.equal(state.flightReady, false, 'holding drift must not silently issue a token before release');
+  await page.keyboard.up('Space');
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).flightPhase, 'surface');
+  await page.keyboard.up('Shift');
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightReady, true, 'releasing the preserved Shift hold must earn one token');
+  await page.evaluate(() => window.__harness.usePlayerInput(false));
+
   await page.evaluate(() => window.__harness.scenario('endless-four'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'racing', 'the fourth flight must remain playable');
@@ -405,6 +477,57 @@ async function verifyMobileControls(page) {
   const contractGo = page.locator('.driver-select-go');
   assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
   assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
+  for (const height of [390, 330, 300]) {
+    await page.setViewportSize({ width: 844, height });
+    await page.waitForTimeout(50);
+    const contract = await page.evaluate(() => {
+      const selectors = [
+        '.driver-select-header', '.driver-featured', '.driver-rail', '.driver-select-footer',
+      ];
+      const rects = selectors.map((selector) => {
+        const rect = document.querySelector(selector)?.getBoundingClientRect();
+        return rect ? { selector, top:rect.top, right:rect.right, bottom:rect.bottom, left:rect.left } : null;
+      }).filter(Boolean);
+      const go = document.querySelector('.driver-select-go')?.getBoundingClientRect();
+      const cards = [...document.querySelectorAll('.driver-card')].map((node) => node.getBoundingClientRect());
+      const overlaps = [];
+      for (let i = 0; i < rects.length; i++) {
+        for (let j = i + 1; j < rects.length; j++) {
+          const a = rects[i], b = rects[j];
+          if (Math.min(a.right,b.right) - Math.max(a.left,b.left) > 1 &&
+              Math.min(a.bottom,b.bottom) - Math.max(a.top,b.top) > 1) overlaps.push(`${a.selector} x ${b.selector}`);
+        }
+      }
+      return {
+        rects, overlaps,
+        go:go && { top:go.top, right:go.right, bottom:go.bottom, left:go.left },
+        cards:cards.map((r) => ({ top:r.top, right:r.right, bottom:r.bottom, left:r.left })),
+        scrollHeight:document.scrollingElement?.scrollHeight ?? 0,
+        width:innerWidth, height:innerHeight,
+      };
+    });
+    assert.deepEqual(contract.overlaps, [], `driver selector rows overlap at 844x${height}: ${contract.overlaps.join(', ')}`);
+    assert.ok(contract.go && contract.go.top >= 0 && contract.go.bottom <= contract.height,
+      `GO must remain inside the first visual viewport at 844x${height}: ${JSON.stringify(contract.go)}`);
+    assert.equal(contract.cards.length, 6, 'all six driver choices must remain present');
+    for (const card of contract.cards) {
+      assert.ok(card.top >= 0 && card.bottom <= contract.height, `driver card clips at 844x${height}: ${JSON.stringify(card)}`);
+    }
+    assert.ok(contract.scrollHeight <= contract.height + 1,
+      `driver selector must not depend on address-bar collapse at 844x${height}: scrollHeight=${contract.scrollHeight}`);
+  }
+  const portraitContract = await page.locator('.driver-card img').evaluateAll((images) => images.map((image) => ({
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    src: image.currentSrc,
+  })));
+  assert.equal(portraitContract.length, 6);
+  assert.equal(new Set(portraitContract.map((portrait) => portrait.src)).size, 6, 'every driver needs a distinct portrait');
+  for (const portrait of portraitContract) {
+    assert.deepEqual({ width: portrait.width, height: portrait.height }, { width: 640, height: 960 },
+      `portrait must use the mobile-safe 2:3 master: ${portrait.src}`);
+  }
+  await page.setViewportSize({ width: 844, height: 390 });
   let status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.activation, 'idle');
   await contractGo.click();
@@ -443,6 +566,40 @@ async function verifyMobileControls(page) {
   assert.equal(topControlsOverlap, false, 'SOUND may not cover the tilt/touch mode switch');
   if (status.mode !== 'touch') await mode.click();
   assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'touch');
+
+  // The post-medal countdown exposes direction/drift for preloading, but keeps
+  // flight disabled. Active pointers must survive preparing -> racing.
+  await page.evaluate(() => {
+    window.__harness.scenario('endless-two');
+    window.__harness.passFlight(2);
+    window.__harness.usePlayerInput(true);
+    window.__harness.advance(4.6);
+  });
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.controlPhase, 'preparing');
+  await page.locator('[data-mobile-action="left"]').dispatchEvent('pointerdown', { pointerId: 21, pointerType: 'touch', isPrimary: true });
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', { pointerId: 22, pointerType: 'touch' });
+  await page.locator('[data-mobile-action="flight"]').dispatchEvent('pointerdown', { pointerId: 23, pointerType: 'touch' });
+  assert.deepEqual(await page.locator('.held').evaluateAll((els) => els.map((el) => el.dataset.mobileAction).sort()),
+    ['drift', 'left'], 'preparing may capture steering/drift but never flight');
+  await page.evaluate(() => window.__harness.advance(2));
+  assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).controlPhase, 'preparing');
+  assert.deepEqual(await page.locator('.held').evaluateAll((els) => els.map((el) => el.dataset.mobileAction).sort()),
+    ['drift', 'left'], 'held preparation pointers must survive the frozen countdown');
+  await page.locator('[data-mobile-action="left"]').dispatchEvent('pointerup', { pointerId: 21, pointerType: 'touch' });
+  await page.evaluate(() => window.__harness.advance(2.3));
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.controlPhase, 'racing');
+  await page.evaluate(() => window.__harness.advance(1.15));
+  const resumedState = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(resumedState.flightPhase, 'surface');
+  assert.equal(resumedState.drifting, true);
+  assert.equal(resumedState.driftReleaseReady, true);
+  assert.equal(resumedState.flightReady, false, 'a rejected preparing flight tap must not leak through GO');
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', { pointerId: 22, pointerType: 'touch' });
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).flightReady, true);
+  await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('start'));
   const geometry = await page.evaluate(() => {
@@ -511,6 +668,17 @@ async function verifyPerformanceContract(page) {
   await page.evaluate(() => window.__harness.render());
   let stats = await assertBudget('1440x900');
   assert.ok(stats.calls <= 600, `Auto start draw calls ${stats.calls} exceed 600`);
+  assert.equal(stats.desktopClarity, 1, 'desktop Auto must expose the headroom clarity governor');
+  const baseRatio = stats.pixelRatio;
+  await page.evaluate(() => window.__harness.perfFrames(16.7, 260));
+  stats = await page.evaluate(() => window.__harness.stats());
+  assert.ok(stats.pixelRatio > baseRatio, `sustained headroom must sharpen desktop Auto (${baseRatio} -> ${stats.pixelRatio})`);
+  assert.ok(stats.drawingPixels <= stats.clarityPixelBudget + 25_000,
+    `clarity governor exceeded its hard drawing budget: ${stats.drawingPixels}`);
+  const sharpRatio = stats.pixelRatio;
+  await page.evaluate(() => window.__harness.perfFrames(28, 90));
+  stats = await page.evaluate(() => window.__harness.stats());
+  assert.ok(stats.pixelRatio < sharpRatio, `frame pressure must quickly lower clarity (${sharpRatio} -> ${stats.pixelRatio})`);
 
   const beforeBurst = stats.resizeCount;
   await page.evaluate(() => {

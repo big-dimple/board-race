@@ -520,11 +520,13 @@ export class HUD {
     }
     this.boostBar.classList.toggle('active', st.boosting);
     this.boostBar.classList.toggle('drifting', st.drifting);
+    this.boostBar.classList.toggle('release-ready', st.driftReleaseReady);
     if (st.drifting !== this.lastDrifting) {
       this.lastDrifting = st.drifting;
-      this.boostLabel.textContent = st.drifting ? 'DRIFT' : 'BOOST';
     }
+    this.boostLabel.textContent = st.driftReleaseReady ? 'RELEASE' : st.drifting ? 'DRIFT' : 'BOOST';
     this.driftFx.classList.toggle('on', st.drifting && st.speed > 12);
+    this.driftFx.classList.toggle('ready', st.driftReleaseReady);
     this.driftFx.classList.toggle('full', st.drifting && st.boostCharge >= 0.999);
 
     const driftTier = st.drifting ? Math.min(4, Math.floor(st.boostCharge * 4 + 1e-4)) : 0;
@@ -854,6 +856,8 @@ export class HUD {
     const reason = result.failure?.reason ?? result.reason;
     const flight = result.failure?.flightNumber ?? Math.min(3, result.flightsCleared + 1);
     if (reason === 'no_launch') return `第 ${flight} 飞 · 未起飞`;
+    if (reason === 'off_course') return '偏离赛道 · 挑战结束';
+    if (reason === 'wrong_way') return '持续逆行 · 挑战结束';
     if (reason === 'corridor') return `第 ${flight} 飞 · 偏离航线`;
     if (reason === 'landing') return `第 ${flight} 飞 · 提前落水`;
     if (reason === 'exit') return `第 ${flight} 飞 · 未完成`;
@@ -865,6 +869,8 @@ export class HUD {
     const reason = result.failure?.reason ?? result.reason;
     const why: Record<FlightRouteFailReason, string> = {
       none: '挑战未完成',
+      off_course: '冲出主航线后没有及时回正',
+      wrong_way: '逆向行驶超过纠正窗口',
       no_launch: '没有起飞，水面通过不计完成',
       corridor: '飞离了悬空青色能量航线',
       gate: '船体没有从两根发光杆之间穿过',
@@ -890,6 +896,18 @@ export class HUD {
       metric: '',
     };
     switch (failure.reason) {
+      case 'off_course':
+        return {
+          title: `偏航太远 · ${failure.corridorDistanceM?.toFixed(0) ?? '?'}m`,
+          copy: mobile ? '下一次：警告出现就松开方向，向赛道轻调回正' : '下一次：警告出现就松开方向，用 A / D 轻调回主航线',
+          metric: '',
+        };
+      case 'wrong_way':
+        return {
+          title: '方向反了',
+          copy: mobile ? '下一次：看到逆行警告立刻掉头回主航线' : '下一次：看到 WRONG WAY 立刻掉头回主航线',
+          metric: '',
+        };
       case 'no_launch':
         return {
           title: '没有起飞',

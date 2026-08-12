@@ -1,6 +1,6 @@
 # 是男人就飞三次
 
-Cel-shaded arcade boat racing on an infinite open ocean. The boat moves automatically; three independently earned flights grant a `男人勋章`, then the same run continues as an endless flight-record chase. Take first place after qualifying to lock `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. World geometry and effects are authored in code; the local character portraits and formal rock loop are documented CC0 assets under `src/assets/**/LICENSES.md`.
+Cel-shaded arcade boat racing on an infinite open ocean. The boat moves automatically; three independently earned flights grant a `男人勋章`, then the same run continues as an endless flight-record chase. Take first place after qualifying to lock `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. World geometry and effects are authored in code; project character portraits and the owner-supplied score are documented under `src/assets/**/LICENSES.md`.
 
 **Play online:** [https://big-dimple.github.io/board-race/](https://big-dimple.github.io/board-race/)
 
@@ -36,7 +36,7 @@ Failure goes directly to one focused loading review. A new failure type displays
 
 Runs, medals, excellent finishes, per-driver PB flights, closest misses, rival wins, and audio preferences are saved in versioned browser `localStorage` with v2/v3 record migration into schema v4. READY exposes JSON save export/import for backup or moving to another browser. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; an authenticated server sync can later consume the same versioned export format.
 
-Audio uses a local, beat-aligned 140 BPM CC0 rock loop plus Web Audio engine, water, air-pressure, air-brake, gate, collision, battle, failure, and medal layers. READY stays musically silent; explicit GO starts a filtered 3/2/1 pre-roll and the score opens gradually over the first 14 seconds. `SOUND` on READY and LOADING exposes separate master, rock, effects, ambience, visible percentages, audition feedback, and mute. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately.
+Audio uses the complete owner-selected 127-second instrumental rock track plus Web Audio engine, restrained water/air pressure, air-brake, gate, collision, battle, failure, and medal layers. The first explicit GO starts the song from its opening and brings it in progressively; later runs, loading, medals, and READY preserve the same browser-session timeline. Only the natural end loops back to the song opening. `SOUND` exposes separate master, music, effects, ambience, visible percentages, audition feedback, and mute. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately until explicit GO resumes it.
 
 ## Architecture
 
@@ -118,8 +118,10 @@ harness/
 ## Performance notes
 
 - Fixed 60 Hz simulation, render decoupled. Auto starts inside a 2.1M drawing-pixel budget,
-  reacts to fullscreen/resize within one animation frame, drops quality after 0.5s over
-  20ms, and only climbs after 5s below 15.5ms.
+  then desktop-only sustained frame headroom can restore clarity up to 3.2M pixels;
+  any pressure or fullscreen resize immediately returns toward the conservative budget.
+  It reacts to fullscreen/resize within one animation frame, drops quality after 0.5s over
+  20ms, and only climbs after 4s of stable sub-18.2ms frames.
 - `?quality=performance` uses a 1.3M budget; `?quality=high` uses 4.1M, 2x MSAA,
   half-resolution energy effects, and detailed AI ink. Auto uses an RGBA8 beauty target,
   no MSAA, 0.35-scale energy effects, and simplified distant AI rider silhouettes.

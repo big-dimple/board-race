@@ -36,6 +36,8 @@ export type CourseRouteId = 'surface' | FlightCourseRouteId;
 export type FlightRouteState = 'idle' | 'active' | 'passed' | 'failed';
 export type FlightRouteFailReason =
   | 'none'
+  | 'off_course'
+  | 'wrong_way'
   | 'no_launch'
   | 'corridor'
   | 'gate'
@@ -109,6 +111,8 @@ export interface BoatState {
   drifting: boolean;
   /** 0..1, charged by drifting, spent by boosting. */
   boostCharge: number;
+  /** True once releasing the current surface drift will earn a flight token. */
+  driftReleaseReady: boolean;
   boosting: boolean;
   /** Normalized time left in the active boost, or 0 while inactive. */
   boostRemaining: number;

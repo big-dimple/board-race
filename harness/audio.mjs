@@ -49,7 +49,7 @@ try {
   assert.equal(state.scoreArmed, false, 'READY gestures must not arm the race score');
   assert.equal(state.musicPlaying, false, 'character select must remain musically silent');
   assert.ok(Number(state.musicBusGain) < 0.008, `READY music bus must be closed: ${state.musicBusGain}`);
-  assert.ok(Number(state.ambience) <= 0.25, `phone-safe ambience default must stay restrained: ${state.ambience}`);
+  assert.ok(Number(state.ambience) <= 0.12, `phone-safe ambience default must stay restrained: ${state.ambience}`);
   assert.ok(Number(state.sfx) <= 0.7, `phone-safe SFX default must leave limiter headroom: ${state.sfx}`);
   assert.ok(Number(state.safetyHighpassHz) >= 48, `sub-bass protection must stay enabled: ${state.safetyHighpassHz}`);
   assert.ok(Number(state.limiterThresholdDb) <= -12 && Number(state.limiterRatio) >= 12,
@@ -108,8 +108,9 @@ try {
   assert.equal(state.scoreArmed, true);
   assert.equal(state.musicPlaying, true);
   assert.equal(state.countdownStage, 2);
-  assert.ok(Number(state.scorePreroll) > 0.9 && Number(state.scorePreroll) < 1,
-    `GO pre-roll must align to a score beat: ${state.scorePreroll}`);
+  assert.equal(Number(state.scorePreroll), 0, 'the first GO must start the complete song from its opening');
+  assert.equal(state.musicLoop, true, 'the media element must loop only after the complete song');
+  assert.ok(Number(state.musicDuration) > 120, `the complete selected song must be loaded: ${state.musicDuration}`);
   assert.ok(Number(state.musicFilterHz) < 3000, `countdown must keep the score filtered: ${state.musicFilterHz}`);
   assert.ok(Number(state.musicBusGain) > 0.01 && Number(state.musicBusGain) < 0.5,
     `countdown score must be audible but restrained: ${state.musicBusGain}`);
@@ -126,6 +127,16 @@ try {
   await page.waitForTimeout(500);
   state = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(state.musicBusGain) > openingGain, `racing score must build gradually: ${openingGain} -> ${state.musicBusGain}`);
+
+  // Starting a later run may change the mix for 3/2/1, but must preserve the
+  // same browser-session media timeline instead of seeking to an intro point.
+  const beforeNextRun = Number(state.musicTime);
+  await page.evaluate(() => window.__harness.scenario('countdown'));
+  await page.waitForTimeout(220);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.musicTime) >= beforeNextRun,
+    `a new run must continue the full song: ${beforeNextRun} -> ${state.musicTime}`);
+  assert.equal(state.musicPlaying, true);
 
   await page.evaluate(() => window.__harness.scenario('drift-charge'));
   state = await page.evaluate(() => window.__harness.audioState());

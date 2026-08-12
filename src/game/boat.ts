@@ -60,8 +60,8 @@ const TUNING = {
   driftYawDampMul: 0.5,  // yaw damping × this while drifting (looser rotation)
   driftScrub: 0.1,       // 1/s extra forward speed scrub while drifting (slight — not a brake)
   driftMinSpeed: 12,     // m/s — below this, drifting builds no charge
-  driftChargeTime: 1.2,  // s of held drift for a full 0→1 charge
-  boostReleaseMin: 0.35, // minimum charge that pays out on release
+  driftChargeTime: 1.05, // s of held drift for a full 0→1 charge
+  boostReleaseMin: 0.32, // minimum charge that pays out on release
   boostDuration: 1.1,    // s of boost per unit of charge
   boostTopMul: 1.42,     // taper reference × while boosting → ≈ +35% real top speed
   boostAccelMul: 1.4,    // accel × while boosting
@@ -766,6 +766,7 @@ export class Boat implements IBoat {
       steer: 0,
       drifting: false,
       boostCharge: 0,
+      driftReleaseReady: false,
       boosting: false,
       boostRemaining: 0,
       flightReady: false,
@@ -1150,6 +1151,8 @@ export class Boat implements IBoat {
     st.throttle = thr;
     st.steer = steer;
     st.drifting = input.drift;
+    st.driftReleaseReady = input.drift && st.flightPhase === 'surface' &&
+      speedAbs > TUNING.driftMinSpeed && st.boostCharge >= TUNING.boostReleaseMin;
     st.boosting = boosting;
     st.boostRemaining = boosting && this.boostTotal > 0 ? clamp(this.boostTimer / this.boostTotal, 0, 1) : 0;
     st.flightClearance = pos.y - surfaceY;
@@ -1621,6 +1624,7 @@ export class Boat implements IBoat {
 
     const st = this.state;
     st.boostCharge = 0;
+    st.driftReleaseReady = false;
     st.boostRemaining = 0;
     st.flightReady = false;
     st.flightPhase = 'surface';

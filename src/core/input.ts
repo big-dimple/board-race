@@ -24,6 +24,7 @@ export class Input {
     target.addEventListener('blur', () => {
       this.keys.clear();
       this.pressed.clear();
+      this.steerVal = 0;
     });
   }
 
@@ -53,6 +54,16 @@ export class Input {
 
   reset(): void {
     this.keys.clear();
+    this.pressed.clear();
+    this.steerVal = 0;
+  }
+
+  /**
+   * Clear one-shot presses at a presentation boundary without forgetting keys
+   * that are physically still held. This lets Shift survive the medal/resume
+   * sequence while Space can never be buffered into the next control frame.
+   */
+  clearTransient(): void {
     this.pressed.clear();
     this.steerVal = 0;
   }

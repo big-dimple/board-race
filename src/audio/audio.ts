@@ -21,10 +21,6 @@ import rockMp3 from '../assets/audio/board-race-rock.mp3?url';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
-const SCORE_BPM = 140;
-const SCORE_COUNTDOWN_S = 4.2;
-const SCORE_GO_BEAT = 12;
-const SCORE_PREROLL_S = SCORE_GO_BEAT * 60 / SCORE_BPM - SCORE_COUNTDOWN_S;
 const SAFETY_HIGHPASS_HZ = 48;
 const LIMITER_THRESHOLD_DB = -14;
 const LIMITER_RATIO = 16;
@@ -51,7 +47,7 @@ const DEFAULT_SETTINGS: AudioSettings = {
   master: 0.7,
   music: 0.78,
   sfx: 0.65,
-  ambience: 0.22,
+  ambience: 0.12,
   muted: false,
 };
 
@@ -171,6 +167,10 @@ export class GameAudio {
   }
 
   update(dt: number): void {
+    if (this.ctx && this.musicDuckMultiplier < 1 && this.ctx.currentTime >= this.musicDuckUntil) {
+      this.musicDuckMultiplier = 1;
+      this.applyMix(0.06);
+    }
     if (!this.scoreArmed || (this.scene !== 'racing' && this.scene !== 'flight')) return;
     this.raceScoreElapsed += dt;
     const flowStep = Math.floor(this.raceScoreElapsed * 4);
@@ -205,13 +205,12 @@ export class GameAudio {
     if (scene === this.scene) return;
     this.scene = scene;
     if (scene === 'ready') {
-      this.scoreArmed = false;
       this.musicPreview = false;
       this.musicPreviewToken++;
-      this.raceScoreElapsed = 0;
-      this.lastFlowStep = -1;
-      this.musicElement?.pause();
-      if (this.ctx && this.musicBus) {
+      // Before the first GO, READY is silent. Once a session has started, the
+      // full song keeps its media position through results and later runs.
+      if (!this.scoreArmed) this.musicElement?.pause();
+      if (!this.scoreArmed && this.ctx && this.musicBus) {
         this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
         this.musicBus.gain.value = 0;
       }
@@ -223,18 +222,17 @@ export class GameAudio {
   /** Arm the formal score from an explicit GO. READY gestures only unlock Web Audio. */
   startRaceScore(fresh: boolean): void {
     this.resume();
+    const firstStart = !this.scoreArmed;
     this.scoreArmed = true;
     this.musicPreview = false;
     this.musicPreviewToken++;
     this.countdownStageValue = 3;
-    if (fresh) {
+    if (fresh && firstStart) {
       this.raceScoreElapsed = 0;
       this.lastFlowStep = -1;
       if (this.musicElement) {
         try {
-          // The local score is cut on a downbeat. A short pre-roll places GO
-          // on bar four instead of starting an unrelated phrase mid-count.
-          this.musicElement.currentTime = SCORE_PREROLL_S;
+          this.musicElement.currentTime = 0;
         } catch {
           // Metadata may still be loading. Playback starts from the browser's
           // initial position until the next fresh run.
@@ -271,13 +269,15 @@ export class GameAudio {
       musicFailed: this.musicFailed,
       musicPlaying: this.musicElement ? !this.musicElement.paused : false,
       musicTime: this.musicElement?.currentTime ?? 0,
+      musicDuration: Number.isFinite(this.musicElement?.duration) ? this.musicElement?.duration ?? 0 : 0,
+      musicLoop: this.musicElement?.loop ?? false,
       scoreArmed: this.scoreArmed,
       musicPreview: this.musicPreview,
       countdownStage: this.countdownStageValue,
       scoreElapsed: this.raceScoreElapsed,
       driftTier: this.lastDriftTier,
       musicDuck: this.musicDuckMultiplier,
-      scorePreroll: SCORE_PREROLL_S,
+      scorePreroll: 0,
       safetyHighpassHz: SAFETY_HIGHPASS_HZ,
       limiterThresholdDb: LIMITER_THRESHOLD_DB,
       limiterRatio: LIMITER_RATIO,
@@ -313,6 +313,12 @@ export class GameAudio {
   audition(kind: 'master' | 'music' | 'sfx' | 'ambience'): void {
     this.resume();
     if (kind === 'music') {
+      if (this.scoreArmed) {
+        this.musicPreview = false;
+        this.applyMix(0.06);
+        this.ensureMusicPlaying();
+        return;
+      }
       const token = ++this.musicPreviewToken;
       this.musicPreview = true;
       this.applyMix(0.06);
@@ -489,6 +495,13 @@ export class GameAudio {
     this.blip(620, c.currentTime, 0.18, 0.2, 'triangle');
     this.blip(930, c.currentTime + 0.07, 0.25, 0.19, 'triangle');
     this.blip(1395, c.currentTime + 0.14, 0.32, 0.14, 'square');
+  }
+
+  driftReleaseReady(): void {
+    const c = this.ctx;
+    if (!c) return;
+    this.blip(760, c.currentTime, 0.08, 0.075, 'triangle');
+    this.blip(1140, c.currentTime + 0.045, 0.11, 0.06, 'triangle');
   }
 
   flightGate(index: number): void {
@@ -756,7 +769,7 @@ export class GameAudio {
         : 0.34;
     const flow = clamp01(this.raceScoreElapsed / 14);
     switch (this.scene) {
-      case 'ready': return this.musicPreview ? 0.42 : 0;
+      case 'ready': return this.scoreArmed ? 0.28 : this.musicPreview ? 0.42 : 0;
       case 'lesson': return 0.18;
       case 'defeat': return 0.22;
       case 'medal': return 0.38;
@@ -969,10 +982,11 @@ export class GameAudio {
     this.eventBus = eventBus;
 
     const music = new Audio();
-    // The track remains silent until GO, but decoding a small local loop ahead
+    // The track remains silent until GO, but decoding the local song ahead
     // of time prevents the first mixer preview from reporting "playing" while
     // the media clock is still waiting on data.
     music.preload = 'auto';
+    // Loop only after the complete song ends. New runs never seek or restart it.
     music.loop = true;
     music.crossOrigin = 'anonymous';
     music.src = music.canPlayType('audio/ogg; codecs="vorbis"') ? rockOgg : rockMp3;
@@ -1139,11 +1153,14 @@ function loadAudioSettings(): AudioSettings {
     const raw = localStorage.getItem(AUDIO_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<AudioSettings>;
+    const savedAmbience = typeof parsed.ambience === 'number' ? clamp01(parsed.ambience) : DEFAULT_SETTINGS.ambience;
     return {
       master: typeof parsed.master === 'number' ? clamp01(parsed.master) : DEFAULT_SETTINGS.master,
       music: typeof parsed.music === 'number' ? clamp01(parsed.music) : DEFAULT_SETTINGS.music,
       sfx: typeof parsed.sfx === 'number' ? clamp01(parsed.sfx) : DEFAULT_SETTINGS.sfx,
-      ambience: typeof parsed.ambience === 'number' ? clamp01(parsed.ambience) : DEFAULT_SETTINGS.ambience,
+      // Migrate the old shipped 22% default without overwriting values users
+      // actually customized in the mixer.
+      ambience: Math.abs(savedAmbience - 0.22) < 1e-6 ? DEFAULT_SETTINGS.ambience : savedAmbience,
       muted: parsed.muted === true,
     };
   } catch {

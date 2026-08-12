@@ -3,6 +3,7 @@ import './mobileControls.css';
 
 type ControlMode = 'tilt' | 'touch';
 type ActivationState = 'idle' | 'requesting' | 'calibrating' | 'ready';
+type ControlPhase = 'inactive' | 'preparing' | 'racing';
 type PointerAction = 'left' | 'right' | 'drift' | 'flight';
 
 const ZERO: BoatInput = {
@@ -33,7 +34,7 @@ export class MobileControls {
 
   private mode: ControlMode = 'tilt';
   private activation: ActivationState = 'idle';
-  private racing = false;
+  private controlPhase: ControlPhase = 'inactive';
   private permissionPending = false;
   private tiltAuthorized = false;
   private calibrationStartedAt = 0;
@@ -135,14 +136,25 @@ export class MobileControls {
     }, { passive: true });
   }
 
-  setRacing(racing: boolean): void {
-    this.racing = racing;
-    this.root?.classList.toggle('racing', racing);
-    if (!racing) this.releaseAll();
+  setControlPhase(phase: ControlPhase): void {
+    if (phase === this.controlPhase) return;
+    const wasInteractive = this.controlPhase !== 'inactive';
+    this.controlPhase = phase;
+    this.root?.classList.toggle('controls-visible', phase !== 'inactive');
+    this.root?.classList.toggle('preparing', phase === 'preparing');
+    this.root?.classList.toggle('racing', phase === 'racing');
+    if (phase === 'inactive') {
+      this.releaseAll();
+      this.flightQueued = false;
+    } else if (!wasInteractive || phase === 'preparing') {
+      // Preparing accepts held steering/drift only. A flight edge must always
+      // originate after GO, even if the player taps the disabled side early.
+      this.flightQueued = false;
+    }
   }
 
   read(dt: number, flightActive: boolean): BoatInput {
-    if (!this.enabled || !this.racing || this.activation !== 'ready') return ZERO;
+    if (!this.enabled || this.controlPhase !== 'racing' || this.activation !== 'ready') return ZERO;
     const leftHeld = this.hasAction('left');
     const rightHeld = this.hasAction('right');
     const touchTarget = leftHeld === rightHeld ? 0 : leftHeld ? -1 : 1;
@@ -198,9 +210,16 @@ export class MobileControls {
     this.syncStartButton();
   }
 
-  setActionState(charge: number, flightReady: boolean, flightActive: boolean, turnWarning = false): void {
+  setActionState(
+    charge: number,
+    releaseReady: boolean,
+    flightReady: boolean,
+    flightActive: boolean,
+    turnWarning = false,
+  ): void {
     if (!this.root) return;
     this.root.style.setProperty('--mobile-charge', String(clamp(charge, 0, 1)));
+    this.root.classList.toggle('drift-release-ready', releaseReady);
     this.root.classList.toggle('flight-ready', flightReady);
     this.root.classList.toggle('in-flight', flightActive);
     this.root.classList.toggle('turn-warning', turnWarning);
@@ -218,10 +237,18 @@ export class MobileControls {
     this.filteredTilt = 0;
   }
 
-  status(): { mode: ControlMode; activation: ActivationState; sampleCount: number; angle: number; landscape: boolean } {
+  status(): {
+    mode: ControlMode;
+    activation: ActivationState;
+    controlPhase: ControlPhase;
+    sampleCount: number;
+    angle: number;
+    landscape: boolean;
+  } {
     return {
       mode: this.mode,
       activation: this.activation,
+      controlPhase: this.controlPhase,
       sampleCount: this.calibrationSamples.length,
       angle: this.calibrationAngle,
       landscape: this.landscape,
@@ -373,7 +400,8 @@ export class MobileControls {
   private pointerDown(event: PointerEvent, action: PointerAction): void {
     this.onFirstGesture();
     this.anyPressQueued = true;
-    if (!this.racing || this.activation !== 'ready') return;
+    if (this.controlPhase === 'inactive' || this.activation !== 'ready') return;
+    if (this.controlPhase === 'preparing' && action === 'flight') return;
     event.preventDefault();
     const button = event.currentTarget as HTMLButtonElement;
     this.activePointers.set(event.pointerId, action);

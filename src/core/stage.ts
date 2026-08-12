@@ -15,6 +15,9 @@ export interface RenderQualityProfile {
   detailedAiInk: boolean;
 }
 
+const AUTO_DESKTOP_CLARITY_BUDGET = 3_200_000;
+const AUTO_DESKTOP_MAX_PIXEL_RATIO = 1.35;
+
 const PROFILES: Record<RenderQualityMode, RenderQualityProfile> = {
   auto: {
     mode: 'auto', pixelBudget: 2_100_000, maxPixelRatio: 1.25,
@@ -47,10 +50,15 @@ export class Stage {
   private adjustmentCooldown = 0;
   private resizeRaf = 0;
   private resizeCount = 0;
+  private lastBaseRatio = 1;
+  private readonly desktopClarity: boolean;
   private readonly resizeCbs: Array<(w: number, h: number, pr: number) => void> = [];
 
   constructor(container: HTMLElement, mode: RenderQualityMode = 'auto') {
     this.quality = PROFILES[mode];
+    this.desktopClarity = mode === 'auto' &&
+      window.innerWidth >= 1000 &&
+      !window.matchMedia('(pointer: coarse)').matches;
     this.renderer = new THREE.WebGLRenderer({
       antialias: false,
       powerPreference: 'high-performance',
@@ -66,7 +74,8 @@ export class Stage {
     this.camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 6000);
     this.camera.position.set(0, 8, 20);
 
-    this.pixelRatio = this.budgetRatio(window.innerWidth, window.innerHeight);
+    this.pixelRatio = this.baseBudgetRatio(window.innerWidth, window.innerHeight);
+    this.lastBaseRatio = this.pixelRatio;
     const schedule = (): void => this.scheduleResize();
     window.addEventListener('resize', schedule, { passive: true });
     document.addEventListener('fullscreenchange', schedule);
@@ -87,7 +96,7 @@ export class Stage {
     if (this.frameEma > 20) {
       this.badFrameSeconds += dt;
       this.goodFrameSeconds = 0;
-    } else if (this.frameEma < 15.5) {
+    } else if (this.frameEma < 18.2) {
       this.goodFrameSeconds += dt;
       this.badFrameSeconds = 0;
     } else {
@@ -101,8 +110,8 @@ export class Stage {
       this.badFrameSeconds = 0;
       this.adjustmentCooldown = 2;
       this.applySize();
-    } else if (this.goodFrameSeconds >= 5) {
-      const ceiling = this.budgetRatio(window.innerWidth, window.innerHeight);
+    } else if (this.goodFrameSeconds >= 4) {
+      const ceiling = this.clarityCeilingRatio(window.innerWidth, window.innerHeight);
       if (this.pixelRatio < ceiling) {
         this.pixelRatio = Math.min(ceiling, this.pixelRatio + 0.1);
         this.applySize();
@@ -112,17 +121,38 @@ export class Stage {
     }
   }
 
-  private budgetRatio(w: number, h: number): number {
+  /** Harness-only deterministic governor input; production uses measured rAF time. */
+  debugPerfFrames(frameMs: number, frames: number): void {
+    for (let i = 0; i < Math.max(0, frames); i++) this.updatePerf(frameMs);
+  }
+
+  private ratioForBudget(w: number, h: number, pixelBudget: number, maxPixelRatio: number): number {
     const device = Math.max(1, window.devicePixelRatio || 1);
-    const budget = Math.sqrt(this.quality.pixelBudget / Math.max(1, w * h));
-    return Math.max(this.quality.minPixelRatio, Math.min(device, this.quality.maxPixelRatio, budget));
+    const budget = Math.sqrt(pixelBudget / Math.max(1, w * h));
+    return Math.max(this.quality.minPixelRatio, Math.min(device, maxPixelRatio, budget));
+  }
+
+  private baseBudgetRatio(w: number, h: number): number {
+    return this.ratioForBudget(w, h, this.quality.pixelBudget, this.quality.maxPixelRatio);
+  }
+
+  private clarityCeilingRatio(w: number, h: number): number {
+    if (!this.desktopClarity) return this.baseBudgetRatio(w, h);
+    return this.ratioForBudget(w, h, AUTO_DESKTOP_CLARITY_BUDGET, AUTO_DESKTOP_MAX_PIXEL_RATIO);
   }
 
   private scheduleResize(): void {
     if (this.resizeRaf) return;
     this.resizeRaf = requestAnimationFrame(() => {
       this.resizeRaf = 0;
-      this.pixelRatio = Math.min(this.pixelRatio, this.budgetRatio(window.innerWidth, window.innerHeight));
+      // A fullscreen/resize jump first returns to the conservative budget. The
+      // governor may then restore desktop clarity only after sustained headroom.
+      // Preserve a real performance penalty, but do not strand a small window
+      // at the ratio required by the previous 4K viewport.
+      const nextBase = this.baseBudgetRatio(window.innerWidth, window.innerHeight);
+      const perfScale = Math.min(1, this.pixelRatio / Math.max(this.quality.minPixelRatio, this.lastBaseRatio));
+      this.pixelRatio = Math.max(this.quality.minPixelRatio, nextBase * perfScale);
+      this.lastBaseRatio = nextBase;
       this.applySize();
     });
   }
@@ -149,6 +179,10 @@ export class Stage {
       pixelRatio: this.pixelRatio,
       drawingPixels: Math.floor(w * this.pixelRatio) * Math.floor(h * this.pixelRatio),
       quality: this.quality.mode,
+      basePixelBudget: this.quality.pixelBudget,
+      clarityPixelBudget: this.desktopClarity ? AUTO_DESKTOP_CLARITY_BUDGET : this.quality.pixelBudget,
+      clarityCeilingRatio: this.clarityCeilingRatio(w, h),
+      desktopClarity: this.desktopClarity ? 1 : 0,
       resizeCount: this.resizeCount,
     };
   }
