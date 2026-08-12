@@ -35,7 +35,7 @@ import { RACER_DEFS } from './racers';
 
 export interface RaceEvents {
   countdownTick(n: number): void; // 3,2,1
-  go(): void;
+  go(resuming: boolean): void;
   lapDone(r: RacerState): void;
   checkpoint(r: RacerState, splitDelta: number): void; // split vs leader, seconds
   finish(r: RacerState): void;
@@ -69,7 +69,7 @@ const _sample: CourseSample = {
 export class Race implements RaceView {
   readonly racers: RacerState[] = [];
   readonly totalLaps = null;
-  phase: RacePhase = 'countdown';
+  phase: RacePhase = 'ready';
   countdownValue = 3;
   raceTime = 0; // seconds since GO
   challengeResult: ChallengeResult | null = null;
@@ -137,13 +137,13 @@ export class Race implements RaceView {
     return this.racers[this.boats[0].id];
   }
 
-  /** Back to countdown, all progress cleared. */
-  reset(quick = false): void {
-    this.phase = 'countdown';
-    this.cdTimer = quick ? 0.9 : COUNTDOWN_S;
-    this.tickS = quick ? 0.9 : TICK_S;
-    this.countdownValue = quick ? 1 : 3;
-    this.pendingTick = this.countdownValue;
+  /** Reset the grid and wait for an explicit player confirmation. */
+  reset(): void {
+    this.phase = 'ready';
+    this.cdTimer = COUNTDOWN_S;
+    this.tickS = TICK_S;
+    this.countdownValue = 3;
+    this.pendingTick = 0;
     this.raceTime = 0;
     this.challengeResult = null;
     this.challengeTier = 'unqualified';
@@ -181,6 +181,42 @@ export class Race implements RaceView {
     this.overtakeStreak = 0;
     this.lastOvertakeAt = -Infinity;
     this.totalOvertakes = 0;
+  }
+
+  /** Begin a fresh run. Returns false when the phase cannot accept GO. */
+  startCountdown(): boolean {
+    if (this.phase !== 'ready') return false;
+    this.armCountdown('countdown');
+    return true;
+  }
+
+  /** Freeze a qualified run while its medal ceremony is on screen. */
+  beginMedalCeremony(): boolean {
+    if (this.phase !== 'racing') return false;
+    this.phase = 'medal';
+    this.countdownValue = 3;
+    this.pendingTick = 0;
+    return true;
+  }
+
+  /** Resume the same run through a full 3/2/1 countdown. */
+  startResumeCountdown(): boolean {
+    if (this.phase !== 'medal') return false;
+    this.armCountdown('resume-countdown');
+    return true;
+  }
+
+  /** Restart safely after the page returns from the background. */
+  restartAfterInterruption(): boolean {
+    if (this.phase === 'racing') {
+      this.armCountdown('resume-countdown');
+      return true;
+    }
+    if (this.phase === 'countdown' || this.phase === 'resume-countdown') {
+      this.armCountdown(this.phase);
+      return true;
+    }
+    return false;
   }
 
   /** End the player's run immediately. Idempotent so swept checks cannot double-fire. */
@@ -221,7 +257,8 @@ export class Race implements RaceView {
   }
 
   update(dt: number): void {
-    if (this.phase === 'countdown') {
+    if (this.phase === 'countdown' || this.phase === 'resume-countdown') {
+      const resuming = this.phase === 'resume-countdown';
       if (this.pendingTick > 0) {
         this.events.countdownTick(this.pendingTick);
         this.pendingTick = 0;
@@ -235,9 +272,11 @@ export class Race implements RaceView {
       if (this.cdTimer <= 0) {
         this.phase = 'racing';
         this.countdownValue = 0;
-        this.raceTime = 0;
-        for (let i = 0; i < this.boats.length; i++) this.lapStart[i] = 0;
-        this.events.go();
+        if (!resuming) {
+          this.raceTime = 0;
+          for (let i = 0; i < this.boats.length; i++) this.lapStart[i] = 0;
+        }
+        this.events.go(resuming);
       }
       this.track(dt, true); // keep position tracking warm; no gate/lap processing
       this.sortPlaces();
@@ -250,6 +289,14 @@ export class Race implements RaceView {
     this.sortPlaces();
     if (this.challengeTier === 'ordinary' && this.player().place === 1) this.challengeTier = 'excellent';
     this.trackBattles(dt);
+  }
+
+  private armCountdown(phase: 'countdown' | 'resume-countdown'): void {
+    this.phase = phase;
+    this.cdTimer = COUNTDOWN_S;
+    this.tickS = TICK_S;
+    this.countdownValue = 3;
+    this.pendingTick = 3;
   }
 
   private track(dt: number, resyncOnly: boolean): void {

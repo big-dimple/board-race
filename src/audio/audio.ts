@@ -8,8 +8,7 @@
  *            sine(sub)─┤   ▲                                                  │
  *            saw(+1oct)─► boostGain ──────────────────────────────────────────┤
  *   rush:    noise loop ─► bandpass ─► rushGain ──────────────────────────────┤
- *   one-shots: thud / splash / beep / horn / sting ───────────────────────────┤
- *                                          master(0.5) ─► compressor ─► destination
+ *   music / ambience / vehicle / event buses ─► master ─► limiter ─► destination
  *
  * All continuous params move via setTargetAtTime (no zipper noise), and the
  * set* hot paths allocate nothing — every node there is built once in build().
@@ -18,6 +17,37 @@
  */
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
+const BPM = 144;
+const MUSIC_STEP_S = 60 / BPM / 2;
+
+export type GameAudioScene =
+  | 'ready'
+  | 'countdown'
+  | 'racing'
+  | 'flight'
+  | 'medal'
+  | 'defeat'
+  | 'lesson'
+  | 'hidden';
+
+export interface AudioSettings {
+  master: number;
+  music: number;
+  sfx: number;
+  ambience: number;
+  muted: boolean;
+}
+
+const DEFAULT_SETTINGS: AudioSettings = {
+  master: 0.7,
+  music: 0.38,
+  sfx: 0.82,
+  ambience: 0.55,
+  muted: false,
+};
+
+const gainCurve = (value: number): number => clamp01(value) ** 2;
 
 /** Light grit: soft asymmetric-ish saturation curve for the engine shaper. */
 const makeGritCurve = (): Float32Array<ArrayBuffer> => {
@@ -34,7 +64,25 @@ const makeGritCurve = (): Float32Array<ArrayBuffer> => {
 export class GameAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private musicBus: GainNode | null = null;
+  private musicFilter: BiquadFilterNode | null = null;
+  private ambienceBus: GainNode | null = null;
+  private vehicleBus: GainNode | null = null;
+  private eventBus: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  private settings: AudioSettings = loadAudioSettings();
+  private scene: GameAudioScene = 'ready';
+  private sceneBeforeHidden: GameAudioScene = 'ready';
+  private musicNextTime = 0;
+  private musicStep = 0;
+  private musicActive = false;
+  private musicDrive: WaveShaperNode | null = null;
+  private oceanGain: GainNode | null = null;
+  private windGain: GainNode | null = null;
+  private windFilter: BiquadFilterNode | null = null;
+  private retryVariation = 0;
+  private lastFailureAt = -Infinity;
+  private activeOneShots = 0;
 
   // engine nodes
   private saw1: OscillatorNode | null = null;
@@ -79,10 +127,6 @@ export class GameAudio {
   private flightAirBrake = 0;
   private flightSteer = 0;
 
-  constructor() {
-    // deliberately empty: nothing audible exists until resume()
-  }
-
   /** Call on first user gesture. Safe to call repeatedly. */
   resume(): void {
     if (!this.ctx) {
@@ -94,11 +138,105 @@ export class GameAudio {
       }
     }
     const c = this.ctx;
-    if (c && c.state === 'suspended') void c.resume();
+    if (c && !document.hidden) {
+      if (c.state === 'suspended') {
+        void c.resume().then(() => {
+          this.musicNextTime = c.currentTime + 0.04;
+          this.applyMix(0.05);
+        });
+      } else if (c.state === 'running') {
+        // A very short app switch can restore visibility before the delayed
+        // suspend runs. The next explicit gesture must still restore the mix.
+        this.musicNextTime = c.currentTime + 0.04;
+        this.applyMix(0.05);
+      }
+    }
   }
 
-  /** All continuous smoothing rides on setTargetAtTime; nothing to do per frame. */
-  update(_dt: number): void {}
+  update(_dt: number): void {
+    const c = this.ctx;
+    if (!c || c.state !== 'running') return;
+    if (this.oceanGain) {
+      const swell = 0.075 + Math.sin(c.currentTime * 0.63) * 0.018 + Math.sin(c.currentTime * 0.21) * 0.012;
+      this.oceanGain.gain.setTargetAtTime(Math.max(0.025, swell), c.currentTime, 0.35);
+    }
+    if (!this.musicActive || this.settings.muted) return;
+    if (this.musicNextTime < c.currentTime - MUSIC_STEP_S) this.musicNextTime = c.currentTime + 0.04;
+    while (this.musicNextTime < c.currentTime + 0.12) {
+      this.scheduleMusicStep(this.musicNextTime, this.musicStep++);
+      this.musicNextTime += MUSIC_STEP_S;
+    }
+  }
+
+  getSettings(): AudioSettings {
+    return { ...this.settings };
+  }
+
+  setSettings(next: Partial<AudioSettings>): void {
+    this.settings = {
+      master: clamp01(next.master ?? this.settings.master),
+      music: clamp01(next.music ?? this.settings.music),
+      sfx: clamp01(next.sfx ?? this.settings.sfx),
+      ambience: clamp01(next.ambience ?? this.settings.ambience),
+      muted: next.muted ?? this.settings.muted,
+    };
+    saveAudioSettings(this.settings);
+    this.applyMix(0.06);
+  }
+
+  toggleMute(): boolean {
+    this.setSettings({ muted: !this.settings.muted });
+    return this.settings.muted;
+  }
+
+  setScene(scene: GameAudioScene): void {
+    if (scene === this.scene) return;
+    this.scene = scene;
+    const c = this.ctx;
+    this.musicActive = scene === 'countdown' || scene === 'racing' || scene === 'flight' ||
+      scene === 'medal' || scene === 'defeat' || scene === 'lesson';
+    if (c) this.musicNextTime = c.currentTime + 0.04;
+    this.applyMix(scene === 'defeat' || scene === 'lesson' ? 0.08 : 0.14);
+  }
+
+  debugState(): Record<string, number | string | boolean> {
+    return {
+      scene: this.scene,
+      contextState: this.ctx?.state ?? 'unavailable',
+      muted: this.settings.muted,
+      master: this.settings.master,
+      music: this.settings.music,
+      sfx: this.settings.sfx,
+      ambience: this.settings.ambience,
+      activeOneShots: this.activeOneShots,
+      musicStep: this.musicStep,
+      outputGain: this.master?.gain.value ?? 0,
+    };
+  }
+
+  /** Immediately silence background tabs; an explicit gesture restores audio. */
+  setVisibility(hidden: boolean): void {
+    const c = this.ctx;
+    if (!c) return;
+    if (hidden) {
+      if (this.scene !== 'hidden') {
+        this.sceneBeforeHidden = this.scene;
+        this.scene = 'hidden';
+      }
+      this.applyMix(0.04);
+      if (this.master) {
+        this.master.gain.cancelScheduledValues(c.currentTime);
+        this.master.gain.value = 0;
+      }
+      window.setTimeout(() => {
+        if ((document.hidden || this.scene === 'hidden') && c.state === 'running') void c.suspend();
+      }, 90);
+      return;
+    }
+    if (this.scene === 'hidden') this.scene = this.sceneBeforeHidden;
+    // Browser autoplay policies intentionally leave the output at zero until
+    // the resume GO gesture calls resume().
+  }
 
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */
   setEngine(rpm: number, throttle: number, boosting: boolean): void {
@@ -215,6 +353,7 @@ export class GameAudio {
     if (!c) return;
     this.impactBurst(142 + index * 8, 76, 0.46 + index * 0.12, 0.14);
     this.blip(680 + index * 150, c.currentTime, 0.2, 0.18, 'square');
+    this.duckMusic(0.72, 0.14);
   }
 
   routeClear(flightNumber = 1): void {
@@ -228,6 +367,8 @@ export class GameAudio {
   flightMiss(): void {
     const c = this.ctx;
     if (!c) return;
+    if (c.currentTime - this.lastFailureAt < 0.18) return;
+    this.lastFailureAt = c.currentTime;
     this.impactBurst(92, 38, 0.62, 0.24);
     this.blip(190, c.currentTime, 0.24, 0.18, 'square');
   }
@@ -259,11 +400,13 @@ export class GameAudio {
     if (!c) return;
     this.impactBurst(210, 86, 0.42, 0.16);
     this.blip(360, c.currentTime, 0.12, 0.11, 'sawtooth');
+    this.duckMusic(0.78, 0.11);
   }
 
   defeat(): void {
     const c = this.ctx;
     if (!c) return;
+    this.lastFailureAt = c.currentTime;
     this.impactBurst(78, 24, 1, 0.55);
     this.blip(310, c.currentTime + 0.03, 0.42, 0.2, 'sawtooth');
     this.blip(196, c.currentTime + 0.12, 0.52, 0.18, 'square');
@@ -272,15 +415,28 @@ export class GameAudio {
   retryLesson(): void {
     const c = this.ctx;
     if (!c) return;
+    const roots = [220, 247, 196, 262];
+    const root = roots[this.retryVariation++ % roots.length];
     this.impactBurst(126, 58, 0.34, 0.14);
-    this.blip(248, c.currentTime, 0.12, 0.1, 'square');
-    this.blip(496, c.currentTime + 0.08, 0.16, 0.08, 'triangle');
+    this.blip(root, c.currentTime, 0.12, 0.1, 'square');
+    this.blip(root * 2, c.currentTime + 0.08, 0.18, 0.1, 'triangle');
+  }
+
+  playMedalCeremony(): void {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime;
+    const notes = [164.81, 196, 246.94, 329.63, 392, 493.88, 659.25];
+    for (let i = 0; i < notes.length; i++) {
+      this.blip(notes[i], t + i * 0.1, i === notes.length - 1 ? 0.9 : 0.22, 0.16, i < 3 ? 'sawtooth' : 'triangle');
+    }
+    for (let i = 0; i < 7; i++) this.firework(t + 0.4 + i * 0.49, i);
   }
 
   /** Landing slam: sine 130→42 Hz pitch drop + lowpassed noise burst. */
   thud(strength: number): void {
     const c = this.ctx;
-    if (!c || !this.master || !this.noiseBuf) return;
+    if (!c || !this.eventBus || !this.noiseBuf) return;
     const s = clamp01(strength);
     if (s <= 0.001) return;
     const t0 = c.currentTime;
@@ -294,7 +450,7 @@ export class GameAudio {
     og.gain.linearRampToValueAtTime(0.5 * s, t0 + 0.008);
     og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.28);
     o.connect(og);
-    og.connect(this.master);
+    og.connect(this.eventBus);
     o.start(t0);
     o.stop(t0 + 0.3);
     o.onended = () => {
@@ -312,7 +468,7 @@ export class GameAudio {
     ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
     n.connect(lp);
     lp.connect(ng);
-    ng.connect(this.master);
+    ng.connect(this.eventBus);
     n.start(t0);
     n.stop(t0 + 0.16);
     n.onended = () => {
@@ -325,7 +481,7 @@ export class GameAudio {
   /** Highpass noise burst, filter sweeping down over ~0.3s. */
   splash(strength: number): void {
     const c = this.ctx;
-    if (!c || !this.master || !this.noiseBuf) return;
+    if (!c || !this.eventBus || !this.noiseBuf) return;
     const s = clamp01(strength);
     if (s <= 0.001) return;
     const t0 = c.currentTime;
@@ -343,7 +499,7 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
     n.connect(hp);
     hp.connect(g);
-    g.connect(this.master);
+    g.connect(this.eventBus);
     n.start(t0);
     n.stop(t0 + 0.35);
     n.onended = () => {
@@ -363,7 +519,7 @@ export class GameAudio {
   /** Race-start horn: stacked A-major triad (220/277/330 Hz) saws, 1.2s, punchy. */
   horn(): void {
     const c = this.ctx;
-    if (!c || !this.master) return;
+    if (!c || !this.eventBus) return;
     const t0 = c.currentTime;
 
     const g = c.createGain();
@@ -375,7 +531,7 @@ export class GameAudio {
     lp.type = 'lowpass';
     lp.frequency.value = 1600;
     g.connect(lp);
-    lp.connect(this.master);
+    lp.connect(this.eventBus);
 
     const freqs = [220, 277, 330];
     let last: OscillatorNode | null = null;
@@ -413,6 +569,174 @@ export class GameAudio {
 
   // ------------------------------------------------------------------ internals ----
 
+  private applyMix(timeConstant = 0.08): void {
+    const c = this.ctx;
+    if (!c || !this.master || !this.musicBus || !this.musicFilter || !this.ambienceBus || !this.vehicleBus || !this.eventBus) return;
+    const t = c.currentTime;
+    const muted = this.settings.muted || this.scene === 'hidden';
+    const master = muted ? 0 : gainCurve(this.settings.master);
+    const sceneMusic = this.scene === 'ready' ? 0
+      : this.scene === 'lesson' ? 0.2
+        : this.scene === 'defeat' ? 0.28
+          : this.scene === 'medal' ? 0.76
+            : this.scene === 'countdown' ? 0.48
+              : 1;
+    const sceneVehicle = this.scene === 'medal' ? 0.25
+      : this.scene === 'lesson' || this.scene === 'defeat' || this.scene === 'ready' ? 0
+        : this.scene === 'countdown' ? 0.18
+          : 1;
+    const sceneAmbience = this.scene === 'medal' ? 0.5 : this.scene === 'lesson' ? 0.72 : 1;
+    this.master.gain.setTargetAtTime(master, t, timeConstant);
+    this.musicBus.gain.setTargetAtTime(gainCurve(this.settings.music) * sceneMusic, t, timeConstant);
+    this.ambienceBus.gain.setTargetAtTime(gainCurve(this.settings.ambience) * sceneAmbience, t, timeConstant);
+    this.vehicleBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * sceneVehicle, t, timeConstant);
+    this.eventBus.gain.setTargetAtTime(gainCurve(this.settings.sfx), t, timeConstant);
+    this.musicFilter.frequency.setTargetAtTime(
+      this.scene === 'lesson' || this.scene === 'defeat' ? 650 : this.scene === 'ready' ? 480 : 9000,
+      t,
+      timeConstant,
+    );
+  }
+
+  private duckMusic(multiplier: number, duration: number): void {
+    const c = this.ctx;
+    const bus = this.musicBus;
+    if (!c || !bus) return;
+    const base = gainCurve(this.settings.music) * (this.scene === 'flight' || this.scene === 'racing' ? 1 : 0.6);
+    bus.gain.cancelScheduledValues(c.currentTime);
+    bus.gain.setTargetAtTime(base * multiplier, c.currentTime, 0.018);
+    bus.gain.setTargetAtTime(base, c.currentTime + duration, 0.08);
+  }
+
+  private scheduleMusicStep(time: number, step: number): void {
+    const scene = this.scene;
+    if (scene === 'ready' || scene === 'hidden') return;
+    const index = step % 16;
+    const bar = Math.floor(step / 8) % 4;
+    const roots = [41.2, 32.7, 49, 36.71]; // E1 C1 G1 D1
+    const root = roots[bar];
+    if (index % 4 === 0) this.musicKick(time, scene === 'medal' ? 0.32 : 0.24);
+    if (index % 8 === 4) this.musicSnare(time, scene === 'medal' ? 0.22 : 0.16);
+    this.musicHat(time, index % 2 === 0 ? 0.055 : 0.035, index % 4 === 2);
+    if (index % 2 === 0) this.musicTone(root * (index % 8 === 6 ? 1.5 : 1), time, MUSIC_STEP_S * 0.86, 0.09, 'triangle', this.musicBus);
+    if (index === 0 || index === 3 || index === 6) this.musicPowerChord(root * 2, time, scene === 'medal' ? 0.12 : 0.075);
+    if (scene === 'flight' && index % 4 === 2) this.musicTone(root * 8, time, MUSIC_STEP_S * 1.7, 0.045, 'triangle', this.musicBus);
+  }
+
+  private musicKick(time: number, peak: number): void {
+    const c = this.ctx;
+    const bus = this.musicBus;
+    if (!c || !bus) return;
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(135, time);
+    osc.frequency.exponentialRampToValueAtTime(46, time + 0.11);
+    gain.gain.setValueAtTime(peak, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.16);
+    osc.connect(gain);
+    gain.connect(bus);
+    this.trackOneShot(osc, [gain], time, time + 0.18);
+  }
+
+  private musicSnare(time: number, peak: number): void {
+    const c = this.ctx;
+    const bus = this.musicBus;
+    if (!c || !bus || !this.noiseBuf) return;
+    const noise = c.createBufferSource();
+    noise.buffer = this.noiseBuf;
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 1300;
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(peak, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.13);
+    noise.connect(hp);
+    hp.connect(gain);
+    gain.connect(bus);
+    this.trackOneShot(noise, [hp, gain], time, time + 0.15);
+    this.musicTone(180, time, 0.09, peak * 0.35, 'triangle', bus);
+  }
+
+  private musicHat(time: number, peak: number, open: boolean): void {
+    const c = this.ctx;
+    const bus = this.musicBus;
+    if (!c || !bus || !this.noiseBuf) return;
+    const noise = c.createBufferSource();
+    noise.buffer = this.noiseBuf;
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 5600;
+    const gain = c.createGain();
+    const duration = open ? 0.12 : 0.045;
+    gain.gain.setValueAtTime(peak, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    noise.connect(hp);
+    hp.connect(gain);
+    gain.connect(bus);
+    this.trackOneShot(noise, [hp, gain], time, time + duration + 0.02);
+  }
+
+  private musicPowerChord(root: number, time: number, peak: number): void {
+    this.musicTone(root, time, MUSIC_STEP_S * 2.6, peak, 'sawtooth', this.musicDrive);
+    this.musicTone(root * 1.5, time, MUSIC_STEP_S * 2.6, peak * 0.8, 'sawtooth', this.musicDrive, -7);
+    this.musicTone(root * 2, time, MUSIC_STEP_S * 2.6, peak * 0.55, 'sawtooth', this.musicDrive, 6);
+  }
+
+  private musicTone(
+    frequency: number,
+    time: number,
+    duration: number,
+    peak: number,
+    type: OscillatorType,
+    destination: AudioNode | null,
+    detune = 0,
+  ): void {
+    const c = this.ctx;
+    if (!c || !destination) return;
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = type;
+    osc.frequency.value = frequency;
+    osc.detune.value = detune;
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(peak, time + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    osc.connect(gain);
+    gain.connect(destination);
+    this.trackOneShot(osc, [gain], time, time + duration + 0.02);
+  }
+
+  private firework(time: number, index: number): void {
+    const c = this.ctx;
+    const bus = this.eventBus;
+    if (!c || !bus || !this.noiseBuf) return;
+    const noise = c.createBufferSource();
+    noise.buffer = this.noiseBuf;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 700 + (index % 4) * 420;
+    bp.Q.value = 0.7;
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(0.13, time);
+    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.24);
+    noise.connect(bp);
+    bp.connect(gain);
+    gain.connect(bus);
+    this.trackOneShot(noise, [bp, gain], time, time + 0.27);
+  }
+
+  private trackOneShot(source: AudioScheduledSourceNode, nodes: AudioNode[], start: number, stop: number): void {
+    this.activeOneShots++;
+    source.start(start);
+    source.stop(stop);
+    source.onended = () => {
+      source.disconnect();
+      for (const node of nodes) node.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
+    };
+  }
+
   private applyRush(): void {
     const c = this.ctx;
     if (!c || !this.rushGain || !this.rushBp) return;
@@ -439,11 +763,20 @@ export class GameAudio {
       this.airRushBp.frequency.setTargetAtTime(pressureFrequency, t, 0.1);
       this.airRushPan.pan.setTargetAtTime(-this.flightSteer * this.flightAirBrake * 0.25, t, 0.06);
     }
+    if (this.windGain && this.windFilter) {
+      const wind = 0.018 + this.speedNorm * 0.055 + (this.flightActive ? 0.06 + this.flightPressure * 0.14 : 0);
+      this.windGain.gain.setTargetAtTime(wind * (1 + this.flightAirBrake * 0.28), t, 0.12);
+      this.windFilter.frequency.setTargetAtTime(
+        350 + this.speedNorm * 720 + (this.flightActive ? 650 + this.flightPressure * 1500 : 0),
+        t,
+        0.15,
+      );
+    }
   }
 
   private impactBurst(startHz: number, endHz: number, strength: number, duration: number): void {
     const c = this.ctx;
-    if (!c || !this.master || !this.noiseBuf) return;
+    if (!c || !this.eventBus || !this.noiseBuf) return;
     const s = clamp01(strength);
     const t0 = c.currentTime;
     const osc = c.createOscillator();
@@ -454,7 +787,7 @@ export class GameAudio {
     og.gain.setValueAtTime(0.3 * s, t0);
     og.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
     osc.connect(og);
-    og.connect(this.master);
+    og.connect(this.eventBus);
     osc.start(t0);
     osc.stop(t0 + duration + 0.03);
     osc.onended = () => {
@@ -474,7 +807,7 @@ export class GameAudio {
     ng.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
     noise.connect(bp);
     bp.connect(ng);
-    ng.connect(this.master);
+    ng.connect(this.eventBus);
     noise.start(t0);
     noise.stop(t0 + duration + 0.03);
     noise.onended = () => {
@@ -487,7 +820,7 @@ export class GameAudio {
   /** Shared short-envelope osc helper for beeps and the sting. */
   private blip(freq: number, t0: number, dur: number, peak: number, type: OscillatorType): void {
     const c = this.ctx;
-    if (!c || !this.master) return;
+    if (!c || !this.eventBus) return;
     const o = c.createOscillator();
     o.type = type;
     o.frequency.value = freq;
@@ -496,7 +829,7 @@ export class GameAudio {
     g.gain.linearRampToValueAtTime(peak, t0 + 0.005);
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
     o.connect(g);
-    g.connect(this.master);
+    g.connect(this.eventBus);
     o.start(t0);
     o.stop(t0 + dur + 0.05);
     o.onended = () => {
@@ -510,9 +843,9 @@ export class GameAudio {
     const ctx = new AudioContext();
     this.ctx = ctx;
 
-    // master: gain 0.5 → limiter-ish compressor → destination
+    // Four independently duckable buses feed a limiter-ish master.
     const master = ctx.createGain();
-    master.gain.value = 0.5;
+    master.gain.value = 0;
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12;
     comp.knee.value = 18;
@@ -522,6 +855,35 @@ export class GameAudio {
     master.connect(comp);
     comp.connect(ctx.destination);
     this.master = master;
+
+    const musicBus = ctx.createGain();
+    const musicFilter = ctx.createBiquadFilter();
+    musicFilter.type = 'lowpass';
+    musicFilter.frequency.value = 9000;
+    musicBus.connect(musicFilter);
+    musicFilter.connect(master);
+    this.musicBus = musicBus;
+    this.musicFilter = musicFilter;
+
+    const ambienceBus = ctx.createGain();
+    const vehicleBus = ctx.createGain();
+    const eventBus = ctx.createGain();
+    ambienceBus.connect(master);
+    vehicleBus.connect(master);
+    eventBus.connect(master);
+    this.ambienceBus = ambienceBus;
+    this.vehicleBus = vehicleBus;
+    this.eventBus = eventBus;
+
+    const musicDrive = ctx.createWaveShaper();
+    musicDrive.curve = makeGritCurve();
+    musicDrive.oversample = '2x';
+    const musicDriveFilter = ctx.createBiquadFilter();
+    musicDriveFilter.type = 'lowpass';
+    musicDriveFilter.frequency.value = 2800;
+    musicDrive.connect(musicDriveFilter);
+    musicDriveFilter.connect(musicBus);
+    this.musicDrive = musicDrive;
 
     // shared 2s white-noise buffer (rush loop + thud/splash bursts)
     const len = ctx.sampleRate * 2;
@@ -542,7 +904,7 @@ export class GameAudio {
     eng.gain.value = 0;
     shaper.connect(lp);
     lp.connect(eng);
-    eng.connect(master);
+    eng.connect(vehicleBus);
     this.engineLp = lp;
     this.engineGain = eng;
 
@@ -577,7 +939,7 @@ export class GameAudio {
     // ---- anti-grav: sine fundamental + triangle harmonic → flight gain --------
     const fg = ctx.createGain();
     fg.gain.value = 0;
-    fg.connect(master);
+    fg.connect(vehicleBus);
     const flight = ctx.createOscillator();
     flight.type = 'sine';
     flight.frequency.value = 92;
@@ -609,7 +971,7 @@ export class GameAudio {
     flightNoiseGain.gain.value = 0;
     flightNoise.connect(flightNoiseBp);
     flightNoiseBp.connect(flightNoiseGain);
-    flightNoiseGain.connect(master);
+    flightNoiseGain.connect(vehicleBus);
     flightNoise.start();
     this.flightNoiseGain = flightNoiseGain;
     this.flightNoiseBp = flightNoiseBp;
@@ -625,7 +987,7 @@ export class GameAudio {
     driftGain.gain.value = 0;
     driftNoise.connect(driftBp);
     driftBp.connect(driftGain);
-    driftGain.connect(master);
+    driftGain.connect(vehicleBus);
     driftNoise.start();
     this.driftBp = driftBp;
     this.driftGain = driftGain;
@@ -642,7 +1004,7 @@ export class GameAudio {
     rg.gain.value = 0;
     noise.connect(bp);
     bp.connect(rg);
-    rg.connect(master);
+    rg.connect(ambienceBus);
     noise.start();
     this.rushBp = bp;
     this.rushGain = rg;
@@ -661,10 +1023,75 @@ export class GameAudio {
     airNoise.connect(airBp);
     airBp.connect(airPan);
     airPan.connect(airGain);
-    airGain.connect(master);
+    airGain.connect(ambienceBus);
     airNoise.start();
     this.airRushBp = airBp;
     this.airRushPan = airPan;
     this.airRushGain = airGain;
+
+    // ---- open-ocean ambience: always audible at READY, independent of speed ----
+    const oceanNoise = ctx.createBufferSource();
+    oceanNoise.buffer = buf;
+    oceanNoise.loop = true;
+    const oceanFilter = ctx.createBiquadFilter();
+    oceanFilter.type = 'lowpass';
+    oceanFilter.frequency.value = 780;
+    const oceanPan = ctx.createStereoPanner();
+    oceanPan.pan.value = -0.12;
+    const oceanGain = ctx.createGain();
+    oceanGain.gain.value = 0.06;
+    oceanNoise.connect(oceanFilter);
+    oceanFilter.connect(oceanPan);
+    oceanPan.connect(oceanGain);
+    oceanGain.connect(ambienceBus);
+    oceanNoise.start();
+    this.oceanGain = oceanGain;
+
+    // ---- broad stereo wind bed; flight pressure controls its brightness/level ----
+    const windNoise = ctx.createBufferSource();
+    windNoise.buffer = buf;
+    windNoise.loop = true;
+    const windFilter = ctx.createBiquadFilter();
+    windFilter.type = 'highpass';
+    windFilter.frequency.value = 350;
+    const windPan = ctx.createStereoPanner();
+    windPan.pan.value = 0.12;
+    const windGain = ctx.createGain();
+    windGain.gain.value = 0.018;
+    windNoise.connect(windFilter);
+    windFilter.connect(windPan);
+    windPan.connect(windGain);
+    windGain.connect(ambienceBus);
+    windNoise.start();
+    this.windGain = windGain;
+    this.windFilter = windFilter;
+
+    this.musicNextTime = ctx.currentTime + 0.04;
+    this.applyMix(0.02);
+  }
+}
+
+function loadAudioSettings(): AudioSettings {
+  try {
+    const raw = localStorage.getItem(AUDIO_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    const parsed = JSON.parse(raw) as Partial<AudioSettings>;
+    return {
+      master: typeof parsed.master === 'number' ? clamp01(parsed.master) : DEFAULT_SETTINGS.master,
+      music: typeof parsed.music === 'number' ? clamp01(parsed.music) : DEFAULT_SETTINGS.music,
+      sfx: typeof parsed.sfx === 'number' ? clamp01(parsed.sfx) : DEFAULT_SETTINGS.sfx,
+      ambience: typeof parsed.ambience === 'number' ? clamp01(parsed.ambience) : DEFAULT_SETTINGS.ambience,
+      muted: parsed.muted === true,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveAudioSettings(settings: AudioSettings): void {
+  try {
+    localStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Audio preferences are optional; sound remains usable for this session.
   }
 }

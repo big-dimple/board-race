@@ -46,6 +46,10 @@ export class MobileControls {
   private touchSteer = 0;
   private flightQueued = false;
   private anyPressQueued = false;
+  private goQueued = false;
+  private pendingGoAfterActivation = false;
+  private showGo = false;
+  private goLabel = '开始游戏';
 
   get ready(): boolean {
     return !this.enabled || this.activation === 'ready';
@@ -90,7 +94,15 @@ export class MobileControls {
     this.driftLabel = root.querySelector<HTMLSpanElement>('[data-mobile-action="drift"] span');
     this.tiltMeter = root.querySelector<HTMLDivElement>('.mobile-tilt-meter i');
 
-    this.start?.addEventListener('click', () => void this.activateTilt());
+    this.start?.addEventListener('click', () => {
+      this.onFirstGesture();
+      if (this.activation === 'ready') {
+        this.goQueued = true;
+        return;
+      }
+      this.pendingGoAfterActivation = true;
+      void this.activateTilt();
+    });
     this.modeButton?.addEventListener('click', () => {
       this.onFirstGesture();
       if (this.mode === 'touch') void this.activateTilt();
@@ -161,6 +173,18 @@ export class MobileControls {
     return pressed;
   }
 
+  consumeGoRequest(): boolean {
+    const queued = this.goQueued;
+    this.goQueued = false;
+    return queued;
+  }
+
+  setGoPrompt(show: boolean, label = '开始游戏'): void {
+    this.showGo = show;
+    this.goLabel = label;
+    this.syncStartButton();
+  }
+
   setActionState(charge: number, flightReady: boolean, flightActive: boolean, turnWarning = false): void {
     if (!this.root) return;
     this.root.style.setProperty('--mobile-charge', String(clamp(charge, 0, 1)));
@@ -176,6 +200,7 @@ export class MobileControls {
     this.releaseAll();
     this.flightQueued = false;
     this.anyPressQueued = false;
+    this.goQueued = false;
     this.touchSteer = 0;
     this.filteredTilt = 0;
   }
@@ -259,6 +284,7 @@ export class MobileControls {
     this.filteredTilt = 0;
     window.clearTimeout(this.calibrationTimer);
     this.setActivation('ready');
+    this.resolvePendingGo();
   }
 
   private useTouch(): void {
@@ -266,6 +292,7 @@ export class MobileControls {
     this.mode = 'touch';
     this.releaseAll();
     this.setActivation('ready');
+    this.resolvePendingGo();
   }
 
   private setActivation(state: ActivationState): void {
@@ -276,11 +303,25 @@ export class MobileControls {
       this.root.classList.toggle('activated', state === 'ready');
     }
     if (this.modeButton) this.modeButton.textContent = this.mode === 'tilt' ? '重力' : '触控';
-    if (this.start) {
-      this.start.hidden = state === 'ready';
-      this.start.disabled = state === 'requesting' || state === 'calibrating';
-      this.start.textContent = state === 'requesting' ? '正在请求…' : state === 'calibrating' ? '正在校准…' : '开始游戏';
-    }
+    this.syncStartButton();
+  }
+
+  private resolvePendingGo(): void {
+    if (!this.pendingGoAfterActivation) return;
+    this.pendingGoAfterActivation = false;
+    this.goQueued = true;
+  }
+
+  private syncStartButton(): void {
+    if (!this.start) return;
+    const busy = this.activation === 'requesting' || this.activation === 'calibrating';
+    this.start.hidden = !busy && !(this.showGo && (this.activation === 'idle' || this.activation === 'ready'));
+    this.start.disabled = busy;
+    this.start.textContent = this.activation === 'requesting'
+      ? '正在请求…'
+      : this.activation === 'calibrating'
+        ? '正在校准…'
+        : this.goLabel;
   }
 
   private orientation(event: DeviceOrientationEvent): void {

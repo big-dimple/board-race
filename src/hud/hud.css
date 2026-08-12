@@ -1158,7 +1158,7 @@
   box-shadow: inset 0 0 0 1px var(--text), 0 0 14px var(--flight);
 }
 
-.hud.lesson-on > :not(.hud-retry-lesson) {
+.hud.lesson-on > :not(.hud-retry-lesson):not(.hud-interruption) {
   opacity: 0;
 }
 
@@ -1836,6 +1836,223 @@
   }
 }
 
+/* ---- explicit READY gate ------------------------------------------------------------ */
+
+.hud-ready {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: none;
+  place-content: center;
+  padding: 24px;
+  text-align: center;
+  background: rgba(4, 7, 20, 0.48);
+}
+
+.hud-ready.on { display: grid; }
+.hud-ready-kicker { color: var(--flight); font-size: 16px; }
+.hud-ready-title { margin-top: 10px; color: var(--text); font-size: 66px; line-height: 1; }
+.hud-ready-action {
+  justify-self: center;
+  margin-top: 22px;
+  padding: 10px 22px;
+  border: 2px solid var(--flight);
+  color: var(--flight);
+  background: rgba(8, 13, 42, 0.82);
+  font-size: 22px;
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.hud.ready-on > :not(.hud-ready):not(.hud-interruption) { opacity: 0; }
+
+/* ---- background/app-switch pause gate ---------------------------------------------- */
+
+.hud-interruption {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: none;
+  place-content: center;
+  justify-items: center;
+  padding: 24px;
+  color: var(--text);
+  text-align: center;
+  background: rgba(4, 7, 20, 0.96);
+  pointer-events: auto;
+}
+.hud-interruption.on { display: grid; }
+.hud-interruption-kicker { color: var(--flight); font-size: 14px; }
+.hud-interruption-title { margin-top: 10px; font-size: 66px; line-height: 1; }
+.hud-interruption-copy { margin-top: 13px; font: 800 18px/1.25 system-ui, sans-serif; }
+.hud-interruption-go {
+  min-width: 210px;
+  min-height: 56px;
+  margin-top: 24px;
+  padding: 10px 24px;
+  border: 2px solid var(--flight);
+  border-radius: 4px;
+  color: var(--flight);
+  background: rgba(8, 13, 42, 0.96);
+  box-shadow: 6px 6px 0 var(--ink);
+  font: italic 900 20px/1 'Arial Black', Impact, system-ui, sans-serif;
+  letter-spacing: 0;
+  pointer-events: auto;
+}
+.hud-interruption-go:focus-visible { outline: 3px solid var(--text); outline-offset: 4px; }
+.hud-interruption-foot { margin-top: 13px; color: rgba(244, 254, 255, 0.65); font-size: 12px; }
+
+/* ---- third-flight medal ceremony ---------------------------------------------------- */
+
+.hud-medal-ceremony {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: none;
+  overflow: hidden;
+  background: rgba(4, 7, 20, 0.93);
+  pointer-events: auto;
+  isolation: isolate;
+}
+
+.hud-medal-ceremony.on { display: block; }
+
+.hud-medal-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hud-medal-copy {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 52%;
+  width: min(760px, calc(100% - 40px));
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.hud-medal-kicker { color: var(--flight); font-size: 17px; }
+.hud-medal-title {
+  margin-top: 7px;
+  color: #ffcf4a;
+  font-size: 72px;
+  line-height: 1;
+  animation: hud-medal-title-in 0.55s cubic-bezier(0.12, 1.45, 0.2, 1) both,
+    hud-gold-shimmer 1.25s 0.65s ease-in-out infinite;
+}
+.hud-medal-count { margin-top: 8px; color: var(--text); font-size: 30px; }
+.hud-medal-tier { margin-top: 8px; color: var(--accent); font-size: 18px; }
+.hud-medal-continue,
+.hud-lesson-continue {
+  min-width: 168px;
+  min-height: 48px;
+  margin-top: 18px;
+  padding: 8px 22px;
+  border: 2px solid #ffcf4a;
+  border-radius: 4px;
+  color: #ffcf4a;
+  background: rgba(8, 13, 42, 0.94);
+  box-shadow: 5px 5px 0 var(--ink);
+  font: inherit;
+  font-size: 18px;
+  text-transform: uppercase;
+  pointer-events: auto;
+}
+.hud-medal-continue[hidden],
+.hud-lesson-continue[hidden] { display: none; }
+.hud-medal-continue:focus-visible,
+.hud-lesson-continue:focus-visible { outline: 3px solid var(--text); outline-offset: 4px; }
+.hud-medal-foot { margin-top: 10px; color: rgba(244, 254, 255, 0.62); font-size: 12px; }
+.hud.medal-on > :not(.hud-medal-ceremony):not(.hud-interruption) { opacity: 0; }
+.hud.interrupted > .hud-interruption { opacity: 1; }
+
+@keyframes hud-medal-title-in {
+  from { opacity: 0; transform: scale(0.62); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes hud-gold-shimmer {
+  0%, 100% { color: #ffcf4a; filter: brightness(1); }
+  50% { color: #fff3ae; filter: brightness(1.22); }
+}
+
+/* ---- emotionally focused retry lesson ---------------------------------------------- */
+
+.hud-retry-lesson { background: rgba(4, 7, 20, 0.95); }
+.hud-lesson-inner {
+  width: min(960px, calc(100% - 56px));
+  padding: 22px 30px 24px;
+}
+.hud-lesson-emotion {
+  margin-top: 13px;
+  color: var(--warn);
+  font-size: 68px;
+  line-height: 1;
+}
+.hud-lesson-medal {
+  margin-top: 10px;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.1;
+}
+.hud-lesson-medal.earned {
+  color: #ffcf4a;
+  animation: hud-gold-shimmer 1.35s ease-in-out infinite;
+}
+.hud-lesson-title {
+  margin-top: 20px;
+  color: var(--flight);
+  font-size: 52px;
+}
+.hud-lesson-copy { font-size: 24px; }
+.hud-lesson-metric { font-size: 16px; }
+.hud-lesson-continue { margin-top: 16px; }
+
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-ready-title { font-size: 42px; }
+  .hud-ready-kicker { font-size: 11px; }
+  .hud-ready-action { margin-top: 14px; font-size: 16px; }
+
+  .hud-medal-copy { top: 47%; width: calc(100% - 30px); }
+  .hud-medal-kicker { font-size: 11px; }
+  .hud-medal-title { font-size: 48px; }
+  .hud-medal-count { margin-top: 4px; font-size: 21px; }
+  .hud-medal-tier { margin-top: 4px; font-size: 14px; }
+  .hud-medal-continue { min-height: 40px; margin-top: 8px; padding: 5px 18px; font-size: 14px; }
+  .hud-medal-foot { margin-top: 5px; font-size: 9px; }
+
+  .hud-lesson-inner { width: calc(100% - 24px); padding: 9px 18px 10px; }
+  .hud-lesson-attempt { font-size: 9px; }
+  .hud-lesson-emotion { margin-top: 5px; font-size: 38px; }
+  .hud-lesson-medal { margin-top: 4px; font-size: 17px; }
+  .hud-lesson-title { margin-top: 7px; font-size: 26px; }
+  .hud-lesson-copy { margin-top: 5px; font-size: 17px; line-height: 1.2; }
+  .hud-lesson-metric { margin-top: 4px; font-size: 11px; }
+  .hud-lesson-progress { margin-top: 7px; }
+  .hud-lesson-continue { min-height: 38px; margin-top: 7px; padding: 4px 16px; font-size: 13px; }
+}
+
+@media (max-height: 360px) and (orientation: landscape) {
+  .hud-medal-copy { top: 45%; }
+  .hud-medal-title { font-size: 42px; }
+  .hud-medal-count { font-size: 18px; }
+  .hud-medal-tier { font-size: 12px; }
+  .hud-medal-continue { margin-top: 5px; }
+  .hud-medal-foot { display: none; }
+
+  .hud-lesson-emotion { font-size: 32px; }
+  .hud-lesson-medal { font-size: 15px; }
+  .hud-lesson-title { font-size: 23px; }
+  .hud-lesson-copy { font-size: 15px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-medal-title,
+  .hud-lesson-medal.earned { animation: none; filter: none; }
+}
+
 /* ---- three-flight challenge: quiet, scan-first HUD --------------------------- */
 
 .hud-map,
@@ -1925,13 +2142,19 @@
 .hud-flight-prompt::before,
 .hud-flight-prompt::after { display: none; }
 .hud-flight-prompt .hud-keycap {
-  width: 62px;
-  height: 38px;
-  flex-basis: 62px;
+  width: 68px;
+  height: 34px;
+  flex: 0 0 68px;
+  overflow: hidden;
   border-width: 2px;
-  box-shadow: 3px 3px 0 var(--ink);
-  font-size: 13px;
+  box-shadow: 2px 2px 0 var(--ink);
+  font: normal 900 11px/1 system-ui, sans-serif;
+  text-shadow: none;
+  white-space: nowrap;
+  transform: none;
 }
+.hud-flight-prompt.on .hud-keycap { animation: none; }
+.hud-flight-prompt-copy { min-width: 0; }
 .hud-flight-prompt-en { font-size: 11px; }
 .hud-flight-prompt-cn { margin-top: 2px; font-size: 17px; }
 .hud-flight-prompt-rule { margin-top: 3px; font-size: 10px; color: var(--text); }
@@ -1998,6 +2221,11 @@
 .hud-results-panel::after { display: none; }
 
 @media (max-width: 900px), (max-height: 520px) {
+  .hud-interruption-kicker { font-size: 10px; }
+  .hud-interruption-title { font-size: 42px; }
+  .hud-interruption-copy { font-size: 14px; }
+  .hud-interruption-go { min-height: 48px; margin-top: 16px; font-size: 16px; }
+  .hud-interruption-foot { margin-top: 9px; font-size: 10px; }
   .hud-topleft {
     left: max(10px, env(safe-area-inset-left));
     top: max(8px, env(safe-area-inset-top));

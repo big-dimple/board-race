@@ -265,7 +265,14 @@ export interface RaceView {
 
 // ----------------------------------------------------------------- race ----
 
-export type RacePhase = 'countdown' | 'racing' | 'defeated' | 'finished';
+export type RacePhase =
+  | 'ready'
+  | 'countdown'
+  | 'racing'
+  | 'medal'
+  | 'resume-countdown'
+  | 'defeated'
+  | 'finished';
 
 export type ChallengeOutcome = 'defeated' | 'ordinary' | 'excellent';
 export type ChallengeTier = 'unqualified' | 'ordinary' | 'excellent';

@@ -34,6 +34,7 @@ import { AIController } from './game/ai';
 import { CameraRig } from './game/chaseCamera';
 import { HUD } from './hud/hud';
 import { GameAudio } from './audio/audio';
+import { MixerControls } from './audio/mixerControls';
 import type { BoatInput, ChallengeTier, FlightRouteState } from './contracts';
 
 const params = new URLSearchParams(location.search);
@@ -98,7 +99,8 @@ const hudLayer = document.createElement('div');
 hudLayer.id = 'hud-layer';
 hudLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;';
 app.appendChild(hudLayer);
-const hud = new HUD(hudLayer, course, requestRetry, records.data.bestFlights);
+const hud = new HUD(hudLayer, course, requestRetry, records.data.bestFlights, resumeInterruption);
+const mixer = new MixerControls(app, audio);
 
 const input = new Input();
 const mobileInput = new MobileControls(app, () => audio.resume(), params.has('mobile'));
@@ -115,6 +117,8 @@ stage.onResize((w, h, pr) => {
 // -------------------------------------------------------------- race events
 let resultsShown = false;
 const DEFEAT_FREEZE_S = 0.35;
+const MEDAL_CEREMONY_S = 4.5;
+const MEDAL_MIN_READ_S = MEDAL_CEREMONY_S;
 let retryLessonActive = false;
 let retryLessonTimer = 0;
 let retryLessonDuration = 0;
@@ -129,7 +133,12 @@ let ordinaryNewThisRun = false;
 let excellentRecordedThisRun = false;
 let previousChallengeTier: ChallengeTier = 'unqualified';
 let currentRun = 0;
-let currentSimT = 0;
+let worldTime = 0;
+let presentationTime = 0;
+let medalElapsed = 0;
+let interruptionActive = false;
+let pageWasHidden = false;
+let interruptionNeedsCountdown = false;
 const retryReasonCounts = new Map<string, number>();
 let prevFlightReady = false;
 let prevFlightGateProgress = 0;
@@ -150,7 +159,8 @@ const routeLifecycleStates: FlightRouteState[] = boats.map((boat) => boat.state.
 
 const race = new Race(course, boats, {
   countdownTick: () => audio.countdownBeep(false),
-  go: () => {
+  go: (_resuming) => {
+    audio.setScene('racing');
     audio.countdownBeep(true);
     audio.horn();
     cameraRig.mode = 'chase';
@@ -178,11 +188,61 @@ const race = new Race(course, boats, {
 });
 
 function requestRetry(): void {
-  if (retryLessonActive) {
-    if (retryLessonElapsed >= retryLessonMinRead) resetRace(true);
+  if (race.phase === 'medal') {
+    if (medalElapsed >= MEDAL_MIN_READ_S) startResumeCountdown();
     return;
   }
-  if (race.phase === 'finished') resetRace(true);
+  if (retryLessonActive) {
+    if (retryLessonElapsed >= retryLessonMinRead) resetRace();
+    return;
+  }
+  if (race.phase === 'finished') resetRace();
+}
+
+function resumeInterruption(): void {
+  if (!interruptionActive || document.hidden) return;
+  interruptionActive = false;
+  input.reset();
+  mobileInput.reset();
+  hud.hideInterruption();
+  audio.resume();
+  if (interruptionNeedsCountdown && race.restartAfterInterruption()) {
+    audio.setScene('countdown');
+  }
+  interruptionNeedsCountdown = false;
+  if (!HARNESS) loop.start();
+}
+
+function startFreshCountdown(): void {
+  if (!race.startCountdown()) return;
+  currentRun = records.beginRun();
+  input.reset();
+  mobileInput.reset();
+  mobileInput.setGoPrompt(false);
+  hud.hideReady();
+  mixer.setVisible(false);
+  audio.setScene('countdown');
+}
+
+function startResumeCountdown(): void {
+  if (!race.startResumeCountdown()) return;
+  input.reset();
+  mobileInput.reset();
+  hud.hideMedalCeremony();
+  audio.setScene('countdown');
+}
+
+function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals: number, best: number): void {
+  if (!race.beginMedalCeremony()) return;
+  medalElapsed = 0;
+  retryLessonFrozenT = worldTime;
+  input.reset();
+  mobileInput.reset();
+  mobileInput.setRacing(false);
+  hud.showQualification(tier, medals, best);
+  hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, false);
+  audio.setScene('medal');
+  audio.playMedalCeremony();
 }
 
 function startRetryLesson(): void {
@@ -193,31 +253,35 @@ function startRetryLesson(): void {
   const key = `${failure?.routeSlot ?? 0}:${reason}`;
   const repeatCount = (retryReasonCounts.get(key) ?? 0) + 1;
   retryReasonCounts.set(key, repeatCount);
-  const baseDuration = repeatCount === 1 ? 4.5 : repeatCount === 2 ? 3.2 : 2.2;
-  retryLessonDuration = Math.min(5, baseDuration + (pendingFailureNewBest ? 0.5 : 0));
-  retryLessonMinRead = repeatCount === 1 ? 2 : repeatCount === 2 ? 1.4 : 1;
+  const baseDuration = repeatCount === 1 ? 8 : repeatCount === 2 ? 6.5 : 5;
+  retryLessonDuration = Math.min(9, baseDuration + (pendingFailureNewBest ? 0.75 : 0));
+  if (result.manMedalEarned) retryLessonDuration = Math.max(8, retryLessonDuration);
+  retryLessonMinRead = repeatCount === 1 ? 4 : repeatCount === 2 ? 3 : 2.5;
   retryLessonTimer = retryLessonDuration;
   retryLessonElapsed = 0;
   retryLessonActive = true;
-  retryLessonFrozenT = currentSimT;
+  retryLessonFrozenT = worldTime;
   input.reset();
   mobileInput.reset();
   audio.retryLesson();
+  audio.setScene('lesson');
+  mixer.setVisible(true);
   hud.showRetryLesson(result, currentRun, repeatCount, pendingFailureNewBest, mobileInput.enabled);
 }
 
-function updateFrozenPresentation(dt: number): void {
+function updateFrozenPresentation(dt: number, phase = race.phase): void {
   const frozen = boats[0].state;
   audio.setEngine(0, 0, false);
   audio.setWaterRush(0);
   audio.setAirborne(false);
   audio.setFlight(0, false);
   audio.setDrift(0);
-  pipeline.update(dt, retryLessonFrozenT, frozen, 'defeated');
+  pipeline.update(dt, retryLessonFrozenT, frozen, phase);
+  hud.update(dt, race, boats[0], boats);
   audio.update(dt);
 }
 
-function resetRace(quick = false): void {
+function resetRace(): void {
   retryLessonActive = false;
   retryLessonTimer = 0;
   retryLessonDuration = 0;
@@ -236,13 +300,14 @@ function resetRace(quick = false): void {
   resultsShown = false;
   hud.hideResults();
   hud.hideRetryLesson();
+  hud.hideMedalCeremony();
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
     boats[i].teleport(s.x, s.z, s.heading);
     wakes[i].clear();
   }
-  race.reset(quick);
-  currentRun = records.beginRun();
+  race.reset();
+  currentRun = records.data.runs + 1;
   prevFlightReady = boats[0].state.flightReady;
   prevFlightGateProgress = boats[0].state.flightGateProgress;
   prevFlightRouteState = boats[0].state.flightRouteState;
@@ -263,6 +328,11 @@ function resetRace(quick = false): void {
     ais[i].reset();
   }
   cameraRig.mode = 'orbit';
+  hud.showReady(mobileInput.enabled, records.data.runs > 0);
+  mobileInput.setGoPrompt(true, records.data.runs > 0 ? 'GO · 开始下一局' : 'GO · 开始游戏');
+  mixer.setVisible(true);
+  mixer.sync();
+  audio.setScene('ready');
 }
 
 resetRace();
@@ -277,20 +347,35 @@ const ZERO_INPUT: BoatInput = {
 };
 let harnessPlayerInput: BoatInput | null = null;
 
-function step(dt: number, t: number): void {
-  currentSimT = t;
+function step(dt: number, _t: number): void {
+  if (interruptionActive) return;
+  presentationTime += dt;
   // Consume retry edges in every phase. Otherwise a key pressed during the
   // race remains queued and can erase the defeat screen on the failure frame.
   const enterPressed = input.consumePress('Enter');
   const retryPressed = input.consumePress('KeyR');
 
+  if (race.phase === 'medal') {
+    input.consumePress('Space');
+    mobileInput.consumeAnyPress();
+    medalElapsed += dt;
+    const canContinue = medalElapsed >= MEDAL_MIN_READ_S;
+    hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, canContinue);
+    updateFrozenPresentation(dt, 'medal');
+    if (medalElapsed >= MEDAL_CEREMONY_S || (enterPressed && canContinue)) startResumeCountdown();
+    return;
+  }
+
   if (retryLessonActive) {
-    const lessonPressed = enterPressed || retryPressed || input.consumePress('Space') || mobileInput.consumeAnyPress();
+    const lessonPressed = enterPressed || retryPressed;
+    input.consumePress('Space');
+    mobileInput.consumeAnyPress();
     retryLessonTimer = Math.max(0, retryLessonTimer - dt);
     retryLessonElapsed += dt;
-    hud.updateRetryLesson(retryLessonDuration > 0 ? retryLessonElapsed / retryLessonDuration : 1);
+    const canContinue = retryLessonElapsed >= retryLessonMinRead;
+    hud.updateRetryLesson(retryLessonDuration > 0 ? retryLessonElapsed / retryLessonDuration : 1, canContinue);
     updateFrozenPresentation(dt);
-    if (retryLessonTimer <= 0 || (lessonPressed && retryLessonElapsed >= retryLessonMinRead)) resetRace(true);
+    if (retryLessonTimer <= 0 || (lessonPressed && canContinue)) resetRace();
     return;
   }
 
@@ -305,9 +390,43 @@ function step(dt: number, t: number): void {
 
   if ((enterPressed || retryPressed) && race.phase === 'finished') requestRetry();
 
+  if (race.phase === 'ready') {
+    input.consumePress('Space');
+    const mobileGo = mobileInput.consumeGoRequest();
+    mobileInput.consumeAnyPress();
+    mobileInput.setRacing(false);
+    cameraRig.update(dt, boats[0], presentationTime);
+    ocean.update(worldTime, stage.camera.position);
+    sky.update(worldTime, stage.camera.position);
+    course.update(0, worldTime);
+    hud.update(dt, race, boats[0], boats);
+    pipeline.update(dt, worldTime, boats[0].state, 'ready');
+    audio.update(dt);
+    if (enterPressed || mobileGo) startFreshCountdown();
+    return;
+  }
+
+  if (race.phase === 'countdown' || race.phase === 'resume-countdown') {
+    const resuming = race.phase === 'resume-countdown';
+    input.consumePress('Space');
+    mobileInput.consumeAnyPress();
+    mobileInput.setRacing(false);
+    race.update(dt);
+    if (!resuming) {
+      worldTime += dt;
+      cameraRig.update(dt, boats[0], presentationTime);
+      ocean.update(worldTime, stage.camera.position);
+      sky.update(worldTime, stage.camera.position);
+      course.update(0, worldTime);
+    }
+    hud.update(dt, race, boats[0], boats);
+    pipeline.update(dt, worldTime, boats[0].state, race.phase);
+    audio.update(dt);
+    return;
+  }
+
   const waitingForMobile = mobileInput.enabled && !mobileInput.ready && !HARNESS;
   const racing = race.phase === 'racing' && !waitingForMobile;
-  const runActive = !waitingForMobile && (race.phase === 'countdown' || racing);
   mobileInput.setRacing(racing && (!HARNESS || params.has('mobile')));
 
   // Inputs: player keyboard (or AI autopilot in harness), AI for the rest.
@@ -317,7 +436,8 @@ function step(dt: number, t: number): void {
     : ZERO_INPUT;
   if (!retryLessonActive) mobileInput.consumeAnyPress();
   if (!racing) input.consumePress('Space'); // never buffer a flight press through the countdown
-  for (let i = 0; i < boats.length && runActive; i++) {
+  worldTime += dt;
+  for (let i = 0; i < boats.length && racing; i++) {
     let inp: BoatInput;
     if (!racing) {
       inp = ZERO_INPUT;
@@ -328,13 +448,13 @@ function step(dt: number, t: number): void {
     } else {
       inp = ais[i].update(dt, boats[i], boats, race.racers[i].progress, race.racers[0].progress);
     }
-    boats[i].update(dt, inp, t);
+    boats[i].update(dt, inp, worldTime);
   }
 
-  if (runActive) course.updateFlightRoute(dt, boats);
+  if (racing) course.updateFlightRoute(dt, boats);
 
   let playerPassedFlight = false;
-  if (runActive) {
+  if (racing) {
     for (let i = 0; i < boats.length; i++) {
       const state = boats[i].state;
       const routeState = state.flightRouteState;
@@ -360,7 +480,8 @@ function step(dt: number, t: number): void {
       }
     }
   }
-  if (!waitingForMobile && (race.phase === 'countdown' || race.phase === 'racing')) race.update(dt);
+  if (!waitingForMobile && race.phase === 'racing') race.update(dt);
+  let enteredMedal = false;
   if (playerPassedFlight && race.phase === 'racing') {
     const flights = boats[0].state.flightsCleared;
     const pass = records.recordFlightPass(flights);
@@ -371,7 +492,10 @@ function step(dt: number, t: number): void {
       const qualification = records.qualifyRun(race.raceTime);
       medalEarnedThisRun = true;
       ordinaryNewThisRun = qualification.ordinaryNew;
-      if (tier !== 'unqualified') hud.showQualification(tier, qualification.manMedalsTotal, pass.bestFlights);
+      if (tier !== 'unqualified') {
+        startMedalCeremony(tier, qualification.manMedalsTotal, pass.bestFlights);
+        enteredMedal = true;
+      }
     }
   }
   if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
@@ -430,19 +554,20 @@ function step(dt: number, t: number): void {
     }
   }
 
-  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, t, race.racers[i].finished);
+  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, race.racers[i].finished);
 
-  cameraRig.update(dt, boats[0], t);
-  ocean.update(t, stage.camera.position);
-  sky.update(t, stage.camera.position);
-  course.update(dt, t);
-  for (let i = 0; i < boats.length; i++) wakes[i].update(dt, t);
-  spray.update(dt, t);
+  cameraRig.update(dt, boats[0], worldTime);
+  ocean.update(worldTime, stage.camera.position);
+  sky.update(worldTime, stage.camera.position);
+  course.update(dt, worldTime);
+  for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
+  spray.update(dt, worldTime);
   jetTrail.update(dt);
 
   hud.update(dt, race, boats[0], boats);
 
   const ps = boats[0].state;
+  audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
   mobileInput.setActionState(
     ps.boosting ? ps.boostRemaining : ps.boostCharge,
     ps.flightReady,
@@ -463,7 +588,7 @@ function step(dt: number, t: number): void {
   );
   audio.setDrift(ps.drifting ? Math.min(1, ps.boostCharge * 0.75 + Math.abs(ps.lateralG) / 18) : 0);
   if (ps.flightRouteMiss) audio.flightMiss();
-  pipeline.update(dt, t, ps, race.phase);
+  pipeline.update(dt, worldTime, ps, race.phase);
 
   // Failures freeze for one impact beat and then enter the adaptive loading
   // loop directly. The legacy finished branch remains available to scripted modes.
@@ -472,6 +597,7 @@ function step(dt: number, t: number): void {
     cameraRig.mode = race.phase === 'defeated' ? 'defeat' : 'results';
     if (race.phase === 'defeated') {
       cameraRig.defeatKick();
+      audio.setScene('defeat');
       audio.defeat();
       pipeline.pulse('defeat', 1.35);
       haptic([28, 35, 55]);
@@ -482,7 +608,7 @@ function step(dt: number, t: number): void {
         records.decorateResult(race.challengeResult, pendingFailureNewBest, medalEarnedThisRun);
       }
       defeatFreezeTimer = DEFEAT_FREEZE_S;
-      retryLessonFrozenT = t;
+      retryLessonFrozenT = worldTime;
       input.reset();
       mobileInput.reset();
       mobileInput.setRacing(false);
@@ -509,6 +635,34 @@ function render(frameMs: number): void {
 
 const loop = new Loop(step, render);
 
+function handleVisibility(hidden: boolean): void {
+  audio.setVisibility(hidden);
+  input.reset();
+  mobileInput.reset();
+  mobileInput.setRacing(false);
+  if (hidden) {
+    pageWasHidden = true;
+    interruptionNeedsCountdown = race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown';
+    interruptionActive = race.phase !== 'ready';
+    if (!HARNESS) loop.stop();
+    return;
+  }
+  if (!pageWasHidden) return;
+  pageWasHidden = false;
+  if (race.phase === 'ready') {
+    if (!HARNESS) loop.start();
+    return;
+  }
+  interruptionActive = true;
+  hud.showInterruption(interruptionNeedsCountdown);
+  if (!HARNESS) requestAnimationFrame(() => render(16.7));
+}
+
+document.addEventListener('visibilitychange', () => handleVisibility(document.hidden));
+window.addEventListener('keydown', (event) => {
+  if (interruptionActive && event.code === 'Enter' && !event.repeat) resumeInterruption();
+});
+
 // ---------------------------------------------------------------- harness
 // Deterministic drive-by-wire API for harness/screenshot.mjs. In harness
 // mode the rAF pump never runs: the harness advances the sim explicitly
@@ -527,6 +681,9 @@ interface Harness {
   stats(): Record<string, number | string>;
   guidance(): Record<string, number>;
   mobileStatus(): Record<string, number | string>;
+  audioState(): Record<string, number | string | boolean>;
+  setVisibility(hidden: boolean): void;
+  resumeInterruption(): void;
   perfSample(frames: number): Promise<Record<string, number | string>>;
 }
 
@@ -576,7 +733,7 @@ function tapHarnessFlight(throttle = 1): void {
 /** Earn through the real Space path; used to guard the core drift→flight contract. */
 function earnHarnessFlight(combo = false): void {
   setHarnessInput({ throttle: 1 });
-  loop.advance(2.4);
+  advanceUntil(() => boats[0].state.speed >= 18, 5);
   setHarnessInput({ throttle: 1, drift: true });
   loop.advance(0.62);
   setHarnessInput({ throttle: 1, flightTrigger: combo });
@@ -615,6 +772,12 @@ function qualifyHarnessRun(): void {
   passHarnessFlight(0);
   passHarnessFlight(1);
   passHarnessFlight(2);
+}
+
+function resumeHarnessQualifiedRun(): void {
+  if (race.phase !== 'medal') return;
+  loop.advance(MEDAL_CEREMONY_S + 0.05);
+  advanceUntil(() => race.phase === 'racing', 5);
 }
 
 function placeHarnessBoat(id: number, u: number, lateral = 0): void {
@@ -663,7 +826,11 @@ function scenario(name: string): void {
   freeCamPose = null;
   setHarnessInput(null);
   resetRace();
+  if (name !== 'ready') startFreshCountdown();
   switch (name) {
+    case 'ready':
+      loop.advance(1.5);
+      break;
     case 'countdown':
       loop.advance(1.7); // mid "2"
       break;
@@ -691,6 +858,12 @@ function scenario(name: string): void {
       earnHarnessFlight(false);
       loop.advance(0.12);
       break;
+    case 'interrupted':
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.2);
+      handleVisibility(true);
+      handleVisibility(false);
+      break;
     case 'flight-rule':
       advanceUntil(() => race.phase === 'racing', 8);
       placePack(course.flightEntryU + 0.001);
@@ -709,7 +882,7 @@ function scenario(name: string): void {
     case 'drift-charge':
       advanceUntil(() => race.phase === 'racing', 8);
       setHarnessInput({ throttle: 1 });
-      loop.advance(2.4);
+      advanceUntil(() => boats[0].state.speed >= 18, 5);
       setHarnessInput({ throttle: 1, drift: true });
       loop.advance(0.9);
       break;
@@ -723,7 +896,7 @@ function scenario(name: string): void {
     case 'flight-cruise':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
-      loop.advance(0.95);
+      loop.advance(1.1);
       break;
     case 'flight-airbrake':
       advanceUntil(() => race.phase === 'racing', 8);
@@ -783,14 +956,21 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === 'racing', 8);
       qualifyHarnessRun();
       break;
+    case 'medal-ceremony':
+      advanceUntil(() => race.phase === 'racing', 8);
+      qualifyHarnessRun();
+      loop.advance(0.9);
+      break;
     case 'endless-four':
       advanceUntil(() => race.phase === 'racing', 8);
       qualifyHarnessRun();
+      resumeHarnessQualifiedRun();
       passHarnessFlight(3);
       break;
     case 'endless-medal-fail': {
       advanceUntil(() => race.phase === 'racing', 8);
       qualifyHarnessRun();
+      resumeHarnessQualifiedRun();
       beginHarnessRouteFlight(3);
       setHarnessInput({ throttle: 1, steer: 1 });
       advanceUntil(() => race.phase === 'defeated', 10);
@@ -899,11 +1079,20 @@ if (HARNESS) {
         retryLessonProgress: retryLessonActive && retryLessonDuration > 0
           ? retryLessonElapsed / retryLessonDuration
           : 0,
+        medalElapsed,
+        medalActive: race.phase === 'medal',
+        interruptionActive,
+        raceTime: race.raceTime,
+        worldTime,
+        playerX: s.position.x,
+        playerY: s.position.y,
+        playerZ: s.position.z,
       };
     },
     stats: () => ({
       ...stage.stats(),
       simTime: loop.simTime,
+      worldTime,
       phase: race.phase,
       playerSpeed: boats[0].state.speed,
       playerProgress: race.racers[0].progress,
@@ -934,6 +1123,9 @@ if (HARNESS) {
     }),
     guidance: () => course.guidanceStatus(),
     mobileStatus: () => mobileInput.status(),
+    audioState: () => audio.debugState(),
+    setVisibility: handleVisibility,
+    resumeInterruption,
     perfSample: (frames) => new Promise((resolve) => {
       const times: number[] = [];
       let previous = performance.now();

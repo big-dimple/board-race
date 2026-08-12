@@ -13,6 +13,10 @@ npm run dev
 
 Open the printed localhost URL. You start fourth in a six-racer endless challenge, with three rivals ahead and two behind.
 
+The grid is intentionally frozen at `READY`. On desktop, `Enter` starts the full `3 · 2 · 1 · GO` countdown; no other key starts it. On mobile, the single `GO` button is also the first permission/calibration gesture.
+
+Backgrounding or minimizing the page immediately freezes simulation and hard-mutes audio. Returning never resumes a live run by itself: the player must press `GO`, then a fresh frozen `3 · 2 · 1 · GO` countdown restores control. READY already acts as that explicit resume gate; medal and loading screens resume their unread remainder only after GO.
+
 ## Controls
 
 | Input | Action |
@@ -21,15 +25,18 @@ Open the printed localhost URL. You start fourth in a six-racer endless challeng
 | `A` `D` / `←` `→` | Steer |
 | `Shift` (hold) | Drift on water; contextual vector air-brake while flying |
 | `Space` (press) | Spend the earned token and fly |
-| `Enter` / `R` | Skip a readable loading review after its minimum reading time |
+| `Enter` | Start from READY; continue a loading review after its minimum reading time |
+| `R` | Continue a loading review after its minimum reading time |
 
 On mobile, landscape is required. The first `开始游戏` gesture requests motion permission, attempts fullscreen/landscape, and calibrates a stable neutral angle. Missing or denied sensors fall back to touch steering automatically. Manual mode has two large steering buttons at bottom-left and separate `漂/刹` plus `飞` buttons at bottom-right. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
-Every flight requires a fresh drift and release. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass immediately grants one medal for that run; flights 4-7 continue around the rest of the circuit and the seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
+Every flight requires a fresh drift and release. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a flexed-arm medal, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. It then runs a complete frozen `3 · 2 · 1 · GO` countdown before restoring control at the exact same position. Flights 4-7 continue around the rest of the circuit and the seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
 
-Failure goes directly to one focused loading review. A new failure type displays for `4.5s`, the second occurrence for `3.2s`, and later repeats for `2.2s`; minimum reading times are `2.0s`, `1.4s`, and `1.0s`. A real PB adds `0.5s`, capped at `5s`. Course-deviation reviews always teach the contextual air brake. The screen also settles flights, PB, and any medal already earned before the mistake.
+Failure goes directly to one focused loading review. A new failure type displays for `8s`, the second occurrence for `6.5s`, and later repeats for `5s`; minimum reading times are `4s`, `3s`, and `2.5s`. A real PB adds `0.75s`, capped at `9s`. Course-deviation reviews teach the contextual air brake on the first occurrence, with a large factual miss, one concrete correction, emotional encouragement, flights/PB, and any medal already earned before the mistake. The next run still returns to READY and requires a fresh Enter/GO edge.
 
-Runs, medals, excellent finishes, PB flights, and closest misses are saved in browser `localStorage` with v1/v2 migration. This persists normal revisits on the same browser and origin, but it is not cloud storage: clearing site data, private browsing, changing domains, or changing devices will not carry records over.
+Runs, medals, excellent finishes, PB flights, closest misses, and audio preferences are saved in versioned browser `localStorage` with v1/v2 record migration. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. This is durable local save data, not account storage: clearing site data, private browsing, changing domains, or changing devices will not carry records over. Cross-device permanence should later use an explicit save export/import or authenticated server sync, without changing the current record schema's meaning.
+
+Audio is entirely synthesized at runtime: 144 BPM E-minor rock, engine layers, ocean swell, speed-dependent water rush, broad wind, directional in-flight pressure, air-brake resistance, gate/miss transients, and the medal ceremony sting. `SOUND` on READY and LOADING exposes separate master, rock, effects, ambience, and mute settings. Gameplay events duck the music so gates and failures remain readable.
 
 ## Architecture
 
@@ -82,17 +89,18 @@ src/
                     collision avoidance, three-flight qualification, deliberate mistakes
     racers.ts       Single source of racer colors, grid ranks, lanes, and pace
     records.ts      v3 local runs/medals/endless-PB record store with v1/v2 migration
-    race.ts         Endless challenge state machine: countdown, third-flight qualification,
-                    hard flight failure, laps, and overtake/lost-position events
+    race.ts         Explicit READY, fresh/resume countdowns, endless challenge qualification,
+                    medal freeze, hard flight failure, laps, and battle events
     chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
                     reduced-motion support, cinematic orbit for countdown/results
   hud/
     hud.ts/.css     Responsive minimal goal HUD: flights, 6-racer position, leader gap,
-                    edge action feedback, sky-only overtake feedback, focused adaptive
-                    loading reviews, and ordinary/excellent result panels
+                    edge action feedback, focused adaptive loading, READY gate, and medal UI
+    medalCeremony.ts One DPR-capped Canvas2D celebration: flexed-arm medal and particle field
   audio/
-    audio.ts        Web Audio synth: engine, water/air crossfade, directional air-brake
-                    pressure, anti-gravity hum, impacts, countdown horn, finish jingle
+    audio.ts        Four-bus Web Audio synth: procedural rock, ocean/wind, engine,
+                    water/air crossfade, air-brake pressure, impacts, horn, medal sting
+    mixerControls.ts/.css Persistent master/music/effects/ambience controls
 harness/
     screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
                     (qualification, endless PB, fresh-token rule, adaptive loading,

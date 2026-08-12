@@ -21,6 +21,7 @@ import type {
 } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
+import { MedalCeremonyCanvas } from './medalCeremony';
 import './hud.css';
 
 const MAP_SIZE = 190;
@@ -129,6 +130,23 @@ export class HUD {
   private readonly wrongWayEl: HTMLDivElement;
   private readonly countdownEl: HTMLDivElement;
   private readonly brandEl: HTMLDivElement;
+  private readonly readyEl: HTMLDivElement;
+  private readonly readyTitle: HTMLDivElement;
+  private readonly readyAction: HTMLDivElement;
+  private readonly interruptionEl: HTMLDivElement;
+  private readonly interruptionCopy: HTMLDivElement;
+  private readonly interruptionButton: HTMLButtonElement;
+  private readonly interruptionFoot: HTMLDivElement;
+
+  // third-flight medal ceremony
+  private readonly medalEl: HTMLDivElement;
+  private readonly medalCanvas: MedalCeremonyCanvas;
+  private readonly medalKicker: HTMLDivElement;
+  private readonly medalTitle: HTMLDivElement;
+  private readonly medalCount: HTMLDivElement;
+  private readonly medalTier: HTMLDivElement;
+  private readonly medalContinue: HTMLButtonElement;
+  private currentMedalTier: 'ordinary' | 'excellent' = 'ordinary';
 
   // minimap
   private readonly mctx: CanvasRenderingContext2D;
@@ -149,9 +167,12 @@ export class HUD {
   private readonly retryButton: HTMLButtonElement;
   private readonly lessonEl: HTMLDivElement;
   private readonly lessonAttempt: HTMLDivElement;
+  private readonly lessonEmotion: HTMLDivElement;
+  private readonly lessonMedal: HTMLDivElement;
   private readonly lessonTitle: HTMLDivElement;
   private readonly lessonCopy: HTMLDivElement;
   private readonly lessonMetric: HTMLDivElement;
+  private readonly lessonContinue: HTMLButtonElement;
   private readonly lessonPips: HTMLDivElement[] = [];
   private bestFlights: number;
 
@@ -181,7 +202,13 @@ export class HUD {
   private finalLapTimer = 0;
   private readonly lastSplits: number[] = [];
 
-  constructor(container: HTMLElement, course: ICourse, onRetry: () => void, bestFlights = 0) {
+  constructor(
+    container: HTMLElement,
+    course: ICourse,
+    onRetry: () => void,
+    bestFlights = 0,
+    onResume: () => void = () => {},
+  ) {
     this.course = course;
     this.bestFlights = bestFlights;
     this.root = h('div', 'hud', container);
@@ -301,7 +328,7 @@ export class HUD {
     this.battleStreak = h('div', 'hud-battle-streak hud-inked', battleCopy);
 
     this.flightPrompt = h('div', 'hud-flight-prompt', this.root);
-    h('div', 'hud-keycap hud-inked', this.flightPrompt, 'SPACE');
+    h('div', 'hud-keycap', this.flightPrompt, 'SPACE');
     const promptCopy = h('div', 'hud-flight-prompt-copy', this.flightPrompt);
     h('div', 'hud-flight-prompt-en', promptCopy, 'FLIGHT READY');
     h('div', 'hud-flight-prompt-cn', promptCopy, '按 SPACE 起飞');
@@ -318,6 +345,46 @@ export class HUD {
     h('span', 'hud-brand-drift', brandAction, '三飞全过');
     h('span', 'hud-brand-flight', brandAction, '第一才算优秀');
     this.countdownEl = h('div', 'hud-countdown', this.root);
+
+    // ---- explicit READY gate ----------------------------------------------------------
+    this.readyEl = h('div', 'hud-ready', this.root);
+    h('div', 'hud-ready-kicker', this.readyEl, 'THREE FLIGHTS · ONE STANDARD');
+    this.readyTitle = h('div', 'hud-ready-title hud-inked', this.readyEl, '是男人就飞三次');
+    this.readyAction = h('div', 'hud-ready-action', this.readyEl, 'ENTER 开始');
+
+    // ---- app-switch interruption gate ------------------------------------------------
+    this.interruptionEl = h('div', 'hud-interruption', this.root);
+    this.interruptionEl.setAttribute('role', 'dialog');
+    this.interruptionEl.setAttribute('aria-modal', 'true');
+    h('div', 'hud-interruption-kicker', this.interruptionEl, 'RUN FROZEN · AUDIO SILENT');
+    h('div', 'hud-interruption-title hud-inked', this.interruptionEl, '游戏已暂停');
+    this.interruptionCopy = h('div', 'hud-interruption-copy', this.interruptionEl, '比赛与声音已冻结');
+    this.interruptionButton = document.createElement('button');
+    this.interruptionButton.className = 'hud-interruption-go';
+    this.interruptionButton.type = 'button';
+    this.interruptionButton.textContent = 'GO · 继续比赛';
+    this.interruptionButton.addEventListener('click', onResume);
+    this.interruptionEl.appendChild(this.interruptionButton);
+    this.interruptionFoot = h('div', 'hud-interruption-foot', this.interruptionEl);
+
+    // ---- medal ceremony ---------------------------------------------------------------
+    this.medalEl = h('div', 'hud-medal-ceremony', this.root);
+    this.medalEl.setAttribute('role', 'dialog');
+    this.medalEl.setAttribute('aria-modal', 'true');
+    this.medalCanvas = new MedalCeremonyCanvas(this.medalEl);
+    const medalCopy = h('div', 'hud-medal-copy', this.medalEl);
+    this.medalKicker = h('div', 'hud-medal-kicker', medalCopy, '三飞达成 · 实力不靠嘴硬');
+    this.medalTitle = h('div', 'hud-medal-title hud-inked', medalCopy, '男人勋章 +1');
+    this.medalCount = h('div', 'hud-medal-count hud-inked', medalCopy);
+    this.medalTier = h('div', 'hud-medal-tier', medalCopy);
+    this.medalContinue = document.createElement('button');
+    this.medalContinue.className = 'hud-medal-continue';
+    this.medalContinue.type = 'button';
+    this.medalContinue.textContent = '继续挑战';
+    this.medalContinue.hidden = true;
+    this.medalContinue.addEventListener('click', onRetry);
+    medalCopy.appendChild(this.medalContinue);
+    h('div', 'hud-medal-foot', medalCopy, '继续后 3 · 2 · 1 · GO');
 
     // ---- results ------------------------------------------------------------------------
     this.resultsEl = h('div', 'hud-results', this.root);
@@ -339,15 +406,23 @@ export class HUD {
 
     // ---- forced retry lesson ----------------------------------------------------------
     this.lessonEl = h('div', 'hud-retry-lesson', this.root);
-    this.lessonEl.addEventListener('pointerdown', onRetry);
     h('div', 'hud-lesson-grid', this.lessonEl);
     const lessonInner = h('div', 'hud-lesson-inner', this.lessonEl);
     this.lessonAttempt = h('div', 'hud-lesson-attempt', lessonInner, 'LOADING NEXT RUN');
+    this.lessonEmotion = h('div', 'hud-lesson-emotion hud-inked', lessonInner);
+    this.lessonMedal = h('div', 'hud-lesson-medal hud-inked', lessonInner);
     this.lessonTitle = h('div', 'hud-lesson-title hud-inked', lessonInner);
     this.lessonCopy = h('div', 'hud-lesson-copy', lessonInner);
     this.lessonMetric = h('div', 'hud-lesson-metric', lessonInner);
     const lessonProgress = h('div', 'hud-lesson-progress', lessonInner);
     for (let i = 0; i < 6; i++) this.lessonPips.push(h('i', 'hud-lesson-pip', lessonProgress));
+    this.lessonContinue = document.createElement('button');
+    this.lessonContinue.className = 'hud-lesson-continue';
+    this.lessonContinue.type = 'button';
+    this.lessonContinue.textContent = '继续';
+    this.lessonContinue.hidden = true;
+    this.lessonContinue.addEventListener('click', onRetry);
+    lessonInner.appendChild(this.lessonContinue);
   }
 
   update(dt: number, race: RaceView, player: IBoat, _all: IBoat[]): void {
@@ -542,12 +617,12 @@ export class HUD {
     const cv = race.countdownValue;
     if (cv !== this.lastCountdown) {
       this.lastCountdown = cv;
-      if (race.phase === 'countdown' || cv === 0) this.showCountdown(cv);
+      if (race.phase === 'countdown' || race.phase === 'resume-countdown' || cv === 0) this.showCountdown(cv);
     }
     if (this.goTimer > 0) {
       this.goTimer -= dt;
       if (this.goTimer <= 0) this.hideCountdown();
-    } else if (this.cdVisible && race.phase !== 'countdown') {
+    } else if (this.cdVisible && race.phase !== 'countdown' && race.phase !== 'resume-countdown') {
       this.hideCountdown();
     }
 
@@ -583,11 +658,58 @@ export class HUD {
 
   showQualification(tier: 'ordinary' | 'excellent', medals: number, best: number): void {
     this.bestFlights = Math.max(this.bestFlights, best);
-    this.enqueueImpact({
-      kind: 'qualified', kicker: '男人勋章 +1', title: '三飞只是入场券',
-      detail: `${tier === 'excellent' ? '优秀已锁定' : '无限挑战开始'} · 累计 ${medals}`,
-      color: PALETTE.uiAccent, duration: 1.5, priority: 95,
-    });
+    this.currentMedalTier = tier;
+    this.medalEl.dataset.tier = tier;
+    this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力不靠嘴硬';
+    this.medalTitle.textContent = '男人勋章 +1';
+    this.medalCount.textContent = `勋章累计 ${medals}`;
+    this.medalTier.textContent = tier === 'excellent'
+      ? '第一名 · 优秀已经锁定'
+      : '勋章到手 · 夺回第一升优秀';
+    this.medalContinue.hidden = true;
+    this.medalEl.classList.add('on');
+    this.root.classList.add('medal-on');
+    this.medalContinue.blur();
+  }
+
+  updateMedalCeremony(elapsed: number, duration: number, canContinue: boolean): void {
+    if (!this.medalEl.classList.contains('on')) return;
+    this.medalCanvas.render(elapsed, duration, this.currentMedalTier);
+    this.medalEl.style.setProperty('--ceremony-progress', String(Math.max(0, Math.min(1, elapsed / duration))));
+    this.medalContinue.hidden = !canContinue;
+  }
+
+  hideMedalCeremony(): void {
+    this.medalEl.classList.remove('on');
+    this.root.classList.remove('medal-on');
+    this.medalContinue.hidden = true;
+    this.medalCanvas.clear();
+  }
+
+  showReady(mobile: boolean, nextRun: boolean): void {
+    this.readyTitle.textContent = nextRun ? '再飞一次' : '是男人就飞三次';
+    this.readyAction.textContent = mobile ? (nextRun ? '点击 GO 开始下一局' : '点击 GO 开始') : '按 ENTER 开始';
+    this.readyAction.hidden = mobile;
+    this.readyEl.classList.add('on');
+    this.root.classList.add('ready-on');
+  }
+
+  hideReady(): void {
+    this.readyEl.classList.remove('on');
+    this.root.classList.remove('ready-on');
+  }
+
+  showInterruption(resumeCountdown: boolean): void {
+    this.interruptionCopy.textContent = resumeCountdown ? '比赛与声音已冻结 · 原地恢复' : '当前画面与计时已冻结';
+    this.interruptionFoot.textContent = resumeCountdown ? '继续后 3 · 2 · 1 · GO' : '继续后保留当前奖励 / 攻略进度';
+    this.interruptionButton.textContent = resumeCountdown ? 'GO · 继续比赛' : 'GO · 继续';
+    this.interruptionEl.classList.add('on');
+    this.root.classList.add('interrupted');
+  }
+
+  hideInterruption(): void {
+    this.interruptionEl.classList.remove('on');
+    this.root.classList.remove('interrupted');
   }
 
   showExcellentLocked(total: number): void {
@@ -657,24 +779,32 @@ export class HUD {
     const lesson = this.lessonFor(failure, mobile);
     this.hideResults();
     const flight = failure?.flightNumber ?? result.flightsCleared + 1;
-    const medal = result.manMedalEarned ? ` · 勋章 +1 · 累计 ${result.manMedalsTotal}` : '';
-    this.lessonAttempt.textContent = `LOADING NEXT RUN // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞${medal}`;
+    const encouragement = this.encouragementFor(result);
+    this.lessonAttempt.textContent = `LOADING NEXT RUN // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞`;
+    this.lessonEmotion.textContent = encouragement.title;
+    this.lessonMedal.textContent = result.manMedalEarned
+      ? `本局男人勋章 +1 · 累计 ${result.manMedalsTotal}`
+      : encouragement.progress;
+    this.lessonMedal.classList.toggle('earned', result.manMedalEarned);
     this.lessonTitle.textContent = lesson.title;
     this.lessonCopy.textContent = lesson.copy;
     this.lessonMetric.textContent = `本局 ${result.flightsCleared} 飞 · BEST ${result.bestFlights}${newBest ? ' · NEW BEST' : ''}`;
-    this.updateRetryLesson(0);
+    this.lessonContinue.hidden = true;
+    this.updateRetryLesson(0, false);
     this.root.classList.add('lesson-on');
     this.lessonEl.classList.add('on');
   }
 
-  updateRetryLesson(progress: number): void {
+  updateRetryLesson(progress: number, canContinue = false): void {
     const filled = Math.min(this.lessonPips.length, Math.floor(Math.max(0, Math.min(1, progress)) * this.lessonPips.length + 1e-4));
     for (let i = 0; i < this.lessonPips.length; i++) this.lessonPips[i].classList.toggle('on', i < filled);
+    this.lessonContinue.hidden = !canContinue;
   }
 
   hideRetryLesson(): void {
     this.root.classList.remove('lesson-on');
     this.lessonEl.classList.remove('on');
+    this.lessonContinue.hidden = true;
     for (const pip of this.lessonPips) pip.classList.remove('on');
   }
 
@@ -809,6 +939,28 @@ export class HUD {
           metric: '',
         };
     }
+  }
+
+  private encouragementFor(result: ChallengeResult): { title: string; progress: string } {
+    const flights = result.flightsCleared;
+    if (flights >= 3 && result.outcome === 'excellent') {
+      return { title: '优秀已锁定！', progress: `这只是第 ${flights + 1} 飞的一次小失误` };
+    }
+    if (flights >= 3) {
+      const gap = result.leaderGapSeconds;
+      return {
+        title: gap !== null && gap > 0 && gap <= 1.5 ? '太可惜了！' : '勋章已经到手！',
+        progress: gap !== null && gap > 0 ? `离优秀男人还差 ${gap.toFixed(2)} 秒` : '下一局夺回第一，升级优秀',
+      };
+    }
+    if (flights === 2) {
+      return {
+        title: '就差最后一飞！',
+        progress: result.place === 1 ? '离优秀男人只差这一飞' : '先拿下男人勋章，再去抢第一',
+      };
+    }
+    if (flights === 1) return { title: '太可惜了！', progress: '第一飞已经拿下，离勋章还差两飞' };
+    return { title: '只是小小失误', progress: '动作已经看懂，下一局把第一飞做完整' };
   }
 
   // ------------------------------------------------------------------ pieces ----

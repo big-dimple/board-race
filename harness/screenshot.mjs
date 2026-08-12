@@ -30,6 +30,7 @@ const chromePath = process.env.CHROME_PATH || (existsSync(systemChrome) ? system
 
 // name → harness scenario call (+ optional freeCam before render)
 const SCENARIOS = {
+  ready: { scenario: 'ready' },
   countdown: { scenario: 'countdown' },
   start: { scenario: 'start' },
   sweeper: { scenario: 'sweeper' },
@@ -39,6 +40,7 @@ const SCENARIOS = {
   'drift-charge': { scenario: 'drift-charge' },
   'boost-burst': { scenario: 'boost-burst', freeCamDynamic: { back: 8.5, up: 2.3, lookUp: 0.55 } },
   'flight-ready': { scenario: 'flight-ready' },
+  interrupted: { scenario: 'interrupted' },
   'flight-rule': { scenario: 'flight-rule' },
   'flight-spool': { scenario: 'flight-spool', freeCamDynamic: { back: 7, up: 1.45, lookUp: 0.3 } },
   'flight-cruise': { scenario: 'flight-cruise' },
@@ -51,6 +53,7 @@ const SCENARIOS = {
   'flight-route': { scenario: 'flight-route' },
   'flight-fresh-token': { scenario: 'flight-fresh-token' },
   'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
+  'medal-ceremony': { scenario: 'medal-ceremony', timeout: 180000, settleMs: 180 },
   'endless-four': { scenario: 'endless-four', timeout: 180000, settleMs: 180 },
   'endless-medal-fail': { scenario: 'endless-medal-fail', timeout: 180000, settleMs: 180 },
   overtake: { scenario: 'overtake', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
@@ -80,8 +83,28 @@ async function waitForServer(url, tries = 60) {
 }
 
 async function verifyFlightContract(page) {
-  await page.evaluate(() => window.__harness.scenario('countdown'));
+  // A fresh page waits forever. Only a new Enter edge may start the run.
   let state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'ready');
+  const readyPose = { x: state.playerX, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime };
+  await page.evaluate(() => window.__harness.advance(1));
+  await page.keyboard.press('Space');
+  await page.keyboard.press('KeyR');
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'ready', 'Space and R must not start a fresh run');
+  assert.equal(state.playerX, readyPose.x);
+  assert.equal(state.playerZ, readyPose.z);
+  assert.equal(state.raceTime, readyPose.raceTime);
+  assert.equal(state.worldTime, readyPose.worldTime);
+  await page.keyboard.press('Enter');
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'countdown', 'Enter must start the full countdown');
+  assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'countdown');
+
+  await page.evaluate(() => window.__harness.scenario('countdown'));
+  state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.place, 4, 'player must start fourth');
   assert.equal(state.totalRacers, 6, 'the challenge must field six racers');
 
@@ -95,7 +118,48 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightPhase, 'surface', 'flight without a token must stay on the surface');
   assert.equal(state.flightDenied, true, 'a rejected flight press must emit feedback');
 
-  // First occurrence is deliberately readable: 4.5s plus 0.5s for a new PB.
+  // Backgrounding is a hard pause. Returning requires an explicit GO and a
+  // fresh full countdown before this exact run resumes.
+  const interruptedRace = {
+    x: state.playerX, y: state.playerY, z: state.playerZ,
+    raceTime: state.raceTime, worldTime: state.worldTime,
+  };
+  await page.evaluate(() => window.__harness.setVisibility(true));
+  await page.evaluate(() => window.__harness.advance(1));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.interruptionActive, true);
+  assert.deepEqual(
+    { x: state.playerX, y: state.playerY, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime },
+    interruptedRace,
+    'backgrounding must freeze the full race state',
+  );
+  const hiddenAudio = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(hiddenAudio.scene, 'hidden');
+  assert.equal(hiddenAudio.outputGain, 0, 'background audio output must stop immediately');
+  await page.evaluate(() => window.__harness.setVisibility(false));
+  assert.equal(await page.locator('.hud-interruption').evaluate((el) => el.classList.contains('on')), true);
+  await page.evaluate(() => window.__harness.advance(0.5));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.deepEqual(
+    { x: state.playerX, y: state.playerY, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime },
+    interruptedRace,
+    'returning to the foreground must remain frozen before GO',
+  );
+  await page.evaluate(() => window.__harness.resumeInterruption());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'resume-countdown');
+  assert.equal(state.interruptionActive, false);
+  await page.evaluate(() => window.__harness.advance(2));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.deepEqual(
+    { x: state.playerX, y: state.playerY, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime },
+    interruptedRace,
+    'background resume countdown must keep the race frozen',
+  );
+  await page.evaluate(() => window.__harness.advance(2.25));
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'racing');
+
+  // First occurrence is a strong pause: 8s plus 0.75s for a real PB.
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'defeated');
@@ -104,29 +168,32 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.retryLessonActive, true, 'failure must enter loading automatically');
-  assert.ok(Math.abs(state.retryLessonDuration - 5) < 0.05, `first/new-PB loading duration ${state.retryLessonDuration}`);
-  assert.ok(Math.abs(state.retryLessonMinRead - 2) < 0.03);
+  assert.ok(Math.abs(state.retryLessonDuration - 8.75) < 0.05, `first/new-PB loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonMinRead - 4) < 0.03);
   await page.evaluate(() => window.__harness.retry());
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.retryLessonActive, true, 'loading cannot skip before its reading gate');
-  await page.evaluate(() => window.__harness.advance(2.05));
+  await page.evaluate(() => window.__harness.advance(4.05));
   await page.evaluate(() => window.__harness.retry());
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.phase, 'countdown', 'loading can skip after the reading gate');
+  assert.equal(state.phase, 'ready', 'loading exits to READY, never directly to countdown');
+  await page.evaluate(() => window.__harness.advance(0.5));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'ready', 'READY requires a fresh confirmation edge');
 
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
   await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.ok(Math.abs(state.retryLessonDuration - 3.2) < 0.05, `second loading duration ${state.retryLessonDuration}`);
-  assert.ok(Math.abs(state.retryLessonMinRead - 1.4) < 0.03);
-  await page.evaluate(() => window.__harness.advance(1.45));
+  assert.ok(Math.abs(state.retryLessonDuration - 6.5) < 0.05, `second loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonMinRead - 3) < 0.03);
+  await page.evaluate(() => window.__harness.advance(3.05));
   await page.evaluate(() => window.__harness.retry());
 
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
   await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.ok(Math.abs(state.retryLessonDuration - 2.2) < 0.05, `third loading duration ${state.retryLessonDuration}`);
-  assert.ok(Math.abs(state.retryLessonMinRead - 1) < 0.03);
+  assert.ok(Math.abs(state.retryLessonDuration - 5) < 0.05, `third loading duration ${state.retryLessonDuration}`);
+  assert.ok(Math.abs(state.retryLessonMinRead - 2.5) < 0.03);
 
   await page.evaluate(() => window.__harness.scenario('flight-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -134,6 +201,14 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightPhase, 'surface');
   assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /SPACE.*起飞/,
     'earned-flight prompt must use the new Space mapping');
+  const promptGeometry = await page.locator('.hud-flight-prompt').evaluate((prompt) => {
+    const key = prompt.querySelector('.hud-keycap').getBoundingClientRect();
+    const copy = prompt.querySelector('.hud-flight-prompt-copy').getBoundingClientRect();
+    return { keyWidth: key.width, keyScrollWidth: prompt.querySelector('.hud-keycap').scrollWidth, keyRight: key.right, copyLeft: copy.left };
+  });
+  assert.ok(promptGeometry.keyWidth >= 64, `SPACE key cap collapsed to ${promptGeometry.keyWidth}px`);
+  assert.ok(promptGeometry.keyScrollWidth <= promptGeometry.keyWidth + 1, 'SPACE text must not overflow its key cap');
+  assert.ok(promptGeometry.keyRight <= promptGeometry.copyLeft, 'SPACE key cap must not overlap the flight copy');
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -148,6 +223,7 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightRemaining > 0 && state.flightRemaining < 1);
   assert.ok(state.speed >= 40 && state.speed <= 43, `first flight cruise speed ${state.speed}`);
   assert.ok(state.flightPressure > 0.25, `flight pressure ${state.flightPressure}`);
+  assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'flight');
   const flightStats = await page.evaluate(() => window.__harness.stats());
   assert.ok(flightStats.cameraFov >= 77 && flightStats.cameraFov <= 86, `flight FOV ${flightStats.cameraFov}`);
   const guidance = await page.evaluate(() => window.__harness.guidance());
@@ -224,10 +300,53 @@ async function verifyFlightContract(page) {
   const medalsBefore = state.manMedalsTotal;
   await page.evaluate(() => window.__harness.scenario('endless-qualified'));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.phase, 'racing', 'the third flight is a qualification threshold, not the finish');
+  assert.equal(state.phase, 'medal', 'the third flight must enter the medal ceremony');
   assert.equal(state.flightsCleared, 3);
   assert.notEqual(state.challengeTier, 'unqualified');
   assert.equal(state.manMedalsTotal, medalsBefore + 1, 'the third flight grants exactly one medal in the run');
+  assert.equal(await page.locator('.hud-medal-ceremony').evaluate((el) => el.classList.contains('on')), true);
+  assert.match(await page.locator('.hud-medal-title').textContent() ?? '', /男人勋章 \+1/);
+  assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'medal',
+    'the qualification frame must not overwrite the medal music mix');
+  const medalBeforeBackground = state.medalElapsed;
+  await page.evaluate(() => window.__harness.setVisibility(true));
+  await page.evaluate(() => window.__harness.advance(1));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.medalElapsed, medalBeforeBackground, 'backgrounding must not consume medal ceremony time');
+  await page.evaluate(() => window.__harness.setVisibility(false));
+  assert.equal(await page.locator('.hud-interruption').evaluate((el) => el.classList.contains('on')), true,
+    'the pause GO must remain visible over the medal layer');
+  await page.evaluate(() => window.__harness.resumeInterruption());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'medal', 'resuming a medal screen continues the remaining ceremony first');
+  const frozen = {
+    x: state.playerX, y: state.playerY, z: state.playerZ,
+    raceTime: state.raceTime, worldTime: state.worldTime, medals: state.manMedalsTotal,
+  };
+  await page.evaluate(() => window.__harness.advance(4.2));
+  await page.evaluate(() => window.__harness.retry());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'medal', 'ceremony cannot skip before the full 4.5s');
+  assert.deepEqual(
+    { x: state.playerX, y: state.playerY, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime },
+    { x: frozen.x, y: frozen.y, z: frozen.z, raceTime: frozen.raceTime, worldTime: frozen.worldTime },
+    'ceremony must freeze boat, race clock, and world clock',
+  );
+  await page.evaluate(() => window.__harness.advance(0.35));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'resume-countdown', 'the full ceremony must continue through a resume countdown');
+  await page.evaluate(() => window.__harness.advance(2));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'resume-countdown');
+  assert.deepEqual(
+    { x: state.playerX, y: state.playerY, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime },
+    { x: frozen.x, y: frozen.y, z: frozen.z, raceTime: frozen.raceTime, worldTime: frozen.worldTime },
+    'resume countdown must remain frozen',
+  );
+  await page.evaluate(() => window.__harness.advance(2.25));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'racing');
+  assert.equal(state.manMedalsTotal, frozen.medals, 'resume must not award the medal twice');
 
   await page.evaluate(() => window.__harness.scenario('endless-four'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -241,9 +360,11 @@ async function verifyFlightContract(page) {
   assert.equal(state.retryLessonActive, true);
   assert.equal(state.manMedalEarned, true, 'post-qualification failure must settle the earned medal');
   assert.ok(state.manMedalsTotal >= medalsBefore + 3);
-  assert.match(await page.locator('.hud-lesson-attempt').textContent() ?? '', /勋章 \+1/);
+  assert.ok(state.retryLessonDuration >= 8, 'post-medal failure must settle the reward for at least 8s');
+  assert.match(await page.locator('.hud-lesson-medal').textContent() ?? '', /男人勋章 \+1/);
   assert.match(await page.locator('.hud-lesson-copy').textContent() ?? '', /空刹/,
     'flight-course failures must teach the contextual air brake on first occurrence');
+  assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'lesson');
 
   console.log('gameplay contract: OK');
 }
@@ -521,8 +642,11 @@ async function main() {
     if (verifyMobile) await verifyMobileControls(page);
     if (verifyPerformance) await verifyPerformanceContract(page);
     if (mobile && touchFallback) {
+      const start = page.locator('.mobile-start');
+      if (await start.isVisible()) await start.click();
+      await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 3500 });
       const mode = page.locator('.mobile-mode');
-      if (await mode.isVisible()) await mode.click();
+      if ((await page.evaluate(() => window.__harness.mobileStatus())).mode !== 'touch') await mode.click();
       assert.equal(await page.locator('.mobile-controls').evaluate((el) => el.classList.contains('touch-steer')), true,
         'touch fallback must expose the two steering zones');
       assert.equal(await mode.textContent(), '触控', 'touch fallback must identify the active steering mode');

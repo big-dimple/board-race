@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "remote": "origin",
+  "branch": "main",
+  "runtime": {
+    "nodeMajor": 22
+  },
+  "gates": [
+    {
+      "name": "build",
+      "argv": ["npm", "run", "build"]
+    },
+    {
+      "name": "gameplay-contract",
+      "argv": ["npm", "run", "verify:flight"]
+    },
+    {
+      "name": "mobile-contract",
+      "argv": ["npm", "run", "verify:mobile"]
+    },
+    {
+      "name": "performance-contract",
+      "argv": ["npm", "run", "verify:performance"]
+    }
+  ],
+  "pages": {
+    "workflow": "deploy.yml",
+    "timeout": 600,
+    "interval": 5
+  }
+}
