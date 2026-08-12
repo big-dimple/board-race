@@ -96,6 +96,9 @@ export class GameAudio {
   private retryVariation = 0;
   private lastFailureAt = -Infinity;
   private activeOneShots = 0;
+  private lastDriverSelectAt = -Infinity;
+  private driverSelectEvents = 0;
+  private lastDriverSelectIndex = -1;
 
   // engine nodes
   private saw1: OscillatorNode | null = null;
@@ -259,6 +262,8 @@ export class GameAudio {
       sfx: this.settings.sfx,
       ambience: this.settings.ambience,
       activeOneShots: this.activeOneShots,
+      driverSelectEvents: this.driverSelectEvents,
+      lastDriverSelectIndex: this.lastDriverSelectIndex,
       outputGain: this.master?.gain.value ?? 0,
       musicBusGain: this.musicBus?.gain.value ?? 0,
       musicFilterHz: this.musicFilter?.frequency.value ?? 0,
@@ -488,13 +493,47 @@ export class GameAudio {
     }
   }
 
-  flightReady(): void {
+  flightReady(charges = 1): void {
     const c = this.ctx;
     if (!c) return;
     this.impactBurst(160, 72, 0.5, 0.18);
-    this.blip(620, c.currentTime, 0.18, 0.2, 'triangle');
-    this.blip(930, c.currentTime + 0.07, 0.25, 0.19, 'triangle');
-    this.blip(1395, c.currentTime + 0.14, 0.32, 0.14, 'square');
+    const lift = charges >= 2 ? 1.16 : 1;
+    this.blip(620 * lift, c.currentTime, 0.18, 0.2, 'triangle');
+    this.blip(930 * lift, c.currentTime + 0.07, 0.25, 0.19, 'triangle');
+    this.blip(1395 * lift, c.currentTime + 0.14, 0.32, 0.14, 'square');
+  }
+
+  driverSelected(index: number, direction: -1 | 1): void {
+    const c = this.ctx;
+    if (!c) return;
+    if (c.currentTime - this.lastDriverSelectAt < 0.055) return;
+    this.lastDriverSelectAt = c.currentTime;
+    this.driverSelectEvents++;
+    this.lastDriverSelectIndex = index;
+    const notes = [392, 440, 494, 587, 659, 784];
+    const root = notes[Math.max(0, Math.min(notes.length - 1, index))];
+    const t = c.currentTime;
+    if (this.noiseBuf && this.eventBus) {
+      const snap = c.createBufferSource();
+      snap.buffer = this.noiseBuf;
+      const bp = c.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 1800 + index * 140;
+      bp.Q.value = 1.35;
+      const pan = c.createStereoPanner();
+      pan.pan.value = direction * 0.12;
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0.075, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      snap.connect(bp);
+      bp.connect(pan);
+      pan.connect(gain);
+      gain.connect(this.eventBus);
+      this.trackOneShot(snap, [bp, pan, gain], t, t + 0.18);
+    }
+    this.blip(root * (direction > 0 ? 1 : 0.94), t, 0.16, 0.09, 'triangle');
+    this.blip(root * 1.5, t + 0.055, 0.22, 0.085, 'square');
+    this.blip(root * 2, t + 0.12, 0.24, 0.07, 'triangle');
   }
 
   driftReleaseReady(): void {
@@ -927,11 +966,13 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
     o.connect(g);
     g.connect(this.eventBus);
+    this.activeOneShots++;
     o.start(t0);
     o.stop(t0 + dur + 0.05);
     o.onended = () => {
       o.disconnect();
       g.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
   }
 

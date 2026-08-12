@@ -195,6 +195,28 @@ export class SpraySystem implements ISpray {
     }
   }
 
+  takeoff(pos: THREE.Vector3, forward: THREE.Vector3, right: THREE.Vector3, count: number, speed: number): void {
+    const n = Math.min(count, this.capacity);
+    for (let i = 0; i < n; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const lateral = side * (0.65 + Math.random() * 0.65);
+      const aft = 0.65 + Math.random() * 0.7;
+      const up = 0.38 + Math.random() * 0.38;
+      const s = speed * (0.72 + Math.random() * 0.42);
+      this.spawn(
+        pos.x + right.x * side * (0.35 + Math.random() * 0.65) - forward.x * Math.random() * 1.5,
+        pos.y + 0.03 + Math.random() * 0.12,
+        pos.z + right.z * side * (0.35 + Math.random() * 0.65) - forward.z * Math.random() * 1.5,
+        (right.x * lateral - forward.x * aft) * s,
+        up * s,
+        (right.z * lateral - forward.z * aft) * s,
+        0.62 + Math.random() * 0.32,
+        Math.min(0.38, 0.11 + speed * 0.016 + Math.random() * 0.09),
+        Math.random() < 0.3 ? 1 : 0,
+      );
+    }
+  }
+
   update(dt: number, t: number): void {
     const drag = Math.max(0, 1 - DRAG * dt);
     const cap = this.capacity;

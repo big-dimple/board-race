@@ -254,7 +254,7 @@ export class AIController {
     const flightWindow = myU >= upcomingRoute.qualifyFromU && myU <= upcomingRoute.exitU + 0.02;
     const qualificationWindow = flightWindow && myU < upcomingRoute.launchFromU &&
       me.state.flightPhase === 'surface';
-    if (me.state.flightReady || !qualificationWindow) {
+    if (me.state.flightCharges > 0 || !qualificationWindow) {
       this.qualifyingFlight = false;
     } else if (!this.qualifyingFlight && me.state.boostCharge < 0.38 && speed > 14) {
       this.qualifyingFlight = true;
@@ -272,7 +272,7 @@ export class AIController {
     }
     const launchNow =
       this.flightWantsRoute &&
-      me.state.flightReady &&
+      me.state.flightCharges > 0 &&
       me.state.flightPhase === 'surface' &&
       myU >= upcomingRoute.launchFromU &&
       myU <= upcomingRoute.launchToU;

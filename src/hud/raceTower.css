@@ -5,6 +5,9 @@
 .race-tower-row { --racer-color:#55e7ff; display:grid; grid-template-columns:25px 32px minmax(0,1fr) 50px; align-items:center; min-height:34px; border-left:4px solid var(--racer-color); background:rgba(4,7,20,.76); }
 .race-tower-row.player { background:rgba(8,13,42,.96); box-shadow:3px 0 0 #f4feff inset; }
 .race-tower.compact .race-tower-row:not(.player):not(.near-player) { display:none; }
+.race-tower.flight-focus .race-tower-list,
+.race-tower.flight-focus .race-radio { display:none; }
+.race-tower.flight-focus { width:96px; opacity:.82; }
 .race-tower-row img { width:28px; height:28px; object-fit:cover; object-position:50% 22%; background:#1e1b3a; }
 .race-tower-place { text-align:center; color:var(--racer-color); font:italic 900 13px/1 'Arial Black',Impact,sans-serif; }
 .race-tower-name { overflow:hidden; padding-left:6px; font:italic 900 12px/1 'Arial Black',Impact,sans-serif; text-overflow:ellipsis; white-space:nowrap; }

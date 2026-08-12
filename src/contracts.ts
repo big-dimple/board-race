@@ -17,7 +17,7 @@ export interface BoatInput {
   steer: number;
   /** Held = powerslide. Releasing after a long drift pays out boost. */
   drift: boolean;
-  /** Edge-triggered. Consumes one earned flight token and starts anti-grav flight. */
+  /** Edge-triggered. Consumes one stored flight charge and starts anti-grav flight. */
   flightTrigger: boolean;
   /** Held brake key. During controlled flight this becomes vector air-braking. */
   airBrake: boolean;
@@ -111,13 +111,13 @@ export interface BoatState {
   drifting: boolean;
   /** 0..1, charged by drifting, spent by boosting. */
   boostCharge: number;
-  /** True once releasing the current surface drift will earn a flight token. */
+  /** True once releasing the current surface drift will earn a flight charge. */
   driftReleaseReady: boolean;
   boosting: boolean;
   /** Normalized time left in the active boost, or 0 while inactive. */
   boostRemaining: number;
-  /** A qualifying drift outside controlled flight earns one non-stackable token. */
-  flightReady: boolean;
+  /** Earned launch charges. Each qualifying surface-drift release adds one, capped at two. */
+  flightCharges: number;
   flightPhase: FlightPhase;
   /** Normalized time left in the authored flight envelope. */
   flightRemaining: number;
@@ -195,6 +195,8 @@ export interface IWake {
 export interface ISpray {
   /** Emit `count` spray particles at pos with base speed (m/s). */
   burst(pos: THREE.Vector3, count: number, speed: number): void;
+  /** Directional launch sheet: forward and right are planar unit vectors. */
+  takeoff(pos: THREE.Vector3, forward: THREE.Vector3, right: THREE.Vector3, count: number, speed: number): void;
   update(dt: number, t: number): void;
 }
 
@@ -257,6 +259,10 @@ export interface CourseGuidanceStatus {
   visibleRouteCount: number;
   surfaceMaskRouteIndex: number;
   playerSurfaceU: number;
+  /** Meters to the current scoring portal, or -1 while no portal is active. */
+  targetGateDistance: number;
+  /** Visual-only locator-ring scale; never changes the scoring opening. */
+  targetAnchorScale: number;
 }
 
 /** What the HUD and camera are allowed to know about the race. */

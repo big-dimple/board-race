@@ -2,7 +2,7 @@
  * hud.css — cel/anime arcade HUD.
  *
  * Design language: chunky italic display type, panels skewed -8°, hard ink
- * outlines (3px borders + offset box-shadows, stacked text-shadows), flat
+ * outlines (3px borders + offset box-shadows, crisp ink strokes), flat
  * palette colors. Palette values are injected as CSS custom properties on the
  * .hud root by HUD (from core/palette.ts); the declarations below are
  * fallbacks that mirror the committed palette.
@@ -45,16 +45,12 @@
   transform: skew(-8deg);
 }
 
-/* stacked ink outline for display text */
+/* A single hard offset keeps the comic silhouette without creating illegible
+   after-images on small, fast-moving mobile text. */
 .hud-inked {
-  text-shadow:
-    3px 3px 0 var(--ink),
-    -2px -2px 0 var(--ink),
-    2px -2px 0 var(--ink),
-    -2px 2px 0 var(--ink),
-    0 3px 0 var(--ink),
-    3px 0 0 var(--ink),
-    6px 6px 0 var(--ink);
+  -webkit-text-stroke: 1.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 3px 3px 0 var(--ink);
 }
 
 /* ---- top-left stack: lap / final lap / position ------------------------- */
@@ -229,15 +225,30 @@
   color: var(--accent);
 }
 
+.hud-flight-rack {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin: 0 4px 0 1px;
+}
+
 .hud-flight-token {
   width: 15px;
   height: 15px;
   flex: 0 0 15px;
-  margin: 0 5px 0 1px;
+  margin: 0;
   transform: rotate(45deg);
   background: rgba(244, 254, 255, 0.08);
   border: 2px solid var(--flight-deep);
   box-shadow: 2px 2px 0 var(--ink);
+}
+
+.hud-flight-count {
+  width: 22px;
+  flex: 0 0 22px;
+  color: var(--text);
+  font: 900 11px/1 system-ui, sans-serif;
+  text-shadow: 1px 1px 0 var(--ink);
 }
 
 .hud-flight-token.ready {
@@ -1002,6 +1013,7 @@
 
 .hud-brand.on {
   opacity: 1;
+  animation: hud-brand-lock 0.22s cubic-bezier(.18,.78,.2,1) both;
 }
 
 .hud-brand-lead {
@@ -1015,6 +1027,12 @@
   font-size: 50px;
   line-height: 1;
   white-space: nowrap;
+}
+
+@keyframes hud-brand-lock {
+  from { opacity: 0; transform: translateX(-50%) skew(-8deg) scale(1.1); }
+  55% { opacity: 1; }
+  to { opacity: 1; transform: translateX(-50%) skew(-8deg) scale(1); }
 }
 
 .hud-brand-drift {
@@ -2213,7 +2231,17 @@
 .hud-brand-action { margin-top: 10px; font-size: 20px; line-height: 1.15; }
 .hud-brand-drift::after { content: ' · '; color: var(--text); }
 .hud-brand .hud-inked {
-  text-shadow: 2px 2px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
+  -webkit-text-stroke: 1.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 3px 3px 0 var(--ink);
+}
+.hud-brand-action {
+  display: inline-flex;
+  gap: 7px;
+  padding: 6px 12px;
+  border-left: 4px solid var(--boost);
+  border-right: 4px solid var(--flight);
+  background: rgba(8,13,42,.8);
 }
 
 .hud-impact-copy { max-width: min(440px, calc(100% - 40px)); }

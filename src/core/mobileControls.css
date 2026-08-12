@@ -97,11 +97,10 @@
   position: relative;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  border: 1px solid rgba(244, 254, 255, 0.42);
-  border-radius: 2px;
-  background: rgba(12, 18, 45, 0.42);
-  box-shadow: inset 0 0 0 1px rgba(20, 18, 43, 0.58), 0 8px 24px rgba(0, 0, 0, 0.18);
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   opacity: 0;
 }
 
@@ -122,17 +121,61 @@
 .mobile-action-zones span,
 .mobile-steer-zones span {
   position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
+  left: 50%;
+  top: 50%;
+  width: clamp(78px, 22vh, 96px);
+  height: clamp(78px, 22vh, 96px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(244, 254, 255, 0.46);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: rgba(10, 16, 42, 0.68);
+  box-shadow:
+    inset 0 0 0 5px rgba(20, 18, 43, 0.5),
+    inset 0 -12px 0 rgba(20, 18, 43, 0.24),
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    0 0 14px color-mix(in srgb, currentColor 16%, transparent);
   line-height: 1;
   text-shadow: 2px 2px 0 var(--mobile-ink), 0 0 12px currentColor;
+  transition: transform 90ms ease-out, border-color 90ms ease-out, box-shadow 90ms ease-out;
+}
+
+.mobile-action-zones span::before,
+.mobile-steer-zones span::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border: 1px solid currentColor;
+  border-radius: inherit;
+  opacity: 0.24;
+}
+
+.mobile-action-zones b,
+.mobile-steer-zones b { display: block; font: inherit; }
+.mobile-action-zones small,
+.mobile-steer-zones small {
+  display: block;
+  margin-top: 5px;
+  color: rgba(244, 254, 255, 0.62);
+  font: 900 8px/1 system-ui, sans-serif;
+  font-style: normal;
 }
 
 .mobile-steer-zones button {
   color: rgba(244, 254, 255, 0.78);
   font-size: clamp(54px, 10vh, 76px);
 }
+.mobile-steer-zones span {
+  width: clamp(72px, 20vh, 88px);
+  height: clamp(72px, 20vh, 88px);
+  background: rgba(10, 16, 42, 0.52);
+  opacity: 0.78;
+}
+.mobile-steer-zones small { margin-top: -3px; }
 
 .mobile-action-zones button { font-size: clamp(30px, 7vh, 42px); }
 .mobile-action-zones button:first-child { color: var(--mobile-drift); }
@@ -141,39 +184,61 @@
 .mobile-action-zones button::after {
   content: '';
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 9px;
-  height: 6px;
+  left: 50%;
+  bottom: calc(50% - clamp(34px, 10vh, 43px));
+  width: clamp(46px, 13vh, 58px);
+  height: 4px;
   background: currentColor;
   box-shadow: 0 0 14px currentColor;
   opacity: 0.62;
   transform-origin: left center;
+  margin-left: calc(clamp(46px, 13vh, 58px) / -2);
 }
 
 .mobile-action-zones button:first-child::after { transform: scaleX(max(0.08, var(--mobile-charge))); }
 .mobile-action-zones button.held,
 .mobile-steer-zones button.held {
-  border-color: currentColor;
-  background: color-mix(in srgb, currentColor 20%, rgba(12, 18, 45, 0.58));
+  background: transparent;
 }
 .mobile-action-zones button.held span,
-.mobile-steer-zones button.held span { transform: scale(1.08); }
+.mobile-steer-zones button.held span {
+  transform: translate(-50%, -50%) scale(0.94);
+  border-color: currentColor;
+  background: color-mix(in srgb, currentColor 18%, rgba(10, 16, 42, 0.82));
+  box-shadow: inset 0 0 0 5px rgba(20,18,43,.58), 0 3px 10px rgba(0,0,0,.2), 0 0 24px color-mix(in srgb,currentColor 42%,transparent);
+}
 
 .mobile-controls.flight-ready .mobile-action-zones button:last-child {
+  color: var(--mobile-flight);
+}
+.mobile-controls.flight-ready .mobile-action-zones button:last-child span {
   border-color: var(--mobile-flight);
-  box-shadow: inset 0 0 18px rgba(85, 231, 255, 0.18), 0 0 14px rgba(85, 231, 255, 0.34);
+  box-shadow: inset 0 0 0 5px rgba(20,18,43,.5), inset 0 -12px 0 rgba(20,18,43,.24), 0 8px 20px rgba(0,0,0,.22), 0 0 22px rgba(85,231,255,.42);
 }
 .mobile-controls.flight-ready .mobile-action-zones button:last-child::after { height: 8px; opacity: 1; }
+.mobile-action-zones button:last-child span::after {
+  content: 'x0';
+  position: absolute;
+  right: 2px;
+  top: 7px;
+  color: rgba(244, 254, 255, 0.52);
+  font: 900 12px/1 system-ui, sans-serif;
+  text-shadow: 1px 1px 0 var(--mobile-ink);
+}
+.mobile-controls[data-flight-charges='1'] .mobile-action-zones button:last-child span::after { content: 'x1'; color: var(--mobile-flight); }
+.mobile-controls[data-flight-charges='2'] .mobile-action-zones button:last-child span::after { content: 'x2'; color: #f8ff7a; }
 .mobile-controls.drift-release-ready .mobile-action-zones button:first-child {
-  border-color: #f8ff7a;
-  box-shadow: inset 0 0 20px rgba(57, 255, 136, 0.22), 0 0 17px rgba(248, 255, 122, 0.5);
+  color: #f8ff7a;
+}
+.mobile-controls.drift-release-ready .mobile-action-zones button:first-child span {
+  border-color:#f8ff7a;
+  box-shadow:inset 0 0 0 5px rgba(20,18,43,.5),inset 0 -12px 0 rgba(20,18,43,.24),0 8px 20px rgba(0,0,0,.22),0 0 22px rgba(248,255,122,.48);
 }
 .mobile-controls.in-flight .mobile-action-zones button:first-child { color: #ffcf4a; }
 .mobile-controls.turn-warning .mobile-action-zones button:first-child {
-  border-color: #ffcf4a;
-  box-shadow: inset 0 0 18px rgba(255, 207, 74, 0.2), 0 0 15px rgba(255, 207, 74, 0.35);
+  color: #ffcf4a;
 }
+.mobile-controls.turn-warning .mobile-action-zones button:first-child span { border-color:#ffcf4a; box-shadow:inset 0 0 0 5px rgba(20,18,43,.5),0 0 24px rgba(255,207,74,.42); }
 
 .mobile-tilt-meter {
   position: absolute;
@@ -231,5 +296,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .mobile-action-zones button.held span,
-  .mobile-steer-zones button.held span { transform: none; }
+  .mobile-steer-zones button.held span { transform: translate(-50%, -50%); }
 }

@@ -17,6 +17,8 @@ export interface RenderQualityProfile {
 
 const AUTO_DESKTOP_CLARITY_BUDGET = 3_200_000;
 const AUTO_DESKTOP_MAX_PIXEL_RATIO = 1.35;
+const AUTO_MOBILE_MAX_PIXEL_RATIO = 2.5;
+const AUTO_MOBILE_MIN_PIXEL_RATIO = 1;
 
 const PROFILES: Record<RenderQualityMode, RenderQualityProfile> = {
   auto: {
@@ -52,6 +54,8 @@ export class Stage {
   private resizeCount = 0;
   private lastBaseRatio = 1;
   private readonly desktopClarity: boolean;
+  private readonly mobileClarity: boolean;
+  private readonly effectiveMinPixelRatio: number;
   private readonly resizeCbs: Array<(w: number, h: number, pr: number) => void> = [];
 
   constructor(container: HTMLElement, mode: RenderQualityMode = 'auto') {
@@ -59,6 +63,14 @@ export class Stage {
     this.desktopClarity = mode === 'auto' &&
       window.innerWidth >= 1000 &&
       !window.matchMedia('(pointer: coarse)').matches;
+    this.mobileClarity = mode === 'auto' && (
+      window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0
+    );
+    const initialBudgetRatio = Math.sqrt(this.quality.pixelBudget /
+      Math.max(1, window.innerWidth * window.innerHeight));
+    this.effectiveMinPixelRatio = this.mobileClarity
+      ? Math.min(AUTO_MOBILE_MIN_PIXEL_RATIO, initialBudgetRatio)
+      : this.quality.minPixelRatio;
     this.renderer = new THREE.WebGLRenderer({
       antialias: false,
       powerPreference: 'high-performance',
@@ -105,8 +117,8 @@ export class Stage {
     }
 
     if (this.adjustmentCooldown > 0) return;
-    if (this.badFrameSeconds >= 0.5 && this.pixelRatio > this.quality.minPixelRatio) {
-      this.pixelRatio = Math.max(this.quality.minPixelRatio, this.pixelRatio - 0.2);
+    if (this.badFrameSeconds >= 0.5 && this.pixelRatio > this.effectiveMinPixelRatio) {
+      this.pixelRatio = Math.max(this.effectiveMinPixelRatio, this.pixelRatio - 0.2);
       this.badFrameSeconds = 0;
       this.adjustmentCooldown = 2;
       this.applySize();
@@ -129,11 +141,16 @@ export class Stage {
   private ratioForBudget(w: number, h: number, pixelBudget: number, maxPixelRatio: number): number {
     const device = Math.max(1, window.devicePixelRatio || 1);
     const budget = Math.sqrt(pixelBudget / Math.max(1, w * h));
-    return Math.max(this.quality.minPixelRatio, Math.min(device, maxPixelRatio, budget));
+    const floor = this.mobileClarity
+      ? Math.min(this.effectiveMinPixelRatio, budget)
+      : this.effectiveMinPixelRatio;
+    return Math.max(floor, Math.min(device, maxPixelRatio, budget));
   }
 
   private baseBudgetRatio(w: number, h: number): number {
-    return this.ratioForBudget(w, h, this.quality.pixelBudget, this.quality.maxPixelRatio);
+    const max = this.mobileClarity ? AUTO_MOBILE_MAX_PIXEL_RATIO : this.quality.maxPixelRatio;
+    const ratio = this.ratioForBudget(w, h, this.quality.pixelBudget, max);
+    return ratio;
   }
 
   private clarityCeilingRatio(w: number, h: number): number {
@@ -150,8 +167,8 @@ export class Stage {
       // Preserve a real performance penalty, but do not strand a small window
       // at the ratio required by the previous 4K viewport.
       const nextBase = this.baseBudgetRatio(window.innerWidth, window.innerHeight);
-      const perfScale = Math.min(1, this.pixelRatio / Math.max(this.quality.minPixelRatio, this.lastBaseRatio));
-      this.pixelRatio = Math.max(this.quality.minPixelRatio, nextBase * perfScale);
+      const perfScale = Math.min(1, this.pixelRatio / Math.max(this.effectiveMinPixelRatio, this.lastBaseRatio));
+      this.pixelRatio = Math.max(this.effectiveMinPixelRatio, nextBase * perfScale);
       this.lastBaseRatio = nextBase;
       this.applySize();
     });
@@ -183,6 +200,7 @@ export class Stage {
       clarityPixelBudget: this.desktopClarity ? AUTO_DESKTOP_CLARITY_BUDGET : this.quality.pixelBudget,
       clarityCeilingRatio: this.clarityCeilingRatio(w, h),
       desktopClarity: this.desktopClarity ? 1 : 0,
+      mobileClarity: this.mobileClarity ? 1 : 0,
       resizeCount: this.resizeCount,
     };
   }

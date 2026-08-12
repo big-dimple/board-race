@@ -52,7 +52,7 @@ const SCENARIOS = {
   'flight-no-launch': { scenario: 'flight-no-launch', settleMs: 760 },
   'retry-lesson': { scenario: 'retry-lesson', settleMs: 380 },
   'flight-route': { scenario: 'flight-route' },
-  'flight-fresh-token': { scenario: 'flight-fresh-token' },
+  'flight-spent-charge': { scenario: 'flight-spent-charge' },
   'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
   'medal-ceremony': { scenario: 'medal-ceremony', timeout: 180000, settleMs: 180 },
   'endless-four': { scenario: 'endless-four', timeout: 180000, settleMs: 180 },
@@ -115,8 +115,8 @@ async function verifyFlightContract(page) {
     window.__harness.advance(1 / 60);
   });
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightReady, false, 'flight without a qualifying drift must not create a token');
-  assert.equal(state.flightPhase, 'surface', 'flight without a token must stay on the surface');
+  assert.equal(state.flightReady, false, 'flight without a qualifying drift must not create a charge');
+  assert.equal(state.flightPhase, 'surface', 'flight without a charge must stay on the surface');
   assert.equal(state.flightDenied, true, 'a rejected flight press must emit feedback');
 
   // Backgrounding is a hard pause. Returning requires an explicit GO and a
@@ -218,7 +218,7 @@ async function verifyFlightContract(page) {
 
   await page.evaluate(() => window.__harness.scenario('flight-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightReady, true, 'qualifying Space release must earn a flight token');
+  assert.equal(state.flightReady, true, 'a qualifying Shift release must earn a flight charge');
   assert.equal(state.flightPhase, 'surface');
   assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /SPACE.*起飞/,
     'earned-flight prompt must use the new Space mapping');
@@ -269,7 +269,21 @@ async function verifyFlightContract(page) {
     window.__harness.advance(1 / 30);
   });
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightReady, true, 'releasing after the threshold must earn exactly one token');
+  assert.equal(state.flightCharges, 1, 'releasing after the threshold must earn exactly one charge');
+
+  // Each distinct release earns one launch, capped at two. Full storage may
+  // still pay a normal boost, and one launch must consume only one cell.
+  await page.evaluate(() => window.__harness.earnFlight(false));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 2, 'a second qualifying drift must fill the second launch cell');
+  await page.evaluate(() => window.__harness.earnFlight(false));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 2, 'flight storage must hard-cap at two');
+  assert.equal(state.boosting, true, 'a full magazine must not suppress the drift boost payout');
+  await page.evaluate(() => window.__harness.tapFlight());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 1, 'one launch must consume exactly one stored charge');
+  assert.notEqual(state.flightPhase, 'surface');
 
   await page.evaluate(() => window.__harness.scenario('opponent-drift'));
   const opponentFx = await page.evaluate(() => window.__harness.opponentFx());
@@ -280,9 +294,23 @@ async function verifyFlightContract(page) {
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightReady, false, 'launch must consume the token');
+  assert.equal(state.flightReady, false, 'launch must consume the charge');
   assert.equal(state.boosting, true, 'drift boost must survive a same-frame flight launch');
   assert.notEqual(state.flightPhase, 'surface', 'same-frame drift release + flight must launch');
+
+  await page.evaluate(() => {
+    window.__harness.scenario('start');
+    window.__harness.earnFlight(false);
+    window.__harness.earnFlight(false);
+    window.__harness.setPlayerInput({ throttle: 1, drift: true });
+    window.__harness.advance(0.62);
+    window.__harness.setPlayerInput({ throttle: 1, flightTrigger: true });
+    window.__harness.advance(1 / 60);
+    window.__harness.setPlayerInput(null);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 1,
+    'full storage + same-frame qualifying release/launch must remain at one after spending');
 
   await page.evaluate(() => window.__harness.scenario('flight-cruise'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -300,6 +328,32 @@ async function verifyFlightContract(page) {
   assert.equal(guidance.visibleRouteCount, 1, 'only the current player flight guide may be visible');
   assert.equal(guidance.activeRouteIndex, 0);
   assert.equal(guidance.surfaceMaskRouteIndex, 0, 'the green surface ribbon must be masked through the active detour');
+  assert.ok(guidance.targetGateDistance > 0, `the unique target gate must expose a real distance: ${JSON.stringify(guidance)}`);
+  assert.ok(guidance.targetAnchorScale >= 1 && guidance.targetAnchorScale <= 1.75,
+    `the visual locator must stay bounded: ${JSON.stringify(guidance)}`);
+
+  const budget = await page.evaluate(() => window.__harness.flightBudgetCase());
+  assert.ok(Math.abs(budget.envelope.descendAt - 5.7) < 0.001, `flight descent envelope ${JSON.stringify(budget.envelope)}`);
+  assert.ok(Math.abs(budget.envelope.total - 6.45) < 0.001, `flight total envelope ${JSON.stringify(budget.envelope)}`);
+  assert.equal(budget.routes.length, 7);
+  for (const route of budget.routes) {
+    assert.ok(route.earliestToGate >= 140 && route.earliestToGate <= 152,
+      `route ${route.index + 1} launch budget must stay comparable: ${JSON.stringify(route)}`);
+    assert.ok(route.latestToGate > 75 && route.latestToGate < route.earliestToGate,
+      `route ${route.index + 1} latest launch must retain a real approach: ${JSON.stringify(route)}`);
+    assert.ok(route.secondsAt29 <= 5.2,
+      `route ${route.index + 1} must pass before descent at sustained air-brake speed: ${JSON.stringify(route)}`);
+    assert.ok(route.gateToExit >= 30,
+      `route ${route.index + 1} must leave enough authored landing distance: ${JSON.stringify(route)}`);
+  }
+  for (let route = 0; route < 7; route++) {
+    await page.evaluate((index) => window.__harness.passFlight(index, 1, true), route);
+    state = await page.evaluate(() => window.__harness.playerState());
+    assert.equal(state.flightRouteState, 'passed', `route ${route + 1} must pass under continuous air brake`);
+    if (state.phase === 'medal') {
+      await page.evaluate(() => window.__harness.advance(8.9));
+    }
+  }
 
   await page.evaluate(() => window.__harness.scenario('flight-descent'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -307,7 +361,7 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.advance(0.9));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightPhase, 'surface', `flight must settle back onto the water: ${JSON.stringify(state)}`);
-  assert.equal(state.flightReady, false, 'spent flight must not silently re-arm');
+  assert.equal(state.flightReady, false, 'a spent charge must not silently re-arm');
 
   await page.evaluate(() => window.__harness.scenario('flight-route'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -317,12 +371,21 @@ async function verifyFlightContract(page) {
   assert.equal(state.phase, 'racing', 'the first flight must not finish the challenge');
   assert.equal(state.routePasses, 1);
 
-  await page.evaluate(() => window.__harness.scenario('flight-fresh-token'));
+  await page.evaluate(() => window.__harness.scenario('flight-spent-charge'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightsCleared, 1);
   assert.equal(state.flightPhase, 'surface');
-  assert.equal(state.flightReady, false, 'a completed flight cannot preserve a token');
-  assert.equal(state.flightDenied, true, 'the second flight requires a new drift token');
+  assert.equal(state.flightReady, false, 'a completed flight cannot preserve an already spent charge');
+  assert.equal(state.flightDenied, true, 'another launch requires a stored drift charge');
+
+  await page.evaluate(() => {
+    window.__harness.scenario('start');
+    window.__harness.earnFlight(false);
+    window.__harness.earnFlight(false);
+    window.__harness.passFlight(0, 2);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 1, 'an unused second charge must survive a clean route and landing envelope');
 
   await page.evaluate(() => window.__harness.scenario('flight-miss'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -365,11 +428,17 @@ async function verifyFlightContract(page) {
   assert.equal(state.lastBattleKind, 'lost');
 
   const medalsBefore = state.manMedalsTotal;
-  await page.evaluate(() => window.__harness.scenario('endless-qualified'));
+  await page.evaluate(() => {
+    window.__harness.scenario('start');
+    window.__harness.passFlight(0);
+    window.__harness.passFlight(1);
+    window.__harness.passFlight(2, 2);
+  });
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'medal', 'the third flight must enter the medal ceremony');
   assert.equal(state.flightsCleared, 3);
   assert.notEqual(state.challengeTier, 'unqualified');
+  assert.equal(state.flightCharges, 1, 'the spare launch charge must survive the medal freeze');
   assert.equal(state.manMedalsTotal, medalsBefore + 1, 'the third flight grants exactly one medal in the run');
   assert.equal(await page.locator('.hud-medal-ceremony').evaluate((el) => el.classList.contains('on')), true);
   assert.equal(await page.locator('.hud-medal-title').textContent(), '猛男');
@@ -418,6 +487,7 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'racing');
   assert.equal(state.manMedalsTotal, frozen.medals, 'resume must not award the medal twice');
+  assert.equal(state.flightCharges, 1, 'the spare charge must survive medal and full resume countdown');
 
   // A physical Shift hold must survive the third-flight ceremony and full
   // resume countdown. Space is edge-triggered and must never survive with it.
@@ -441,14 +511,14 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightPhase, 'surface');
   assert.equal(state.drifting, true, 'held Shift must become surface drift immediately after landing');
   assert.equal(state.driftReleaseReady, true, 'the preserved hold must reach a readable release threshold');
-  assert.equal(state.flightReady, false, 'holding drift must not silently issue a token before release');
+  assert.equal(state.flightReady, false, 'holding drift must not silently issue a charge before release');
   await page.keyboard.up('Space');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).flightPhase, 'surface');
   await page.keyboard.up('Shift');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightReady, true, 'releasing the preserved Shift hold must earn one token');
+  assert.equal(state.flightReady, true, 'releasing the preserved Shift hold must earn one charge');
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('endless-four'));
@@ -456,6 +526,10 @@ async function verifyFlightContract(page) {
   assert.equal(state.phase, 'racing', 'the fourth flight must remain playable');
   assert.equal(state.flightsCleared, 4);
   assert.ok(state.bestFlights >= 4, 'endless flight PB must persist');
+
+  await page.evaluate(() => window.__harness.scenario('ready'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 0, 'a fresh run/reset must clear both stored launch cells');
 
   await page.evaluate(() => window.__harness.scenario('endless-medal-fail'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -477,6 +551,26 @@ async function verifyMobileControls(page) {
   const contractGo = page.locator('.driver-select-go');
   assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
   assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
+  const selectedBefore = await page.locator('.driver-card.selected').getAttribute('data-driver');
+  const featuredBefore = await page.locator('.driver-featured').boundingBox();
+  const alternate = page.locator('.driver-card:not(.selected)').first();
+  await alternate.click();
+  await page.waitForTimeout(95);
+  assert.equal(await page.locator('.driver-select').evaluate((el) => el.classList.contains('switching')), true,
+    'a driver change must enter the finite contract-card flip state');
+  assert.notEqual(await page.locator('.driver-card.selected').getAttribute('data-driver'), selectedBefore);
+  const contractOpacity = Number(await page.locator('.driver-contract-card').evaluate((el) => getComputedStyle(el).opacity));
+  assert.ok(contractOpacity > 0.2, `the contract card must be visibly flipping: opacity=${contractOpacity}`);
+  const selectAudio = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(selectAudio.driverSelectEvents) >= 1, `driver selection must emit its own event: ${JSON.stringify(selectAudio)}`);
+  assert.equal(selectAudio.scoreArmed, false, 'selection SFX must never start the background score');
+  assert.equal(selectAudio.musicPlaying, false, 'selection SFX must keep READY musically silent');
+  assert.deepEqual(await page.locator('.driver-featured').boundingBox(), featuredBefore,
+    'the card flip may not reflow the featured contract grid');
+  for (let i = 0; i < 12; i++) await page.locator('.driver-card').nth(i % 6).click();
+  await page.waitForTimeout(650);
+  const selectSettled = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(Number(selectSettled.activeOneShots), 0, 'rapid driver changes must release every transient audio node');
   for (const height of [390, 330, 300]) {
     await page.setViewportSize({ width: 844, height });
     await page.waitForTimeout(50);
@@ -528,6 +622,23 @@ async function verifyMobileControls(page) {
       `portrait must use the mobile-safe 2:3 master: ${portrait.src}`);
   }
   await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForTimeout(120);
+  let renderStats = await page.evaluate(() => window.__harness.stats());
+  assert.equal(Number(renderStats.mobileClarity), 1, 'touch devices must use the mobile clarity governor');
+  assert.ok(Math.abs(Number(renderStats.pixelRatio) - 2.5) < 0.02,
+    `844x390 DPR3 must start at the 2.5x clarity cap: ${JSON.stringify(renderStats)}`);
+  assert.ok(Number(renderStats.drawingPixels) >= 2_030_000 && Number(renderStats.drawingPixels) <= 2_120_000,
+    `mobile Auto must spend, but never exceed, its 2.1M budget: ${JSON.stringify(renderStats)}`);
+  const clearRatio = Number(renderStats.pixelRatio);
+  await page.evaluate(() => window.__harness.perfFrames(28, 110));
+  renderStats = await page.evaluate(() => window.__harness.stats());
+  assert.ok(Number(renderStats.pixelRatio) < clearRatio && Number(renderStats.pixelRatio) >= 1,
+    `sustained pressure must lower mobile clarity safely: ${clearRatio} -> ${renderStats.pixelRatio}`);
+  const reducedRatio = Number(renderStats.pixelRatio);
+  await page.evaluate(() => window.__harness.perfFrames(16.7, 380));
+  renderStats = await page.evaluate(() => window.__harness.stats());
+  assert.ok(Number(renderStats.pixelRatio) > reducedRatio && Number(renderStats.pixelRatio) <= 2.5,
+    `stable frames must restore mobile clarity: ${reducedRatio} -> ${renderStats.pixelRatio}`);
   let status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.activation, 'idle');
   await contractGo.click();
@@ -607,13 +718,22 @@ async function verifyMobileControls(page) {
     for (const action of ['left', 'right', 'drift', 'flight']) {
       const el = document.querySelector(`[data-mobile-action="${action}"]`);
       const r = el.getBoundingClientRect();
-      result[action] = { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+      const face = el.querySelector('span').getBoundingClientRect();
+      const faceStyle = getComputedStyle(el.querySelector('span'));
+      result[action] = {
+        left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height,
+        faceWidth: face.width, faceHeight: face.height, faceRadius: faceStyle.borderRadius,
+        buttonBackground: getComputedStyle(el).backgroundColor,
+      };
     }
     return { controls: result, width: innerWidth, height: innerHeight };
   });
   for (const [name, r] of Object.entries(geometry.controls)) {
     assert.ok(r.width >= 140 && r.height >= 100, `${name} touch target is too small: ${r.width}x${r.height}`);
     assert.ok(r.top >= geometry.height - 170 && r.bottom <= geometry.height, `${name} must stay at the bottom edge`);
+    assert.ok(r.faceWidth >= 70 && r.faceWidth <= 100 && r.faceHeight >= 70 && r.faceHeight <= 100,
+      `${name} needs a compact thumb disc inside its large hit target: ${JSON.stringify(r)}`);
+    assert.equal(r.buttonBackground, 'rgba(0, 0, 0, 0)', `${name} must not paint the rectangular hit target`);
   }
   assert.ok(geometry.controls.right.right < geometry.controls.drift.left,
     'steering and action groups must remain separate');
@@ -846,7 +966,8 @@ async function main() {
     });
     const page = await browser.newPage({
       viewport: mobile ? { width: 844, height: 390 } : { width: 1440, height: 900 },
-      deviceScaleFactor: mobile ? 1 : 2,
+      deviceScaleFactor: mobile ? 3 : 2,
+      reducedMotion: 'no-preference',
       ...(mobile ? { hasTouch: true, isMobile: true } : {}),
     });
     page.on('pageerror', (err) => console.error(`[pageerror] ${err.message}`));
@@ -866,8 +987,10 @@ async function main() {
     if (verifyMobile) await verifyMobileControls(page);
     if (verifyPerformance) await verifyPerformanceContract(page);
     if (mobile && touchFallback) {
-      const start = page.locator('.mobile-start');
-      if (await start.isVisible()) await start.click();
+      const contractGo = page.locator('.driver-select-go');
+      const legacyStart = page.locator('.mobile-start');
+      if (await contractGo.isVisible()) await contractGo.click();
+      else if (await legacyStart.isVisible()) await legacyStart.click();
       await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 3500 });
       const mode = page.locator('.mobile-mode');
       if ((await page.evaluate(() => window.__harness.mobileStatus())).mode !== 'touch') await mode.click();

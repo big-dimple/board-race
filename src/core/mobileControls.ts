@@ -26,7 +26,7 @@ export class MobileControls {
   private readonly root: HTMLDivElement | null;
   private readonly start: HTMLButtonElement | null;
   private readonly modeButton: HTMLButtonElement | null;
-  private readonly driftLabel: HTMLSpanElement | null;
+  private readonly driftLabel: HTMLElement | null;
   private readonly tiltMeter: HTMLDivElement | null;
   private readonly onFirstGesture: () => void;
   private readonly activePointers = new Map<number, PointerAction>();
@@ -86,19 +86,19 @@ export class MobileControls {
       <button class="mobile-mode" type="button" aria-label="切换转向方式">重力</button>
       <div class="mobile-tilt-meter" aria-hidden="true"><i></i></div>
       <div class="mobile-steer-zones" aria-label="触控转向">
-        <button type="button" data-mobile-action="left" aria-label="左转"><span>‹</span></button>
-        <button type="button" data-mobile-action="right" aria-label="右转"><span>›</span></button>
+        <button type="button" data-mobile-action="left" aria-label="左转"><span><b>‹</b><small>LEFT</small></span></button>
+        <button type="button" data-mobile-action="right" aria-label="右转"><span><b>›</b><small>RIGHT</small></span></button>
       </div>
       <div class="mobile-action-zones" aria-label="动作按钮">
-        <button type="button" data-mobile-action="drift" aria-label="漂移"><span>漂</span></button>
-        <button type="button" data-mobile-action="flight" aria-label="飞行"><span>飞</span></button>
+        <button type="button" data-mobile-action="drift" aria-label="漂移"><span><b>漂</b><small>DRIFT</small></span></button>
+        <button type="button" data-mobile-action="flight" aria-label="飞行"><span><b>飞</b><small>FLIGHT</small></span></button>
       </div>
     `;
     parent.appendChild(root);
     this.root = root;
     this.start = root.querySelector<HTMLButtonElement>('.mobile-start');
     this.modeButton = root.querySelector<HTMLButtonElement>('.mobile-mode');
-    this.driftLabel = root.querySelector<HTMLSpanElement>('[data-mobile-action="drift"] span');
+    this.driftLabel = root.querySelector<HTMLElement>('[data-mobile-action="drift"] b');
     this.tiltMeter = root.querySelector<HTMLDivElement>('.mobile-tilt-meter i');
 
     this.start?.addEventListener('click', () => {
@@ -213,14 +213,18 @@ export class MobileControls {
   setActionState(
     charge: number,
     releaseReady: boolean,
-    flightReady: boolean,
+    flightCharges: number,
     flightActive: boolean,
     turnWarning = false,
   ): void {
     if (!this.root) return;
     this.root.style.setProperty('--mobile-charge', String(clamp(charge, 0, 1)));
     this.root.classList.toggle('drift-release-ready', releaseReady);
-    this.root.classList.toggle('flight-ready', flightReady);
+    const charges = Math.round(clamp(flightCharges, 0, 2));
+    this.root.classList.toggle('flight-ready', charges > 0);
+    this.root.dataset.flightCharges = String(charges);
+    const flight = this.buttons.get('flight');
+    if (flight) flight.setAttribute('aria-label', charges > 0 ? `飞行，已蓄能 ${charges} 次` : '飞行，尚未蓄能');
     this.root.classList.toggle('in-flight', flightActive);
     this.root.classList.toggle('turn-warning', turnWarning);
     if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';

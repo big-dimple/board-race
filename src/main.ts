@@ -114,7 +114,11 @@ tower.setRoster(roster);
 const driverSelect = new DriverSelect(
   hudLayer,
   selectedDriverId,
-  (profile) => applySelectedDriver(profile.id),
+  (profile, index, direction) => {
+    audio.resume();
+    audio.driverSelected(index, direction);
+    applySelectedDriver(profile.id);
+  },
   requestFreshStart,
   exportSave,
   importSave,
@@ -158,7 +162,7 @@ let interruptionActive = false;
 let pageWasHidden = false;
 let interruptionNeedsCountdown = false;
 const retryReasonCounts = new Map<string, number>();
-let prevFlightReady = false;
+let prevFlightCharges = 0;
 let prevDriftReleaseReady = false;
 let prevFlightGateProgress = 0;
 let prevFlightRouteState = boats[0].state.flightRouteState;
@@ -240,7 +244,10 @@ function applySelectedDriver(id: string): void {
   ais = buildAiControllers();
   race.setDefinitions(roster);
   tower.setRoster(roster);
-  resetRace();
+  // Selection already happens on a frozen READY grid. Updating the six
+  // definitions in place keeps the contract-card animation and its audio
+  // transient alive; a full reset here would unnecessarily rebuild the
+  // presentation state on every tap.
 }
 
 function requestFreshStart(): void {
@@ -395,7 +402,7 @@ function resetRace(): void {
   }
   race.reset();
   currentRun = records.data.runs + 1;
-  prevFlightReady = boats[0].state.flightReady;
+  prevFlightCharges = boats[0].state.flightCharges;
   prevDriftReleaseReady = boats[0].state.driftReleaseReady;
   prevFlightGateProgress = boats[0].state.flightGateProgress;
   prevFlightRouteState = boats[0].state.flightRouteState;
@@ -562,6 +569,9 @@ function step(dt: number, _t: number): void {
         rivalDirector.paceFor(i),
       );
     }
+    if (i === 0 && harnessForceAirBrake && boats[0].state.flightPhase !== 'surface') {
+      inp = { ...inp, drift: false, airBrake: true };
+    }
     boats[i].update(dt, inp, worldTime);
   }
 
@@ -631,8 +641,8 @@ function step(dt: number, _t: number): void {
     audio.driftReleaseReady();
     haptic(7);
   }
-  if (playerState.flightReady && !prevFlightReady) {
-    audio.flightReady();
+  if (playerState.flightCharges > prevFlightCharges) {
+    audio.flightReady(playerState.flightCharges);
     cameraRig.flightReadyKick();
     pipeline.pulse('ready');
   }
@@ -660,7 +670,7 @@ function step(dt: number, _t: number): void {
     }
     else if (playerState.flightRouteState === 'failed') cameraRig.routeMissKick();
   }
-  prevFlightReady = playerState.flightReady;
+  prevFlightCharges = playerState.flightCharges;
   prevDriftReleaseReady = playerState.driftReleaseReady;
   prevFlightGateProgress = playerState.flightGateProgress;
   prevFlightRouteState = playerState.flightRouteState;
@@ -690,15 +700,15 @@ function step(dt: number, _t: number): void {
   spray.update(dt, worldTime);
   jetTrail.update(dt);
 
-  hud.update(dt, race, boats[0], boats);
-  tower.update(dt, race);
-
   const ps = boats[0].state;
+  hud.update(dt, race, boats[0], boats);
+  tower.update(dt, race, ps.flightPhase !== 'surface');
+
   audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
   mobileInput.setActionState(
     ps.boosting ? ps.boostRemaining : ps.boostCharge,
     ps.driftReleaseReady,
-    ps.flightReady,
+    ps.flightCharges,
     ps.flightPhase !== 'surface',
     course.flightTurnWarning(boats[0].id),
   );
@@ -806,7 +816,10 @@ interface Harness {
   driftingOpponentPose(): { x: number; y: number; z: number; heading: number };
   setPlayerInput(input: Partial<BoatInput> | null): void;
   usePlayerInput(enabled: boolean): void;
-  passFlight(routeCursor: number): void;
+  earnFlight(combo?: boolean): void;
+  tapFlight(): void;
+  passFlight(routeCursor: number, initialCharges?: number, forceAirBrake?: boolean): void;
+  flightBudgetCase(): Record<string, unknown>;
   retry(): void;
   playerState(): Record<string, number | string | boolean>;
   stats(): Record<string, number | string>;
@@ -830,6 +843,7 @@ interface Harness {
 
 let freeCamPose: { p: [number, number, number]; l: [number, number, number] } | null = null;
 let harnessUsePlayerInput = false;
+let harnessForceAirBrake = false;
 
 function advanceUntil(cond: () => boolean, maxSeconds: number): void {
   let elapsed = 0;
@@ -897,7 +911,7 @@ function earnHarnessFlight(combo = false): void {
   setHarnessInput(null);
 }
 
-function beginHarnessRouteFlight(routeCursor = 0): void {
+function beginHarnessRouteFlight(routeCursor = 0, initialCharges = 1): void {
   const routeIndex = routeCursor % course.flightRoutes.length;
   const route = course.flightRoutes[routeIndex];
   course.resetFlightChallenge();
@@ -908,20 +922,62 @@ function beginHarnessRouteFlight(routeCursor = 0): void {
     boat.state.flightRouteIndex = -1;
     boat.state.flightRouteState = 'idle';
   }
-  // Staging starts behind the launch window. Drift-token earning itself is
+  // Staging starts behind the launch window. Flight-charge earning itself is
   // covered separately; route scenarios focus on flight handling and gates.
-  boats[0].state.flightReady = true;
+  boats[0].state.flightCharges = Math.max(1, Math.min(2, Math.round(initialCharges)));
   setHarnessInput(null);
   advanceUntil(() => boats[0].state.flightPhase !== 'surface', 15);
 }
 
-function passHarnessFlight(routeCursor: number): void {
-  beginHarnessRouteFlight(routeCursor);
-  advanceUntil(() => boats[0].state.flightRouteState === 'passed' || race.phase === 'defeated', 14);
-  if (boats[0].state.flightRouteState !== 'passed') {
-    throw new Error(`harness could not pass flight ${routeCursor + 1}: ${boats[0].state.flightRouteFailReason}`);
+function passHarnessFlight(routeCursor: number, initialCharges = 1, forceAirBrake = false): void {
+  beginHarnessRouteFlight(routeCursor, initialCharges);
+  harnessForceAirBrake = forceAirBrake;
+  try {
+    advanceUntil(() => boats[0].state.flightRouteState === 'passed' || race.phase === 'defeated', 14);
+    if (boats[0].state.flightRouteState !== 'passed') {
+      const st = boats[0].state;
+      throw new Error(`harness could not pass flight ${routeCursor + 1}: ${st.flightRouteFailReason}; ` +
+        `${course.flightDebugStatus(0)}; speed=${st.speed.toFixed(2)}; ` +
+        `clearance=${st.flightClearance.toFixed(2)}; gate=${st.flightGateProgress}`);
+    }
+    loop.advance(0.05);
+  } finally {
+    harnessForceAirBrake = false;
   }
-  loop.advance(0.05);
+}
+
+function flightRouteDistance(routeId: (typeof course.flightRoutes)[number]['id'], fromU: number, toU: number): number {
+  const point = new THREE.Vector3();
+  const previous = new THREE.Vector3();
+  course.routePointAt(routeId, fromU, previous);
+  let distance = 0;
+  const segments = 512;
+  for (let i = 1; i <= segments; i++) {
+    course.routePointAt(routeId, fromU + (toU - fromU) * (i / segments), point);
+    distance += point.distanceTo(previous);
+    previous.copy(point);
+  }
+  return distance;
+}
+
+function flightBudgetCase(): Record<string, unknown> {
+  const envelope = boats[0].debugFlightEnvelope();
+  const routes = course.flightRoutes.map((route) => {
+    const gateU = route.gateUs[0];
+    const earliestToGate = flightRouteDistance(route.id, route.launchFromU, gateU);
+    const latestToGate = flightRouteDistance(route.id, route.launchToU, gateU);
+    const gateToExit = flightRouteDistance(route.id, gateU, route.exitU);
+    return {
+      index: route.index,
+      earliestToGate,
+      latestToGate,
+      gateToExit,
+      secondsAt29: earliestToGate / 29,
+      secondsAtTarget: earliestToGate / route.targetSpeed,
+      targetSpeed: route.targetSpeed,
+    };
+  });
+  return { envelope, routes };
 }
 
 function qualifyHarnessRun(): void {
@@ -1443,7 +1499,7 @@ function scenario(name: string): void {
     case 'flight-rule':
       advanceUntil(() => race.phase === 'racing', 8);
       placePack(course.flightEntryU + 0.001);
-      boats[0].state.flightReady = true;
+      boats[0].state.flightCharges = 1;
       setHarnessInput({ throttle: 0 });
       loop.advance(0.8);
       break;
@@ -1452,7 +1508,7 @@ function scenario(name: string): void {
       earnHarnessFlight(false);
       // Isolate Space's payout so the visual regression is not covered by the
       // larger F-ready prompt. This mutates harness state only.
-      boats[0].state.flightReady = false;
+      boats[0].state.flightCharges = 0;
       loop.advance(0.07);
       break;
     case 'drift-charge':
@@ -1553,7 +1609,7 @@ function scenario(name: string): void {
       advanceUntil(() => boats[0].state.flightRouteState === 'passed' || boats[0].state.flightRouteState === 'failed', 12);
       loop.advance(0.08);
       break;
-    case 'flight-fresh-token':
+    case 'flight-spent-charge':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
       advanceUntil(() => boats[0].state.flightRouteState === 'passed', 12);
@@ -1653,7 +1709,10 @@ if (HARNESS) {
       harnessUsePlayerInput = enabled;
       if (enabled) setHarnessInput(null);
     },
+    earnFlight: earnHarnessFlight,
+    tapFlight: tapHarnessFlight,
     passFlight: passHarnessFlight,
+    flightBudgetCase,
     retry: requestRetry,
     playerState: () => {
       const s = boats[0].state;
@@ -1665,7 +1724,8 @@ if (HARNESS) {
         driftReleaseReady: s.driftReleaseReady,
         boosting: s.boosting,
         boostRemaining: s.boostRemaining,
-        flightReady: s.flightReady,
+        flightCharges: s.flightCharges,
+        flightReady: s.flightCharges > 0,
         flightPhase: s.flightPhase,
         flightRemaining: s.flightRemaining,
         flightClearance: s.flightClearance,
@@ -1733,7 +1793,8 @@ if (HARNESS) {
       playerSpeed: boats[0].state.speed,
       playerProgress: race.racers[0].progress,
       flightPhase: boats[0].state.flightPhase,
-      flightReady: String(boats[0].state.flightReady),
+      flightCharges: boats[0].state.flightCharges,
+      flightReady: String(boats[0].state.flightCharges > 0),
       flightClearance: boats[0].state.flightClearance,
       flightRemaining: boats[0].state.flightRemaining,
       boostRemaining: boats[0].state.boostRemaining,

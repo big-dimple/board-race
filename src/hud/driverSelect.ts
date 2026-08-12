@@ -5,6 +5,9 @@ import './driverSelect.css';
 export class DriverSelect {
   readonly root: HTMLDivElement;
   private readonly portrait: HTMLImageElement;
+  private readonly portraitEcho: HTMLImageElement;
+  private readonly contractCard: HTMLDivElement;
+  private readonly contractPortrait: HTMLImageElement;
   private readonly name: HTMLDivElement;
   private readonly meta: HTMLDivElement;
   private readonly mood: HTMLDivElement;
@@ -20,7 +23,7 @@ export class DriverSelect {
   constructor(
     parent: HTMLElement,
     initialId: string,
-    private readonly onSelect: (profile: DriverProfile) => void,
+    private readonly onSelect: (profile: DriverProfile, index: number, direction: -1 | 1) => void,
     onStart: () => void,
     onExport: () => void,
     onImport: (raw: string) => void,
@@ -41,6 +44,15 @@ export class DriverSelect {
     this.portrait.className = 'driver-portrait';
     this.portrait.alt = '';
     portraitFrame.appendChild(this.portrait);
+    this.portraitEcho = document.createElement('img');
+    this.portraitEcho.className = 'driver-portrait driver-portrait-echo';
+    this.portraitEcho.alt = '';
+    portraitFrame.appendChild(this.portraitEcho);
+    this.contractCard = element('div', 'driver-contract-card', portraitFrame);
+    this.contractPortrait = document.createElement('img');
+    this.contractPortrait.alt = '';
+    this.contractCard.appendChild(this.contractPortrait);
+    element('i', 'driver-contract-seal', this.contractCard);
     this.mood = element('div', 'driver-mood', portraitFrame);
 
     const identity = element('div', 'driver-identity', featured);
@@ -124,18 +136,32 @@ export class DriverSelect {
     this.root.classList.remove('on');
   }
 
-  select(id: string, notify = true): void {
+  select(id: string, notify = true, direction?: -1 | 1): void {
     const next = driverProfile(id);
     if (next.id === this.selectedProfile.id) return;
+    const previousIndex = DRIVER_PROFILES.findIndex((profile) => profile.id === this.selectedProfile.id);
+    const nextIndex = DRIVER_PROFILES.findIndex((profile) => profile.id === next.id);
+    const forward = (nextIndex - previousIndex + DRIVER_PROFILES.length) % DRIVER_PROFILES.length;
+    const switchDirection = direction ?? (forward > 0 && forward <= DRIVER_PROFILES.length / 2 ? 1 : -1);
+    this.portraitEcho.src = this.selectedProfile.portraitUrl;
+    this.portraitEcho.style.objectPosition = this.selectedProfile.portraitPosition;
+    this.contractPortrait.src = next.portraitUrl;
+    this.contractPortrait.style.objectPosition = next.portraitPosition;
     this.selectedProfile = next;
     this.render();
-    if (notify) this.onSelect(next);
+    if (notify) {
+      this.root.dataset.switchDirection = String(switchDirection);
+      this.root.classList.remove('switching');
+      void this.root.offsetWidth;
+      this.root.classList.add('switching');
+      this.onSelect(next, nextIndex, switchDirection);
+    }
   }
 
   move(delta: number): void {
     const index = DRIVER_PROFILES.findIndex((profile) => profile.id === this.selectedProfile.id);
     const next = (index + delta + DRIVER_PROFILES.length) % DRIVER_PROFILES.length;
-    this.select(DRIVER_PROFILES[next].id);
+    this.select(DRIVER_PROFILES[next].id, true, delta < 0 ? -1 : 1);
   }
 
   private render(): void {

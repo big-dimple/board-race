@@ -35,7 +35,7 @@ const BOOST_SEGS = 8;
 const FLIGHT_PIPS = 5;
 const TOAST_LIFE = 1.4; // matches the hud-toast keyframe duration
 const FINAL_LAP_FLASH = 3.0; // seconds the FINAL LAP banner stays up
-const GO_LINGER = 1.0;
+const GO_LINGER = 1.35;
 
 interface ImpactNotice {
   kind: string;
@@ -90,12 +90,13 @@ export class HUD {
   private readonly posChip: HTMLDivElement;
   private readonly posGap: HTMLDivElement;
 
-  // boost / earned flight token
+  // boost / stored flight charges
   private readonly powerPanel: HTMLDivElement;
   private readonly boostBar: HTMLDivElement;
   private readonly boostLabel: HTMLDivElement;
   private readonly boostSegEls: HTMLDivElement[] = [];
-  private readonly flightToken: HTMLDivElement;
+  private readonly flightTokens: HTMLDivElement[] = [];
+  private readonly flightChargeCount: HTMLDivElement;
   private readonly flightPipEls: HTMLDivElement[] = [];
   private readonly flightPrompt: HTMLDivElement;
   private flightPromptHitTimer = 0;
@@ -188,7 +189,7 @@ export class HUD {
   private lastFull = false;
   private lastDrifting = false;
   private lastFlightPips = -1;
-  private lastFlightReady = false;
+  private lastFlightCharges = 0;
   private lastFlightActive = false;
   private lastFlightPhase = 'surface';
   private lastFlightRouteState = 'idle';
@@ -264,11 +265,13 @@ export class HUD {
     this.speedNum = h('div', 'hud-speed-num hud-inked', speedPanel, '0');
     h('div', 'hud-speed-unit', speedPanel, 'KM/H');
 
-    // ---- single power unit: earned flight token above the original boost bar ----
+    // ---- single power unit: two launch cells above the original boost bar ----
     this.powerPanel = h('div', 'hud-panel hud-power', this.root);
     const flightRow = h('div', 'hud-flight', this.powerPanel);
     h('div', 'hud-flight-label', flightRow, 'FLIGHT');
-    this.flightToken = h('div', 'hud-flight-token', flightRow);
+    const flightRack = h('div', 'hud-flight-rack', flightRow);
+    for (let i = 0; i < 2; i++) this.flightTokens.push(h('div', 'hud-flight-token', flightRack));
+    this.flightChargeCount = h('div', 'hud-flight-count', flightRow, 'x0');
     const flightPips = h('div', 'hud-flight-pips', flightRow);
     for (let i = 0; i < FLIGHT_PIPS; i++) {
       this.flightPipEls.push(h('div', 'hud-flight-pip', flightPips));
@@ -532,26 +535,28 @@ export class HUD {
     const driftTier = st.drifting ? Math.min(4, Math.floor(st.boostCharge * 4 + 1e-4)) : 0;
     this.lastDriftTier = driftTier;
 
-    // A qualifying Shift release earns one non-stacking token. During flight,
-    // the same five pips become a duration readout and count down to landing.
+    // Stored launch charges and the active flight envelope are separate reads.
     const flightActive = st.flightPhase !== 'surface';
     const flightPips = flightActive
       ? Math.min(FLIGHT_PIPS, Math.max(0, Math.ceil(st.flightRemaining * FLIGHT_PIPS - 1e-4)))
-      : st.flightReady ? FLIGHT_PIPS : 0;
+      : 0;
     if (flightPips !== this.lastFlightPips) {
       this.lastFlightPips = flightPips;
       for (let i = 0; i < FLIGHT_PIPS; i++) this.flightPipEls[i].classList.toggle('on', i < flightPips);
     }
-    if (st.flightReady !== this.lastFlightReady) {
-      if (race.phase === 'racing' && st.flightReady) {
+    if (st.flightCharges !== this.lastFlightCharges) {
+      if (race.phase === 'racing' && st.flightCharges > this.lastFlightCharges) {
         this.flightPromptHitTimer = 1.2;
         this.flightPrompt.classList.remove('acquired');
         void this.flightPrompt.offsetWidth;
         this.flightPrompt.classList.add('acquired');
       }
-      this.lastFlightReady = st.flightReady;
-      this.flightToken.classList.toggle('ready', st.flightReady);
-      this.flightPrompt.classList.toggle('on', st.flightReady);
+      this.lastFlightCharges = st.flightCharges;
+      this.flightChargeCount.textContent = `x${st.flightCharges}`;
+      for (let i = 0; i < this.flightTokens.length; i++) {
+        this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
+      }
+      this.flightPrompt.classList.toggle('on', st.flightCharges > 0);
     }
     if (this.flightPromptHitTimer > 0) {
       this.flightPromptHitTimer -= dt;
@@ -559,7 +564,7 @@ export class HUD {
     }
     if (flightActive !== this.lastFlightActive) {
       this.lastFlightActive = flightActive;
-      this.flightToken.classList.toggle('active', flightActive);
+      for (const token of this.flightTokens) token.classList.toggle('active', flightActive);
       this.powerPanel.classList.toggle('flying', flightActive);
     }
     if (race.phase === 'racing' && st.flightPhase !== this.lastFlightPhase && st.flightPhase === 'spool') {
@@ -1000,10 +1005,14 @@ export class HUD {
     if (v === 0) {
       el.classList.add('go');
       this.goTimer = GO_LINGER;
+      this.brandEl.classList.remove('on');
+      void this.brandEl.offsetWidth;
+      this.brandEl.classList.add('on');
+    } else {
+      this.brandEl.classList.remove('on');
     }
     this.cdVisible = true;
     this.root.classList.add('countdown-on');
-    this.brandEl.classList.add('on');
   }
 
   private hideCountdown(): void {
@@ -1246,7 +1255,7 @@ export class HUD {
     const m = this.mctx;
     m.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
     m.drawImage(this.mapBase, 0, 0, MAP_SIZE, MAP_SIZE);
-    if (player.state.flightReady) {
+    if (player.state.flightCharges > 0) {
       const v = this.mapTemp;
       const route = this.course.flightRoutes[Math.min(
         this.course.flightRoutes.length - 1,

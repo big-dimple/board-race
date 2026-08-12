@@ -24,13 +24,13 @@ Backgrounding or minimizing the page immediately freezes simulation and hard-mut
 | Automatic | Forward throttle; no accelerate key |
 | `A` `D` / `←` `→` | Steer |
 | `Shift` (hold) | Drift on water; contextual vector air-brake while flying |
-| `Space` (press) | Spend the earned token and fly |
+| `Space` (press) | Spend one stored flight charge and fly |
 | `Enter` | Start from READY; continue a loading review after its minimum reading time |
 | `R` | Continue a loading review after its minimum reading time |
 
-On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first `GO` gesture requests motion permission, attempts fullscreen/landscape, and calibrates a stable neutral angle. Missing or denied sensors fall back to touch steering automatically. Manual mode has two large steering buttons at bottom-left and separate `漂/空刹` plus `飞` buttons at bottom-right. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
+On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first `GO` gesture requests motion permission, attempts fullscreen/landscape, and calibrates a stable neutral angle. Missing or denied sensors fall back to touch steering automatically. Manual mode keeps two large bottom-left steering hit zones and separate bottom-right `漂/空刹` plus `飞` hit zones. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
-Every flight requires a fresh drift and release. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back-flexing athlete medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. It then runs a complete frozen `3 · 2 · 1 · GO` countdown before restoring control at the exact same position. Flights 4-7 continue around the rest of the circuit; route 4 is an explicit 8m-wide reward portal, and all seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
+A qualifying drift release banks one flight charge, up to two; every takeoff spends exactly one. A spare charge survives landing and the third-flight medal freeze, while a fresh run clears both cells. The shortened `6.45s` flight envelope still covers every legal portal approach, including continuous air-braking at 29m/s. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back-flexing athlete medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. It then runs a complete frozen `3 · 2 · 1 · GO` countdown before restoring control at the exact same position. Flights 4-7 continue around the rest of the circuit; route 4 is an explicit 8m-wide reward portal, and all seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
 
 Failure goes directly to one focused loading review. A new failure type displays for `8s`, the second occurrence for `6.5s`, and later repeats for `5s`; minimum reading times are `4s`, `3s`, and `2.5s`. A real PB adds `0.75s`, capped at `9s`. Course-deviation reviews teach the contextual air brake on the first occurrence, with a large factual miss, one concrete correction, emotional encouragement, flights/PB, and any medal already earned before the mistake. The next run still returns to READY and requires a fresh Enter/GO edge.
 
@@ -74,8 +74,8 @@ src/
     ramp.ts         Gradient ramp texture generation
   game/
     boat.ts         Hull loft + deck/sponsons/spoiler/jet-pump geometry, arcade handling
-                    (tapered engine curve, speed-tightened steering, drift→boost→flight
-                    token, controlled anti-gravity lift, 5-point Gerstner buoyancy,
+                    (tapered engine curve, speed-tightened steering, drift→boost→two-charge
+                    flight storage, controlled anti-gravity lift, 5-point Gerstner buoyancy,
                     crest-launch airtime), opponent drift trails, aero vortex rings
     jetTrail.ts     Shared instanced ring buffer for lime boost and cyan flight shards
     rider.ts        Code-rigged cel rider, fully procedural skeleton + capsule flesh.
@@ -108,7 +108,7 @@ src/
     mixerControls.ts/.css Persistent master/music/effects/ambience controls
 harness/
     screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
-                    (qualification, endless PB, fresh-token rule, adaptive loading,
+                    (two-charge storage, seven-route timing, qualification, adaptive loading,
                     mobile controls, route guidance, performance, and battle events)
     collision.mjs   15-pair CCD, pileup, cooldown, rule isolation, route-4 boundary tests
     audio.mjs       Media playback, mixer, progressive score, ducking, background lifecycle
@@ -117,8 +117,10 @@ harness/
 
 ## Performance notes
 
-- Fixed 60 Hz simulation, render decoupled. Auto starts inside a 2.1M drawing-pixel budget,
-  then desktop-only sustained frame headroom can restore clarity up to 3.2M pixels;
+- Fixed 60 Hz simulation, render decoupled. Auto starts inside a 2.1M drawing-pixel budget.
+  High-DPR phones may use up to 2.5x resolution while remaining inside that same budget;
+  desktop Auto retains its conservative 1.25x ceiling. On desktop, sustained frame headroom
+  can restore clarity up to 3.2M pixels;
   any pressure or fullscreen resize immediately returns toward the conservative budget.
   It reacts to fullscreen/resize within one animation frame, drops quality after 0.5s over
   20ms, and only climbs after 4s of stable sub-18.2ms frames.

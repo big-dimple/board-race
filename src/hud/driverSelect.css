@@ -1,5 +1,8 @@
 .driver-select {
   --driver-color: #55e7ff;
+  --switch-enter: 18px;
+  --switch-echo: -14px;
+  --switch-echo-end: -26px;
   position: fixed;
   inset: 0;
   width: 100%;
@@ -36,8 +39,24 @@
   max-width: 1060px;
   align-items: stretch;
 }
-.driver-portrait-frame { position: relative; min-height: 0; overflow: hidden; border: 2px solid var(--driver-color); background:#1e1b3a; box-shadow: 0 0 0 1px rgba(244,254,255,.12), 0 12px 30px rgba(0,0,0,.28); }
+.driver-portrait-frame { position: relative; min-height: 0; overflow: hidden; perspective:900px; border: 2px solid var(--driver-color); background:#1e1b3a; box-shadow: 0 0 0 1px rgba(244,254,255,.12), 0 12px 30px rgba(0,0,0,.28); }
 .driver-portrait { width:100%; height:100%; min-height:210px; display:block; object-fit:cover; object-position:50% 24%; filter:saturate(1.08) contrast(1.06); }
+.driver-portrait-echo { position:absolute; inset:0; opacity:0; pointer-events:none; }
+.driver-contract-card { position:absolute; inset:7%; z-index:3; opacity:0; overflow:hidden; pointer-events:none; transform-style:preserve-3d; border:2px solid var(--driver-color); background:#10173a; box-shadow:0 0 0 2px #14122b,0 16px 34px rgba(0,0,0,.45); }
+.driver-contract-card::before { content:'DRIVER CONTRACT'; position:absolute; z-index:2; left:8px; top:8px; padding:4px 7px; color:#10173a; background:var(--driver-color); font:900 8px/1 system-ui,sans-serif; }
+.driver-contract-card img { width:100%; height:100%; object-fit:cover; }
+.driver-contract-seal { position:absolute; right:10px; bottom:10px; width:28px; height:28px; border:3px double var(--driver-color); transform:rotate(-12deg); background:rgba(16,23,58,.7); }
+.driver-select.switching .driver-contract-card { backface-visibility:hidden; will-change:transform,opacity; animation:driver-contract-flip .48s cubic-bezier(.2,.7,.18,1) both; }
+.driver-select.switching .driver-portrait-echo { animation:driver-portrait-echo .28s ease-out both; }
+.driver-select.switching .driver-portrait:not(.driver-portrait-echo) { animation:driver-portrait-lock .42s cubic-bezier(.18,.75,.2,1) both; }
+.driver-select.switching .driver-name,.driver-select.switching .driver-specialty { animation:driver-copy-lock .36s .1s ease-out both; }
+.driver-select.switching .driver-card.selected { animation:driver-card-lock .3s ease-out both; }
+@keyframes driver-contract-flip { 0%{opacity:.38;transform:translateX(var(--switch-enter)) rotateY(-72deg) scale(.96)} 18%{opacity:1} 58%{opacity:1;transform:translateX(0) rotateY(0) scale(1.03)} 100%{opacity:0;transform:translateX(0) rotateY(12deg) scale(1)} }
+@keyframes driver-portrait-echo { from{opacity:.62;transform:translateX(var(--switch-echo)) scale(1.04)} to{opacity:0;transform:translateX(var(--switch-echo-end)) scale(1.08)} }
+@keyframes driver-portrait-lock { 0%{opacity:.35;transform:translateX(var(--switch-enter)) scale(1.055)} 45%{opacity:1} 100%{opacity:1;transform:none} }
+@keyframes driver-copy-lock { from{opacity:0;transform:translateX(var(--switch-enter))} to{opacity:1;transform:none} }
+@keyframes driver-card-lock { 0%{box-shadow:inset 4px 0 0 var(--driver-color),0 0 0 var(--driver-color)} 50%{box-shadow:inset 8px 0 0 var(--driver-color),0 0 26px var(--driver-color)} 100%{box-shadow:inset 4px 0 0 var(--driver-color),0 0 18px rgba(85,231,255,.12)} }
+.driver-select[data-switch-direction='-1'] { --switch-enter:-18px;--switch-echo:14px;--switch-echo-end:26px; }
 .driver-mood { position:absolute; left:10px; bottom:10px; padding:7px 10px; border-left:4px solid var(--driver-color); background:rgba(4,7,20,.9); color:var(--driver-color); font:900 14px/1 system-ui,sans-serif; }
 .driver-identity { align-self:center; min-width:0; }
 .driver-specialty { display:inline-block; padding:5px 9px; color:#14122b; background:var(--driver-color); font:900 13px/1 system-ui,sans-serif; }
@@ -133,4 +152,12 @@
   .driver-name { font-size:24px; }
   .driver-archive-button { padding-inline:6px; font-size:8px; }
   .driver-select-go { min-width:138px; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .driver-select.switching .driver-contract-card { display:none; }
+  .driver-select.switching .driver-portrait-echo { animation:none; }
+  .driver-select.switching .driver-portrait:not(.driver-portrait-echo),
+  .driver-select.switching .driver-name,.driver-select.switching .driver-specialty,
+  .driver-select.switching .driver-card.selected { animation:driver-copy-lock .12s ease-out both; }
 }

@@ -78,7 +78,7 @@ const TUNING = {
   // -- earned anti-grav flight --
   flightSpool: 0.12,
   flightAscend: 0.48,
-  flightCruise: 8.65,
+  flightCruise: 5.10,
   flightDescend: 0.75,
   flightClearance: 4.5,  // hull-root height above the live mean water surface
   flightLandingLead: 0.45, // counter moving-wave lag so the landing envelope seats cleanly
@@ -128,6 +128,7 @@ const TUNING = {
 // Zero per-frame allocations: every update() scratches through these.
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 const _nrm = new THREE.Vector3();
 const _euler = new THREE.Euler();
 const _blobQ = new THREE.Quaternion();
@@ -266,7 +267,7 @@ function buildThrustVisual(): ThrustVisual {
   const shell = new THREE.InstancedMesh(geo, shellMat, 4);
   const outer = new THREE.InstancedMesh(geo, outerMat, 5);
   const core = new THREE.InstancedMesh(geo, coreMat, 5);
-  const ringGeo = new THREE.TorusGeometry(1, 0.055, 5, 18);
+  const ringGeo = new THREE.TorusGeometry(1, 0.045, 4, 12, Math.PI * 1.18);
   const ringMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
@@ -769,7 +770,7 @@ export class Boat implements IBoat {
       driftReleaseReady: false,
       boosting: false,
       boostRemaining: 0,
-      flightReady: false,
+      flightCharges: 0,
       flightPhase: 'surface',
       flightRemaining: 0,
       flightClearance: -TUNING.draft,
@@ -897,9 +898,9 @@ export class Boat implements IBoat {
         this.boostTimer = st.boostCharge * TUNING.boostDuration;
         this.boostTotal = this.boostTimer;
         // Flying never replaces the old payout. A wave jump on the release
-        // frame must not steal the earned token; only controlled flight blocks
+        // frame must not steal the earned charge; only controlled flight blocks
         // re-arming, which prevents an infinite airborne chain.
-        if (!flightWasActive) st.flightReady = true;
+        if (!flightWasActive) st.flightCharges = Math.min(2, st.flightCharges + 1);
       }
       st.boostCharge = 0;
     }
@@ -909,8 +910,8 @@ export class Boat implements IBoat {
     // Process the trigger after drift payout so releasing Shift and pressing Space
     // on the same simulation frame is a valid combo.
     if (input.flightTrigger) {
-      if (st.flightReady && st.flightPhase === 'surface') {
-        st.flightReady = false;
+      if (st.flightCharges > 0 && st.flightPhase === 'surface') {
+        st.flightCharges--;
         st.flightPhase = 'spool';
         st.flightRouteState = 'idle';
         st.flightRouteIndex = -1;
@@ -1090,7 +1091,9 @@ export class Boat implements IBoat {
     if (this.liftSplashPending) {
       this.liftSplashPending = false;
       _v2.set(pos.x, surfaceY + 0.08, pos.z);
-      this.spray.burst(_v2, 20, 7);
+      _v1.set(fwdX, 0, fwdZ);
+      _v3.set(portX, 0, portZ);
+      this.spray.takeoff(_v2, _v1, _v3, this.id === 0 ? 34 : Math.round(12 * this.opponentFxScale), 7.5);
     }
 
     if (boosting && !st.airborne && st.flightClearance < 1.2) {
@@ -1181,7 +1184,7 @@ export class Boat implements IBoat {
   ): void {
     const st = this.state;
     const boostTarget = boosting ? 1 : 0;
-    const flightTarget = Math.max(flightThrust, st.flightReady ? 0.08 : 0);
+    const flightTarget = Math.max(flightThrust, st.flightCharges > 0 ? 0.08 : 0);
     const boostRate = boostTarget > this.boostFx ? 22 : 6;
     this.boostFx += (boostTarget - this.boostFx) * (1 - Math.exp(-boostRate * dt));
     if (flightTarget >= this.flightFx) this.flightFx = flightTarget;
@@ -1252,9 +1255,7 @@ export class Boat implements IBoat {
         q, coreRadius, coreLen,
       );
 
-      // Six travelling toroids per emitter form a vortex tunnel: each ring
-      // expands and flattens as it is carried downwash, with violet accents
-      // supplying depth without increasing bloom or screen-space noise.
+      // Broken travelling arcs shed into the downwash instead of forming a portal tube.
       for (let ring = 0; ring < 6; ring++) {
         const phase = ((t * 1.9 + ring / 6 + i * 0.11) % 1 + 1) % 1;
         const strength = clamp(this.flightFx * (1 - phase * 0.35) + burst * (1 - phase), 0, 1);
@@ -1474,6 +1475,12 @@ export class Boat implements IBoat {
     };
   }
 
+  /** Deterministic tuning evidence for the release harness. */
+  debugFlightEnvelope(): { descendAt: number; total: number } {
+    const descendAt = TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise;
+    return { descendAt, total: descendAt + TUNING.flightDescend };
+  }
+
   collisionVelocity(out: THREE.Vector2): THREE.Vector2 {
     return out.set(this.velX, this.velZ);
   }
@@ -1626,7 +1633,7 @@ export class Boat implements IBoat {
     st.boostCharge = 0;
     st.driftReleaseReady = false;
     st.boostRemaining = 0;
-    st.flightReady = false;
+    st.flightCharges = 0;
     st.flightPhase = 'surface';
     st.flightRemaining = 0;
     st.flightClearance = -TUNING.draft;

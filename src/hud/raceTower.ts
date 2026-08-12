@@ -41,11 +41,12 @@ export class RaceTower {
     }
   }
 
-  update(dt: number, race: RaceView): void {
+  update(dt: number, race: RaceView, flightFocus = false): void {
     this.root.classList.toggle('on', race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown');
     // The grid introduction is useful during 3/2/1 and the opening seconds.
     // Once racing settles, retain only the player's immediate battle group.
     this.root.classList.toggle('compact', race.phase === 'racing' && race.raceTime > 3);
+    this.root.classList.toggle('flight-focus', flightFocus);
     this.radioTimer = Math.max(0, this.radioTimer - dt);
     if (this.radioTimer === 0) this.radio.classList.remove('on');
     this.accumulator += dt;
