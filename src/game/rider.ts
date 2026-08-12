@@ -139,6 +139,8 @@ export class Rider {
 
   private readonly j: Rig;
   private readonly hipsBaseY: number;
+  private readonly suitMaterial: THREE.ShaderMaterial;
+  private readonly accentMaterial: THREE.ShaderMaterial;
 
   // Animation state (scalar springs).
   private readonly leanS = new Spring();
@@ -170,6 +172,8 @@ export class Rider {
     const ink = createToonMaterial({ color: PALETTE.ink, rimColor: PALETTE.foam, rimStrength: 0.7, rimThreshold: 0.55 });
     const white = createToonMaterial({ color: PALETTE.foam, specColor: PALETTE.sparkle, rimStrength: 0.9 });
     const accent = createToonMaterial({ color: opts.color, rimColor: PALETTE.sparkle, rimStrength: 0.9 });
+    this.suitMaterial = suit;
+    this.accentMaterial = accent;
 
     const root = new THREE.Group();
     root.name = 'rider';
@@ -302,6 +306,12 @@ export class Rider {
       addOutline(root);
     }
     this.object = root;
+  }
+
+  setColor(color: number): void {
+    this.suitMaterial.uniforms.uColor.value.setHex(color, THREE.NoColorSpace);
+    this.suitMaterial.uniforms.uEmissive.value.setHex(color, THREE.NoColorSpace);
+    this.accentMaterial.uniforms.uColor.value.setHex(color, THREE.NoColorSpace);
   }
 
   /** dt is fixed 1/60. Applies delta rotations on top of the baked rest pose. */

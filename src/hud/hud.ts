@@ -145,6 +145,7 @@ export class HUD {
   private readonly medalTitle: HTMLDivElement;
   private readonly medalCount: HTMLDivElement;
   private readonly medalTier: HTMLDivElement;
+  private readonly medalNext: HTMLDivElement;
   private readonly medalContinue: HTMLButtonElement;
   private currentMedalTier: 'ordinary' | 'excellent' = 'ordinary';
 
@@ -374,9 +375,10 @@ export class HUD {
     this.medalCanvas = new MedalCeremonyCanvas(this.medalEl);
     const medalCopy = h('div', 'hud-medal-copy', this.medalEl);
     this.medalKicker = h('div', 'hud-medal-kicker', medalCopy, '三飞达成 · 实力不靠嘴硬');
-    this.medalTitle = h('div', 'hud-medal-title hud-inked', medalCopy, '男人勋章 +1');
+    this.medalTitle = h('div', 'hud-medal-title hud-inked', medalCopy, '猛男');
     this.medalCount = h('div', 'hud-medal-count hud-inked', medalCopy);
     this.medalTier = h('div', 'hud-medal-tier', medalCopy);
+    this.medalNext = h('div', 'hud-medal-next', medalCopy);
     this.medalContinue = document.createElement('button');
     this.medalContinue.className = 'hud-medal-continue';
     this.medalContinue.type = 'button';
@@ -661,11 +663,15 @@ export class HUD {
     this.currentMedalTier = tier;
     this.medalEl.dataset.tier = tier;
     this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力不靠嘴硬';
-    this.medalTitle.textContent = '男人勋章 +1';
-    this.medalCount.textContent = `勋章累计 ${medals}`;
+    this.medalTitle.textContent = '猛男';
+    this.medalCount.textContent = `男人勋章 +1 · 累计 ${medals}`;
     this.medalTier.textContent = tier === 'excellent'
       ? '第一名 · 优秀已经锁定'
       : '勋章到手 · 夺回第一升优秀';
+    this.medalNext.textContent = best > 3
+      ? `远海档案 BEST ${best} 飞 · 下一目标 ${best + 1} 飞`
+      : '三飞证明你会飞 · 远海档案现在才开始';
+    this.medalNext.classList.remove('on');
     this.medalContinue.hidden = true;
     this.medalEl.classList.add('on');
     this.root.classList.add('medal-on');
@@ -677,12 +683,14 @@ export class HUD {
     this.medalCanvas.render(elapsed, duration, this.currentMedalTier);
     this.medalEl.style.setProperty('--ceremony-progress', String(Math.max(0, Math.min(1, elapsed / duration))));
     this.medalContinue.hidden = !canContinue;
+    this.medalNext.classList.toggle('on', elapsed >= Math.max(2.7, duration - 1.8));
   }
 
   hideMedalCeremony(): void {
     this.medalEl.classList.remove('on');
     this.root.classList.remove('medal-on');
     this.medalContinue.hidden = true;
+    this.medalNext.classList.remove('on');
     this.medalCanvas.clear();
   }
 
@@ -905,7 +913,7 @@ export class HUD {
         return {
           title: `偏航先空刹 · 差 ${miss.toFixed(1)}m`,
           copy: mobile
-            ? `按住右下「刹」，再${direction}轻调回正`
+            ? `按住「漂 / 空刹」，再${direction}轻调回正`
             : `按住 SHIFT 空刹，再用 ${direction} 轻调回正`,
           metric: '',
         };
@@ -913,7 +921,7 @@ export class HUD {
       case 'corridor':
         return {
           title: `偏航先空刹 · 偏离 ${failure.corridorDistanceM?.toFixed(1) ?? '?'}m`,
-          copy: mobile ? '按住右下「刹」减速，再轻调回青线' : '按住 SHIFT 空刹减速，再用 A / D 回青线',
+          copy: mobile ? '按住「漂 / 空刹」减速，再轻调回青线' : '按住 SHIFT 空刹减速，再用 A / D 回青线',
           metric: '',
         };
       case 'landing':
@@ -921,13 +929,13 @@ export class HUD {
       case 'exit':
         return {
           title: '偏航先空刹 · 飞行未完成',
-          copy: mobile ? '按住右下「刹」，轻调回青色航线' : '按住 SHIFT 空刹，再用 A / D 回青线',
+          copy: mobile ? '按住「漂 / 空刹」，轻调回青色航线' : '按住 SHIFT 空刹，再用 A / D 回青线',
           metric: '',
         };
       case 'gate':
         return {
           title: '偏航先空刹 · 只差这一门',
-          copy: mobile ? '按住右下「刹」，对准两根发光杆中点' : '按住 SHIFT 空刹，对准两根发光杆中点',
+          copy: mobile ? '按住「漂 / 空刹」，对准两根发光杆中点' : '按住 SHIFT 空刹，对准两根发光杆中点',
           metric: '',
         };
       case 'teleport':
@@ -976,6 +984,7 @@ export class HUD {
       this.goTimer = GO_LINGER;
     }
     this.cdVisible = true;
+    this.root.classList.add('countdown-on');
     this.brandEl.classList.add('on');
   }
 
@@ -984,6 +993,7 @@ export class HUD {
     this.goTimer = 0;
     this.countdownEl.classList.remove('pop', 'go');
     this.brandEl.classList.remove('on');
+    this.root.classList.remove('countdown-on');
   }
 
   private spawnToast(delta: number): void {

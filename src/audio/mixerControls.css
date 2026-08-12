@@ -32,8 +32,9 @@
   box-shadow: 5px 5px 0 #14122b;
 }
 .audio-mixer.open .audio-mixer-panel { display: block; }
-.audio-mixer-row { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; margin-bottom: 10px; }
+.audio-mixer-row { display: grid; grid-template-columns: 70px 1fr 34px; align-items: center; gap: 8px; margin-bottom: 10px; }
 .audio-mixer-row input { width: 100%; accent-color: #55e7ff; }
+.audio-mixer-row output { color: #ffcf4a; text-align: right; font-variant-numeric: tabular-nums; }
 .audio-mixer-mute { width: 100%; margin-top: 2px; color: #ffcf4a; }
 .audio-mixer-mute.muted { color: #ff3d7f; }
 @media (max-height: 520px) and (orientation: landscape) {
@@ -45,7 +46,7 @@
 
 @media (pointer: coarse) {
   .audio-mixer {
-    right: auto;
-    left: max(7px, env(safe-area-inset-left));
+    right: max(7px, env(safe-area-inset-right));
+    left: auto;
   }
 }

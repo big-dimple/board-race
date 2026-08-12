@@ -186,6 +186,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     ],
     corridorHalfWidth: 6.5,
     gateHalfWidth: 6.5,
+    passHalfWidth: 6.825,
     targetSpeed: 42,
     qualifyFromU: 0.012,
     launchFromU: 0.045,
@@ -208,6 +209,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     ],
     corridorHalfWidth: 5.5,
     gateHalfWidth: 5.5,
+    passHalfWidth: 5.775,
     targetSpeed: 46,
     qualifyFromU: 0.205,
     launchFromU: 0.233,
@@ -230,6 +232,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     ],
     corridorHalfWidth: 5,
     gateHalfWidth: 5,
+    passHalfWidth: 5.25,
     targetSpeed: 48,
     qualifyFromU: 0.33,
     launchFromU: 0.375,
@@ -250,8 +253,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
       { u: 0.565, lateral: 0, height: 4.5 },
       { u: 0.58, lateral: 0, height: 0 },
     ],
-    corridorHalfWidth: 6.5,
-    gateHalfWidth: 6.5,
+    corridorHalfWidth: 8,
+    gateHalfWidth: 8,
+    passHalfWidth: 8,
     targetSpeed: 46,
     qualifyFromU: 0.482,
     launchFromU: 0.503,
@@ -274,6 +278,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     ],
     corridorHalfWidth: 5.5,
     gateHalfWidth: 5.5,
+    passHalfWidth: 5.775,
     targetSpeed: 48,
     qualifyFromU: 0.59,
     launchFromU: 0.62,
@@ -296,6 +301,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     ],
     corridorHalfWidth: 5,
     gateHalfWidth: 5,
+    passHalfWidth: 5.25,
     targetSpeed: 50,
     qualifyFromU: 0.73,
     launchFromU: 0.76,
@@ -318,6 +324,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     ],
     corridorHalfWidth: 5.5,
     gateHalfWidth: 5.5,
+    passHalfWidth: 5.775,
     targetSpeed: 50,
     qualifyFromU: 0.865,
     launchFromU: 0.89,
@@ -1194,7 +1201,7 @@ export class Course implements ICourse {
             const previousClearance = this.flightPrevClearance[id] ?? st.flightClearance;
             const crossingClearance = previousClearance + (st.flightClearance - previousClearance) * f;
             const lateral = (ix - gate.center.x) * gate.right.x + (iz - gate.center.z) * gate.right.z;
-            const lateralLimit = gate.halfWidth * 1.05;
+            const lateralLimit = def.passHalfWidth;
             const certifiedPhase = st.flightPhase === 'ascending' || st.flightPhase === 'cruise';
             if (!certifiedPhase || crossingClearance < 2.8) {
               this.flightDebug[id] = `late-height:f${routeIndex + 1}:y${crossingClearance.toFixed(2)}`;
@@ -1270,6 +1277,15 @@ export class Course implements ICourse {
       this.flightPrevClearance[id] = st.flightClearance;
     }
     this.updatePlayerGuidance(boats[0]);
+  }
+
+  /** Contact separation changes the next frame's baseline, never the just-checked flight path. */
+  syncFlightTrackingAfterCollisions(boats: readonly IBoat[]): void {
+    for (const boat of boats) {
+      const prev = this.flightPrev[boat.id];
+      if (prev) prev.copy(boat.state.position);
+      this.flightPrevClearance[boat.id] = boat.state.flightClearance;
+    }
   }
 
   private updatePlayerGuidance(player: IBoat | undefined): void {
@@ -1408,6 +1424,7 @@ export class Course implements ICourse {
         uReady: { value: 0 },
         uTurn: { value: 0 },
         uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
+        uMystic: { value: new THREE.Color().setHex(0x9b7cff, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
       },
       vertexShader: /* glsl */ `
@@ -1423,16 +1440,22 @@ export class Course implements ICourse {
         uniform float uReady;
         uniform float uTurn;
         uniform vec3 uFlight;
+        uniform vec3 uMystic;
         uniform vec3 uWarnColor;
         varying vec2 vUv;
         void main() {
-          float center = 1.0 - smoothstep(0.025, 0.065, abs(vUv.x - 0.5));
-          float pulse = step(0.6, fract(vUv.y * 26.0 - uTime * 3.0));
+          float wave = sin(vUv.y * 52.0 - uTime * 5.5) * 0.035;
+          float flowA = 1.0 - smoothstep(0.012, 0.029, abs(vUv.x - (0.44 + wave)));
+          float flowB = 1.0 - smoothstep(0.012, 0.029, abs(vUv.x - (0.56 - wave)));
+          float packetPhase = fract(vUv.y * 13.0 - uTime * 1.9);
+          float packet = smoothstep(0.02, 0.16, packetPhase) * (1.0 - smoothstep(0.55, 0.82, packetPhase));
+          float flow = max(flowA, flowB) * (0.28 + packet * 0.72);
           float turnZone = smoothstep(0.08, 0.22, vUv.y) * (1.0 - smoothstep(0.7, 0.9, vUv.y));
-          vec3 color = mix(uFlight, uWarnColor, max(uWarn, uTurn * turnZone));
+          vec3 airColor = mix(uFlight, uMystic, 0.5 + 0.5 * sin(vUv.y * 24.0 - uTime * 3.0));
+          vec3 color = mix(airColor, uWarnColor, max(uWarn, uTurn * turnZone));
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
-          float alpha = edge * 0.12 + center * (0.25 + pulse * (0.62 + ready * 0.12));
+          float alpha = edge * 0.1 + flow * (0.28 + ready * 0.1);
           gl_FragColor = vec4(color, alpha);
         }
       `,

@@ -69,6 +69,11 @@
   gap: 12px;
 }
 
+.hud.countdown-on .hud-topleft {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .hud-lap {
   padding: 8px 24px 9px 16px;
 }
@@ -1944,6 +1949,17 @@
 }
 .hud-medal-count { margin-top: 8px; color: var(--text); font-size: 30px; }
 .hud-medal-tier { margin-top: 8px; color: var(--accent); font-size: 18px; }
+.hud-medal-next {
+  max-height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  color: var(--flight);
+  font: 900 20px/1.2 system-ui, sans-serif;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity .35s ease, transform .35s ease, max-height .35s ease, margin .35s ease;
+}
+.hud-medal-next.on { max-height: 64px; margin-top: 12px; opacity: 1; transform:none; }
 .hud-medal-continue,
 .hud-lesson-continue {
   min-width: 168px;
@@ -2020,6 +2036,8 @@
   .hud-medal-title { font-size: 48px; }
   .hud-medal-count { margin-top: 4px; font-size: 21px; }
   .hud-medal-tier { margin-top: 4px; font-size: 14px; }
+  .hud-medal-next { font-size: 13px; }
+  .hud-medal-next.on { margin-top:5px; }
   .hud-medal-continue { min-height: 40px; margin-top: 8px; padding: 5px 18px; font-size: 14px; }
   .hud-medal-foot { margin-top: 5px; font-size: 9px; }
 
@@ -2128,8 +2146,9 @@
 .hud-boost-seg { height: 9px; border-width: 1px; }
 
 .hud-flight-prompt {
-  left: max(18px, env(safe-area-inset-left));
-  top: max(122px, calc(env(safe-area-inset-top) + 106px));
+  left: auto;
+  right: max(18px, env(safe-area-inset-right));
+  top: max(70px, calc(env(safe-area-inset-top) + 58px));
   width: 230px;
   gap: 10px;
   padding: 9px 12px;
@@ -2173,7 +2192,7 @@
 
 .hud-brand { top: max(7%, calc(env(safe-area-inset-top) + 10px)); }
 .hud-brand-lead { font-size: 34px; }
-.hud-brand-action { margin-top: 8px; font-size: 20px; }
+.hud-brand-action { margin-top: 10px; font-size: 20px; line-height: 1.15; }
 .hud-brand-drift::after { content: ' · '; color: var(--text); }
 .hud-brand .hud-inked {
   text-shadow: 2px 2px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
@@ -2242,7 +2261,7 @@
   .hud-flight-prompt,
   .hud-turn-warning { display: none; }
   .hud-brand-lead { font-size: 24px; }
-  .hud-brand-action { font-size: 14px; }
+  .hud-brand-action { margin-top: 10px; font-size: 14px; }
   .hud-turn-warning {
     left: max(10px, env(safe-area-inset-left));
     right: auto;

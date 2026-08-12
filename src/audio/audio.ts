@@ -1,5 +1,5 @@
 /**
- * audio.ts — fully synthesized game audio. Zero assets, Web Audio API only.
+ * audio.ts — streamed rock score plus a restrained synthesized vehicle layer.
  *
  * Graph (built lazily on first resume(), i.e. first user gesture):
  *
@@ -7,6 +7,7 @@
  *            saw(+6¢) ─┼─► waveshaper(light grit) ─► lowpass ─► engineGain ──┐
  *            sine(sub)─┤   ▲                                                  │
  *            saw(+1oct)─► boostGain ──────────────────────────────────────────┤
+ *   score:   HTMLAudioElement ─► media source ─► music bus ───────────────────┤
  *   rush:    noise loop ─► bandpass ─► rushGain ──────────────────────────────┤
  *   music / ambience / vehicle / event buses ─► master ─► limiter ─► destination
  *
@@ -15,11 +16,18 @@
  * One-shots allocate their short-lived nodes per call and self-disconnect.
  * Every method is a harmless no-op until resume() has built the context.
  */
+import rockOgg from '../assets/audio/board-race-rock.ogg?url';
+import rockMp3 from '../assets/audio/board-race-rock.mp3?url';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
-const BPM = 144;
-const MUSIC_STEP_S = 60 / BPM / 2;
+const SCORE_BPM = 140;
+const SCORE_COUNTDOWN_S = 4.2;
+const SCORE_GO_BEAT = 12;
+const SCORE_PREROLL_S = SCORE_GO_BEAT * 60 / SCORE_BPM - SCORE_COUNTDOWN_S;
+const SAFETY_HIGHPASS_HZ = 48;
+const LIMITER_THRESHOLD_DB = -14;
+const LIMITER_RATIO = 16;
 
 export type GameAudioScene =
   | 'ready'
@@ -41,13 +49,13 @@ export interface AudioSettings {
 
 const DEFAULT_SETTINGS: AudioSettings = {
   master: 0.7,
-  music: 0.38,
-  sfx: 0.82,
-  ambience: 0.55,
+  music: 0.78,
+  sfx: 0.65,
+  ambience: 0.22,
   muted: false,
 };
 
-const gainCurve = (value: number): number => clamp01(value) ** 2;
+const gainCurve = (value: number): number => clamp01(value) ** 1.5;
 
 /** Light grit: soft asymmetric-ish saturation curve for the engine shaper. */
 const makeGritCurve = (): Float32Array<ArrayBuffer> => {
@@ -69,17 +77,26 @@ export class GameAudio {
   private ambienceBus: GainNode | null = null;
   private vehicleBus: GainNode | null = null;
   private eventBus: GainNode | null = null;
+  private musicElement: HTMLAudioElement | null = null;
+  private musicSource: MediaElementAudioSourceNode | null = null;
+  private musicReady = false;
+  private musicFailed = false;
+  private scoreArmed = false;
+  private musicPreview = false;
+  private musicPreviewToken = 0;
+  private musicPreviewStopTimer = 0;
+  private ambiencePreviewToken = 0;
+  private ambiencePreview = false;
+  private countdownStageValue = 3;
+  private raceScoreElapsed = 0;
+  private lastFlowStep = -1;
+  private lastDriftTier = 0;
+  private musicDuckUntil = 0;
+  private musicDuckMultiplier = 1;
   private noiseBuf: AudioBuffer | null = null;
   private settings: AudioSettings = loadAudioSettings();
   private scene: GameAudioScene = 'ready';
   private sceneBeforeHidden: GameAudioScene = 'ready';
-  private musicNextTime = 0;
-  private musicStep = 0;
-  private musicActive = false;
-  private musicDrive: WaveShaperNode | null = null;
-  private oceanGain: GainNode | null = null;
-  private windGain: GainNode | null = null;
-  private windFilter: BiquadFilterNode | null = null;
   private retryVariation = 0;
   private lastFailureAt = -Infinity;
   private activeOneShots = 0;
@@ -141,30 +158,25 @@ export class GameAudio {
     if (c && !document.hidden) {
       if (c.state === 'suspended') {
         void c.resume().then(() => {
-          this.musicNextTime = c.currentTime + 0.04;
-          this.applyMix(0.05);
+          this.applyMix(0.28);
+          if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
         });
       } else if (c.state === 'running') {
         // A very short app switch can restore visibility before the delayed
         // suspend runs. The next explicit gesture must still restore the mix.
-        this.musicNextTime = c.currentTime + 0.04;
-        this.applyMix(0.05);
+        this.applyMix(0.28);
+        if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
       }
     }
   }
 
-  update(_dt: number): void {
-    const c = this.ctx;
-    if (!c || c.state !== 'running') return;
-    if (this.oceanGain) {
-      const swell = 0.075 + Math.sin(c.currentTime * 0.63) * 0.018 + Math.sin(c.currentTime * 0.21) * 0.012;
-      this.oceanGain.gain.setTargetAtTime(Math.max(0.025, swell), c.currentTime, 0.35);
-    }
-    if (!this.musicActive || this.settings.muted) return;
-    if (this.musicNextTime < c.currentTime - MUSIC_STEP_S) this.musicNextTime = c.currentTime + 0.04;
-    while (this.musicNextTime < c.currentTime + 0.12) {
-      this.scheduleMusicStep(this.musicNextTime, this.musicStep++);
-      this.musicNextTime += MUSIC_STEP_S;
+  update(dt: number): void {
+    if (!this.scoreArmed || (this.scene !== 'racing' && this.scene !== 'flight')) return;
+    this.raceScoreElapsed += dt;
+    const flowStep = Math.floor(this.raceScoreElapsed * 4);
+    if (flowStep !== this.lastFlowStep) {
+      this.lastFlowStep = flowStep;
+      this.applyMix(0.42);
     }
   }
 
@@ -192,11 +204,51 @@ export class GameAudio {
   setScene(scene: GameAudioScene): void {
     if (scene === this.scene) return;
     this.scene = scene;
-    const c = this.ctx;
-    this.musicActive = scene === 'countdown' || scene === 'racing' || scene === 'flight' ||
-      scene === 'medal' || scene === 'defeat' || scene === 'lesson';
-    if (c) this.musicNextTime = c.currentTime + 0.04;
+    if (scene === 'ready') {
+      this.scoreArmed = false;
+      this.musicPreview = false;
+      this.musicPreviewToken++;
+      this.raceScoreElapsed = 0;
+      this.lastFlowStep = -1;
+      this.musicElement?.pause();
+      if (this.ctx && this.musicBus) {
+        this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
+        this.musicBus.gain.value = 0;
+      }
+    }
     this.applyMix(scene === 'defeat' || scene === 'lesson' ? 0.08 : 0.14);
+    if (scene !== 'hidden' && (this.scoreArmed || this.musicPreview)) this.ensureMusicPlaying();
+  }
+
+  /** Arm the formal score from an explicit GO. READY gestures only unlock Web Audio. */
+  startRaceScore(fresh: boolean): void {
+    this.resume();
+    this.scoreArmed = true;
+    this.musicPreview = false;
+    this.musicPreviewToken++;
+    this.countdownStageValue = 3;
+    if (fresh) {
+      this.raceScoreElapsed = 0;
+      this.lastFlowStep = -1;
+      if (this.musicElement) {
+        try {
+          // The local score is cut on a downbeat. A short pre-roll places GO
+          // on bar four instead of starting an unrelated phrase mid-count.
+          this.musicElement.currentTime = SCORE_PREROLL_S;
+        } catch {
+          // Metadata may still be loading. Playback starts from the browser's
+          // initial position until the next fresh run.
+        }
+      }
+    }
+    this.applyMix(0.12);
+    this.ensureMusicPlaying();
+  }
+
+  /** Open the score one layer at a time behind the 3/2/1 count. */
+  countdownStage(n: number): void {
+    this.countdownStageValue = Math.max(1, Math.min(3, Math.round(n)));
+    this.applyMix(0.075);
   }
 
   debugState(): Record<string, number | string | boolean> {
@@ -209,8 +261,26 @@ export class GameAudio {
       sfx: this.settings.sfx,
       ambience: this.settings.ambience,
       activeOneShots: this.activeOneShots,
-      musicStep: this.musicStep,
       outputGain: this.master?.gain.value ?? 0,
+      musicBusGain: this.musicBus?.gain.value ?? 0,
+      musicFilterHz: this.musicFilter?.frequency.value ?? 0,
+      ambienceBusGain: this.ambienceBus?.gain.value ?? 0,
+      vehicleBusGain: this.vehicleBus?.gain.value ?? 0,
+      eventBusGain: this.eventBus?.gain.value ?? 0,
+      musicReady: this.musicReady,
+      musicFailed: this.musicFailed,
+      musicPlaying: this.musicElement ? !this.musicElement.paused : false,
+      musicTime: this.musicElement?.currentTime ?? 0,
+      scoreArmed: this.scoreArmed,
+      musicPreview: this.musicPreview,
+      countdownStage: this.countdownStageValue,
+      scoreElapsed: this.raceScoreElapsed,
+      driftTier: this.lastDriftTier,
+      musicDuck: this.musicDuckMultiplier,
+      scorePreroll: SCORE_PREROLL_S,
+      safetyHighpassHz: SAFETY_HIGHPASS_HZ,
+      limiterThresholdDb: LIMITER_THRESHOLD_DB,
+      limiterRatio: LIMITER_RATIO,
     };
   }
 
@@ -228,6 +298,7 @@ export class GameAudio {
         this.master.gain.cancelScheduledValues(c.currentTime);
         this.master.gain.value = 0;
       }
+      this.musicElement?.pause();
       window.setTimeout(() => {
         if ((document.hidden || this.scene === 'hidden') && c.state === 'running') void c.suspend();
       }, 90);
@@ -236,6 +307,68 @@ export class GameAudio {
     if (this.scene === 'hidden') this.scene = this.sceneBeforeHidden;
     // Browser autoplay policies intentionally leave the output at zero until
     // the resume GO gesture calls resume().
+  }
+
+  /** Mixer preview. Every preview is short and routed through the selected bus. */
+  audition(kind: 'master' | 'music' | 'sfx' | 'ambience'): void {
+    this.resume();
+    if (kind === 'music') {
+      const token = ++this.musicPreviewToken;
+      this.musicPreview = true;
+      this.applyMix(0.06);
+      this.ensureMusicPlaying();
+      const startStopTimer = (): void => {
+        if (token !== this.musicPreviewToken || !this.musicPreview) return;
+        window.clearTimeout(this.musicPreviewStopTimer);
+        this.musicPreviewStopTimer = window.setTimeout(() => this.stopMusicPreview(token), 1400);
+      };
+      if (this.musicElement?.readyState && this.musicElement.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        startStopTimer();
+      } else {
+        this.musicElement?.addEventListener('playing', startStopTimer, { once: true });
+        this.musicPreviewStopTimer = window.setTimeout(() => this.stopMusicPreview(token), 5000);
+      }
+      return;
+    }
+    const c = this.ctx;
+    const target = kind === 'ambience' ? this.ambienceBus : kind === 'sfx' ? this.eventBus : this.eventBus;
+    if (!c || !target) return;
+    if (kind === 'ambience' && this.noiseBuf) {
+      const token = ++this.ambiencePreviewToken;
+      if (this.scene === 'ready') {
+        this.ambiencePreview = true;
+        this.ambienceBus?.gain.cancelScheduledValues(c.currentTime);
+        this.ambienceBus?.gain.setValueAtTime(gainCurve(this.settings.ambience) * 0.35, c.currentTime);
+      }
+      const source = c.createBufferSource();
+      source.buffer = this.noiseBuf;
+      const hp = c.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 900;
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0.045, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.32);
+      source.connect(hp);
+      hp.connect(gain);
+      gain.connect(target);
+      this.trackOneShot(source, [hp, gain], c.currentTime, c.currentTime + 0.35);
+      window.setTimeout(() => {
+        if (token !== this.ambiencePreviewToken) return;
+        this.ambiencePreview = false;
+        this.applyMix(0.08);
+      }, 420);
+      return;
+    }
+    this.blip(kind === 'master' ? 720 : 960, c.currentTime, 0.22, 0.11, 'triangle');
+  }
+
+  collision(strength: number): void {
+    const c = this.ctx;
+    if (!c) return;
+    const n = clamp01(strength / 18);
+    this.impactBurst(118 - n * 34, 44 - n * 12, 0.38 + n * 0.52, 0.13 + n * 0.14);
+    this.blip(210 - n * 70, c.currentTime, 0.12, 0.08 + n * 0.08, 'square');
+    this.duckMusic(0.72 - n * 0.18, 0.12 + n * 0.1);
   }
 
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */
@@ -306,7 +439,10 @@ export class GameAudio {
     const index = Math.max(0, Math.min(2, Math.floor(flightIndex)));
     if (active !== this.flightActive) {
       this.flightActive = active;
-      if (active) this.impactBurst(118, 42, 1, 0.28);
+      if (active) {
+        this.impactBurst(118, 42, 1, 0.28);
+        this.duckMusic(0.64, 0.24);
+      }
       this.blip(active ? 740 : 420, t, active ? 0.22 : 0.09, active ? 0.19 : 0.08, 'triangle');
     }
     if (Math.abs(n - this.lastFlightThrust) > 0.004 || index !== this.lastFlightIndex) {
@@ -337,6 +473,13 @@ export class GameAudio {
     const t = c.currentTime;
     this.driftGain.gain.setTargetAtTime(n * 0.13, t, n > 0 ? 0.035 : 0.12);
     this.driftBp.frequency.setTargetAtTime(760 + n * 1250, t, 0.055);
+    const tier = n >= 0.88 ? 3 : n >= 0.58 ? 2 : n >= 0.28 ? 1 : 0;
+    if (tier > this.lastDriftTier) {
+      this.lastDriftTier = tier;
+      this.blip(620 + tier * 210, t, 0.075 + tier * 0.012, 0.045 + tier * 0.012, 'triangle');
+    } else if (n < 0.06) {
+      this.lastDriftTier = 0;
+    }
   }
 
   flightReady(): void {
@@ -362,6 +505,7 @@ export class GameAudio {
     const step = Math.max(0, Math.min(2, flightNumber - 1));
     this.blip(880 + step * 110, c.currentTime, 0.18, 0.14, 'triangle');
     this.blip(1320 + step * 150, c.currentTime + 0.09, 0.3, 0.16, 'triangle');
+    this.duckMusic(0.72, 0.2);
   }
 
   flightMiss(): void {
@@ -385,6 +529,7 @@ export class GameAudio {
       this.blip(760 + count * 90, t + 0.1, 0.24, 0.14, 'triangle');
       if (newPlace === 1) this.blip(1480, t + 0.18, 0.34, 0.17, 'triangle');
     }
+    this.duckMusic(positive ? 0.66 : 0.8, positive ? 0.2 : 0.13);
   }
 
   boostIgnition(): void {
@@ -393,6 +538,7 @@ export class GameAudio {
     this.impactBurst(155, 58, 0.88, 0.24);
     this.blip(480, c.currentTime + 0.018, 0.18, 0.16, 'sawtooth');
     this.blip(960, c.currentTime + 0.075, 0.25, 0.12, 'square');
+    this.duckMusic(0.69, 0.18);
   }
 
   airBrakeSnap(): void {
@@ -575,136 +721,64 @@ export class GameAudio {
     const t = c.currentTime;
     const muted = this.settings.muted || this.scene === 'hidden';
     const master = muted ? 0 : gainCurve(this.settings.master);
-    const sceneMusic = this.scene === 'ready' ? 0
-      : this.scene === 'lesson' ? 0.2
-        : this.scene === 'defeat' ? 0.28
-          : this.scene === 'medal' ? 0.76
-            : this.scene === 'countdown' ? 0.48
-              : 1;
+    const sceneMusic = this.sceneMusicLevel();
+    if (t >= this.musicDuckUntil) this.musicDuckMultiplier = 1;
+    const duck = t < this.musicDuckUntil ? this.musicDuckMultiplier : 1;
     const sceneVehicle = this.scene === 'medal' ? 0.25
       : this.scene === 'lesson' || this.scene === 'defeat' || this.scene === 'ready' ? 0
         : this.scene === 'countdown' ? 0.18
           : 1;
-    const sceneAmbience = this.scene === 'medal' ? 0.5 : this.scene === 'lesson' ? 0.72 : 1;
+    const sceneAmbience = this.scene === 'ready' ? (this.ambiencePreview ? 0.35 : 0)
+      : this.scene === 'medal' ? 0.18
+        : this.scene === 'lesson' || this.scene === 'defeat' ? 0.12
+          : 0.62;
     this.master.gain.setTargetAtTime(master, t, timeConstant);
-    this.musicBus.gain.setTargetAtTime(gainCurve(this.settings.music) * sceneMusic, t, timeConstant);
+    const musicBase = gainCurve(this.settings.music) * sceneMusic;
+    this.musicBus.gain.cancelScheduledValues(t);
+    this.musicBus.gain.setTargetAtTime(musicBase * duck, t, timeConstant);
+    if (duck < 1) this.musicBus.gain.setTargetAtTime(musicBase, this.musicDuckUntil, 0.08);
     this.ambienceBus.gain.setTargetAtTime(gainCurve(this.settings.ambience) * sceneAmbience, t, timeConstant);
     this.vehicleBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * sceneVehicle, t, timeConstant);
     this.eventBus.gain.setTargetAtTime(gainCurve(this.settings.sfx), t, timeConstant);
     this.musicFilter.frequency.setTargetAtTime(
-      this.scene === 'lesson' || this.scene === 'defeat' ? 650 : this.scene === 'ready' ? 480 : 9000,
+      this.scene === 'lesson' || this.scene === 'defeat' ? 1500
+        : this.scene === 'ready' && this.musicPreview ? 6000
+          : this.scene === 'countdown' ? (this.countdownStageValue === 3 ? 850 : this.countdownStageValue === 2 ? 1800 : 4200)
+            : 11000,
       t,
       timeConstant,
     );
+  }
+
+  private sceneMusicLevel(): number {
+    const countdownMusic = this.countdownStageValue === 3 ? 0.08
+      : this.countdownStageValue === 2 ? 0.18
+        : 0.34;
+    const flow = clamp01(this.raceScoreElapsed / 14);
+    switch (this.scene) {
+      case 'ready': return this.musicPreview ? 0.42 : 0;
+      case 'lesson': return 0.18;
+      case 'defeat': return 0.22;
+      case 'medal': return 0.38;
+      case 'countdown': return countdownMusic;
+      case 'flight': return 0.62 + flow * 0.26;
+      case 'racing': return 0.52 + flow * 0.24;
+      case 'hidden': return 0;
+    }
   }
 
   private duckMusic(multiplier: number, duration: number): void {
     const c = this.ctx;
     const bus = this.musicBus;
     if (!c || !bus) return;
-    const base = gainCurve(this.settings.music) * (this.scene === 'flight' || this.scene === 'racing' ? 1 : 0.6);
-    bus.gain.cancelScheduledValues(c.currentTime);
-    bus.gain.setTargetAtTime(base * multiplier, c.currentTime, 0.018);
-    bus.gain.setTargetAtTime(base, c.currentTime + duration, 0.08);
-  }
-
-  private scheduleMusicStep(time: number, step: number): void {
-    const scene = this.scene;
-    if (scene === 'ready' || scene === 'hidden') return;
-    const index = step % 16;
-    const bar = Math.floor(step / 8) % 4;
-    const roots = [41.2, 32.7, 49, 36.71]; // E1 C1 G1 D1
-    const root = roots[bar];
-    if (index % 4 === 0) this.musicKick(time, scene === 'medal' ? 0.32 : 0.24);
-    if (index % 8 === 4) this.musicSnare(time, scene === 'medal' ? 0.22 : 0.16);
-    this.musicHat(time, index % 2 === 0 ? 0.055 : 0.035, index % 4 === 2);
-    if (index % 2 === 0) this.musicTone(root * (index % 8 === 6 ? 1.5 : 1), time, MUSIC_STEP_S * 0.86, 0.09, 'triangle', this.musicBus);
-    if (index === 0 || index === 3 || index === 6) this.musicPowerChord(root * 2, time, scene === 'medal' ? 0.12 : 0.075);
-    if (scene === 'flight' && index % 4 === 2) this.musicTone(root * 8, time, MUSIC_STEP_S * 1.7, 0.045, 'triangle', this.musicBus);
-  }
-
-  private musicKick(time: number, peak: number): void {
-    const c = this.ctx;
-    const bus = this.musicBus;
-    if (!c || !bus) return;
-    const osc = c.createOscillator();
-    const gain = c.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(135, time);
-    osc.frequency.exponentialRampToValueAtTime(46, time + 0.11);
-    gain.gain.setValueAtTime(peak, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.16);
-    osc.connect(gain);
-    gain.connect(bus);
-    this.trackOneShot(osc, [gain], time, time + 0.18);
-  }
-
-  private musicSnare(time: number, peak: number): void {
-    const c = this.ctx;
-    const bus = this.musicBus;
-    if (!c || !bus || !this.noiseBuf) return;
-    const noise = c.createBufferSource();
-    noise.buffer = this.noiseBuf;
-    const hp = c.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 1300;
-    const gain = c.createGain();
-    gain.gain.setValueAtTime(peak, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.13);
-    noise.connect(hp);
-    hp.connect(gain);
-    gain.connect(bus);
-    this.trackOneShot(noise, [hp, gain], time, time + 0.15);
-    this.musicTone(180, time, 0.09, peak * 0.35, 'triangle', bus);
-  }
-
-  private musicHat(time: number, peak: number, open: boolean): void {
-    const c = this.ctx;
-    const bus = this.musicBus;
-    if (!c || !bus || !this.noiseBuf) return;
-    const noise = c.createBufferSource();
-    noise.buffer = this.noiseBuf;
-    const hp = c.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 5600;
-    const gain = c.createGain();
-    const duration = open ? 0.12 : 0.045;
-    gain.gain.setValueAtTime(peak, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    noise.connect(hp);
-    hp.connect(gain);
-    gain.connect(bus);
-    this.trackOneShot(noise, [hp, gain], time, time + duration + 0.02);
-  }
-
-  private musicPowerChord(root: number, time: number, peak: number): void {
-    this.musicTone(root, time, MUSIC_STEP_S * 2.6, peak, 'sawtooth', this.musicDrive);
-    this.musicTone(root * 1.5, time, MUSIC_STEP_S * 2.6, peak * 0.8, 'sawtooth', this.musicDrive, -7);
-    this.musicTone(root * 2, time, MUSIC_STEP_S * 2.6, peak * 0.55, 'sawtooth', this.musicDrive, 6);
-  }
-
-  private musicTone(
-    frequency: number,
-    time: number,
-    duration: number,
-    peak: number,
-    type: OscillatorType,
-    destination: AudioNode | null,
-    detune = 0,
-  ): void {
-    const c = this.ctx;
-    if (!c || !destination) return;
-    const osc = c.createOscillator();
-    const gain = c.createGain();
-    osc.type = type;
-    osc.frequency.value = frequency;
-    osc.detune.value = detune;
-    gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(peak, time + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    osc.connect(gain);
-    gain.connect(destination);
-    this.trackOneShot(osc, [gain], time, time + duration + 0.02);
+    const t = c.currentTime;
+    const base = gainCurve(this.settings.music) * this.sceneMusicLevel();
+    const active = t < this.musicDuckUntil;
+    this.musicDuckMultiplier = active ? Math.min(this.musicDuckMultiplier, multiplier) : multiplier;
+    this.musicDuckUntil = Math.max(active ? this.musicDuckUntil : 0, t + duration);
+    bus.gain.cancelScheduledValues(t);
+    bus.gain.setTargetAtTime(base * this.musicDuckMultiplier, t, 0.018);
+    bus.gain.setTargetAtTime(base, this.musicDuckUntil, 0.08);
   }
 
   private firework(time: number, index: number): void {
@@ -744,8 +818,8 @@ export class GameAudio {
     const airMix = this.flightActive ? this.flightClearance : this.airborne ? 0.7 : 0;
     const modeGain = 1 - airMix * 0.84;
     const boostGain = this.lastBoost ? 0.3 : 0;
-    const g = (0.32 + boostGain) * this.speedNorm * modeGain;
-    const f = 500 + 2400 * this.speedNorm + (this.lastBoost ? 850 : 0);
+    const g = (0.11 + boostGain * 0.35) * this.speedNorm * modeGain;
+    const f = 760 + 2200 * this.speedNorm + (this.lastBoost ? 650 : 0);
     if (Math.abs(g - this.lastRushGain) > 0.004) {
       this.lastRushGain = g;
       this.rushGain.gain.setTargetAtTime(g, t, 0.12);
@@ -756,22 +830,32 @@ export class GameAudio {
     }
     if (this.airRushGain && this.airRushBp && this.airRushPan) {
       const pressureGain = this.flightActive
-        ? (0.08 + this.flightPressure * 0.24) * (0.45 + airMix * 0.55) * (1 + this.flightAirBrake * 0.35)
+        ? (0.035 + this.flightPressure * 0.12) * (0.4 + airMix * 0.6) * (1 + this.flightAirBrake * 0.35)
         : 0;
       const pressureFrequency = (760 + this.flightPressure * 2500) * (1 - this.flightAirBrake * 0.18);
       this.airRushGain.gain.setTargetAtTime(pressureGain, t, this.flightActive ? 0.08 : 0.18);
       this.airRushBp.frequency.setTargetAtTime(pressureFrequency, t, 0.1);
       this.airRushPan.pan.setTargetAtTime(-this.flightSteer * this.flightAirBrake * 0.25, t, 0.06);
     }
-    if (this.windGain && this.windFilter) {
-      const wind = 0.018 + this.speedNorm * 0.055 + (this.flightActive ? 0.06 + this.flightPressure * 0.14 : 0);
-      this.windGain.gain.setTargetAtTime(wind * (1 + this.flightAirBrake * 0.28), t, 0.12);
-      this.windFilter.frequency.setTargetAtTime(
-        350 + this.speedNorm * 720 + (this.flightActive ? 650 + this.flightPressure * 1500 : 0),
-        t,
-        0.15,
-      );
+  }
+
+  private ensureMusicPlaying(): void {
+    const media = this.musicElement;
+    if (!media || (!this.scoreArmed && !this.musicPreview) || this.musicFailed || document.hidden || this.scene === 'hidden' || this.settings.muted) return;
+    void media.play().catch(() => {
+      // Autoplay refusal is expected until the next explicit pointer/key gesture.
+    });
+  }
+
+  private stopMusicPreview(token: number): void {
+    if (token !== this.musicPreviewToken || !this.musicPreview || this.scoreArmed || this.scene !== 'ready') return;
+    this.musicPreview = false;
+    this.musicElement?.pause();
+    if (this.ctx && this.musicBus) {
+      this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
+      this.musicBus.gain.value = 0;
     }
+    this.applyMix(0.1);
   }
 
   private impactBurst(startHz: number, endHz: number, strength: number, duration: number): void {
@@ -843,20 +927,26 @@ export class GameAudio {
     const ctx = new AudioContext();
     this.ctx = ctx;
 
-    // Four independently duckable buses feed a limiter-ish master.
+    // Four independently duckable buses feed a phone-safe high-pass and limiter.
     const master = ctx.createGain();
     master.gain.value = 0;
+    const safetyHp = ctx.createBiquadFilter();
+    safetyHp.type = 'highpass';
+    safetyHp.frequency.value = SAFETY_HIGHPASS_HZ;
+    safetyHp.Q.value = 0.6;
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.knee.value = 18;
-    comp.ratio.value = 12;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.22;
-    master.connect(comp);
+    comp.threshold.value = LIMITER_THRESHOLD_DB;
+    comp.knee.value = 10;
+    comp.ratio.value = LIMITER_RATIO;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.18;
+    master.connect(safetyHp);
+    safetyHp.connect(comp);
     comp.connect(ctx.destination);
     this.master = master;
 
     const musicBus = ctx.createGain();
+    musicBus.gain.value = 0;
     const musicFilter = ctx.createBiquadFilter();
     musicFilter.type = 'lowpass';
     musicFilter.frequency.value = 9000;
@@ -868,6 +958,9 @@ export class GameAudio {
     const ambienceBus = ctx.createGain();
     const vehicleBus = ctx.createGain();
     const eventBus = ctx.createGain();
+    ambienceBus.gain.value = 0;
+    vehicleBus.gain.value = 0;
+    eventBus.gain.value = 0;
     ambienceBus.connect(master);
     vehicleBus.connect(master);
     eventBus.connect(master);
@@ -875,15 +968,23 @@ export class GameAudio {
     this.vehicleBus = vehicleBus;
     this.eventBus = eventBus;
 
-    const musicDrive = ctx.createWaveShaper();
-    musicDrive.curve = makeGritCurve();
-    musicDrive.oversample = '2x';
-    const musicDriveFilter = ctx.createBiquadFilter();
-    musicDriveFilter.type = 'lowpass';
-    musicDriveFilter.frequency.value = 2800;
-    musicDrive.connect(musicDriveFilter);
-    musicDriveFilter.connect(musicBus);
-    this.musicDrive = musicDrive;
+    const music = new Audio();
+    // The track remains silent until GO, but decoding a small local loop ahead
+    // of time prevents the first mixer preview from reporting "playing" while
+    // the media clock is still waiting on data.
+    music.preload = 'auto';
+    music.loop = true;
+    music.crossOrigin = 'anonymous';
+    music.src = music.canPlayType('audio/ogg; codecs="vorbis"') ? rockOgg : rockMp3;
+    music.addEventListener('canplay', () => {
+      this.musicReady = true;
+      if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
+    }, { once: true });
+    music.addEventListener('error', () => { this.musicFailed = true; }, { once: true });
+    const musicSource = ctx.createMediaElementSource(music);
+    musicSource.connect(musicBus);
+    this.musicElement = music;
+    this.musicSource = musicSource;
 
     // shared 2s white-noise buffer (rush loop + thud/splash bursts)
     const len = ctx.sampleRate * 2;
@@ -922,7 +1023,7 @@ export class GameAudio {
     };
     this.saw1 = mkOsc('sawtooth', 55, -7, 0.4);
     this.saw2 = mkOsc('sawtooth', 55, 6, 0.4);
-    this.sub = mkOsc('sine', 27.5, 0, 0.55);
+    this.sub = mkOsc('sine', 41, 0, 0.18);
     // bright octave layer, gated by boostGain
     const bg = ctx.createGain();
     bg.gain.value = 0;
@@ -1029,44 +1130,6 @@ export class GameAudio {
     this.airRushPan = airPan;
     this.airRushGain = airGain;
 
-    // ---- open-ocean ambience: always audible at READY, independent of speed ----
-    const oceanNoise = ctx.createBufferSource();
-    oceanNoise.buffer = buf;
-    oceanNoise.loop = true;
-    const oceanFilter = ctx.createBiquadFilter();
-    oceanFilter.type = 'lowpass';
-    oceanFilter.frequency.value = 780;
-    const oceanPan = ctx.createStereoPanner();
-    oceanPan.pan.value = -0.12;
-    const oceanGain = ctx.createGain();
-    oceanGain.gain.value = 0.06;
-    oceanNoise.connect(oceanFilter);
-    oceanFilter.connect(oceanPan);
-    oceanPan.connect(oceanGain);
-    oceanGain.connect(ambienceBus);
-    oceanNoise.start();
-    this.oceanGain = oceanGain;
-
-    // ---- broad stereo wind bed; flight pressure controls its brightness/level ----
-    const windNoise = ctx.createBufferSource();
-    windNoise.buffer = buf;
-    windNoise.loop = true;
-    const windFilter = ctx.createBiquadFilter();
-    windFilter.type = 'highpass';
-    windFilter.frequency.value = 350;
-    const windPan = ctx.createStereoPanner();
-    windPan.pan.value = 0.12;
-    const windGain = ctx.createGain();
-    windGain.gain.value = 0.018;
-    windNoise.connect(windFilter);
-    windFilter.connect(windPan);
-    windPan.connect(windGain);
-    windGain.connect(ambienceBus);
-    windNoise.start();
-    this.windGain = windGain;
-    this.windFilter = windFilter;
-
-    this.musicNextTime = ctx.currentTime + 0.04;
     this.applyMix(0.02);
   }
 }

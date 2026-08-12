@@ -50,9 +50,14 @@ export class MobileControls {
   private pendingGoAfterActivation = false;
   private showGo = false;
   private goLabel = '开始游戏';
+  private landscape = matchMedia('(orientation: landscape)').matches;
 
   get ready(): boolean {
-    return !this.enabled || this.activation === 'ready';
+    return !this.enabled || this.landscape && this.activation === 'ready';
+  }
+
+  get isLandscape(): boolean {
+    return !this.enabled || this.landscape;
   }
 
   constructor(parent: HTMLElement, onFirstGesture: () => void, force = false) {
@@ -71,9 +76,10 @@ export class MobileControls {
     root.className = 'mobile-controls';
     root.dataset.activation = 'idle';
     root.innerHTML = `
-      <div class="mobile-orientation" role="status">
+      <div class="mobile-orientation" role="alert" aria-live="assertive">
         <div class="mobile-rotate-icon" aria-hidden="true">↻</div>
-        <strong>请横屏</strong>
+        <strong>请旋转至横屏</strong>
+        <span>本游戏仅支持横屏</span>
       </div>
       <button class="mobile-start" type="button">开始游戏</button>
       <button class="mobile-mode" type="button" aria-label="切换转向方式">重力</button>
@@ -95,13 +101,7 @@ export class MobileControls {
     this.tiltMeter = root.querySelector<HTMLDivElement>('.mobile-tilt-meter i');
 
     this.start?.addEventListener('click', () => {
-      this.onFirstGesture();
-      if (this.activation === 'ready') {
-        this.goQueued = true;
-        return;
-      }
-      this.pendingGoAfterActivation = true;
-      void this.activateTilt();
+      this.requestGo();
     });
     this.modeButton?.addEventListener('click', () => {
       this.onFirstGesture();
@@ -119,6 +119,8 @@ export class MobileControls {
       button.addEventListener('contextmenu', (event) => event.preventDefault());
     });
 
+    const orientationMedia = matchMedia('(orientation: landscape)');
+    orientationMedia.addEventListener?.('change', () => this.orientationChanged());
     window.addEventListener('deviceorientation', (event) => this.orientation(event), { passive: true });
     window.addEventListener('orientationchange', () => this.orientationChanged());
     screen.orientation?.addEventListener?.('change', () => this.orientationChanged());
@@ -157,7 +159,7 @@ export class MobileControls {
     const action = this.hasAction('drift');
     const flightTrigger = this.flightQueued;
     this.flightQueued = false;
-    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '刹' : '漂';
+    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';
     return {
       throttle: 1,
       steer,
@@ -179,6 +181,17 @@ export class MobileControls {
     return queued;
   }
 
+  /** Shared start gate used by the driver contract screen and fallback GO. */
+  requestGo(): void {
+    this.onFirstGesture();
+    if (this.activation === 'ready') {
+      this.goQueued = true;
+      return;
+    }
+    this.pendingGoAfterActivation = true;
+    void this.activateTilt();
+  }
+
   setGoPrompt(show: boolean, label = '开始游戏'): void {
     this.showGo = show;
     this.goLabel = label;
@@ -191,7 +204,7 @@ export class MobileControls {
     this.root.classList.toggle('flight-ready', flightReady);
     this.root.classList.toggle('in-flight', flightActive);
     this.root.classList.toggle('turn-warning', turnWarning);
-    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '刹' : '漂';
+    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';
     const drift = this.buttons.get('drift');
     if (drift) drift.setAttribute('aria-label', flightActive ? '空刹' : '漂移');
   }
@@ -205,12 +218,13 @@ export class MobileControls {
     this.filteredTilt = 0;
   }
 
-  status(): { mode: ControlMode; activation: ActivationState; sampleCount: number; angle: number } {
+  status(): { mode: ControlMode; activation: ActivationState; sampleCount: number; angle: number; landscape: boolean } {
     return {
       mode: this.mode,
       activation: this.activation,
       sampleCount: this.calibrationSamples.length,
       angle: this.calibrationAngle,
+      landscape: this.landscape,
     };
   }
 
@@ -351,8 +365,9 @@ export class MobileControls {
   }
 
   private orientationChanged(): void {
+    this.landscape = matchMedia('(orientation: landscape)').matches;
     this.releaseAll();
-    if (this.mode === 'tilt' && this.tiltAuthorized) this.startCalibration();
+    if (this.landscape && this.mode === 'tilt' && this.tiltAuthorized) this.startCalibration();
   }
 
   private pointerDown(event: PointerEvent, action: PointerAction): void {

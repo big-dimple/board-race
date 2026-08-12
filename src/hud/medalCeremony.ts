@@ -206,62 +206,97 @@ export class MedalCeremonyCanvas {
       ctx.stroke();
     }
 
-    this.drawFlexedArm(r);
+    this.drawMuscleChampion(r);
     ctx.restore();
   }
 
-  private drawFlexedArm(radius: number): void {
+  private drawMuscleChampion(radius: number): void {
     const ctx = this.ctx;
     const scale = radius / 100;
     ctx.save();
     ctx.scale(scale, scale);
-    ctx.translate(0, 4);
-
-    ctx.beginPath();
-    ctx.moveTo(-62, 43);
-    ctx.lineTo(-63, 7);
-    ctx.quadraticCurveTo(-61, -4, -48, -5);
-    ctx.lineTo(-31, -5);
-    ctx.lineTo(-17, -30);
-    ctx.quadraticCurveTo(-9, -45, 7, -48);
-    ctx.quadraticCurveTo(24, -51, 31, -37);
-    ctx.quadraticCurveTo(36, -27, 30, -17);
-    ctx.quadraticCurveTo(48, -17, 61, -5);
-    ctx.quadraticCurveTo(72, 7, 65, 24);
-    ctx.quadraticCurveTo(57, 44, 37, 48);
-    ctx.lineTo(3, 49);
-    ctx.quadraticCurveTo(-17, 49, -30, 38);
-    ctx.lineTo(-47, 45);
-    ctx.closePath();
-    ctx.fillStyle = '#f4feff';
-    ctx.strokeStyle = '#14122b';
-    ctx.lineWidth = 10;
+    ctx.translate(0, 9);
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // Full back-double-biceps silhouette: both hands, arms, shoulders, torso,
+    // waist and trunks remain legible at mobile medal size.
+    ctx.beginPath();
+    ctx.moveTo(-24, 48);
+    ctx.quadraticCurveTo(-38, 36, -38, 18);
+    ctx.quadraticCurveTo(-47, 14, -54, 4);
+    ctx.quadraticCurveTo(-63, 5, -73, -2);
+    ctx.quadraticCurveTo(-82, -9, -78, -20);
+    ctx.quadraticCurveTo(-75, -31, -65, -34);
+    ctx.quadraticCurveTo(-56, -37, -51, -28);
+    ctx.lineTo(-46, -16);
+    ctx.quadraticCurveTo(-38, -29, -25, -28);
+    ctx.quadraticCurveTo(-21, -42, -10, -48);
+    ctx.quadraticCurveTo(0, -53, 10, -48);
+    ctx.quadraticCurveTo(21, -42, 25, -28);
+    ctx.quadraticCurveTo(38, -29, 46, -16);
+    ctx.lineTo(51, -28);
+    ctx.quadraticCurveTo(56, -37, 65, -34);
+    ctx.quadraticCurveTo(75, -31, 78, -20);
+    ctx.quadraticCurveTo(82, -9, 73, -2);
+    ctx.quadraticCurveTo(63, 5, 54, 4);
+    ctx.quadraticCurveTo(47, 14, 38, 18);
+    ctx.quadraticCurveTo(38, 36, 24, 48);
+    ctx.closePath();
+    ctx.fillStyle = '#e9a67f';
+    ctx.strokeStyle = '#14122b';
+    ctx.lineWidth = 8;
     ctx.fill();
     ctx.stroke();
 
-    ctx.strokeStyle = '#d39324';
-    ctx.lineWidth = 4;
+    // Hair and neck.
+    ctx.fillStyle = '#14122b';
     ctx.beginPath();
-    ctx.moveTo(-26, 24);
-    ctx.quadraticCurveTo(5, 5, 42, 18);
-    ctx.moveTo(-13, -25);
-    ctx.quadraticCurveTo(4, -34, 23, -26);
-    ctx.moveTo(-47, 7);
-    ctx.lineTo(-47, 34);
+    ctx.moveTo(-15, -45);
+    ctx.quadraticCurveTo(-8, -61, 0, -56);
+    ctx.quadraticCurveTo(11, -62, 17, -45);
+    ctx.lineTo(11, -31);
+    ctx.lineTo(-11, -31);
+    ctx.closePath();
+    ctx.fill();
+
+    // Anatomical planes kept graphic, not photorealistic.
+    ctx.strokeStyle = '#9f5e4d';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -28); ctx.lineTo(0, 35);
+    ctx.moveTo(-6, -24); ctx.quadraticCurveTo(-27, -24, -36, -11);
+    ctx.moveTo(6, -24); ctx.quadraticCurveTo(27, -24, 36, -11);
+    ctx.moveTo(-35, -8); ctx.quadraticCurveTo(-18, 4, -8, 12);
+    ctx.moveTo(35, -8); ctx.quadraticCurveTo(18, 4, 8, 12);
+    ctx.moveTo(-28, 20); ctx.quadraticCurveTo(-14, 15, -5, 30);
+    ctx.moveTo(28, 20); ctx.quadraticCurveTo(14, 15, 5, 30);
+    ctx.moveTo(-67, -24); ctx.quadraticCurveTo(-59, -12, -50, -17);
+    ctx.moveTo(67, -24); ctx.quadraticCurveTo(59, -12, 50, -17);
     ctx.stroke();
 
-    ctx.fillStyle = '#39ff88';
+    // Racing trunks anchor the body and echo the cyan flight system.
+    ctx.fillStyle = '#55e7ff';
     ctx.strokeStyle = '#14122b';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(-70, 30);
-    ctx.lineTo(-42, 30);
-    ctx.lineTo(-38, 54);
-    ctx.lineTo(-69, 57);
+    ctx.moveTo(-26, 37);
+    ctx.quadraticCurveTo(0, 43, 26, 37);
+    ctx.lineTo(22, 56);
+    ctx.lineTo(-22, 56);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    // Three flight trails make the achievement readable without relying on text.
+    ctx.strokeStyle = '#f4feff';
+    ctx.lineWidth = 4;
+    for (const x of [-11, 0, 11]) {
+      ctx.beginPath();
+      ctx.moveTo(x, 53);
+      ctx.lineTo(x * 1.5, 72);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }

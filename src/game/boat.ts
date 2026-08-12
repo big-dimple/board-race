@@ -23,6 +23,7 @@ import { PALETTE } from '../core/palette';
 import { waterHeight, waterNormalInto } from '../water/waves';
 import { createToonMaterial } from '../cel/toonMaterial';
 import { addOutline } from '../cel/outline';
+import type { DriverHandling } from './racers';
 
 export interface BoatOptions {
   id: number;
@@ -134,6 +135,12 @@ const _fxMatrix = new THREE.Matrix4();
 const _fxPos = new THREE.Vector3();
 const _fxScale = new THREE.Vector3();
 const _fxQBoost = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+const _fxAxisY = new THREE.Vector3(0, 1, 0);
+const _fxAxisZ = new THREE.Vector3(0, 0, 1);
+const _fxFlowDir = new THREE.Vector3();
+const _fxFlowQ = new THREE.Quaternion();
+const _fxRingQ = new THREE.Quaternion();
+const _fxRingSpinQ = new THREE.Quaternion();
 const _fxLiftDirs = [
   new THREE.Vector3(-0.18, -0.98, -0.08).normalize(),
   new THREE.Vector3(0.18, -0.98, -0.08).normalize(),
@@ -226,6 +233,7 @@ interface ThrustVisual {
   shell: THREE.InstancedMesh;
   outer: THREE.InstancedMesh;
   core: THREE.InstancedMesh;
+  rings: THREE.InstancedMesh;
 }
 
 function buildThrustVisual(): ThrustVisual {
@@ -233,7 +241,7 @@ function buildThrustVisual(): ThrustVisual {
   const shellMat = new THREE.MeshBasicMaterial({
     color: PALETTE.flightDeep,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.34,
     blending: THREE.NormalBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -242,7 +250,7 @@ function buildThrustVisual(): ThrustVisual {
   const outerMat = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
-    opacity: 0.52,
+    opacity: 0.18,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     toneMapped: false,
@@ -250,7 +258,7 @@ function buildThrustVisual(): ThrustVisual {
   const coreMat = new THREE.MeshBasicMaterial({
     color: PALETTE.foam,
     transparent: true,
-    opacity: 0.58,
+    opacity: 0.22,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     toneMapped: false,
@@ -258,18 +266,32 @@ function buildThrustVisual(): ThrustVisual {
   const shell = new THREE.InstancedMesh(geo, shellMat, 4);
   const outer = new THREE.InstancedMesh(geo, outerMat, 5);
   const core = new THREE.InstancedMesh(geo, coreMat, 5);
+  const ringGeo = new THREE.TorusGeometry(1, 0.055, 5, 18);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.52,
+    blending: THREE.NormalBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const rings = new THREE.InstancedMesh(ringGeo, ringMat, 12);
   shell.name = 'thrust-shell';
   outer.name = 'thrust-outer';
   core.name = 'thrust-core';
+  rings.name = 'thrust-flow-rings';
   shell.renderOrder = 7;
   outer.renderOrder = 8;
   core.renderOrder = 9;
+  rings.renderOrder = 8;
   shell.frustumCulled = false;
   outer.frustumCulled = false;
   core.frustumCulled = false;
+  rings.frustumCulled = false;
   shell.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   outer.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   core.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  rings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   outer.setColorAt(0, _fxColor.setHex(PALETTE.boost, THREE.NoColorSpace));
   outer.setColorAt(1, _fxColor.setHex(PALETTE.flight, THREE.NoColorSpace));
   outer.setColorAt(2, _fxColor.setHex(PALETTE.flight, THREE.NoColorSpace));
@@ -281,13 +303,19 @@ function buildThrustVisual(): ThrustVisual {
     outer.setMatrixAt(i, hidden);
     core.setMatrixAt(i, hidden);
   }
+  for (let i = 0; i < 12; i++) {
+    rings.setMatrixAt(i, hidden);
+    rings.setColorAt(i, _fxColor.setHex(i % 3 === 1 ? 0x9b7cff : i % 3 === 2 ? PALETTE.foam : PALETTE.flight, THREE.NoColorSpace));
+  }
   shell.instanceMatrix.needsUpdate = true;
   outer.instanceMatrix.needsUpdate = true;
   core.instanceMatrix.needsUpdate = true;
+  rings.instanceMatrix.needsUpdate = true;
   if (outer.instanceColor) outer.instanceColor.needsUpdate = true;
+  if (rings.instanceColor) rings.instanceColor.needsUpdate = true;
   outer.layers.enable(LAYER_ENERGY);
   core.layers.enable(LAYER_ENERGY);
-  return { shell, outer, core };
+  return { shell, outer, core, rings };
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -503,7 +531,11 @@ function numberDecalTexture(num: number): THREE.CanvasTexture {
 
 // ------------------------------------------------------------ assembly ----
 
-function buildBoatVisual(id: number, color: number): { root: THREE.Group; riderMount: THREE.Object3D } {
+function buildBoatVisual(id: number, color: number): {
+  root: THREE.Group;
+  riderMount: THREE.Object3D;
+  hullMaterial: THREE.ShaderMaterial;
+} {
   const root = new THREE.Group();
   root.name = 'hull';
 
@@ -625,7 +657,7 @@ function buildBoatVisual(id: number, color: number): { root: THREE.Group; riderM
   riderMount.position.set(0, 0.64, -1.05);
   root.add(riderMount);
 
-  return { root, riderMount };
+  return { root, riderMount, hullMaterial: hullMat };
 }
 
 // ---------------------------------------------------------------- boat ----
@@ -639,6 +671,8 @@ export class Boat implements IBoat {
   private readonly wake: IWake;
   private readonly spray: ISpray;
   private readonly trail: IJetTrail;
+  private readonly hullMaterial: THREE.ShaderMaterial;
+  private handling: DriverHandling = { acceleration: 1, steering: 1, driftCharge: 1, airControl: 1 };
 
   // planar dynamics
   private heading = 0;
@@ -660,6 +694,8 @@ export class Boat implements IBoat {
   // earned anti-grav flight
   private flightElapsed = 0;
   private flightStartClearance = 0;
+  private flightDesiredYPrev = 0;
+  private flightTargetVy = 0;
   private flightPenaltyApplied = false;
   // bookkeeping
   private prevSpeed = 0;
@@ -668,12 +704,16 @@ export class Boat implements IBoat {
   private boostSprayCd = 0;
   private trailCd = 0;
   private driftTrailCd = 0;
+  private opponentDriftSprayCd = 0;
+  private opponentFxScale = 1;
+  private driftFxEmissions = 0;
   private lastT = 0;
   private readonly blob: THREE.Mesh;
   private readonly footprint: THREE.Mesh;
   private readonly thrustShell: THREE.InstancedMesh;
   private readonly thrustOuter: THREE.InstancedMesh;
   private readonly thrustCore: THREE.InstancedMesh;
+  private readonly thrustRings: THREE.InstancedMesh;
   private boostFx = 0;
   private flightFx = 0;
   private liftBurstTimer = 0;
@@ -681,6 +721,9 @@ export class Boat implements IBoat {
   private flightMissFxTimer = 0;
   private airBrakeFx = 0;
   private flightTargetSpeed = 42;
+  private flightRingActiveCount = 0;
+  private flightPlumeLength = 0;
+  private flightFlowDeflection = 0;
 
   constructor(opts: BoatOptions) {
     this.id = opts.id;
@@ -693,6 +736,7 @@ export class Boat implements IBoat {
     const visual = buildBoatVisual(opts.id, opts.color);
     this.object.add(visual.root);
     this.riderMount = visual.riderMount;
+    this.hullMaterial = visual.hullMaterial;
 
     if (opts.detailedInk !== false) {
       addOutline(this.object);
@@ -710,7 +754,8 @@ export class Boat implements IBoat {
     this.thrustShell = thrust.shell;
     this.thrustOuter = thrust.outer;
     this.thrustCore = thrust.core;
-    this.object.add(this.thrustShell, this.thrustOuter, this.thrustCore);
+    this.thrustRings = thrust.rings;
+    this.object.add(this.thrustShell, this.thrustOuter, this.thrustCore, this.thrustRings);
 
     this.state = {
       position: this.object.position, // live reference — never reassigned
@@ -772,7 +817,7 @@ export class Boat implements IBoat {
     let boosting = this.boostTimer > 0;
     const surfaceBoost = boosting && !flightWasActive;
     const taperRef = TUNING.topSpeed * TUNING.taperHeadroom * (surfaceBoost ? TUNING.boostTopMul : 1);
-    const accel = TUNING.accel * (surfaceBoost ? TUNING.boostAccelMul : 1);
+    const accel = TUNING.accel * this.handling.acceleration * (surfaceBoost ? TUNING.boostAccelMul : 1);
 
     // heading frame: forward (sinθ, cosθ) — θ=0 → +Z, +θ turns left (CCW from
     // above); port = local +X
@@ -829,10 +874,11 @@ export class Boat implements IBoat {
     // steering: full authority once moving, capped by lateral G at speed,
     // reversed in reverse
     const speedAbs = Math.abs(vF);
-    const latGMax = TUNING.latGMax + (TUNING.airBrakeLatG - TUNING.latGMax) * this.airBrakeFx;
+    const steeringMul = flightWasActive ? this.handling.airControl : this.handling.steering;
+    const latGMax = (TUNING.latGMax + (TUNING.airBrakeLatG - TUNING.latGMax) * this.airBrakeFx) * steeringMul;
     const gCap = latGMax / Math.max(speedAbs, 0.5);
     const authority = Math.min(speedAbs / TUNING.steerFullSpeed, 1) * (vF < 0 ? -1 : 1);
-    const yawTarget = -steer * Math.min(TUNING.yawRateMax, gCap) * authority;
+    const yawTarget = -steer * Math.min(TUNING.yawRateMax * steeringMul, gCap) * authority;
     const baseYawDamp = TUNING.yawDamp + (TUNING.airBrakeYawDamp - TUNING.yawDamp) * this.airBrakeFx;
     const driftYawCut = input.drift ? TUNING.driftYawDampMul + (1 - TUNING.driftYawDampMul) * this.airBrakeFx : 1;
     const yawDamp = baseYawDamp * driftYawCut;
@@ -843,7 +889,7 @@ export class Boat implements IBoat {
     // drift charge / boost payout on release
     if (input.drift && !flightWasActive) {
       if (speedAbs > TUNING.driftMinSpeed) {
-        st.boostCharge = Math.min(1, st.boostCharge + dt / TUNING.driftChargeTime);
+        st.boostCharge = Math.min(1, st.boostCharge + dt * this.handling.driftCharge / TUNING.driftChargeTime);
       }
     } else if (this.wasDrifting) {
       if (st.boostCharge >= TUNING.boostReleaseMin) {
@@ -1056,21 +1102,45 @@ export class Boat implements IBoat {
     }
 
     this.driftTrailCd -= dt;
+    this.opponentDriftSprayCd -= dt;
     if (input.drift && st.boostCharge > 0.04 && speedAbs > TUNING.driftMinSpeed && this.driftTrailCd <= 0) {
-      this.driftTrailCd = 0.05;
+      const opponent = this.id > 0;
+      this.driftTrailCd = opponent ? 0.052 / this.opponentFxScale : 0.05;
       const side = Math.abs(this.lateralG) > 0.5 ? (this.lateralG > 0 ? -1 : 1) : (steer >= 0 ? 1 : -1);
       const charge = st.boostCharge;
-      this.trail.emit(
-        pos.x + portX * side * 0.88 - fwdX * 1.15,
-        pos.y + 0.06,
-        pos.z + portZ * side * 0.88 - fwdZ * 1.15,
-        -fwdX * (0.7 + charge) + portX * side * 0.65,
-        0.2 + charge * 0.45,
-        -fwdZ * (0.7 + charge) + portZ * side * 0.65,
-        PALETTE.boost,
-        0.11 + charge * 0.09,
-        0.24 + charge * 0.12,
-      );
+      const streams = opponent ? 2 : 1;
+      for (let stream = 0; stream < streams; stream++) {
+        const streamSide = opponent ? (stream === 0 ? -1 : 1) : side;
+        this.trail.emit(
+          pos.x + portX * streamSide * 0.88 - fwdX * 1.15,
+          pos.y + 0.06,
+          pos.z + portZ * streamSide * 0.88 - fwdZ * 1.15,
+          -fwdX * (0.78 + charge) + portX * streamSide * (opponent ? 1.35 : 0.65),
+          0.2 + charge * 0.45,
+          -fwdZ * (0.78 + charge) + portZ * streamSide * (opponent ? 1.35 : 0.65),
+          opponent ? (stream === 0 ? 0xffac3d : 0xffdc7a) : PALETTE.boost,
+          (opponent ? 0.24 : 0.11) + charge * 0.14,
+          (opponent ? 0.62 : 0.24) + charge * 0.18,
+        );
+        this.driftFxEmissions++;
+      }
+    }
+
+    // Opponent technique must be readable in the world, not through another
+    // HUD badge. Two short stern sprays mark a real drift input, with a simple
+    // distance LOD to avoid filling the horizon when the field spreads out.
+    if (this.id > 0 && input.drift && !st.airborne && st.flightPhase === 'surface' &&
+        speedAbs > TUNING.driftMinSpeed && this.opponentDriftSprayCd <= 0) {
+      this.opponentDriftSprayCd = 0.075 / this.opponentFxScale;
+      for (const streamSide of [-1, 1]) {
+        _v2.set(
+          pos.x + portX * streamSide * 0.8 - fwdX * 1.7,
+          hSt + 0.06,
+          pos.z + portZ * streamSide * 0.8 - fwdZ * 1.7,
+        );
+        this.spray.burst(_v2, 2, (2.25 + speedAbs * 0.09) * this.opponentFxScale);
+        this.driftFxEmissions++;
+      }
     }
 
     this.updateThrustVisual(dt, t, boosting, st.flightThrust, fwdX, fwdZ, portX, portZ);
@@ -1127,26 +1197,36 @@ export class Boat implements IBoat {
     if (this.thrustOuter.instanceColor) this.thrustOuter.instanceColor.needsUpdate = true;
 
     const boostPulse = 0.9 + 0.1 * Math.sin(t * 34 + this.id);
-    const boostLen = 0.08 + this.boostFx * 5.2 * boostPulse;
-    this.setThrustInstance('outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost, 0.46 * this.boostFx, boostLen);
-    this.setThrustInstance('core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost, 0.15 * this.boostFx, boostLen * 0.82);
+    // Surface boost hands off to the twin anti-grav emitters instead of
+    // stacking three bright plumes on the launch frame.
+    const boostVisual = this.boostFx * (1 - this.flightFx * 0.92);
+    const boostLen = 0.06 + boostVisual * 2.3 * boostPulse;
+    this.setThrustInstance('outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost, 0.3 * boostVisual, boostLen);
+    this.setThrustInstance('core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost, 0.085 * boostVisual, boostLen * 0.72);
 
     const burst = clamp(this.liftBurstTimer / 0.22, 0, 1);
     const pulseStep = Math.floor((t * 13 + this.id * 0.73) % 3);
     const pulse = pulseStep === 0 ? 0.88 : pulseStep === 1 ? 1 : 1.12;
     const missCut = warn ? 0.55 : 1;
-    const waterGap = Math.max(0, st.flightClearance);
-    const pressureLength = st.flightPhase === 'surface' ? 0 : Math.max(2.8, waterGap + 1.15);
-    const shellLen = Math.max(pressureLength, 0.1 + this.flightFx * 3.8 + burst * 1.4) * pulse * missCut;
-    const outerLen = Math.max(pressureLength * 0.88, 0.08 + this.flightFx * 3.1 + burst) * pulse * missCut;
-    const coreLen = Math.max(pressureLength * 0.68, 0.06 + this.flightFx * 2.15 + burst * 0.62) * pulse * missCut;
-    const shellRadius = (0.03 + this.flightFx * 0.58 + burst * 0.2) * missCut;
-    const outerRadius = (0.03 + this.flightFx * 0.42 + burst * 0.14) * missCut;
-    const coreRadius = (0.015 + this.flightFx * 0.16 + burst * 0.05) * missCut;
+    // The emitter is a short energy core. Height is conveyed by the moving
+    // rings and footprint below, so flight can never turn it into a solid beam.
+    const shellLen = (0.14 + this.flightFx * 1.12 + burst * 0.34) * pulse * missCut;
+    const outerLen = (0.1 + this.flightFx * 0.82 + burst * 0.22) * pulse * missCut;
+    const coreLen = (0.06 + this.flightFx * 0.48 + burst * 0.12) * pulse * missCut;
+    const shellRadius = (0.02 + this.flightFx * 0.35 + burst * 0.09) * missCut;
+    const outerRadius = (0.016 + this.flightFx * 0.23 + burst * 0.06) * missCut;
+    const coreRadius = (0.01 + this.flightFx * 0.085 + burst * 0.024) * missCut;
+    this.flightPlumeLength = shellLen;
+    this.flightFlowDeflection = this.airBrakeFx * Math.abs(st.steer);
+    this.flightRingActiveCount = 0;
     for (let i = 0; i < 2; i++) {
       const side = i === 0 ? -1 : 1;
-      const dir = _fxLiftDirs[i];
-      const q = _fxQLifts[i];
+      const dir = _fxFlowDir.set(
+        side * 0.15 + st.steer * this.airBrakeFx * 0.32,
+        -0.98,
+        -0.08 - st.flightPressure * 0.1,
+      ).normalize();
+      const q = _fxFlowQ.setFromUnitVectors(_fxAxisY, dir);
       this.setThrustInstance(
         'shell', i,
         side * 0.68 + dir.x * shellLen * 0.5,
@@ -1168,6 +1248,31 @@ export class Boat implements IBoat {
         -1.62 + dir.z * coreLen * 0.5,
         q, coreRadius, coreLen,
       );
+
+      // Six travelling toroids per emitter form a vortex tunnel: each ring
+      // expands and flattens as it is carried downwash, with violet accents
+      // supplying depth without increasing bloom or screen-space noise.
+      for (let ring = 0; ring < 6; ring++) {
+        const phase = ((t * 1.9 + ring / 6 + i * 0.11) % 1 + 1) % 1;
+        const strength = clamp(this.flightFx * (1 - phase * 0.35) + burst * (1 - phase), 0, 1);
+        const travel = 0.24 + phase * (1.4 + this.flightFx * 1.2);
+        const radius = (0.11 + phase * 0.5) * strength * missCut;
+        const spiralAngle = phase * Math.PI * 3.2 + t * 3.4 + i * Math.PI;
+        const spiralRadius = Math.sin(phase * Math.PI) * (0.04 + phase * 0.24) * strength;
+        _fxRingQ.setFromUnitVectors(_fxAxisZ, dir)
+          .multiply(_fxRingSpinQ.setFromAxisAngle(_fxAxisZ, spiralAngle * 0.34));
+        this.setFlowRingInstance(
+          i * 6 + ring,
+          side * 0.68 + dir.x * travel + Math.cos(spiralAngle) * spiralRadius,
+          0.12 + dir.y * travel,
+          -1.62 + dir.z * travel + Math.sin(spiralAngle) * spiralRadius,
+          _fxRingQ,
+          radius,
+          1 + this.flightFlowDeflection * 0.4,
+          1 - this.flightFlowDeflection * 0.22,
+        );
+        if (radius > 0.01) this.flightRingActiveCount++;
+      }
     }
 
     // S+A/D vector braking: a broad lateral plasma wall on the outside pad.
@@ -1188,10 +1293,11 @@ export class Boat implements IBoat {
     this.thrustShell.instanceMatrix.needsUpdate = true;
     this.thrustOuter.instanceMatrix.needsUpdate = true;
     this.thrustCore.instanceMatrix.needsUpdate = true;
+    this.thrustRings.instanceMatrix.needsUpdate = true;
 
     this.trailCd -= dt;
     if (this.trailCd <= 0 && (this.boostFx > 0.25 || this.flightFx > 0.3)) {
-      this.trailCd = 0.055;
+      this.trailCd = this.flightFx > 0.3 ? 0.1 : 0.055;
       const pos = this.object.position;
       const pulse = 0.85 + 0.15 * Math.sin(t * 19 + this.id * 2.3);
       if (this.boostFx > 0.25) {
@@ -1209,16 +1315,20 @@ export class Boat implements IBoat {
       }
       if (this.flightFx > 0.3) {
         for (const side of [-1, 1]) {
+          const swirl = t * 15 + this.id * 1.7 + (side < 0 ? Math.PI : 0);
+          const radial = 0.22 + this.flightFx * 0.18;
+          const swirlX = Math.cos(swirl) * radial;
+          const swirlZ = Math.sin(swirl) * radial;
           this.trail.emit(
-            pos.x + portX * side * 0.68 - fwdX * 1.62,
-            pos.y - 0.25,
-            pos.z + portZ * side * 0.68 - fwdZ * 1.62,
-            -fwdX * 0.35 + portX * side * 0.2,
-            -1.05,
-            -fwdZ * 0.35 + portZ * side * 0.2,
-            PALETTE.flight,
-            0.18 * pulse,
-            0.36,
+            pos.x + portX * (side * 0.68 + swirlX) - fwdX * (1.62 + swirlZ),
+            pos.y - 0.18,
+            pos.z + portZ * (side * 0.68 + swirlX) - fwdZ * (1.62 + swirlZ),
+            -fwdX * (0.22 + swirlZ) + portX * (side * 0.1 - Math.sin(swirl) * 0.7),
+            -0.72 - this.flightFx * 0.38,
+            -fwdZ * (0.22 + swirlZ) + portZ * (side * 0.1 - Math.sin(swirl) * 0.7),
+            Math.floor(t * 18 + side) % 4 === 0 ? 0x9b7cff : PALETTE.flight,
+            0.085 * pulse,
+            0.3,
           );
         }
       }
@@ -1241,6 +1351,23 @@ export class Boat implements IBoat {
     _fxScale.set(visible ? radius : 0, visible ? length : 0, visible ? radius : 0);
     _fxMatrix.compose(_fxPos, quaternion, _fxScale);
     mesh.setMatrixAt(index, _fxMatrix);
+  }
+
+  private setFlowRingInstance(
+    index: number,
+    x: number,
+    y: number,
+    z: number,
+    quaternion: THREE.Quaternion,
+    radius: number,
+    stretchX: number,
+    stretchY: number,
+  ): void {
+    const visible = radius > 0.001;
+    _fxPos.set(x, y, z);
+    _fxScale.set(visible ? radius * stretchX : 0, visible ? radius * stretchY : 0, visible ? radius : 0);
+    _fxMatrix.compose(_fxPos, quaternion, _fxScale);
+    this.thrustRings.setMatrixAt(index, _fxMatrix);
   }
 
   beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void {
@@ -1316,6 +1443,70 @@ export class Boat implements IBoat {
     st.flightRouteMiss = true;
   }
 
+  setDriver(color: number, handling: DriverHandling): void {
+    this.hullMaterial.uniforms.uColor.value.setHex(color, THREE.NoColorSpace);
+    this.handling = {
+      acceleration: clamp(handling.acceleration, 0.94, 1.06),
+      steering: clamp(handling.steering, 0.94, 1.06),
+      driftCharge: clamp(handling.driftCharge, 0.94, 1.06),
+      airControl: clamp(handling.airControl, 0.94, 1.06),
+    };
+  }
+
+  /** Main-thread visual LOD; has no effect on physics or AI input. */
+  setOpponentEffectDistance(distance: number): void {
+    this.opponentFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);
+  }
+
+  /** Deterministic harness evidence for AI technique visibility. */
+  debugDriftEffects(): { emissions: number; scale: number } {
+    return { emissions: this.driftFxEmissions, scale: this.opponentFxScale };
+  }
+
+  debugFlightEffects(): { rings: number; plumeLength: number; deflection: number } {
+    return {
+      rings: this.flightRingActiveCount,
+      plumeLength: this.flightPlumeLength,
+      deflection: this.flightFlowDeflection,
+    };
+  }
+
+  collisionVelocity(out: THREE.Vector2): THREE.Vector2 {
+    return out.set(this.velX, this.velZ);
+  }
+
+  applyCollisionResponse(correctionX: number, correctionZ: number, impulseX: number, impulseZ: number): void {
+    const correctionLength = Math.hypot(correctionX, correctionZ);
+    if (correctionLength > 0.4) {
+      const scale = 0.4 / correctionLength;
+      correctionX *= scale;
+      correctionZ *= scale;
+    }
+    this.object.position.x += correctionX;
+    this.object.position.z += correctionZ;
+    this.velX += impulseX;
+    this.velZ += impulseZ;
+    const speed = Math.hypot(this.velX, this.velZ);
+    if (speed > TUNING.flightHardCap) {
+      const scale = TUNING.flightHardCap / speed;
+      this.velX *= scale;
+      this.velZ *= scale;
+    }
+    this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.018, -2.4, 2.4);
+  }
+
+  /** Deterministic collision-harness hook. Gameplay never calls this method. */
+  setCollisionTestMotion(x: number, z: number, heading: number, velX: number, velZ: number, y = 0): void {
+    this.object.position.set(x, y, z);
+    this.heading = heading;
+    this.velX = velX;
+    this.velZ = velZ;
+    this.state.heading = heading;
+    this.state.speed = velX * Math.sin(heading) + velZ * Math.cos(heading);
+    _euler.set(0, heading, 0, 'YXZ');
+    this.object.quaternion.setFromEuler(_euler);
+  }
+
   private updateFlight(dt: number, surfaceY: number, surfaceTargetY: number): void {
     const st = this.state;
     const total = TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise + TUNING.flightDescend;
@@ -1323,7 +1514,11 @@ export class Boat implements IBoat {
     const cruiseAt = ascendAt + TUNING.flightAscend;
     const descendAt = cruiseAt + TUNING.flightCruise;
 
-    if (this.flightElapsed === 0) this.flightStartClearance = this.object.position.y - surfaceY;
+    const firstFlightFrame = this.flightElapsed === 0;
+    if (firstFlightFrame) {
+      this.flightStartClearance = this.object.position.y - surfaceY;
+      this.flightTargetVy = 0;
+    }
     this.flightElapsed += dt;
 
     let phase: FlightPhase;
@@ -1352,8 +1547,19 @@ export class Boat implements IBoat {
     }
 
     const desiredY = surfaceY + targetClearance;
+    if (firstFlightFrame) this.flightDesiredYPrev = desiredY;
+    const rawTargetVy = clamp((desiredY - this.flightDesiredYPrev) / Math.max(1e-4, dt), -14, 14);
+    this.flightTargetVy += (rawTargetVy - this.flightTargetVy) * (1 - Math.exp(-18 * dt));
+    this.flightDesiredYPrev = desiredY;
     const w = TUNING.flightOmega;
-    const ay = clamp(w * w * (desiredY - this.object.position.y) - 2 * w * this.vy, -TUNING.flightAccelMax, TUNING.flightAccelMax);
+    // Track the moving wave reference as well as its position. Without this
+    // feed-forward term, a fast boat chases the previous crest and its visible
+    // clearance can swing by almost a metre even during controlled cruise.
+    const ay = clamp(
+      w * w * (desiredY - this.object.position.y) + 2 * w * (this.flightTargetVy - this.vy),
+      -TUNING.flightAccelMax,
+      TUNING.flightAccelMax,
+    );
     this.vy += ay * dt;
     this.object.position.y += this.vy * dt;
     st.flightPhase = phase;
@@ -1368,6 +1574,7 @@ export class Boat implements IBoat {
       this.vy = 0;
       this.unloadTime = 0;
       this.flightElapsed = 0;
+      this.flightTargetVy = 0;
       st.flightPhase = 'surface';
       st.flightRemaining = 0;
       st.flightThrust = 0;
@@ -1390,6 +1597,8 @@ export class Boat implements IBoat {
     this.wasDrifting = false;
     this.flightElapsed = 0;
     this.flightStartClearance = 0;
+    this.flightDesiredYPrev = 0;
+    this.flightTargetVy = 0;
     this.flightPenaltyApplied = false;
     this.prevSpeed = 0;
     this.lateralG = 0;
@@ -1397,6 +1606,8 @@ export class Boat implements IBoat {
     this.boostSprayCd = 0;
     this.trailCd = 0;
     this.driftTrailCd = 0;
+    this.opponentDriftSprayCd = 0;
+    this.driftFxEmissions = 0;
     this.boostFx = 0;
     this.flightFx = 0;
     this.liftBurstTimer = 0;
@@ -1404,6 +1615,9 @@ export class Boat implements IBoat {
     this.flightMissFxTimer = 0;
     this.airBrakeFx = 0;
     this.flightTargetSpeed = 42;
+    this.flightRingActiveCount = 0;
+    this.flightPlumeLength = 0;
+    this.flightFlowDeflection = 0;
 
     const st = this.state;
     st.boostCharge = 0;

@@ -5,7 +5,7 @@ const ROWS: ReadonlyArray<{ key: keyof Pick<AudioSettings, 'master' | 'music' | 
   { key: 'master', label: '总音量' },
   { key: 'music', label: '摇滚' },
   { key: 'sfx', label: '音效' },
-  { key: 'ambience', label: '海浪 / 狂风' },
+  { key: 'ambience', label: '水 / 空气' },
 ];
 
 export class MixerControls {
@@ -13,6 +13,7 @@ export class MixerControls {
   private readonly toggle: HTMLButtonElement;
   private readonly mute: HTMLButtonElement;
   private readonly inputs = new Map<string, HTMLInputElement>();
+  private readonly values = new Map<string, HTMLOutputElement>();
 
   constructor(parent: HTMLElement, private readonly audio: GameAudio) {
     const root = document.createElement('div');
@@ -31,6 +32,8 @@ export class MixerControls {
       label.className = 'audio-mixer-row';
       const text = document.createElement('span');
       text.textContent = row.label;
+      const value = document.createElement('output');
+      value.textContent = `${inputPercent(settings[row.key])}%`;
       const input = document.createElement('input');
       input.type = 'range';
       input.min = '0';
@@ -38,10 +41,27 @@ export class MixerControls {
       input.step = '1';
       input.value = String(Math.round(settings[row.key] * 100));
       input.setAttribute('aria-label', row.label);
-      input.addEventListener('input', () => audio.setSettings({ [row.key]: Number(input.value) / 100 }));
-      label.append(text, input);
+      let lastPreview = 0;
+      const preview = (): void => {
+        const now = performance.now();
+        if (now - lastPreview < 180) return;
+        lastPreview = now;
+        audio.audition(row.key);
+      };
+      input.addEventListener('pointerdown', () => {
+        audio.resume();
+        preview();
+      });
+      input.addEventListener('input', () => {
+        audio.resume();
+        audio.setSettings({ [row.key]: Number(input.value) / 100 });
+        value.textContent = `${input.value}%`;
+        preview();
+      });
+      label.append(text, input, value);
       panel.appendChild(label);
       this.inputs.set(row.key, input);
+      this.values.set(row.key, value);
     }
 
     this.mute = document.createElement('button');
@@ -78,7 +98,11 @@ export class MixerControls {
     this.mute.classList.toggle('muted', settings.muted);
     for (const row of ROWS) {
       const input = this.inputs.get(row.key);
-      if (input && document.activeElement !== input) input.value = String(Math.round(settings[row.key] * 100));
+      const value = this.values.get(row.key);
+      if (input && document.activeElement !== input) input.value = String(inputPercent(settings[row.key]));
+      if (value && document.activeElement !== input) value.textContent = `${inputPercent(settings[row.key])}%`;
     }
   }
 }
+
+const inputPercent = (value: number): number => Math.round(value * 100);

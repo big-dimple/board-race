@@ -17,7 +17,7 @@ import type { PrePass } from '../core/prePass';
 import type { RenderQualityProfile } from '../core/stage';
 import { createEdgePass } from './edgePass';
 
-export type ImpactPulse = 'ready' | 'boost' | 'launch' | 'gate' | 'overtake' | 'lost' | 'defeat' | 'finish';
+export type ImpactPulse = 'ready' | 'boost' | 'launch' | 'gate' | 'overtake' | 'lost' | 'collision' | 'defeat' | 'finish';
 
 export interface PostPipeline {
   render(): void;
@@ -234,7 +234,7 @@ export function createPostPipeline(
     },
     pulse(kind: ImpactPulse, strength = 1): void {
       const s = Math.max(0, Math.min(1.5, strength));
-      const impactGain = kind === 'gate' ? 0.2 : kind === 'ready' ? 0.38 : kind === 'lost' ? 0.34 : kind === 'overtake' ? 0.32 : 1;
+      const impactGain = kind === 'gate' ? 0.2 : kind === 'ready' ? 0.38 : kind === 'lost' ? 0.34 : kind === 'overtake' ? 0.32 : kind === 'collision' ? 0.48 : 1;
       impact = Math.max(impact, s * impactGain);
       const flashGain = kind === 'defeat' ? 0.72 : kind === 'gate' ? 0.14 : kind === 'overtake' ? 0.15 : kind === 'lost' ? 0.12 : 0.48;
       flash = Math.max(flash, s * flashGain);

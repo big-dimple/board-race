@@ -38,6 +38,7 @@ const SCENARIOS = {
   hairpin: { scenario: 'hairpin' },
   airtime: { scenario: 'airtime' },
   'drift-charge': { scenario: 'drift-charge' },
+  'opponent-drift': { scenario: 'opponent-drift', freeCamDynamic: { back: 6.5, up: 1.8, lookUp: 0.55, target: 'opponent' } },
   'boost-burst': { scenario: 'boost-burst', freeCamDynamic: { back: 8.5, up: 2.3, lookUp: 0.55 } },
   'flight-ready': { scenario: 'flight-ready' },
   interrupted: { scenario: 'interrupted' },
@@ -209,6 +210,33 @@ async function verifyFlightContract(page) {
   assert.ok(promptGeometry.keyWidth >= 64, `SPACE key cap collapsed to ${promptGeometry.keyWidth}px`);
   assert.ok(promptGeometry.keyScrollWidth <= promptGeometry.keyWidth + 1, 'SPACE text must not overflow its key cap');
   assert.ok(promptGeometry.keyRight <= promptGeometry.copyLeft, 'SPACE key cap must not overlap the flight copy');
+  const promptOverlaps = await page.evaluate(() => {
+    const prompt = document.querySelector('.hud-flight-prompt.on')?.getBoundingClientRect();
+    if (!prompt) return ['missing flight prompt'];
+    const selectors = ['.race-tower.on', '.hud-topleft', '.audio-mixer.visible'];
+    return selectors.flatMap((selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return [];
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden') return [];
+      const rect = node.getBoundingClientRect();
+      const width = Math.min(prompt.right, rect.right) - Math.max(prompt.left, rect.left);
+      const height = Math.min(prompt.bottom, rect.bottom) - Math.max(prompt.top, rect.top);
+      return width > 1 && height > 1 ? [`${selector}:${width.toFixed(1)}x${height.toFixed(1)}`] : [];
+    });
+  });
+  assert.deepEqual(promptOverlaps, [], `flight prompt overlap: ${promptOverlaps.join(', ')}`);
+
+  await page.evaluate(() => window.__harness.scenario('drift-charge'));
+  const driftAudio = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(driftAudio.driftTier) >= 1, `a real drift must cross a readable charge tier: ${JSON.stringify(driftAudio)}`);
+
+  await page.evaluate(() => window.__harness.scenario('opponent-drift'));
+  const opponentFx = await page.evaluate(() => window.__harness.opponentFx());
+  assert.ok(opponentFx.drifting >= 1, `at least one opponent must visibly use a real drift input: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.emissions >= 2, `opponent drift must emit a readable two-sided world effect: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.minScale >= 0.3 && opponentFx.maxScale <= 1,
+    `opponent drift FX must remain inside its distance LOD: ${JSON.stringify(opponentFx)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -224,6 +252,8 @@ async function verifyFlightContract(page) {
   assert.ok(state.speed >= 40 && state.speed <= 43, `first flight cruise speed ${state.speed}`);
   assert.ok(state.flightPressure > 0.25, `flight pressure ${state.flightPressure}`);
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'flight');
+  assert.ok(state.flightFxRings >= 8, `controlled flight must open the vortex rings: ${state.flightFxRings}`);
+  assert.ok(state.flightFxPlumeLength < 2.8, `flight core must remain a short plume, not a beam: ${state.flightFxPlumeLength}`);
   const flightStats = await page.evaluate(() => window.__harness.stats());
   assert.ok(flightStats.cameraFov >= 77 && flightStats.cameraFov <= 86, `flight FOV ${flightStats.cameraFov}`);
   const guidance = await page.evaluate(() => window.__harness.guidance());
@@ -266,6 +296,7 @@ async function verifyFlightContract(page) {
 
   await page.evaluate(() => window.__harness.scenario('flight-airbrake'));
   state = await page.evaluate(() => window.__harness.playerState());
+  assert.ok(state.flightFxDeflection > 0.12, `air-brake must visibly deform the airflow: ${state.flightFxDeflection}`);
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
 
   await page.evaluate(() => window.__harness.scenario('overtake'));
@@ -274,16 +305,12 @@ async function verifyFlightContract(page) {
   assert.equal(state.lastBattleKind, 'overtake');
   await assertBattleFeedbackVisible(page, 'overtake-desktop');
   await assertBattleLeavesDrivingRoiClear(page, 'overtake-desktop');
-  for (const vp of [
-    { label: 'overtake-portrait', width: 390, height: 844 },
-    { label: 'overtake-landscape', width: 844, height: 390 },
-  ]) {
-    await page.setViewportSize({ width: vp.width, height: vp.height });
-    await page.waitForTimeout(120);
-    await page.evaluate(() => window.__harness.render());
-    await assertBattleFeedbackVisible(page, vp.label);
-    await assertBattleLeavesDrivingRoiClear(page, vp.label);
-  }
+  const vp = { label: 'overtake-landscape', width: 844, height: 390 };
+  await page.setViewportSize({ width: vp.width, height: vp.height });
+  await page.waitForTimeout(120);
+  await page.evaluate(() => window.__harness.render());
+  await assertBattleFeedbackVisible(page, vp.label);
+  await assertBattleLeavesDrivingRoiClear(page, vp.label);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.waitForTimeout(120);
 
@@ -305,7 +332,9 @@ async function verifyFlightContract(page) {
   assert.notEqual(state.challengeTier, 'unqualified');
   assert.equal(state.manMedalsTotal, medalsBefore + 1, 'the third flight grants exactly one medal in the run');
   assert.equal(await page.locator('.hud-medal-ceremony').evaluate((el) => el.classList.contains('on')), true);
-  assert.match(await page.locator('.hud-medal-title').textContent() ?? '', /男人勋章 \+1/);
+  assert.equal(await page.locator('.hud-medal-title').textContent(), '猛男');
+  assert.match(await page.locator('.hud-medal-count').textContent() ?? '', /男人勋章 \+1/,
+    'the ceremonial title may evolve, but the earned reward must stay explicit');
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'medal',
     'the qualification frame must not overwrite the medal music mix');
   const medalBeforeBackground = state.medalElapsed;
@@ -324,6 +353,8 @@ async function verifyFlightContract(page) {
     raceTime: state.raceTime, worldTime: state.worldTime, medals: state.manMedalsTotal,
   };
   await page.evaluate(() => window.__harness.advance(4.2));
+  assert.equal(await page.locator('.hud-medal-next').evaluate((el) => el.classList.contains('on')), true,
+    'the final 1.8s must reveal the far-sea follow-up goal');
   await page.evaluate(() => window.__harness.retry());
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'medal', 'ceremony cannot skip before the full 4.5s');
@@ -371,10 +402,12 @@ async function verifyFlightContract(page) {
 
 async function verifyMobileControls(page) {
   const start = page.locator('.mobile-start');
-  assert.equal(await start.isVisible(), true, 'mobile must start behind one explicit gesture');
+  const contractGo = page.locator('.driver-select-go');
+  assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
+  assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
   let status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.activation, 'idle');
-  await start.click();
+  await contractGo.click();
 
   // Headless Chrome may expose no orientation source. In that case the same
   // timeout used on real unsupported devices must land in touch mode.
@@ -400,6 +433,14 @@ async function verifyMobileControls(page) {
 
   const mode = page.locator('.mobile-mode');
   status = await page.evaluate(() => window.__harness.mobileStatus());
+  const topControlsOverlap = await page.evaluate(() => {
+    const modeRect = document.querySelector('.mobile-mode')?.getBoundingClientRect();
+    const soundRect = document.querySelector('.audio-mixer-toggle')?.getBoundingClientRect();
+    if (!modeRect || !soundRect) return false;
+    return Math.min(modeRect.right, soundRect.right) > Math.max(modeRect.left, soundRect.left) &&
+      Math.min(modeRect.bottom, soundRect.bottom) > Math.max(modeRect.top, soundRect.top);
+  });
+  assert.equal(topControlsOverlap, false, 'SOUND may not cover the tilt/touch mode switch');
   if (status.mode !== 'touch') await mode.click();
   assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'touch');
 
@@ -437,6 +478,21 @@ async function verifyMobileControls(page) {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(100);
   assert.equal(await page.locator('.mobile-orientation').isVisible(), true, 'portrait must show the landscape blocker');
+  assert.match(await page.locator('.mobile-orientation').textContent() ?? '', /仅支持横屏/);
+  assert.equal(await page.locator('.driver-select-go').isVisible(), false, 'portrait blocker must own the whole interaction surface');
+  assert.equal(await page.locator('[data-mobile-action="flight"]').isVisible(), false, 'portrait must expose no driving controls');
+  const portraitFrozen = await page.evaluate(() => window.__harness.playerState());
+  await page.evaluate(() => window.__harness.advance(1));
+  const portraitAfter = await page.evaluate(() => window.__harness.playerState());
+  assert.deepEqual(
+    { raceTime: portraitAfter.raceTime, worldTime: portraitAfter.worldTime, x: portraitAfter.playerX, z: portraitAfter.playerZ },
+    { raceTime: portraitFrozen.raceTime, worldTime: portraitFrozen.worldTime, x: portraitFrozen.playerX, z: portraitFrozen.playerZ },
+    'portrait blocker must freeze gameplay instead of failing behind the overlay',
+  );
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForTimeout(120);
+  assert.equal(await page.locator('.mobile-orientation').isVisible(), false, 'rotating back must dismiss the blocker');
+  assert.equal(await page.locator('[data-mobile-action="flight"]').isVisible(), true, 'landscape controls must recover after rotation');
   console.log('mobile controls contract: OK');
 }
 
@@ -669,7 +725,9 @@ async function main() {
         await page.evaluate((cfg) => {
           const h = window.__harness;
           // Ask the game for the player pose via stats-free path: use chaseCam-relative math in page.
-          const p = window.__harness.playerPose();
+          const p = cfg.target === 'opponent'
+            ? window.__harness.driftingOpponentPose()
+            : window.__harness.playerPose();
           const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
           h.freeCam(
             p.x - fx * cfg.back, p.y + cfg.up, p.z - fz * cfg.back,
@@ -687,7 +745,6 @@ async function main() {
 
       if (responsive) {
         for (const vp of [
-          { suffix: 'portrait', width: 390, height: 844 },
           { suffix: 'landscape', width: 844, height: 390 },
         ]) {
           await page.setViewportSize({ width: vp.width, height: vp.height });

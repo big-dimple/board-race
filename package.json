@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Cel-shaded arcade boat racing on an infinite open ocean. Vite + Three.js + TypeScript, zero external assets.",
+  "description": "Landscape-first cel-shaded arcade boat racing with drift-to-flight challenges.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -12,7 +12,11 @@
     "shot": "node harness/screenshot.mjs",
     "verify:flight": "node harness/screenshot.mjs --verify-flight",
     "verify:mobile": "node harness/screenshot.mjs --mobile --verify-mobile",
-    "verify:performance": "node harness/screenshot.mjs --verify-performance"
+    "verify:performance": "node harness/screenshot.mjs --verify-performance",
+    "verify:collision": "node harness/collision.mjs",
+    "verify:audio": "node harness/audio.mjs",
+    "verify:systems": "node harness/systems.mjs",
+    "verify:release": "npm run build && npm run verify:flight && npm run verify:mobile && npm run verify:collision && npm run verify:audio && npm run verify:systems && npm run verify:performance"
   },
   "dependencies": {
     "three": "^0.185.1"

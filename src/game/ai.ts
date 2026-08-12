@@ -5,7 +5,7 @@
  * 12-42m ahead, scaling with speed) + throttle from a precomputed curvature
  * table (sampled every ~4m, braking distances propagated backwards), plus:
  *   - personalities (see PERSONALITIES, per-field comments)
- *   - rubber band: pace scale = clamp(1 + (player - me) * 0.00035, 0.94, 1.07)
+ *   - externally directed rivalry pace with hysteresis (never teleporting)
  *   - traffic avoidance steer bias + staggered lateral lanes (-4/0/+4m)
  *   - seeded mistakes: short degraded-steering events (mulberry32 — the
  *     screenshot harness gets deterministic runs)
@@ -20,7 +20,7 @@ import type { IBoat, ICourse, BoatInput, Personality, CourseSample } from '../co
 const VMAX = 34; // normalization reference top speed (m/s)
 const A_LAT = 6.5; // lateral grip budget (m/s^2) behind the corner speed table
 const V_MIN_CORNER = 10; // corner speed floor (m/s)
-const AVOID_DIST = 9; // m
+const AVOID_DIST = 5.6; // m; close enough that contact remains a deliberate racing option
 
 interface PersonalityTune {
   cornerMul: number; // multiplier on the curvature-table speed targets
@@ -112,6 +112,7 @@ export class AIController {
   private readonly seed: number;
   private readonly paceScale: number;
   private readonly preferredLane: number;
+  private readonly elite: boolean;
   private readonly input: BoatInput = {
     throttle: 0,
     steer: 0,
@@ -143,7 +144,7 @@ export class AIController {
   private kappa = new Float32Array(0); // signed, + = left
   private vmax = new Float32Array(0); // per-sample speed targets (pre-personality)
 
-  constructor(personality: Personality, course: ICourse, seed = 1, paceScale = 1, preferredLane = 0) {
+  constructor(personality: Personality, course: ICourse, seed = 1, paceScale = 1, preferredLane = 0, elite = false) {
     this.personality = personality;
     this.tune = PERSONALITIES[personality];
     this.course = course;
@@ -151,6 +152,7 @@ export class AIController {
     this.rng = mulberry32(seed);
     this.paceScale = paceScale;
     this.preferredLane = preferredLane;
+    this.elite = elite;
     this.nextMistakeAt = this.mistakeEvery();
     this.pacePhase = this.rng() * Math.PI * 2;
     this.wanderW1 = 0.4 + this.rng() * 0.3;
@@ -231,6 +233,7 @@ export class AIController {
     all: IBoat[],
     myProgress: number,
     playerProgress: number,
+    rivalryPace = 1,
   ): BoatInput {
     const tune = this.tune;
     this.t += dt;
@@ -327,8 +330,10 @@ export class AIController {
       const v = this.vmax[(idx + s) % this.tableN];
       if (v < target) target = v;
     }
-    const catchup = clamp(1 + (playerProgress - myProgress) * 0.00035, 0.94, 1.07);
-    target *= this.paceScale * catchup * tune.cornerMul *
+    // `playerProgress` remains in the signature for deterministic harness
+    // compatibility; RivalDirector is now the only source of competitive pace.
+    void playerProgress;
+    target *= this.paceScale * clamp(rivalryPace, 0.955, 1.05) * tune.cornerMul *
       (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
     let throttle = clamp((target - speed) * 0.5, -1, 1);
     if (Math.abs(err) > 1.2) throttle = Math.min(throttle, 0.4); // spun out: recover gently
@@ -362,7 +367,7 @@ export class AIController {
       const cross = fx * oz - fz * ox; // <0: they are on my left (boat frame)
       const w = (1 - d / AVOID_DIST) * aheadness;
       steer = clamp(steer - 0.55 * Math.sign(cross) * w, -1, 1);
-      if (d < 5 && aheadness > 0.6) throttle = Math.min(throttle, 0.2);
+      if (d < 3.1 && aheadness > 0.72) throttle = Math.min(throttle, this.elite ? 0.72 : 0.35);
     }
 
     // --- seeded mistakes: a short burst of degraded steering (late turn-in / overshoot)
@@ -370,7 +375,7 @@ export class AIController {
       this.mistakeT -= dt;
       steer = clamp(steer * (1 - tune.mistakeSteer) + this.mistakeBias * tune.mistakeSteer, -1, 1);
       throttle *= 0.85;
-    } else if (this.t >= this.nextMistakeAt) {
+    } else if (!this.elite && this.t >= this.nextMistakeAt) {
       const [dLo, dHi] = tune.mistakeDur;
       this.mistakeT = dLo + this.rng() * (dHi - dLo);
       this.mistakeBias = (this.rng() * 2 - 1) * 0.8;

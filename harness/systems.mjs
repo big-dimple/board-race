@@ -1,0 +1,187 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const port = Number(process.env.SYSTEMS_PORT || 5221);
+const chrome = existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
+const base = `http://127.0.0.1:${port}/?harness=1&quality=performance`;
+const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--port', String(port), '--strictPort'], {
+  cwd: root,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+
+async function waitForServer() {
+  for (let i = 0; i < 60; i++) {
+    try {
+      if ((await fetch(base)).ok) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error('systems harness server did not start');
+}
+
+async function load(page) {
+  await page.goto(base, { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
+}
+
+async function replaceStorage(page, entries) {
+  await page.evaluate((next) => {
+    localStorage.clear();
+    for (const [key, value] of Object.entries(next)) localStorage.setItem(key, JSON.stringify(value));
+  }, entries);
+  await page.reload({ waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
+}
+
+try {
+  await waitForServer();
+  const browser = await chromium.launch({
+    headless: true,
+    ...(chrome ? { executablePath: chrome } : {}),
+    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  });
+
+  const recordsContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const recordsPage = await recordsContext.newPage();
+  await load(recordsPage);
+
+  const portraits = await recordsPage.evaluate(() => ({
+    count: document.querySelectorAll('.driver-card img').length,
+    loaded: [...document.querySelectorAll('.driver-card img')].every((image) => image.complete && image.naturalWidth > 0),
+    names: [...document.querySelectorAll('.driver-card strong')].map((node) => node.textContent),
+  }));
+  assert.equal(portraits.count, 6, 'character select must expose six adult drivers');
+  assert.equal(portraits.loaded, true, 'every local driver portrait must decode');
+  assert.ok(portraits.names.includes('TIDE') && portraits.names.includes('SOL'), 'both women must be selectable');
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v3': {
+      version: 3, runs: 7, ordinaryUnlocked: true, manMedalsTotal: 4, excellentCount: 2,
+      bestQualificationTime: 31.2, bestExcellentTime: 29.8, bestFlights: 5,
+      bestRouteProgress: 0.45, closestMissM: 0.12,
+    },
+  });
+  let state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.version, 4);
+  assert.equal(state.runs, 7);
+  assert.equal(state.manMedalsTotal, 4);
+  assert.equal(state.bestFlights, 5);
+  assert.equal(state.farSeaDossierUnlocked, true);
+  assert.deepEqual(state.bestFlightsByDriver, {});
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v2': {
+      version: 2, runs: 5, ordinaryUnlocked: true, legacyMedals: 3, excellentCount: 2,
+      bestCompleteTime: 33, bestExcellentTime: 30, bestFlightsCleared: 3,
+      bestRouteProgress: 0.33, closestMissM: 0.2,
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.version, 4);
+  assert.equal(state.runs, 5);
+  assert.equal(state.manMedalsTotal, 3);
+  assert.equal(state.bestQualificationTime, 33);
+  assert.equal(state.bestFlights, 3);
+  assert.equal(state.farSeaDossierUnlocked, true);
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v4': {
+      version: 4, runs: -8, ordinaryUnlocked: 'yes', manMedalsTotal: 'bad', excellentCount: -2,
+      bestQualificationTime: -1, bestExcellentTime: null, bestFlights: -4,
+      bestRouteProgress: -3, closestMissM: -0.2,
+      bestFlightsByDriver: { tide: 4, '../bad': 99, sol: -2 }, farSeaDossierUnlocked: false, rivalWins: -9,
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.runs, 0);
+  assert.equal(state.ordinaryUnlocked, false);
+  assert.equal(state.excellentCount, 0);
+  assert.equal(state.bestFlights, 0);
+  assert.deepEqual(state.bestFlightsByDriver, { tide: 4, sol: 0 });
+  assert.equal(state.bestQualificationTime, null);
+
+  await replaceStorage(recordsPage, {});
+  state = await recordsPage.evaluate(() => window.__harness.recordsCase('progress'));
+  assert.equal(state.runs, 1);
+  assert.equal(state.bestFlights, 4);
+  assert.deepEqual(state.bestFlightsByDriver, { tide: 4 });
+  assert.equal(state.manMedalsTotal, 1);
+  assert.equal(state.excellentCount, 1);
+  assert.equal(state.rivalWins, 1);
+  assert.equal(state.farSeaDossierUnlocked, true);
+  await recordsPage.reload({ waitUntil: 'load', timeout: 60000 });
+  await recordsPage.waitForFunction(() => window.__harness?.ready);
+  assert.deepEqual(await recordsPage.evaluate(() => window.__harness.recordsState()), state, 'v4 records must survive reload');
+
+  await recordsPage.evaluate(() => localStorage.setItem('board-race:driver:v1', 'tide'));
+  await recordsPage.reload({ waitUntil: 'load', timeout: 60000 });
+  await recordsPage.waitForFunction(() => window.__harness?.ready);
+  const exported = JSON.parse(await recordsPage.evaluate(() => window.__harness.recordsExport()));
+  assert.equal(exported.schema, 'board-race-save');
+  assert.equal(exported.selectedDriverId, 'tide');
+  assert.equal(exported.records.bestFlights, 4);
+
+  const importedDriver = await recordsPage.evaluate(() => window.__harness.recordsImport(JSON.stringify({
+    schema: 'board-race-save', selectedDriverId: 'sol', records: {
+      version: 4, runs: 9, ordinaryUnlocked: true, manMedalsTotal: 6, excellentCount: 3,
+      bestQualificationTime: 28.4, bestExcellentTime: 27.1, bestFlights: 8,
+      bestRouteProgress: 0.7, closestMissM: 0.03, bestFlightsByDriver: { sol: 8 },
+      farSeaDossierUnlocked: true, rivalWins: 2,
+    },
+  })));
+  assert.equal(importedDriver.selectedDriverId, 'sol');
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.runs, 9);
+  assert.equal(state.bestFlights, 8);
+  assert.equal(state.manMedalsTotal, 6);
+  assert.deepEqual(state.bestFlightsByDriver, { sol: 8 });
+  const invalidImport = await recordsPage.evaluate(() => {
+    try {
+      window.__harness.recordsImport('{"schema":"wrong","records":{}}');
+      return 'accepted';
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  });
+  assert.match(invalidImport, /格式不正确/);
+
+  const rival = await recordsPage.evaluate(() => window.__harness.rivalCase());
+  assert.equal(rival.rivalIds.length, 2, 'exactly two elite rivals may receive director pacing');
+  assert.ok(rival.chase.every((value) => value >= 1.044 && value <= 1.0451), `bounded chase: ${rival.chase}`);
+  assert.ok(rival.release.every((value) => value >= 0.9649 && value <= 0.966), `bounded release: ${rival.release}`);
+  assert.deepEqual(rival.duringLock, rival.beforeLock, 'battle hysteresis must prevent an instant pace reversal');
+  assert.ok(rival.duringGrace.every((value) => Math.abs(value - 1) < 1e-6), `impact grace: ${rival.duringGrace}`);
+  assert.ok(rival.afterGrace.every((value) => value > 1 && value < 1.02), `pace must ramp after grace: ${rival.afterGrace}`);
+  assert.equal(rival.nonRivalPace, 1, 'non-elite racers must keep authored pace');
+  await recordsContext.close();
+
+  const enduranceContext = await browser.newContext({ viewport: { width: 844, height: 390 } });
+  const endurancePage = await enduranceContext.newPage();
+  await load(endurancePage);
+  const endurance = await endurancePage.evaluate(() => window.__harness.enduranceCase(14));
+  assert.equal(endurance.phase, 'racing');
+  assert.equal(endurance.flights, 14, 'two complete seven-route cycles must remain playable');
+  assert.equal(endurance.routeCursor, 14);
+  assert.equal(endurance.routeSlot, 0);
+  assert.equal(endurance.passes, 14);
+  assert.equal(endurance.medalCount, 1, 'the qualification ceremony may run only once per attempt');
+  assert.equal(endurance.finite, true);
+  assert.ok(endurance.maxSpeed <= 50, `endurance velocity must remain bounded: ${endurance.maxSpeed}`);
+  assert.ok(endurance.visibleRoutes <= 1, `at most one route guide may survive: ${endurance.visibleRoutes}`);
+  assert.equal(endurance.resetPhase, 'ready');
+  assert.equal(endurance.resetFlights, 0);
+  assert.equal(endurance.resetRouteCursor, 0);
+  assert.equal(endurance.resetVisibleRoutes, 0);
+  await enduranceContext.close();
+
+  console.log('records, roster, rivals, and endurance contracts: OK');
+  console.log(JSON.stringify({ rival, endurance }, null, 2));
+  await browser.close();
+} finally {
+  server.kill('SIGTERM');
+}

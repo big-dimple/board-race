@@ -1,11 +1,12 @@
 import type { ChallengeResult, FlightFailureSnapshot } from '../contracts';
 
-const STORAGE_KEY = 'board-race:challenge:v3';
+const STORAGE_KEY = 'board-race:challenge:v4';
+const V3_KEY = 'board-race:challenge:v3';
 const V2_KEY = 'board-race:challenge:v2';
 const LEGACY_MEDAL_KEY = 'board-race:man-medals:v1';
 
 export interface ChallengeRecords {
-  version: 3;
+  version: 4;
   runs: number;
   ordinaryUnlocked: boolean;
   manMedalsTotal: number;
@@ -15,10 +16,13 @@ export interface ChallengeRecords {
   bestFlights: number;
   bestRouteProgress: number;
   closestMissM: number | null;
+  bestFlightsByDriver: Record<string, number>;
+  farSeaDossierUnlocked: boolean;
+  rivalWins: number;
 }
 
 const defaults = (): ChallengeRecords => ({
-  version: 3,
+  version: 4,
   runs: 0,
   ordinaryUnlocked: false,
   manMedalsTotal: readLegacyMedals(),
@@ -28,6 +32,9 @@ const defaults = (): ChallengeRecords => ({
   bestFlights: 0,
   bestRouteProgress: 0,
   closestMissM: null,
+  bestFlightsByDriver: {},
+  farSeaDossierUnlocked: false,
+  rivalWins: 0,
 });
 
 export class RecordsStore {
@@ -43,14 +50,18 @@ export class RecordsStore {
     return this.data.runs;
   }
 
-  recordFlightPass(flights: number): { newBest: boolean; bestFlights: number } {
+  recordFlightPass(flights: number, driverId = 'axle'): { newBest: boolean; bestFlights: number; driverBest: number } {
     const newBest = flights > this.data.bestFlights;
+    const driverBest = Math.max(this.data.bestFlightsByDriver[driverId] ?? 0, flights);
+    const driverNewBest = driverBest > (this.data.bestFlightsByDriver[driverId] ?? 0);
+    if (driverNewBest) this.data.bestFlightsByDriver[driverId] = driverBest;
     if (newBest) {
       this.data.bestFlights = flights;
       this.data.bestRouteProgress = 0;
-      this.save();
     }
-    return { newBest, bestFlights: this.data.bestFlights };
+    if (flights >= 3) this.data.farSeaDossierUnlocked = true;
+    if (newBest || driverNewBest || flights === 3) this.save();
+    return { newBest, bestFlights: this.data.bestFlights, driverBest };
   }
 
   qualifyRun(raceTime: number): { ordinaryNew: boolean; manMedalsTotal: number } {
@@ -70,6 +81,26 @@ export class RecordsStore {
     if (newBestTime) this.data.bestExcellentTime = raceTime;
     this.save();
     return { excellentTotal: this.data.excellentCount, newBestTime };
+  }
+
+  recordRivalWin(): void {
+    this.data.rivalWins++;
+    this.save();
+  }
+
+  exportJson(selectedDriverId: string): string {
+    return JSON.stringify({ schema: 'board-race-save', exportedAt: new Date().toISOString(), selectedDriverId, records: this.data }, null, 2);
+  }
+
+  importJson(raw: string): { selectedDriverId: string | null } {
+    const parsed = JSON.parse(raw) as { schema?: unknown; selectedDriverId?: unknown; records?: unknown };
+    if (parsed.schema !== 'board-race-save' || !parsed.records || typeof parsed.records !== 'object') {
+      throw new Error('存档格式不正确');
+    }
+    const incoming = sanitizeV4(parsed.records as Partial<ChallengeRecords>, this.data);
+    Object.assign(this.data, incoming);
+    this.save();
+    return { selectedDriverId: typeof parsed.selectedDriverId === 'string' ? parsed.selectedDriverId : null };
   }
 
   recordFailure(result: ChallengeResult): boolean {
@@ -109,20 +140,12 @@ function loadRecords(): ChallengeRecords {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
-      if (parsed.version === 3) {
-        return {
-          version: 3,
-          runs: finiteNonNegative(parsed.runs, 0),
-          ordinaryUnlocked: parsed.ordinaryUnlocked === true,
-          manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),
-          excellentCount: finiteNonNegative(parsed.excellentCount, 0),
-          bestQualificationTime: finitePositiveOrNull(parsed.bestQualificationTime),
-          bestExcellentTime: finitePositiveOrNull(parsed.bestExcellentTime),
-          bestFlights: finiteNonNegative(parsed.bestFlights, 0),
-          bestRouteProgress: finiteNonNegative(parsed.bestRouteProgress, 0),
-          closestMissM: finitePositiveOrNull(parsed.closestMissM),
-        };
-      }
+      if (parsed.version === 4) return sanitizeV4(parsed, fallback);
+    }
+    const v3Raw = localStorage.getItem(V3_KEY);
+    if (v3Raw) {
+      const v3 = JSON.parse(v3Raw) as Record<string, unknown>;
+      if (v3.version === 3) return sanitizeV4(v3 as Partial<ChallengeRecords>, fallback);
     }
     const v2Raw = localStorage.getItem(V2_KEY);
     if (!v2Raw) return fallback;
@@ -131,7 +154,7 @@ function loadRecords(): ChallengeRecords {
     const excellentCount = finiteNonNegative(v2.excellentCount, 0);
     const ordinaryUnlocked = v2.ordinaryUnlocked === true;
     return {
-      version: 3,
+      version: 4,
       runs: finiteNonNegative(v2.runs, 0),
       ordinaryUnlocked,
       manMedalsTotal: Math.max(
@@ -146,10 +169,38 @@ function loadRecords(): ChallengeRecords {
       bestFlights: finiteNonNegative(v2.bestFlightsCleared, 0),
       bestRouteProgress: finiteNonNegative(v2.bestRouteProgress, 0),
       closestMissM: finitePositiveOrNull(v2.closestMissM),
+      bestFlightsByDriver: {},
+      farSeaDossierUnlocked: finiteNonNegative(v2.bestFlightsCleared, 0) >= 3,
+      rivalWins: 0,
     };
   } catch {
     return fallback;
   }
+}
+
+function sanitizeV4(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords): ChallengeRecords {
+  const byDriver: Record<string, number> = {};
+  if (parsed.bestFlightsByDriver && typeof parsed.bestFlightsByDriver === 'object') {
+    for (const [key, value] of Object.entries(parsed.bestFlightsByDriver)) {
+      if (/^[a-z0-9-]{1,32}$/.test(key)) byDriver[key] = finiteNonNegative(value, 0);
+    }
+  }
+  const bestFlights = finiteNonNegative(parsed.bestFlights, 0);
+  return {
+    version: 4,
+    runs: finiteNonNegative(parsed.runs, 0),
+    ordinaryUnlocked: parsed.ordinaryUnlocked === true,
+    manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),
+    excellentCount: finiteNonNegative(parsed.excellentCount, 0),
+    bestQualificationTime: finitePositiveOrNull(parsed.bestQualificationTime),
+    bestExcellentTime: finitePositiveOrNull(parsed.bestExcellentTime),
+    bestFlights,
+    bestRouteProgress: finiteNonNegative(parsed.bestRouteProgress, 0),
+    closestMissM: finitePositiveOrNull(parsed.closestMissM),
+    bestFlightsByDriver: byDriver,
+    farSeaDossierUnlocked: parsed.farSeaDossierUnlocked === true || bestFlights >= 3,
+    rivalWins: finiteNonNegative(parsed.rivalWins, 0),
+  };
 }
 
 function readLegacyMedals(): number {

@@ -163,6 +163,14 @@ export class CameraRig {
     }
   }
 
+  collisionKick(strength: number): void {
+    if (this.reducedMotion) return;
+    const n = clamp(strength / 16, 0.08, 1);
+    this.shake(0.08 + n * 0.26);
+    this.impactFov = Math.min(this.impactFov, -0.7 - n * 1.6);
+    this.impactBack = Math.min(this.impactBack, -0.12 - n * 0.32);
+  }
+
   update(dt: number, boat: IBoat, t: number): void {
     const st = boat.state;
     const bx = st.position.x;

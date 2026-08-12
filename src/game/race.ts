@@ -29,6 +29,7 @@ import type {
   RaceBattleOpponent,
   FlightFailureSnapshot,
   ChallengeTier,
+  RacerDefinition,
 } from '../contracts';
 import { CHECKPOINT_US } from './course';
 import { RACER_DEFS } from './racers';
@@ -79,6 +80,7 @@ export class Race implements RaceView {
   private readonly course: ICourse;
   private readonly boats: IBoat[];
   private readonly events: RaceEvents;
+  private definitions: readonly RacerDefinition[];
 
   private cdTimer = COUNTDOWN_S;
   private tickS = TICK_S;
@@ -106,12 +108,13 @@ export class Race implements RaceView {
   private lastOvertakeAt = -Infinity;
   private totalOvertakes = 0;
 
-  constructor(course: ICourse, boats: IBoat[], events: RaceEvents) {
+  constructor(course: ICourse, boats: IBoat[], events: RaceEvents, definitions: readonly RacerDefinition[] = RACER_DEFS) {
     this.course = course;
     this.boats = boats;
     this.events = events;
+    this.definitions = definitions;
     for (const boat of boats) {
-      const def = RACER_DEFS[boat.id];
+      const def = this.definitions[boat.id];
       this.racers[boat.id] = {
         id: boat.id,
         name: def?.name ?? `P${boat.id + 1}`,
@@ -137,6 +140,18 @@ export class Race implements RaceView {
     return this.racers[this.boats[0].id];
   }
 
+  setDefinitions(definitions: readonly RacerDefinition[]): void {
+    if (definitions.length !== this.boats.length || this.phase !== 'ready') return;
+    this.definitions = definitions;
+    for (const racer of this.racers) {
+      const def = definitions[racer.id];
+      racer.name = def.name;
+      racer.color = def.color;
+      racer.isPlayer = def.isPlayer;
+    }
+    this.reset();
+  }
+
   /** Reset the grid and wait for an explicit player confirmation. */
   reset(): void {
     this.phase = 'ready';
@@ -151,7 +166,7 @@ export class Race implements RaceView {
     for (const r of this.racers) {
       r.lap = 1;
       r.progress = 0;
-      r.place = RACER_DEFS[r.id]?.startPlace ?? r.id + 1;
+      r.place = this.definitions[r.id]?.startPlace ?? r.id + 1;
       r.lastLapTime = -1;
       r.bestLapTime = -1;
       r.splitDelta = 0;
@@ -177,7 +192,7 @@ export class Race implements RaceView {
     this.battlePrevDiff = new Array(n).fill(0);
     this.battleCooldown = new Array(n).fill(0);
     this.resynced = new Array(n).fill(false);
-    this.battleDisplayPlace = RACER_DEFS[0].startPlace;
+    this.battleDisplayPlace = this.definitions[0].startPlace;
     this.overtakeStreak = 0;
     this.lastOvertakeAt = -Infinity;
     this.totalOvertakes = 0;
@@ -297,6 +312,16 @@ export class Race implements RaceView {
     this.tickS = TICK_S;
     this.countdownValue = 3;
     this.pendingTick = 3;
+  }
+
+  /** Absorb contact-only position correction without awarding progress or a pass. */
+  syncCollisionCorrections(): void {
+    for (const boat of this.boats) {
+      const id = boat.id;
+      if (!this.inited[id]) continue;
+      this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
+      this.prevU[id] = _sample.u;
+    }
   }
 
   private track(dt: number, resyncOnly: boolean): void {

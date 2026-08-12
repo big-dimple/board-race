@@ -1,0 +1,162 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const port = Number(process.env.AUDIO_PORT || 5216);
+const chrome = existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
+const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), '--port', String(port), '--strictPort'], {
+  cwd: root,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+
+try {
+  for (let i = 0; i < 60; i++) {
+    try {
+      if ((await fetch(`http://127.0.0.1:${port}/`)).ok) break;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const browser = await chromium.launch({
+    headless: true,
+    ...(chrome ? { executablePath: chrome } : {}),
+    args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
+  });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`http://127.0.0.1:${port}/?harness=1&quality=performance`, { waitUntil: 'load', timeout: 60000 });
+  await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
+  await page.locator('.audio-mixer-toggle').click();
+  await page.waitForFunction(() => window.__harness.audioState().contextState === 'running');
+  await page.waitForTimeout(180);
+  let state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(state.scene, 'ready');
+  assert.equal(state.scoreArmed, false, 'READY gestures must not arm the race score');
+  assert.equal(state.musicPlaying, false, 'character select must remain musically silent');
+  assert.ok(Number(state.musicBusGain) < 0.008, `READY music bus must be closed: ${state.musicBusGain}`);
+  assert.ok(Number(state.ambience) <= 0.25, `phone-safe ambience default must stay restrained: ${state.ambience}`);
+  assert.ok(Number(state.sfx) <= 0.7, `phone-safe SFX default must leave limiter headroom: ${state.sfx}`);
+  assert.ok(Number(state.safetyHighpassHz) >= 48, `sub-bass protection must stay enabled: ${state.safetyHighpassHz}`);
+  assert.ok(Number(state.limiterThresholdDb) <= -12 && Number(state.limiterRatio) >= 12,
+    `the phone output limiter must stay protective: ${state.limiterThresholdDb}dB/${state.limiterRatio}:1`);
+
+  // The mixer is still honest: dragging the music row gives a short, explicit
+  // preview and then returns READY to silence.
+  const musicSlider = page.getByLabel('摇滚');
+  await musicSlider.fill('72');
+  await musicSlider.dispatchEvent('input');
+  await page.waitForFunction(() => window.__harness.audioState().musicPlaying === true, null, { timeout: 5000 });
+  const t0 = Number((await page.evaluate(() => window.__harness.audioState())).musicTime);
+  await page.waitForFunction((start) => Number(window.__harness.audioState().musicTime) > start + 0.15, t0, { timeout: 5000 });
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.musicTime) > t0 + 0.15, `formal score must advance: ${t0} -> ${state.musicTime}`);
+  assert.equal(state.musicFailed, false);
+  assert.equal(state.musicPreview, true);
+  await page.waitForTimeout(1250);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(state.musicPlaying, false, 'READY music audition must stop automatically');
+  assert.ok(Number(state.musicBusGain) < 0.008, 'audition must close the READY music bus');
+
+  const sliders = {
+    master: ['总音量', 'outputGain'],
+    music: ['摇滚', 'musicBusGain'],
+    sfx: ['音效', 'eventBusGain'],
+    ambience: ['水 / 空气', 'ambienceBusGain'],
+  };
+  for (const [key, [label, gainKey]] of Object.entries(sliders)) {
+    const slider = page.getByLabel(label);
+    const before = await page.evaluate(() => window.__harness.audioState());
+    await slider.fill('0');
+    await slider.dispatchEvent('input');
+    await page.waitForTimeout(key === 'ambience' && Number(await slider.inputValue()) > 0 ? 120 : 350);
+    state = await page.evaluate(() => window.__harness.audioState());
+    assert.ok(Number(state[gainKey]) < 0.008, `${key} 0% must silence ${gainKey}: ${state[gainKey]}`);
+    const output = await slider.evaluate((el) => el.parentElement.querySelector('output').textContent);
+    assert.equal(output, '0%', `${key} must expose a visible percentage`);
+    await slider.fill('100');
+    await slider.dispatchEvent('input');
+    await page.waitForTimeout(key === 'ambience' ? 120 : 350);
+    state = await page.evaluate(() => window.__harness.audioState());
+    assert.ok(Number(state[gainKey]) > 0.08, `${key} 100% must restore ${gainKey}: ${state[gainKey]}`);
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('board-race.audio.v1')));
+    assert.equal(saved[key], 1, `${key} must persist independently`);
+    if (key !== 'music') assert.equal(state.scoreArmed, false, `${key} preview must not arm the race score`);
+    void before;
+  }
+
+  // GO owns the score. The countdown starts filtered and quiet, then opens one
+  // layer per number before the racing mix continues its longer flow ramp.
+  await page.evaluate(() => window.__harness.scenario('countdown'));
+  await page.waitForTimeout(180);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(state.scene, 'countdown');
+  assert.equal(state.scoreArmed, true);
+  assert.equal(state.musicPlaying, true);
+  assert.equal(state.countdownStage, 2);
+  assert.ok(Number(state.scorePreroll) > 0.9 && Number(state.scorePreroll) < 1,
+    `GO pre-roll must align to a score beat: ${state.scorePreroll}`);
+  assert.ok(Number(state.musicFilterHz) < 3000, `countdown must keep the score filtered: ${state.musicFilterHz}`);
+  assert.ok(Number(state.musicBusGain) > 0.01 && Number(state.musicBusGain) < 0.5,
+    `countdown score must be audible but restrained: ${state.musicBusGain}`);
+  await page.evaluate(() => window.__harness.advance(2.7));
+  await page.waitForTimeout(220);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(state.scene, 'racing');
+  assert.ok(Number(state.musicFilterHz) > 4200, `GO must start opening the score: ${state.musicFilterHz}`);
+  await page.waitForTimeout(650);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.musicFilterHz) > 9000, `the score must finish opening after GO: ${state.musicFilterHz}`);
+  const openingGain = Number(state.musicBusGain);
+  await page.evaluate(() => window.__harness.advance(8));
+  await page.waitForTimeout(500);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.musicBusGain) > openingGain, `racing score must build gradually: ${openingGain} -> ${state.musicBusGain}`);
+
+  await page.evaluate(() => window.__harness.scenario('drift-charge'));
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.driftTier) >= 1, `drift must expose its first audible charge tier: ${state.driftTier}`);
+  await page.evaluate(() => window.__harness.advance(0.35));
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.driftTier) >= 2, `holding the drift must advance to a higher audible tier: ${state.driftTier}`);
+
+  await page.evaluate(() => window.__harness.scenario('overtake'));
+  await page.waitForTimeout(40);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.musicDuck) <= 0.67, `an overtake callout must duck the score: ${state.musicDuck}`);
+  await page.waitForTimeout(450);
+  await page.evaluate(() => window.__harness.advance(0.1));
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(Number(state.musicDuck), 1, 'event ducking must recover instead of permanently muting the score');
+
+  await page.evaluate(() => window.__harness.setVisibility(true));
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(state.scene, 'hidden');
+  assert.equal(state.outputGain, 0, 'backgrounding must synchronously silence master');
+  assert.equal(state.musicPlaying, false, 'backgrounding must pause the streamed track');
+  await page.evaluate(() => window.__harness.setVisibility(false));
+  await page.waitForTimeout(150);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.equal(state.outputGain, 0, 'foreground return stays silent until explicit GO/gesture');
+  assert.equal(state.musicPlaying, false);
+  await page.evaluate(() => window.__harness.resumeInterruption());
+  await page.waitForTimeout(450);
+  state = await page.evaluate(() => window.__harness.audioState());
+  assert.ok(Number(state.outputGain) > 0.08, 'explicit foreground gesture restores audio');
+  assert.equal(state.musicPlaying, true);
+  assert.equal(state.scene, 'countdown', 'foreground GO must resume through 3/2/1');
+
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.__harness?.ready);
+  const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('board-race.audio.v1')));
+  assert.deepEqual(
+    { master: persisted.master, music: persisted.music, sfx: persisted.sfx, ambience: persisted.ambience },
+    { master: 1, music: 1, sfx: 1, ambience: 1 },
+    'mixer settings must survive reload',
+  );
+  console.log('audio contract: OK');
+  await browser.close();
+} finally {
+  server.kill('SIGTERM');
+}

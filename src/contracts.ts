@@ -82,6 +82,8 @@ export interface FlightRouteDefinition {
   nodes: readonly FlightRouteNode[];
   corridorHalfWidth: number;
   gateHalfWidth: number;
+  /** Explicit horizontal pass limit. Kept separate so visuals and rules never drift. */
+  passHalfWidth: number;
   targetSpeed: number;
   qualifyFromU: number;
   launchFromU: number;
@@ -172,6 +174,10 @@ export interface IBoat {
   /** Recover an AI after a failed route and consume that route without scoring it. */
   recoverFailedFlightRoute(): void;
   applyFlightRouteMiss(failure: FlightFailureSnapshot): void;
+  /** Copy the current planar velocity without exposing Boat's mutable integrator state. */
+  collisionVelocity(out: THREE.Vector2): THREE.Vector2;
+  /** Apply one bounded arcade-contact response after all boats have integrated. */
+  applyCollisionResponse(correctionX: number, correctionZ: number, impulseX: number, impulseZ: number): void;
 }
 
 export interface IWake {
@@ -302,8 +308,10 @@ export type Personality = 'aggressive' | 'clean' | 'erratic';
 
 export interface RacerDefinition {
   id: number;
+  profileId: string;
   name: string;
   color: number;
+  portraitUrl: string;
   isPlayer: boolean;
   personality: Personality;
   pace: number;
