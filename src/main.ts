@@ -86,6 +86,7 @@ for (const racer of roster) {
   stage.scene.add(wake.object);
   wakes.push(wake);
   const boat = new Boat({ id: racer.id, color: racer.color, wake, spray, trail: jetTrail, detailedInk });
+  boat.setDriver(racer.color, driverProfile(racer.profileId).handling);
   stage.scene.add(boat.object);
   boats.push(boat);
   const rider = new Rider({ color: racer.color, detailedInk });
@@ -120,8 +121,6 @@ const driverSelect = new DriverSelect(
     applySelectedDriver(profile.id);
   },
   requestFreshStart,
-  exportSave,
-  importSave,
 );
 
 const input = new Input();
@@ -253,26 +252,6 @@ function applySelectedDriver(id: string): void {
 function requestFreshStart(): void {
   if (mobileInput.enabled) mobileInput.requestGo();
   else startFreshCountdown();
-}
-
-function exportSave(): void {
-  const blob = new Blob([records.exportJson(selectedDriverId)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `board-race-save-${new Date().toISOString().slice(0, 10)}.json`;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 500);
-}
-
-function importSave(raw: string): void {
-  try {
-    const imported = records.importJson(raw);
-    if (imported.selectedDriverId) saveSelectedDriver(imported.selectedDriverId);
-    location.reload();
-  } catch (error) {
-    window.alert(error instanceof Error ? error.message : '存档导入失败');
-  }
 }
 
 function requestRetry(): void {
@@ -443,6 +422,7 @@ const ZERO_INPUT: BoatInput = {
   airBrake: false,
 };
 let harnessPlayerInput: BoatInput | null = null;
+let harnessFlightTriggerPulse = false;
 
 function step(dt: number, _t: number): void {
   if (interruptionActive) return;
@@ -572,7 +552,12 @@ function step(dt: number, _t: number): void {
     if (i === 0 && harnessForceAirBrake && boats[0].state.flightPhase !== 'surface') {
       inp = { ...inp, drift: false, airBrake: true };
     }
+    if (i === 0 && harnessSuppressAirborneFlightTrigger && boats[0].state.flightPhase !== 'surface') {
+      inp = { ...inp, flightTrigger: false };
+    }
+    if (i === 0 && harnessFlightTriggerPulse) inp = { ...inp, flightTrigger: true };
     boats[i].update(dt, inp, worldTime);
+    if (i === 0) harnessFlightTriggerPulse = false;
   }
 
   if (racing) course.updateFlightRoute(dt, boats);
@@ -646,6 +631,12 @@ function step(dt: number, _t: number): void {
     cameraRig.flightReadyKick();
     pipeline.pulse('ready');
   }
+  if (playerState.flightExtended) {
+    audio.flightExtend();
+    cameraRig.flightExtendKick();
+    pipeline.pulse('ready', 0.68);
+    haptic(14);
+  }
   if (playerState.boosting && !prevBoosting) pipeline.pulse('boost', 0.92);
   if (playerState.flightPhase === 'spool' && prevFlightPhase !== 'spool') {
     pipeline.pulse('launch', 1.05);
@@ -710,6 +701,7 @@ function step(dt: number, _t: number): void {
     ps.driftReleaseReady,
     ps.flightCharges,
     ps.flightPhase !== 'surface',
+    ps.flightExtensionReady,
     course.flightTurnWarning(boats[0].id),
   );
   audio.setEngine(ps.rpm, ps.throttle, ps.boosting);
@@ -819,6 +811,7 @@ interface Harness {
   earnFlight(combo?: boolean): void;
   tapFlight(): void;
   passFlight(routeCursor: number, initialCharges?: number, forceAirBrake?: boolean): void;
+  passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
   flightBudgetCase(): Record<string, unknown>;
   retry(): void;
   playerState(): Record<string, number | string | boolean>;
@@ -844,6 +837,7 @@ interface Harness {
 let freeCamPose: { p: [number, number, number]; l: [number, number, number] } | null = null;
 let harnessUsePlayerInput = false;
 let harnessForceAirBrake = false;
+let harnessSuppressAirborneFlightTrigger = false;
 
 function advanceUntil(cond: () => boolean, maxSeconds: number): void {
   let elapsed = 0;
@@ -900,6 +894,13 @@ function tapHarnessFlight(throttle = 1): void {
   setHarnessInput({ throttle, flightTrigger: false });
 }
 
+/** Trigger one Space edge while preserving the real AI steer/throttle output. */
+function pulseHarnessFlightOverAi(): void {
+  harnessFlightTriggerPulse = true;
+  loop.advance(1 / 60);
+  harnessFlightTriggerPulse = false;
+}
+
 /** Earn through the real Space path; used to guard the core drift→flight contract. */
 function earnHarnessFlight(combo = false): void {
   setHarnessInput({ throttle: 1 });
@@ -932,6 +933,7 @@ function beginHarnessRouteFlight(routeCursor = 0, initialCharges = 1): void {
 function passHarnessFlight(routeCursor: number, initialCharges = 1, forceAirBrake = false): void {
   beginHarnessRouteFlight(routeCursor, initialCharges);
   harnessForceAirBrake = forceAirBrake;
+  harnessSuppressAirborneFlightTrigger = true;
   try {
     advanceUntil(() => boats[0].state.flightRouteState === 'passed' || race.phase === 'defeated', 14);
     if (boats[0].state.flightRouteState !== 'passed') {
@@ -943,6 +945,30 @@ function passHarnessFlight(routeCursor: number, initialCharges = 1, forceAirBrak
     loop.advance(0.05);
   } finally {
     harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+  }
+}
+
+function passHarnessExtendedFlight(routeCursor: number, forceAirBrake = false): void {
+  beginHarnessRouteFlight(routeCursor, 2);
+  harnessForceAirBrake = forceAirBrake;
+  harnessSuppressAirborneFlightTrigger = true;
+  try {
+    advanceUntil(() => boats[0].state.flightExtensionReady || race.phase === 'defeated', 3);
+    if (!boats[0].state.flightExtensionReady) {
+      throw new Error(`flight ${routeCursor + 1} never exposed its airborne extension`);
+    }
+    pulseHarnessFlightOverAi();
+    advanceUntil(() => boats[0].state.flightRouteState === 'passed' || race.phase === 'defeated', 14);
+    if (boats[0].state.flightRouteState !== 'passed') {
+      const st = boats[0].state;
+      throw new Error(`extended harness could not pass flight ${routeCursor + 1}: ${st.flightRouteFailReason}; ` +
+        `${course.flightDebugStatus(0)}; speed=${st.speed.toFixed(2)}; clearance=${st.flightClearance.toFixed(2)}`);
+    }
+    loop.advance(0.05);
+  } finally {
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
   }
 }
 
@@ -1456,6 +1482,7 @@ function runEnduranceCase(requestedFlights: number): Record<string, unknown> {
 function scenario(name: string): void {
   freeCamPose = null;
   harnessUsePlayerInput = false;
+  harnessSuppressAirborneFlightTrigger = false;
   setHarnessInput(null);
   resetRace();
   if (name !== 'ready') startFreshCountdown();
@@ -1537,6 +1564,25 @@ function scenario(name: string): void {
       beginHarnessRouteFlight();
       loop.advance(1.1);
       break;
+    case 'flight-extension-ready':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(2, 2);
+      advanceUntil(() => boats[0].state.flightExtensionReady, 2);
+      break;
+    case 'flight-extension-spool':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(2, 2);
+      tapHarnessFlight();
+      break;
+    case 'flight-extension-descent':
+      advanceUntil(() => race.phase === 'racing', 8);
+      placePack(0.8);
+      boats[0].state.flightCharges = 2;
+      setHarnessInput({ throttle: 0, flightTrigger: true });
+      loop.advance(1 / 60);
+      setHarnessInput({ throttle: 0 });
+      advanceUntil(() => boats[0].state.flightPhase === 'descending', 7);
+      break;
     case 'flight-airbrake':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight(1);
@@ -1552,7 +1598,9 @@ function scenario(name: string): void {
     case 'flight-descent':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
+      boats[0].state.flightCharges = 0;
       advanceUntil(() => boats[0].state.flightRouteState === 'passed', 12);
+      setHarnessInput({ throttle: 1 });
       loop.advance(0.18);
       break;
     case 'flight-miss':
@@ -1612,7 +1660,9 @@ function scenario(name: string): void {
     case 'flight-spent-charge':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
+      boats[0].state.flightCharges = 0;
       advanceUntil(() => boats[0].state.flightRouteState === 'passed', 12);
+      setHarnessInput({ throttle: 1 });
       advanceUntil(() => boats[0].state.flightPhase === 'surface' && boats[0].state.flightRouteState === 'idle', 2);
       tapHarnessFlight();
       break;
@@ -1712,10 +1762,12 @@ if (HARNESS) {
     earnFlight: earnHarnessFlight,
     tapFlight: tapHarnessFlight,
     passFlight: passHarnessFlight,
+    passExtendedFlight: passHarnessExtendedFlight,
     flightBudgetCase,
     retry: requestRetry,
     playerState: () => {
       const s = boats[0].state;
+      const handling = boats[0].debugDriverHandling();
       const failure = race.challengeResult?.failure;
       return {
         speed: s.speed,
@@ -1728,6 +1780,13 @@ if (HARNESS) {
         flightReady: s.flightCharges > 0,
         flightPhase: s.flightPhase,
         flightRemaining: s.flightRemaining,
+        flightExtensionReady: s.flightExtensionReady,
+        flightExtensionUsed: s.flightExtensionUsed,
+        flightExtended: s.flightExtended,
+        driverAcceleration: handling.acceleration,
+        driverSteering: handling.steering,
+        driverDriftCharge: handling.driftCharge,
+        driverAirControl: handling.airControl,
         flightClearance: s.flightClearance,
         flightThrust: s.flightThrust,
         flightAirBrake: s.flightAirBrake,

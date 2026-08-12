@@ -96,6 +96,7 @@ export class GameAudio {
   private retryVariation = 0;
   private lastFailureAt = -Infinity;
   private activeOneShots = 0;
+  private flightExtendEvents = 0;
   private lastDriverSelectAt = -Infinity;
   private driverSelectEvents = 0;
   private lastDriverSelectIndex = -1;
@@ -262,6 +263,7 @@ export class GameAudio {
       sfx: this.settings.sfx,
       ambience: this.settings.ambience,
       activeOneShots: this.activeOneShots,
+      flightExtendEvents: this.flightExtendEvents,
       driverSelectEvents: this.driverSelectEvents,
       lastDriverSelectIndex: this.lastDriverSelectIndex,
       outputGain: this.master?.gain.value ?? 0,
@@ -501,6 +503,19 @@ export class GameAudio {
     this.blip(620 * lift, c.currentTime, 0.18, 0.2, 'triangle');
     this.blip(930 * lift, c.currentTime + 0.07, 0.25, 0.19, 'triangle');
     this.blip(1395 * lift, c.currentTime + 0.14, 0.32, 0.14, 'square');
+  }
+
+  flightExtend(): void {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime;
+    this.flightExtendEvents++;
+    // A clean rising confirmation that cuts through the score without adding
+    // another low-frequency impact to small phone speakers.
+    this.blip(720, t, 0.13, 0.11, 'triangle');
+    this.blip(1080, t + 0.055, 0.2, 0.12, 'triangle');
+    this.blip(1440, t + 0.12, 0.28, 0.1, 'square');
+    this.duckMusic(0.8, 0.16);
   }
 
   driverSelected(index: number, direction: -1 | 1): void {

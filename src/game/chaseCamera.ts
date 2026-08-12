@@ -136,6 +136,13 @@ export class CameraRig {
     this.impactFov = Math.max(this.impactFov, 3.2);
   }
 
+  flightExtendKick(): void {
+    if (this.reducedMotion) return;
+    this.shake(0.12);
+    this.impactFov = Math.max(this.impactFov, 1.8);
+    this.impactBack = Math.max(this.impactBack, 0.28);
+  }
+
   defeatKick(): void {
     if (this.reducedMotion) return;
     this.shake(1);

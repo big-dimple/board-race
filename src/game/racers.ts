@@ -40,7 +40,7 @@ export interface DriverProfile {
 
 const DRIVER_STORAGE_KEY = 'board-race:driver:v1';
 
-/** Adult drivers. Percent-style stats stay close enough that choice expresses style, not a difficulty trap. */
+/** Adult drivers. Every player-facing handling modifier stays within +/-6%. */
 export const DRIVER_PROFILES: readonly DriverProfile[] = [
   {
     id: 'axle', name: 'AXLE', callsign: '轴心', age: 28, pronouns: '他', portraitUrl: axlePortrait, portraitPosition: '50% 20%',

@@ -27,6 +27,9 @@ export class MobileControls {
   private readonly start: HTMLButtonElement | null;
   private readonly modeButton: HTMLButtonElement | null;
   private readonly driftLabel: HTMLElement | null;
+  private readonly driftSubLabel: HTMLElement | null;
+  private readonly flightLabel: HTMLElement | null;
+  private readonly flightSubLabel: HTMLElement | null;
   private readonly tiltMeter: HTMLDivElement | null;
   private readonly onFirstGesture: () => void;
   private readonly activePointers = new Map<number, PointerAction>();
@@ -69,6 +72,9 @@ export class MobileControls {
       this.start = null;
       this.modeButton = null;
       this.driftLabel = null;
+      this.driftSubLabel = null;
+      this.flightLabel = null;
+      this.flightSubLabel = null;
       this.tiltMeter = null;
       return;
     }
@@ -99,6 +105,9 @@ export class MobileControls {
     this.start = root.querySelector<HTMLButtonElement>('.mobile-start');
     this.modeButton = root.querySelector<HTMLButtonElement>('.mobile-mode');
     this.driftLabel = root.querySelector<HTMLElement>('[data-mobile-action="drift"] b');
+    this.driftSubLabel = root.querySelector<HTMLElement>('[data-mobile-action="drift"] small');
+    this.flightLabel = root.querySelector<HTMLElement>('[data-mobile-action="flight"] b');
+    this.flightSubLabel = root.querySelector<HTMLElement>('[data-mobile-action="flight"] small');
     this.tiltMeter = root.querySelector<HTMLDivElement>('.mobile-tilt-meter i');
 
     this.start?.addEventListener('click', () => {
@@ -172,6 +181,7 @@ export class MobileControls {
     const flightTrigger = this.flightQueued;
     this.flightQueued = false;
     if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';
+    if (this.driftSubLabel) this.driftSubLabel.textContent = flightActive ? 'AIR BRAKE' : 'DRIFT';
     return {
       throttle: 1,
       steer,
@@ -215,6 +225,7 @@ export class MobileControls {
     releaseReady: boolean,
     flightCharges: number,
     flightActive: boolean,
+    flightExtensionReady: boolean,
     turnWarning = false,
   ): void {
     if (!this.root) return;
@@ -222,12 +233,24 @@ export class MobileControls {
     this.root.classList.toggle('drift-release-ready', releaseReady);
     const charges = Math.round(clamp(flightCharges, 0, 2));
     this.root.classList.toggle('flight-ready', charges > 0);
+    this.root.classList.toggle('flight-extension-ready', flightExtensionReady);
     this.root.dataset.flightCharges = String(charges);
+    this.root.dataset.flightMode = flightExtensionReady ? 'extend' : flightActive ? 'active' : 'launch';
     const flight = this.buttons.get('flight');
-    if (flight) flight.setAttribute('aria-label', charges > 0 ? `飞行，已蓄能 ${charges} 次` : '飞行，尚未蓄能');
+    if (flight) {
+      const label = flightExtensionReady
+        ? `空中续航，消耗 1 次蓄能，当前剩余 ${charges} 次`
+        : flightActive
+          ? '飞行中，当前不可续航'
+          : charges > 0 ? `飞行，已蓄能 ${charges} 次` : '飞行，尚未蓄能';
+      flight.setAttribute('aria-label', label);
+    }
+    if (this.flightLabel) this.flightLabel.textContent = flightExtensionReady ? '续' : '飞';
+    if (this.flightSubLabel) this.flightSubLabel.textContent = flightExtensionReady ? 'EXTEND' : 'FLIGHT';
     this.root.classList.toggle('in-flight', flightActive);
     this.root.classList.toggle('turn-warning', turnWarning);
     if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';
+    if (this.driftSubLabel) this.driftSubLabel.textContent = flightActive ? 'AIR BRAKE' : 'DRIFT';
     const drift = this.buttons.get('drift');
     if (drift) drift.setAttribute('aria-label', flightActive ? '空刹' : '漂移');
   }

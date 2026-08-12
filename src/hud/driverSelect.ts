@@ -17,16 +17,18 @@ export class DriverSelect {
   private readonly specialty: HTMLDivElement;
   private readonly radar: HTMLCanvasElement;
   private readonly cards = new Map<string, HTMLButtonElement>();
+  private readonly dots = new Map<string, HTMLButtonElement>();
   private selectedProfile: DriverProfile;
   private readonly parent: HTMLElement;
+  private carouselPointerId: number | null = null;
+  private carouselStartX = 0;
+  private suppressCarouselClick = false;
 
   constructor(
     parent: HTMLElement,
     initialId: string,
     private readonly onSelect: (profile: DriverProfile, index: number, direction: -1 | 1) => void,
     onStart: () => void,
-    onExport: () => void,
-    onImport: (raw: string) => void,
   ) {
     this.selectedProfile = driverProfile(initialId);
     this.parent = parent;
@@ -66,14 +68,15 @@ export class DriverSelect {
     this.weakness = element('div', 'driver-con driver-trait', identity);
 
     const radarWrap = element('div', 'driver-radar-wrap', featured);
-    element('div', 'driver-radar-title', radarWrap, '能力分析');
+    element('div', 'driver-radar-title', radarWrap, '能力分析 · 单项最高 ±6%');
     this.radar = document.createElement('canvas');
     this.radar.className = 'driver-radar';
     this.radar.width = 320;
     this.radar.height = 260;
     radarWrap.appendChild(this.radar);
 
-    const rail = element('div', 'driver-rail', this.root);
+    const carousel = element('div', 'driver-carousel', this.root);
+    const rail = element('div', 'driver-rail', carousel);
     for (const profile of DRIVER_PROFILES) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -89,36 +92,48 @@ export class DriverSelect {
       const copy = element('span', 'driver-card-copy', button);
       element('strong', '', copy, profile.name);
       element('small', '', copy, `${profile.callsign} · ${profile.mood}`);
-      button.addEventListener('click', () => this.select(profile.id));
+      button.addEventListener('click', () => {
+        if (!this.suppressCarouselClick) this.select(profile.id);
+      });
       rail.appendChild(button);
       this.cards.set(profile.id, button);
     }
+    const dots = element('div', 'driver-dots', carousel);
+    for (const profile of DRIVER_PROFILES) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'driver-dot';
+      dot.dataset.driver = profile.id;
+      dot.setAttribute('aria-label', `选择 ${profile.name}`);
+      dot.addEventListener('click', () => this.select(profile.id));
+      dots.appendChild(dot);
+      this.dots.set(profile.id, dot);
+    }
+    carousel.addEventListener('pointerdown', (event) => {
+      if (!event.isPrimary || event.pointerType === 'mouse' || this.carouselPointerId !== null) return;
+      this.carouselPointerId = event.pointerId;
+      this.carouselStartX = event.clientX;
+      try { carousel.setPointerCapture?.(event.pointerId); } catch { /* synthetic/test pointers need no capture */ }
+    });
+    const finishSwipe = (event: PointerEvent) => {
+      if (event.pointerId !== this.carouselPointerId) return;
+      const delta = event.clientX - this.carouselStartX;
+      this.carouselPointerId = null;
+      if (Math.abs(delta) < 34) return;
+      this.suppressCarouselClick = true;
+      this.move(delta < 0 ? 1 : -1);
+      window.setTimeout(() => { this.suppressCarouselClick = false; }, 0);
+    };
+    carousel.addEventListener('pointerup', finishSwipe);
+    carousel.addEventListener('pointercancel', () => { this.carouselPointerId = null; });
 
     const footer = element('div', 'driver-select-footer', this.root);
-    const archive = element('div', 'driver-archive', footer);
-    const exportButton = element('button', 'driver-archive-button', archive, '导出档案');
-    exportButton.type = 'button';
-    exportButton.title = '下载可迁移的单机存档';
-    exportButton.addEventListener('click', onExport);
-    const importButton = element('button', 'driver-archive-button', archive, '导入档案');
-    importButton.type = 'button';
-    importButton.title = '从 JSON 恢复单机存档';
-    const file = document.createElement('input');
-    file.type = 'file';
-    file.accept = 'application/json,.json';
-    file.hidden = true;
-    file.addEventListener('change', async () => {
-      const selected = file.files?.[0];
-      if (!selected) return;
-      onImport(await selected.text());
-      file.value = '';
-    });
-    importButton.addEventListener('click', () => file.click());
-    archive.appendChild(file);
-    element('div', 'driver-select-foot', footer, '本机永久档案 · ← → / A D 选择 · ENTER 倒计时');
     const go = element('button', 'driver-select-go', footer, 'GO · 签约出发');
     go.type = 'button';
     go.addEventListener('click', onStart);
+    this.name.addEventListener('animationend', (event) => {
+      if (event.animationName === 'driver-copy-lock') this.root.classList.remove('switching');
+    });
     this.render();
   }
 
@@ -166,6 +181,7 @@ export class DriverSelect {
 
   private render(): void {
     const profile = this.selectedProfile;
+    this.root.dataset.selectedDriver = profile.id;
     this.root.style.setProperty('--driver-color', hex(profile.color));
     this.portrait.src = profile.portraitUrl;
     this.portrait.style.objectPosition = profile.portraitPosition;
@@ -177,7 +193,17 @@ export class DriverSelect {
     this.quote.textContent = `“${profile.quote}”`;
     this.strength.textContent = `优势  ${profile.strength}`;
     this.weakness.textContent = `短板  ${profile.weakness}`;
-    for (const [id, card] of this.cards) card.classList.toggle('selected', id === profile.id);
+    this.radar.setAttribute('aria-label', `${profile.name} 实际性能；${handlingSummary(profile)}`);
+    const index = DRIVER_PROFILES.findIndex((item) => item.id === profile.id);
+    const previousId = DRIVER_PROFILES[(index - 1 + DRIVER_PROFILES.length) % DRIVER_PROFILES.length].id;
+    const nextId = DRIVER_PROFILES[(index + 1) % DRIVER_PROFILES.length].id;
+    for (const [id, card] of this.cards) {
+      card.classList.toggle('selected', id === profile.id);
+      card.classList.toggle('carousel-prev', id === previousId);
+      card.classList.toggle('carousel-next', id === nextId);
+      card.classList.toggle('carousel-visible', id === profile.id || id === previousId || id === nextId);
+    }
+    for (const [id, dot] of this.dots) dot.classList.toggle('selected', id === profile.id);
     this.drawRadar(profile);
   }
 
@@ -189,13 +215,12 @@ export class DriverSelect {
     const cx = w * 0.5;
     const cy = h * 0.5 + 7;
     const radius = Math.min(w, h) * 0.35;
-    const labels = ['加速', '转向', '漂移', '空控', '节奏'];
+    const labels = ['加速', '转向', '漂移', '空控'];
     const values = [
       profile.handling.acceleration,
       profile.handling.steering,
       profile.handling.driftCharge,
       profile.handling.airControl,
-      0.94 + Math.min(0.12, profile.rivalRank * 0.014),
     ];
     ctx.clearRect(0, 0, w, h);
     ctx.lineJoin = 'round';
@@ -214,17 +239,25 @@ export class DriverSelect {
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.fillStyle = '#f4feff';
-      ctx.font = '800 18px system-ui';
-      ctx.textAlign = Math.cos(a) > 0.25 ? 'left' : Math.cos(a) < -0.25 ? 'right' : 'center';
-      ctx.textBaseline = Math.sin(a) > 0.5 ? 'top' : Math.sin(a) < -0.5 ? 'bottom' : 'middle';
-      ctx.fillText(labels[i], cx + Math.cos(a) * (radius + 17), cy + Math.sin(a) * (radius + 17));
+      ctx.font = '800 16px system-ui';
+      const horizontal = Math.cos(a);
+      const vertical = Math.sin(a);
+      ctx.textAlign = horizontal > 0.25 ? 'right' : horizontal < -0.25 ? 'left' : 'center';
+      ctx.textBaseline = vertical > 0.5 ? 'bottom' : vertical < -0.5 ? 'top' : 'middle';
+      const labelX = horizontal > 0.25 ? w - 8 : horizontal < -0.25 ? 8 : cx;
+      const labelY = vertical > 0.5 ? h - 6 : vertical < -0.5 ? 6 : cy;
+      ctx.fillText(
+        `${labels[i]} ${formatHandling(values[i])}`,
+        labelX,
+        labelY,
+      );
     }
     ctx.beginPath();
     values.forEach((value, i) => {
       const a = -Math.PI / 2 + i * Math.PI * 2 / labels.length;
       const n = 0.58 + (value - 0.94) / 0.12 * 0.42;
-      const x = cx + Math.cos(a) * radius * Math.max(0.55, Math.min(1, n));
-      const y = cy + Math.sin(a) * radius * Math.max(0.55, Math.min(1, n));
+      const x = cx + Math.cos(a) * radius * Math.max(0.58, Math.min(1, n));
+      const y = cy + Math.sin(a) * radius * Math.max(0.58, Math.min(1, n));
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.closePath();
@@ -234,6 +267,17 @@ export class DriverSelect {
     ctx.fill();
     ctx.stroke();
   }
+}
+
+function formatHandling(value: number): string {
+  const percent = Math.round((value - 1) * 100);
+  return percent > 0 ? `+${percent}%` : `${percent}%`;
+}
+
+function handlingSummary(profile: DriverProfile): string {
+  const h = profile.handling;
+  return `加速 ${formatHandling(h.acceleration)}，转向 ${formatHandling(h.steering)}，` +
+    `漂移 ${formatHandling(h.driftCharge)}，空控 ${formatHandling(h.airControl)}；单项最高正负 6%`;
 }
 
 function polygon(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, sides: number): void {

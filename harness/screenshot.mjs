@@ -45,6 +45,9 @@ const SCENARIOS = {
   'flight-rule': { scenario: 'flight-rule' },
   'flight-spool': { scenario: 'flight-spool', freeCamDynamic: { back: 7, up: 1.45, lookUp: 0.3 } },
   'flight-cruise': { scenario: 'flight-cruise' },
+  'flight-extension-ready': { scenario: 'flight-extension-ready' },
+  'flight-extension-spool': { scenario: 'flight-extension-spool' },
+  'flight-extension-descent': { scenario: 'flight-extension-descent' },
   'flight-airbrake': { scenario: 'flight-airbrake' },
   'flight-combo': { scenario: 'flight-combo', freeCamDynamic: { back: 7, up: 1.55, lookUp: 0.4 } },
   'flight-descent': { scenario: 'flight-descent' },
@@ -333,9 +336,66 @@ async function verifyFlightContract(page) {
   assert.ok(guidance.targetAnchorScale >= 1 && guidance.targetAnchorScale <= 1.75,
     `the visual locator must stay bounded: ${JSON.stringify(guidance)}`);
 
+  // The spare stored cell becomes a deliberate airborne extension. It must
+  // reject launch double-taps, become explicit at cruise, consume exactly one
+  // cell, increase remaining airtime, and refuse any second extension.
+  await page.evaluate(() => window.__harness.scenario('flight-extension-spool'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 1, 'a second press during spool/ascending must not consume the spare cell');
+  assert.equal(state.flightExtensionUsed, false);
+  assert.equal(state.flightDenied, true, 'an early double-tap needs explicit rejection feedback');
+
+  await page.evaluate(() => window.__harness.scenario('flight-extension-ready'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightPhase, 'cruise');
+  assert.equal(state.flightCharges, 1);
+  assert.equal(state.flightExtensionReady, true);
+  assert.equal(state.flightExtensionUsed, false);
+  assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /SPACE.*续航.*\+2\.4/,
+    'desktop HUD must make the airborne use of the spare cell explicit');
+  const remainingBeforeExtension = state.flightRemaining;
+  const routeProgressBeforeExtension = state.flightGateProgress;
+  const audioExtensionsBefore = Number((await page.evaluate(() => window.__harness.audioState())).flightExtendEvents);
+  await page.evaluate(() => window.__harness.tapFlight());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightExtended, true, 'the accepted Space edge must expose a one-frame extension pulse');
+  assert.equal(state.flightCharges, 0, 'airborne extension consumes exactly one stored cell');
+  assert.equal(state.flightExtensionUsed, true);
+  assert.equal(state.flightExtensionReady, false);
+  assert.equal(state.flightPhase, 'cruise');
+  assert.ok(state.flightRemaining > remainingBeforeExtension,
+    `extension must add real envelope time: ${remainingBeforeExtension} -> ${state.flightRemaining}`);
+  assert.equal(state.flightGateProgress, routeProgressBeforeExtension, 'extension must never reset portal progress');
+  assert.equal(Number((await page.evaluate(() => window.__harness.audioState())).flightExtendEvents), audioExtensionsBefore + 1,
+    'accepted extension needs exactly one dedicated sound event');
+  await page.evaluate(() => window.__harness.tapFlight());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightDenied, true, 'a current flight can be extended at most once');
+  assert.equal(state.flightExtensionUsed, true);
+
+  await page.evaluate(() => window.__harness.scenario('flight-extension-descent'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightPhase, 'descending');
+  assert.equal(state.flightExtensionReady, true, 'a spare cell must remain usable during descent');
+  const descentClearance = state.flightClearance;
+  const descentRemaining = state.flightRemaining;
+  await page.evaluate(() => window.__harness.tapFlight());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightPhase, 'cruise', 'late extension must return to the cruise envelope without teleporting');
+  assert.equal(state.flightCharges, 0);
+  assert.equal(state.flightExtensionUsed, true);
+  assert.ok(state.flightRemaining > descentRemaining, 'late extension must add real remaining time');
+  assert.ok(Math.abs(state.flightClearance - descentClearance) < 0.5,
+    `late extension may arrest descent but must never snap altitude: ${descentClearance} -> ${state.flightClearance}`);
+
   const budget = await page.evaluate(() => window.__harness.flightBudgetCase());
   assert.ok(Math.abs(budget.envelope.descendAt - 5.7) < 0.001, `flight descent envelope ${JSON.stringify(budget.envelope)}`);
   assert.ok(Math.abs(budget.envelope.total - 6.45) < 0.001, `flight total envelope ${JSON.stringify(budget.envelope)}`);
+  assert.ok(Math.abs(budget.envelope.extension - 2.4) < 0.001, `flight extension ${JSON.stringify(budget.envelope)}`);
+  assert.ok(Math.abs(budget.envelope.extendedDescendAt - 8.1) < 0.001,
+    `extended descent envelope ${JSON.stringify(budget.envelope)}`);
+  assert.ok(Math.abs(budget.envelope.extendedTotal - 8.85) < 0.001,
+    `extended total envelope ${JSON.stringify(budget.envelope)}`);
   assert.equal(budget.routes.length, 7);
   for (const route of budget.routes) {
     assert.ok(route.earliestToGate >= 140 && route.earliestToGate <= 152,
@@ -355,6 +415,22 @@ async function verifyFlightContract(page) {
       await page.evaluate(() => window.__harness.advance(8.9));
     }
   }
+  await page.evaluate(() => window.__harness.passExtendedFlight(2, true));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightRouteState, 'passed',
+    `third flight must support early launch + airborne extension + continuous air brake: ${JSON.stringify(state)}`);
+  assert.equal(state.flightExtensionUsed, true);
+  assert.equal(state.flightCharges, 0);
+
+  await page.evaluate(() => window.__harness.passFlight(0, 2, true));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightRouteState, 'passed');
+  assert.equal(state.flightCharges, 1, 'a clean gate keeps the unspent spare cell');
+  await page.evaluate(() => window.__harness.tapFlight());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightDenied, true, 'a passed gate must reject extension instead of prolonging its landing');
+  assert.equal(state.flightCharges, 1, 'a rejected post-gate press must not consume the spare cell');
+  assert.equal(state.flightExtensionUsed, false);
 
   await page.evaluate(() => window.__harness.scenario('flight-descent'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -501,6 +577,7 @@ async function verifyFlightContract(page) {
   });
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'medal');
+  const heldChargeBeforeLanding = state.flightCharges;
   await page.evaluate(() => window.__harness.advance(4.6));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'resume-countdown');
   await page.evaluate(() => window.__harness.advance(4.3));
@@ -512,14 +589,16 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightPhase, 'surface');
   assert.equal(state.drifting, true, 'held Shift must become surface drift immediately after landing');
   assert.equal(state.driftReleaseReady, true, 'the preserved hold must reach a readable release threshold');
-  assert.equal(state.flightReady, false, 'holding drift must not silently issue a charge before release');
+  assert.equal(state.flightCharges, heldChargeBeforeLanding,
+    'holding drift must preserve the spare cell without silently issuing another before release');
   await page.keyboard.up('Space');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).flightPhase, 'surface');
   await page.keyboard.up('Shift');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightReady, true, 'releasing the preserved Shift hold must earn one charge');
+  assert.equal(state.flightCharges, Math.min(2, heldChargeBeforeLanding + 1),
+    'releasing the preserved Shift hold must add exactly one cell, capped at two');
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('endless-four'));
@@ -555,24 +634,46 @@ async function verifyMobileControls(page) {
   await assertDriverSelectComposition(page, 'mobile-844x390');
   const selectedBefore = await page.locator('.driver-card.selected').getAttribute('data-driver');
   const featuredBefore = await page.locator('.driver-featured').boundingBox();
-  const alternate = page.locator('.driver-card:not(.selected)').first();
+  const alternate = page.locator('.driver-card.carousel-next');
   await alternate.click();
   await page.waitForTimeout(95);
   assert.equal(await page.locator('.driver-select').evaluate((el) => el.classList.contains('switching')), true,
-    'a driver change must enter the finite contract-card flip state');
+    'a driver change must enter the finite selection-lock state');
   assert.notEqual(await page.locator('.driver-card.selected').getAttribute('data-driver'), selectedBefore);
-  const contractOpacity = Number(await page.locator('.driver-contract-card').evaluate((el) => getComputedStyle(el).opacity));
-  assert.ok(contractOpacity > 0.2, `the contract card must be visibly flipping: opacity=${contractOpacity}`);
+  const contractAnimation = await page.locator('.driver-contract-card').evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { name:style.animationName, duration:parseFloat(style.animationDuration) };
+  });
+  assert.equal(contractAnimation.name, 'driver-contract-lock',
+    `the selected portrait must run the authored lock-in animation: ${JSON.stringify(contractAnimation)}`);
+  assert.ok(contractAnimation.duration >= 0.4 && contractAnimation.duration <= 0.6,
+    `the lock-in must stay finite and readable: ${JSON.stringify(contractAnimation)}`);
   const selectAudio = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(selectAudio.driverSelectEvents) >= 1, `driver selection must emit its own event: ${JSON.stringify(selectAudio)}`);
   assert.equal(selectAudio.scoreArmed, false, 'selection SFX must never start the background score');
   assert.equal(selectAudio.musicPlaying, false, 'selection SFX must keep READY musically silent');
   assert.deepEqual(await page.locator('.driver-featured').boundingBox(), featuredBefore,
-    'the card flip may not reflow the featured contract grid');
-  for (let i = 0; i < 12; i++) await page.locator('.driver-card').nth(i % 6).click();
+    'the selection lock may not reflow the featured contract grid');
+  const beforeSwipe = await page.locator('.driver-card.selected').getAttribute('data-driver');
+  const carouselBox = await page.locator('.driver-carousel').boundingBox();
+  assert.ok(carouselBox, 'driver carousel needs a stable swipe surface');
+  const swipeY = carouselBox.y + carouselBox.height / 2;
+  await page.dispatchEvent('.driver-carousel', 'pointerdown', {
+    pointerId: 41, pointerType: 'touch', isPrimary: true,
+    clientX: carouselBox.x + carouselBox.width * 0.78, clientY: swipeY,
+  });
+  await page.dispatchEvent('.driver-carousel', 'pointerup', {
+    pointerId: 41, pointerType: 'touch', isPrimary: true,
+    clientX: carouselBox.x + carouselBox.width * 0.3, clientY: swipeY,
+  });
+  assert.notEqual(await page.locator('.driver-card.selected').getAttribute('data-driver'), beforeSwipe,
+    'a left swipe must advance exactly one carousel destination');
+  for (let i = 0; i < 12; i++) await page.locator('.driver-card.carousel-next').click();
   await page.waitForTimeout(650);
   const selectSettled = await page.evaluate(() => window.__harness.audioState());
   assert.equal(Number(selectSettled.activeOneShots), 0, 'rapid driver changes must release every transient audio node');
+  assert.equal(await page.locator('.driver-select').evaluate((el) => el.classList.contains('switching')), false,
+    'the finite selection lock must release its compositing hint after the last switch');
   for (const height of [390, 330, 300]) {
     await page.setViewportSize({ width: 844, height });
     await page.waitForTimeout(50);
@@ -586,7 +687,6 @@ async function verifyMobileControls(page) {
         return rect ? { selector, top:rect.top, right:rect.right, bottom:rect.bottom, left:rect.left } : null;
       }).filter(Boolean);
       const go = document.querySelector('.driver-select-go')?.getBoundingClientRect();
-      const cards = [...document.querySelectorAll('.driver-card')].map((node) => node.getBoundingClientRect());
       const overlaps = [];
       for (let i = 0; i < rects.length; i++) {
         for (let j = i + 1; j < rects.length; j++) {
@@ -598,7 +698,17 @@ async function verifyMobileControls(page) {
       return {
         rects, overlaps,
         go:go && { top:go.top, right:go.right, bottom:go.bottom, left:go.left },
-        cards:cards.map((r) => ({ top:r.top, right:r.right, bottom:r.bottom, left:r.left })),
+        goCenterX:go ? (go.left + go.right) / 2 : null,
+        cardCount:document.querySelectorAll('.driver-card').length,
+        visibleCards:[...document.querySelectorAll('.driver-card')]
+          .filter((node) => getComputedStyle(node).display !== 'none')
+          .map((node) => {
+            const r = node.getBoundingClientRect();
+            return { id:node.dataset.driver, top:r.top, right:r.right, bottom:r.bottom, left:r.left };
+          }),
+        dotCount:document.querySelectorAll('.driver-dot').length,
+        selectedDotCount:document.querySelectorAll('.driver-dot.selected').length,
+        archiveCount:document.querySelectorAll('.driver-archive,.driver-archive-button').length,
         scrollHeight:document.scrollingElement?.scrollHeight ?? 0,
         width:innerWidth, height:innerHeight,
       };
@@ -606,17 +716,21 @@ async function verifyMobileControls(page) {
     assert.deepEqual(contract.overlaps, [], `driver selector rows overlap at 844x${height}: ${contract.overlaps.join(', ')}`);
     assert.ok(contract.go && contract.go.top >= 0 && contract.go.bottom <= contract.height,
       `GO must remain inside the first visual viewport at 844x${height}: ${JSON.stringify(contract.go)}`);
-    assert.equal(contract.cards.length, 6, 'all six driver choices must remain present');
-    for (const card of contract.cards) {
+    assert.ok(Math.abs(contract.goCenterX - contract.width / 2) <= 1.5,
+      `GO must own the horizontal center at 844x${height}: ${JSON.stringify(contract.go)}`);
+    assert.equal(contract.cardCount, 6, 'all six drivers must remain reachable in the carousel');
+    assert.equal(contract.visibleCards.length, 3, 'only previous, current, and next driver may be visible');
+    assert.equal(contract.dotCount, 6, 'the carousel must expose all six destinations without six cards');
+    assert.equal(contract.selectedDotCount, 1, 'exactly one carousel destination must be selected');
+    for (const card of contract.visibleCards) {
       assert.ok(card.top >= 0 && card.bottom <= contract.height, `driver card clips at 844x${height}: ${JSON.stringify(card)}`);
     }
+    assert.equal(contract.archiveCount, 0, 'archive import/export must not compete with selection');
     assert.ok(contract.scrollHeight <= contract.height + 1,
       `driver selector must not depend on address-bar collapse at 844x${height}: scrollHeight=${contract.scrollHeight}`);
   }
   const portraitContract = await page.locator('.driver-card img').evaluateAll((images) => images.map((image) => ({
-    width: image.naturalWidth,
-    height: image.naturalHeight,
-    src: image.currentSrc,
+    width:image.naturalWidth, height:image.naturalHeight, src:image.currentSrc,
   })));
   assert.equal(portraitContract.length, 6);
   assert.equal(new Set(portraitContract.map((portrait) => portrait.src)).size, 6, 'every driver needs a distinct portrait');
@@ -711,6 +825,7 @@ async function verifyMobileControls(page) {
   });
   status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.controlPhase, 'preparing');
+  const preparingCharge = (await page.evaluate(() => window.__harness.playerState())).flightCharges;
   await page.locator('[data-mobile-action="left"]').dispatchEvent('pointerdown', { pointerId: 21, pointerType: 'touch', isPrimary: true });
   await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', { pointerId: 22, pointerType: 'touch' });
   await page.locator('[data-mobile-action="flight"]').dispatchEvent('pointerdown', { pointerId: 23, pointerType: 'touch' });
@@ -729,10 +844,12 @@ async function verifyMobileControls(page) {
   assert.equal(resumedState.flightPhase, 'surface');
   assert.equal(resumedState.drifting, true);
   assert.equal(resumedState.driftReleaseReady, true);
-  assert.equal(resumedState.flightReady, false, 'a rejected preparing flight tap must not leak through GO');
+  assert.equal(resumedState.flightCharges, preparingCharge,
+    'a rejected preparing flight tap must not alter the legitimately preserved spare cell');
   await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', { pointerId: 22, pointerType: 'touch' });
   await page.evaluate(() => window.__harness.advance(1 / 30));
-  assert.equal((await page.evaluate(() => window.__harness.playerState())).flightReady, true);
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).flightCharges, Math.min(2, preparingCharge + 1),
+    'releasing the held drift after GO must add exactly one cell');
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('start'));
@@ -796,10 +913,17 @@ async function assertDriverSelectComposition(page, label) {
       portrait:rect('.driver-portrait-frame'),
       identity:rect('.driver-identity'),
       radar:rect('.driver-radar-wrap'),
+      go:rect('.driver-select-go'),
+      cardCount:document.querySelectorAll('.driver-card').length,
+      visibleCardCount:[...document.querySelectorAll('.driver-card')]
+        .filter((node) => getComputedStyle(node).display !== 'none').length,
+      dotCount:document.querySelectorAll('.driver-dot').length,
+      selectedDotCount:document.querySelectorAll('.driver-dot.selected').length,
+      archiveCount:document.querySelectorAll('.driver-archive,.driver-archive-button').length,
     };
   });
-  const { featured, portrait, identity, radar } = geometry;
-  assert.ok(featured && portrait && identity && radar, `${label} driver composition is incomplete`);
+  const { featured, portrait, identity, radar, go } = geometry;
+  assert.ok(featured && portrait && identity && radar && go, `${label} driver composition is incomplete`);
   assert.ok(Math.abs(featured.centerX - geometry.width / 2) <= 1.5,
     `${label} featured stage is not centered: ${JSON.stringify(geometry)}`);
   assert.ok(Math.abs(identity.centerX - geometry.width / 2) <= 1.5,
@@ -810,6 +934,16 @@ async function assertDriverSelectComposition(page, label) {
     `${label} portrait and radar left their shared horizontal axis: ${portrait.centerY} vs ${radar.centerY}`);
   assert.ok(Math.abs((portrait.centerX + radar.centerX) / 2 - geometry.width / 2) <= 1.5,
     `${label} portrait/radar pair is not centered as one unit: ${JSON.stringify(geometry)}`);
+  const decisionGap = radar.left - portrait.right;
+  assert.ok(decisionGap >= 2 && decisionGap <= 14,
+    `${label} portrait and ability analysis must sit tightly together: gap=${decisionGap}`);
+  assert.ok(Math.abs(go.centerX - geometry.width / 2) <= 1.5,
+    `${label} contract GO must sit on the center axis: ${JSON.stringify(go)}`);
+  assert.equal(geometry.cardCount, 6, `${label} must keep all six carousel destinations`);
+  assert.equal(geometry.visibleCardCount, 3, `${label} must show only previous/current/next cards`);
+  assert.equal(geometry.dotCount, 6, `${label} must expose six compact destination marks`);
+  assert.equal(geometry.selectedDotCount, 1, `${label} must select one destination mark`);
+  assert.equal(geometry.archiveCount, 0, `${label} must not render archive tools`);
   for (const [name, surface] of Object.entries({ featured, portrait, identity, radar })) {
     assert.ok(surface.left >= -1 && surface.right <= geometry.width + 1 && surface.top >= -1 && surface.bottom <= geometry.height + 1,
       `${label} ${name} clips outside the viewport: ${JSON.stringify(surface)}`);

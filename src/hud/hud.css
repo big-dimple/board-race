@@ -464,6 +464,20 @@
   transform: translateX(-50%) translateY(0) scale(1) skew(-8deg);
 }
 
+.hud-flight-prompt.extend {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 5px var(--ink), 12px 12px 0 var(--ink), 0 0 28px rgba(85, 231, 255, 0.3);
+}
+
+.hud-flight-prompt.extend .hud-keycap {
+  border-color: var(--warn);
+}
+
+.hud-flight-prompt.extend .hud-flight-prompt-en,
+.hud-flight-prompt.extend .hud-flight-prompt-rule {
+  color: var(--warn);
+}
+
 .hud-flight-prompt::before,
 .hud-flight-prompt::after {
   content: '';

@@ -79,6 +79,7 @@ const TUNING = {
   flightSpool: 0.12,
   flightAscend: 0.48,
   flightCruise: 5.10,
+  flightExtension: 2.40,
   flightDescend: 0.75,
   flightClearance: 4.5,  // hull-root height above the live mean water surface
   flightLandingLead: 0.45, // counter moving-wave lag so the landing envelope seats cleanly
@@ -694,6 +695,7 @@ export class Boat implements IBoat {
   private wasDrifting = false;
   // earned anti-grav flight
   private flightElapsed = 0;
+  private flightExtensionTime = 0;
   private flightStartClearance = 0;
   private flightDesiredYPrev = 0;
   private flightTargetVy = 0;
@@ -773,6 +775,9 @@ export class Boat implements IBoat {
       flightCharges: 0,
       flightPhase: 'surface',
       flightRemaining: 0,
+      flightExtensionReady: false,
+      flightExtensionUsed: false,
+      flightExtended: false,
       flightClearance: -TUNING.draft,
       flightThrust: 0,
       flightAirBrake: 0,
@@ -811,6 +816,7 @@ export class Boat implements IBoat {
     const airBrakeTau = airBrakeTarget > this.airBrakeFx ? TUNING.airBrakeAttack : TUNING.airBrakeRelease;
     this.airBrakeFx += (airBrakeTarget - this.airBrakeFx) * (1 - Math.exp(-dt / airBrakeTau));
     st.flightDenied = false;
+    st.flightExtended = false;
     st.flightRouteMiss = false;
     st.flightPenaltyRemaining = Math.max(0, st.flightPenaltyRemaining - dt);
 
@@ -918,12 +924,26 @@ export class Boat implements IBoat {
         st.flightRouteFailReason = 'none';
         st.flightGateProgress = 0;
         this.flightElapsed = 0;
+        this.flightExtensionTime = 0;
+        st.flightExtensionReady = false;
+        st.flightExtensionUsed = false;
         this.liftBurstTimer = 0.22;
         this.liftSplashPending = true;
         this.flightPenaltyApplied = false;
         st.airborne = false;
         st.airTime = 0;
         this.unloadTime = 0;
+      } else if (st.flightCharges > 0 && this.canExtendFlight()) {
+        st.flightCharges--;
+        this.flightExtensionTime = TUNING.flightExtension;
+        st.flightExtensionUsed = true;
+        st.flightExtensionReady = false;
+        st.flightExtended = true;
+        // Arrest a late descent without snapping the hull upward. The regular
+        // vertical spring then returns it to authored cruise clearance.
+        this.vy = Math.max(this.vy, -1);
+        this.flightTargetVy = Math.max(this.flightTargetVy, 0);
+        this.liftBurstTimer = Math.max(this.liftBurstTimer, 0.22);
       } else {
         st.flightDenied = true;
       }
@@ -1160,6 +1180,7 @@ export class Boat implements IBoat {
     st.boostRemaining = boosting && this.boostTotal > 0 ? clamp(this.boostTimer / this.boostTotal, 0, 1) : 0;
     st.flightClearance = pos.y - surfaceY;
     st.flightAirBrake = this.airBrakeFx;
+    st.flightExtensionReady = this.canExtendFlight();
     st.flightPressure = flightWasActive ? smooth01(clamp((speedAbs - TUNING.topSpeed) / 14, 0, 1)) : 0;
     st.lateralG = this.lateralG;
     st.longG = longG;
@@ -1401,8 +1422,9 @@ export class Boat implements IBoat {
     // A clean third gate is the authored end of the maneuver. Start the same
     // smooth landing envelope immediately instead of leaving a fast racer
     // hovering for the unused portion of the ten-second safety window.
-    const descendAt = TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise;
+    const descendAt = this.flightDescendAt();
     this.flightElapsed = Math.max(this.flightElapsed, descendAt);
+    st.flightExtensionReady = false;
   }
 
   settleFlightRoute(): void {
@@ -1441,9 +1463,10 @@ export class Boat implements IBoat {
     st.flightRouteFailReason = failure.reason;
     st.flightFailure = failure;
     if (st.flightPhase !== 'surface') {
-      const descentAt = TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise;
+      const descentAt = this.flightDescendAt();
       this.flightElapsed = Math.max(this.flightElapsed, descentAt);
     }
+    st.flightExtensionReady = false;
     st.flightRouteMiss = true;
   }
 
@@ -1467,6 +1490,11 @@ export class Boat implements IBoat {
     return { emissions: this.driftFxEmissions, scale: this.opponentFxScale };
   }
 
+  /** Deterministic evidence that the selection radar matches live physics. */
+  debugDriverHandling(): DriverHandling {
+    return { ...this.handling };
+  }
+
   debugFlightEffects(): { rings: number; plumeLength: number; deflection: number } {
     return {
       rings: this.flightRingActiveCount,
@@ -1476,9 +1504,34 @@ export class Boat implements IBoat {
   }
 
   /** Deterministic tuning evidence for the release harness. */
-  debugFlightEnvelope(): { descendAt: number; total: number } {
+  debugFlightEnvelope(): {
+    descendAt: number;
+    total: number;
+    extension: number;
+    extendedDescendAt: number;
+    extendedTotal: number;
+  } {
     const descendAt = TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise;
-    return { descendAt, total: descendAt + TUNING.flightDescend };
+    return {
+      descendAt,
+      total: descendAt + TUNING.flightDescend,
+      extension: TUNING.flightExtension,
+      extendedDescendAt: descendAt + TUNING.flightExtension,
+      extendedTotal: descendAt + TUNING.flightExtension + TUNING.flightDescend,
+    };
+  }
+
+  private flightDescendAt(): number {
+    return TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise + this.flightExtensionTime;
+  }
+
+  private canExtendFlight(): boolean {
+    const st = this.state;
+    return st.flightCharges > 0 &&
+      !st.flightExtensionUsed &&
+      (st.flightPhase === 'cruise' || st.flightPhase === 'descending') &&
+      st.flightRouteState !== 'passed' &&
+      st.flightRouteState !== 'failed';
   }
 
   collisionVelocity(out: THREE.Vector2): THREE.Vector2 {
@@ -1519,10 +1572,10 @@ export class Boat implements IBoat {
 
   private updateFlight(dt: number, surfaceY: number, surfaceTargetY: number): void {
     const st = this.state;
-    const total = TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise + TUNING.flightDescend;
     const ascendAt = TUNING.flightSpool;
     const cruiseAt = ascendAt + TUNING.flightAscend;
-    const descendAt = cruiseAt + TUNING.flightCruise;
+    const descendAt = this.flightDescendAt();
+    const total = descendAt + TUNING.flightDescend;
 
     const firstFlightFrame = this.flightElapsed === 0;
     if (firstFlightFrame) {
@@ -1584,9 +1637,12 @@ export class Boat implements IBoat {
       this.vy = 0;
       this.unloadTime = 0;
       this.flightElapsed = 0;
+      this.flightExtensionTime = 0;
       this.flightTargetVy = 0;
       st.flightPhase = 'surface';
       st.flightRemaining = 0;
+      st.flightExtensionReady = false;
+      st.flightExtensionUsed = false;
       st.flightThrust = 0;
     }
   }
@@ -1606,6 +1662,7 @@ export class Boat implements IBoat {
     this.boostTotal = 0;
     this.wasDrifting = false;
     this.flightElapsed = 0;
+    this.flightExtensionTime = 0;
     this.flightStartClearance = 0;
     this.flightDesiredYPrev = 0;
     this.flightTargetVy = 0;
@@ -1636,6 +1693,9 @@ export class Boat implements IBoat {
     st.flightCharges = 0;
     st.flightPhase = 'surface';
     st.flightRemaining = 0;
+    st.flightExtensionReady = false;
+    st.flightExtensionUsed = false;
+    st.flightExtended = false;
     st.flightClearance = -TUNING.draft;
     st.flightThrust = 0;
     st.flightAirBrake = 0;

@@ -99,6 +99,11 @@ export class HUD {
   private readonly flightChargeCount: HTMLDivElement;
   private readonly flightPipEls: HTMLDivElement[] = [];
   private readonly flightPrompt: HTMLDivElement;
+  private readonly flightPromptKey: HTMLDivElement;
+  private readonly flightPromptEn: HTMLDivElement;
+  private readonly flightPromptCn: HTMLDivElement;
+  private readonly flightPromptRule: HTMLDivElement;
+  private flightPromptMode: 'hidden' | 'launch' | 'extend' = 'hidden';
   private flightPromptHitTimer = 0;
 
   // full-screen, event-driven impact layer
@@ -332,11 +337,11 @@ export class HUD {
     this.battleStreak = h('div', 'hud-battle-streak hud-inked', battleCopy);
 
     this.flightPrompt = h('div', 'hud-flight-prompt', this.root);
-    h('div', 'hud-keycap', this.flightPrompt, 'SPACE');
+    this.flightPromptKey = h('div', 'hud-keycap', this.flightPrompt, 'SPACE');
     const promptCopy = h('div', 'hud-flight-prompt-copy', this.flightPrompt);
-    h('div', 'hud-flight-prompt-en', promptCopy, 'FLIGHT READY');
-    h('div', 'hud-flight-prompt-cn', promptCopy, '按 SPACE 起飞');
-    h('div', 'hud-flight-prompt-rule', promptCopy, '下一飞已就绪');
+    this.flightPromptEn = h('div', 'hud-flight-prompt-en', promptCopy, 'FLIGHT READY');
+    this.flightPromptCn = h('div', 'hud-flight-prompt-cn', promptCopy, '按 SPACE 起飞');
+    this.flightPromptRule = h('div', 'hud-flight-prompt-rule', promptCopy, '下一飞已就绪');
     this.turnWarning = h('div', 'hud-turn-warning', this.root);
     h('div', 'hud-turn-warning-mark hud-inked', this.turnWarning, '!');
     const turnCopy = h('div', 'hud-turn-warning-copy', this.turnWarning);
@@ -556,7 +561,26 @@ export class HUD {
       for (let i = 0; i < this.flightTokens.length; i++) {
         this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
       }
-      this.flightPrompt.classList.toggle('on', st.flightCharges > 0);
+    }
+    const promptMode: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
+      ? 'extend'
+      : !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
+    if (promptMode !== this.flightPromptMode) {
+      this.flightPromptMode = promptMode;
+      const mobile = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
+      this.flightPrompt.classList.toggle('on', promptMode !== 'hidden');
+      this.flightPrompt.classList.toggle('extend', promptMode === 'extend');
+      if (promptMode === 'extend') {
+        this.flightPromptKey.textContent = mobile ? '续' : 'SPACE';
+        this.flightPromptEn.textContent = 'AIR CHARGE READY';
+        this.flightPromptCn.textContent = mobile ? '点「续」延长飞行' : '按 SPACE 续航';
+        this.flightPromptRule.textContent = '消耗 1 格 · 续航 +2.4 秒';
+      } else {
+        this.flightPromptKey.textContent = mobile ? '飞' : 'SPACE';
+        this.flightPromptEn.textContent = 'FLIGHT READY';
+        this.flightPromptCn.textContent = mobile ? '点「飞」起飞' : '按 SPACE 起飞';
+        this.flightPromptRule.textContent = '下一飞已就绪';
+      }
     }
     if (this.flightPromptHitTimer > 0) {
       this.flightPromptHitTimer -= dt;
@@ -573,6 +597,12 @@ export class HUD {
         kind: 'flight-launch', kicker: flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`,
         title: `第 ${flightNumber} 飞`, detail: '',
         color: PALETTE.flight, duration: 0.7, priority: 75,
+      });
+    }
+    if (race.phase === 'racing' && st.flightExtended) {
+      this.enqueueImpact({
+        kind: 'flight-extend', kicker: 'AIR CHARGE', title: '续航 +2.4 秒', detail: '稳住空刹 · 对准入弯',
+        color: PALETTE.flight, duration: 0.72, priority: 78,
       });
     }
     this.lastFlightPhase = st.flightPhase;

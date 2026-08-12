@@ -17,7 +17,7 @@ export interface BoatInput {
   steer: number;
   /** Held = powerslide. Releasing after a long drift pays out boost. */
   drift: boolean;
-  /** Edge-triggered. Consumes one stored flight charge and starts anti-grav flight. */
+  /** Edge-triggered. Starts flight on water, or spends the spare cell to extend an active flight. */
   flightTrigger: boolean;
   /** Held brake key. During controlled flight this becomes vector air-braking. */
   airBrake: boolean;
@@ -121,6 +121,12 @@ export interface BoatState {
   flightPhase: FlightPhase;
   /** Normalized time left in the authored flight envelope. */
   flightRemaining: number;
+  /** True when the stored spare cell can be spent to extend this active flight. */
+  flightExtensionReady: boolean;
+  /** Persistent for the current flight, preventing more than one airborne extension. */
+  flightExtensionUsed: boolean;
+  /** One-frame pulse emitted when an airborne extension is accepted. */
+  flightExtended: boolean;
   /** Hull-root clearance above the live mean water surface, in meters. */
   flightClearance: number;
   /** 0..1 visual/audio thrust envelope for the anti-grav emitters. */

@@ -55,14 +55,57 @@ try {
   const recordsPage = await recordsContext.newPage();
   await load(recordsPage);
 
-  const portraits = await recordsPage.evaluate(() => ({
-    count: document.querySelectorAll('.driver-card img').length,
-    loaded: [...document.querySelectorAll('.driver-card img')].every((image) => image.complete && image.naturalWidth > 0),
-    names: [...document.querySelectorAll('.driver-card strong')].map((node) => node.textContent),
+  const portraits = await recordsPage.locator('.driver-card').evaluateAll((cards) => cards.map((card) => {
+    const image = card.querySelector('img');
+    return {
+      id:card.dataset.driver,
+      name:card.querySelector('strong')?.textContent,
+      src:image?.currentSrc,
+      width:image?.naturalWidth,
+      height:image?.naturalHeight,
+    };
   }));
-  assert.equal(portraits.count, 6, 'character select must expose six adult drivers');
-  assert.equal(portraits.loaded, true, 'every local driver portrait must decode');
-  assert.ok(portraits.names.includes('TIDE') && portraits.names.includes('SOL'), 'both women must be selectable');
+  assert.equal(new Set(portraits.map((portrait) => portrait.id)).size, 6, 'character select must expose six adult drivers');
+  assert.equal(new Set(portraits.map((portrait) => portrait.src)).size, 6, 'every local driver portrait must decode distinctly');
+  assert.ok(portraits.every((portrait) => portrait.width === 640 && portrait.height === 960),
+    `all portraits must use the mobile-safe 2:3 master: ${JSON.stringify(portraits)}`);
+  assert.ok(portraits.some((portrait) => portrait.name === 'TIDE') && portraits.some((portrait) => portrait.name === 'SOL'),
+    'both women must be selectable');
+  assert.equal(await recordsPage.locator('.driver-card').count(), 6, 'six drivers must remain reachable');
+  assert.equal(await recordsPage.locator('.driver-card:visible').count(), 3,
+    'the carousel must show only previous, current, and next drivers');
+  assert.equal(await recordsPage.locator('.driver-dot').count(), 6,
+    'six compact destinations must replace the six-card wall');
+  assert.equal(await recordsPage.locator('.driver-dot.selected').count(), 1);
+  assert.match(await recordsPage.locator('.driver-radar-title').textContent() ?? '', /±6%/,
+    'the radar must state its real physics ceiling');
+  assert.match(await recordsPage.locator('.driver-radar').getAttribute('aria-label') ?? '', /加速 .+%，转向 .+%，漂移 .+%，空控 .+%/,
+    'the radar must expose the four live handling modifiers');
+  assert.equal(await recordsPage.locator('.driver-archive-button').count(), 0,
+    'archive utilities must stay out of the selection viewport');
+
+  const driverHandling = {
+    axle: [1, 1, 1, 1.04],
+    tide: [0.99, 1.01, 0.96, 1.06],
+    sol: [1.05, 0.97, 1.02, 0.99],
+    reef: [1.04, 1.03, 1.04, 0.98],
+    kai: [1.01, 1.04, 0.99, 1.04],
+    jinx: [0.98, 1.02, 1.06, 0.97],
+  };
+  for (const [id, expected] of Object.entries(driverHandling)) {
+    await recordsPage.locator(`.driver-dot[data-driver="${id}"]`).click();
+    const handling = await recordsPage.evaluate(() => {
+      const state = window.__harness.playerState();
+      return [state.driverAcceleration, state.driverSteering, state.driverDriftCharge, state.driverAirControl];
+    });
+    assert.deepEqual(handling, expected, `${id} radar values must reach live Boat physics unchanged`);
+    const radar = await recordsPage.locator('.driver-radar').getAttribute('aria-label') ?? '';
+    for (const value of expected) {
+      const percent = Math.round((value - 1) * 100);
+      assert.match(radar, new RegExp(`${percent > 0 ? '\\+' : ''}${percent}%`),
+        `${id} radar must print every live handling modifier: ${radar}`);
+    }
+  }
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v3': {

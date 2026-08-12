@@ -254,7 +254,7 @@ export class AIController {
     const flightWindow = myU >= upcomingRoute.qualifyFromU && myU <= upcomingRoute.exitU + 0.02;
     const qualificationWindow = flightWindow && myU < upcomingRoute.launchFromU &&
       me.state.flightPhase === 'surface';
-    if (me.state.flightCharges > 0 || !qualificationWindow) {
+    if (me.state.flightCharges >= 2 || !qualificationWindow) {
       this.qualifyingFlight = false;
     } else if (!this.qualifyingFlight && me.state.boostCharge < 0.38 && speed > 14) {
       this.qualifyingFlight = true;
@@ -276,6 +276,10 @@ export class AIController {
       me.state.flightPhase === 'surface' &&
       myU >= upcomingRoute.launchFromU &&
       myU <= upcomingRoute.launchToU;
+    const extendNow =
+      me.state.flightExtensionReady &&
+      me.state.flightRouteState === 'active' &&
+      (me.state.flightPhase === 'descending' || me.state.flightRemaining < 0.3);
     const activeRoute = this.course.routeForBoat(me.id);
     const flightRoute =
       activeRoute !== 'surface' ||
@@ -386,7 +390,7 @@ export class AIController {
     out.throttle = throttle;
     out.steer = steer;
     out.drift = me.state.flightPhase === 'surface' && (this.drifting || this.qualifyingFlight);
-    out.flightTrigger = launchNow;
+    out.flightTrigger = launchNow || extendNow;
     // The authored air route has a hard first bend. AI uses the same vector
     // air-brake available to the player, without changing water handling.
     out.airBrake = flightRoute && me.state.flightPhase !== 'surface' &&
