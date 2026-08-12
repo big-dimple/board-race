@@ -21,6 +21,8 @@ automatically; players steer, drift/air-brake, and trigger flight.
 
 - Support landscape phone and desktop play. Portrait must remain a blocking
   rotate prompt, not a separately designed gameplay layout.
+- Mobile steering modes may change only the left-thumb zone; keep drift/
+  air-brake and flight fixed in the same right-thumb positions.
 - Preserve the unified `BoatInput` contract and fixed-step simulation.
 - Keep flight guidance player-owned: at most one active branch may be visible.
 - Changes to physics, lifecycle, audio, records, or rendering need the matching

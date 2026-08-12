@@ -12,8 +12,8 @@
   --mobile-flight: #55e7ff;
   --mobile-drift: #39ff88;
   --mobile-charge: 0;
-  --control-h: clamp(112px, 32vh, 148px);
-  --control-w: min(46vw, 360px);
+  --control-h: clamp(128px, 36vh, 158px);
+  --control-w: clamp(288px, 39vw, 340px);
 }
 
 .mobile-controls button {
@@ -54,9 +54,10 @@
      switch alongside it so neither control can intercept the other. */
   right: max(86px, calc(env(safe-area-inset-right) + 76px));
   top: max(10px, env(safe-area-inset-top));
-  min-width: 64px;
+  min-width: 94px;
   min-height: 38px;
   padding: 5px 10px;
+  border-radius: 19px;
   color: var(--mobile-flight);
   font-size: 12px;
   opacity: 0;
@@ -76,7 +77,7 @@
   height: var(--control-h);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 0;
 }
 
 .mobile-steer-zones {
@@ -84,11 +85,9 @@
   display: none;
 }
 
-.mobile-action-zones { right: max(10px, env(safe-area-inset-right)); }
-.mobile-controls.controls-visible:not(.touch-steer) .mobile-action-zones {
-  left: max(10px, env(safe-area-inset-left));
+.mobile-action-zones {
   right: max(10px, env(safe-area-inset-right));
-  width: auto;
+  display: block;
 }
 
 .mobile-action-zones button,
@@ -102,6 +101,24 @@
   background: transparent;
   box-shadow: none;
   opacity: 0;
+  --control-face-y: 58%;
+}
+
+.mobile-action-zones button {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+}
+
+.mobile-action-zones [data-mobile-action="flight"] {
+  left: 0;
+  --control-face-y: 39%;
+}
+
+.mobile-action-zones [data-mobile-action="drift"] {
+  right: 0;
+  --control-face-y: 59%;
 }
 
 .mobile-controls.controls-visible .mobile-action-zones button,
@@ -122,7 +139,7 @@
 .mobile-steer-zones span {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: var(--control-face-y);
   width: clamp(78px, 22vh, 96px);
   height: clamp(78px, 22vh, 96px);
   display: flex;
@@ -181,11 +198,22 @@
 .mobile-action-zones button:first-child { color: var(--mobile-drift); }
 .mobile-action-zones button:last-child { color: var(--mobile-flight); }
 
+.mobile-action-zones [data-mobile-action="drift"] span {
+  width: clamp(84px, 24vh, 100px);
+  height: clamp(84px, 24vh, 100px);
+}
+
+.mobile-action-zones [data-mobile-action="flight"] span {
+  width: clamp(70px, 20vh, 84px);
+  height: clamp(70px, 20vh, 84px);
+  font-size: .86em;
+}
+
 .mobile-action-zones button::after {
   content: '';
   position: absolute;
   left: 50%;
-  bottom: calc(50% - clamp(34px, 10vh, 43px));
+  top: calc(var(--control-face-y) + clamp(38px, 11vh, 48px));
   width: clamp(46px, 13vh, 58px);
   height: 4px;
   background: currentColor;
@@ -242,22 +270,23 @@
 
 .mobile-tilt-meter {
   position: absolute;
-  left: 50%;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  width: 86px;
-  height: 4px;
-  margin-left: -43px;
-  background: rgba(244, 254, 255, 0.2);
+  left: max(54px, calc(env(safe-area-inset-left) + 44px));
+  bottom: max(26px, calc(env(safe-area-inset-bottom) + 18px));
+  width: 150px;
+  height: 34px;
+  border-bottom: 2px solid rgba(244, 254, 255, 0.3);
+  border-radius: 0 0 75px 75px;
+  background: linear-gradient(90deg, transparent 49%, rgba(244,254,255,.42) 49% 51%, transparent 51%);
   opacity: 0;
 }
 
 .mobile-controls.controls-visible:not(.touch-steer) .mobile-tilt-meter { opacity: 0.72; }
 .mobile-tilt-meter i {
   position: absolute;
-  left: 39px;
-  top: -3px;
-  width: 8px;
-  height: 10px;
+  left: 71px;
+  top: 17px;
+  width: 9px;
+  height: 13px;
   background: var(--mobile-flight);
   box-shadow: 0 0 10px var(--mobile-flight);
 }
@@ -291,7 +320,7 @@
 }
 
 @media (max-height: 330px) and (orientation: landscape) {
-  .mobile-controls { --control-h: 104px; }
+  .mobile-controls { --control-h: 122px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

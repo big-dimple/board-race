@@ -25,3 +25,8 @@
   .race-tower-gap { padding-right:3px; font-size:6px; }
   .race-radio { margin-top:4px; padding:5px 6px; font-size:8px; }
 }
+@media (max-height:340px) and (orientation:landscape) {
+  /* On very short phones the left thumb owns the lower band. Team radio is
+     transient context, so it yields instead of covering steering controls. */
+  .race-radio.on { display:none; }
+}

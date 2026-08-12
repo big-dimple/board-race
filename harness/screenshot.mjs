@@ -667,6 +667,8 @@ async function verifyMobileControls(page) {
 
   const mode = page.locator('.mobile-mode');
   status = await page.evaluate(() => window.__harness.mobileStatus());
+  const tiltActions = await readMobileControlGeometry(page);
+  assert.equal(status.mode, 'tilt', 'the sensor fixture must enter tilt mode before layout comparison');
   const topControlsOverlap = await page.evaluate(() => {
     const modeRect = document.querySelector('.mobile-mode')?.getBoundingClientRect();
     const soundRect = document.querySelector('.audio-mixer-toggle')?.getBoundingClientRect();
@@ -677,6 +679,24 @@ async function verifyMobileControls(page) {
   assert.equal(topControlsOverlap, false, 'SOUND may not cover the tilt/touch mode switch');
   if (status.mode !== 'touch') await mode.click();
   assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'touch');
+  const touchActions = await readMobileControlGeometry(page);
+  for (const action of ['drift', 'flight']) {
+    const before = tiltActions.controls[action];
+    const after = touchActions.controls[action];
+    for (const edge of ['left', 'right', 'top', 'bottom']) {
+      assert.ok(Math.abs(before[edge] - after[edge]) < 0.5,
+        `${action} must not move when steering mode changes (${edge}: ${before[edge]} -> ${after[edge]})`);
+    }
+    assert.ok(after.faceCenterX > touchActions.width * 0.58,
+      `${action} must remain in the right-thumb skill zone: ${JSON.stringify(after)}`);
+  }
+  assert.ok(touchActions.controls.drift.faceCenterX > touchActions.controls.flight.faceCenterX &&
+    touchActions.controls.drift.faceCenterY > touchActions.controls.flight.faceCenterY,
+  'drift must be the lower-right primary skill and flight its upper-left secondary skill');
+  for (const action of ['left', 'right']) {
+    assert.ok(touchActions.controls[action].faceCenterX < touchActions.width * 0.44,
+      `${action} must remain in the left-thumb steering zone: ${JSON.stringify(touchActions.controls[action])}`);
+  }
 
   // The post-medal countdown exposes direction/drift for preloading, but keeps
   // flight disabled. Active pointers must survive preparing -> racing.
@@ -713,21 +733,7 @@ async function verifyMobileControls(page) {
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('start'));
-  const geometry = await page.evaluate(() => {
-    const result = {};
-    for (const action of ['left', 'right', 'drift', 'flight']) {
-      const el = document.querySelector(`[data-mobile-action="${action}"]`);
-      const r = el.getBoundingClientRect();
-      const face = el.querySelector('span').getBoundingClientRect();
-      const faceStyle = getComputedStyle(el.querySelector('span'));
-      result[action] = {
-        left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height,
-        faceWidth: face.width, faceHeight: face.height, faceRadius: faceStyle.borderRadius,
-        buttonBackground: getComputedStyle(el).backgroundColor,
-      };
-    }
-    return { controls: result, width: innerWidth, height: innerHeight };
-  });
+  const geometry = await readMobileControlGeometry(page);
   for (const [name, r] of Object.entries(geometry.controls)) {
     assert.ok(r.width >= 140 && r.height >= 100, `${name} touch target is too small: ${r.width}x${r.height}`);
     assert.ok(r.top >= geometry.height - 170 && r.bottom <= geometry.height, `${name} must stay at the bottom edge`);
@@ -771,6 +777,109 @@ async function verifyMobileControls(page) {
   assert.equal(await page.locator('.mobile-orientation').isVisible(), false, 'rotating back must dismiss the blocker');
   assert.equal(await page.locator('[data-mobile-action="flight"]').isVisible(), true, 'landscape controls must recover after rotation');
   console.log('mobile controls contract: OK');
+}
+
+async function readMobileControlGeometry(page) {
+  return page.evaluate(() => {
+    const result = {};
+    for (const action of ['left', 'right', 'drift', 'flight']) {
+      const el = document.querySelector(`[data-mobile-action="${action}"]`);
+      const r = el.getBoundingClientRect();
+      const face = el.querySelector('span').getBoundingClientRect();
+      const faceStyle = getComputedStyle(el.querySelector('span'));
+      result[action] = {
+        left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height,
+        faceWidth:face.width, faceHeight:face.height, faceRadius:faceStyle.borderRadius,
+        faceCenterX:(face.left + face.right) / 2, faceCenterY:(face.top + face.bottom) / 2,
+        buttonBackground:getComputedStyle(el).backgroundColor,
+      };
+    }
+    return { controls:result, width:innerWidth, height:innerHeight };
+  });
+}
+
+async function assertMobileControlLayout(page, label, mode) {
+  const geometry = await readMobileControlGeometry(page);
+  const { drift, flight, left, right } = geometry.controls;
+  for (const [name, control] of Object.entries({ drift, flight })) {
+    assert.ok(control.width >= 140 && control.height >= 100,
+      `${label} ${name} touch target is too small: ${control.width}x${control.height}`);
+    assert.ok(control.faceCenterX > geometry.width * 0.58,
+      `${label} ${name} left the right-thumb skill zone: ${JSON.stringify(control)}`);
+    assert.ok(control.faceCenterY > geometry.height * 0.42 && control.bottom <= geometry.height,
+      `${label} ${name} is outside the lower thumb-reach band: ${JSON.stringify(control)}`);
+  }
+  assert.ok(drift.faceCenterX > flight.faceCenterX && drift.faceCenterY > flight.faceCenterY,
+    `${label} skill arc must keep drift lower-right and flight upper-left`);
+  const faceGap = Math.hypot(drift.faceCenterX - flight.faceCenterX, drift.faceCenterY - flight.faceCenterY);
+  assert.ok(faceGap > (drift.faceWidth + flight.faceWidth) * 0.52,
+    `${label} skill faces visually collide: gap=${faceGap}`);
+  if (mode === 'touch') {
+    for (const [name, control] of Object.entries({ left, right })) {
+      assert.ok(control.width >= 140 && control.height >= 100,
+        `${label} ${name} touch target is too small: ${control.width}x${control.height}`);
+      assert.ok(control.faceCenterX < geometry.width * 0.44,
+        `${label} ${name} left the left-thumb steering zone: ${JSON.stringify(control)}`);
+    }
+    assert.ok(right.right < flight.left, `${label} steering and skill hit regions overlap`);
+  }
+  const hudCollisions = await page.evaluate(() => {
+    const controls = [...document.querySelectorAll('.mobile-action-zones span, .mobile-steer-zones span')]
+      .filter((element) => {
+        const style = getComputedStyle(element.closest('button'));
+        return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0;
+      })
+      .map((element) => ({ name:element.closest('button')?.dataset.mobileAction ?? 'control', rect:element.getBoundingClientRect() }));
+    const surfaces = ['.race-tower-list', '.race-radio.on'].map((selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const style = getComputedStyle(element);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return null;
+      return { name:selector, rect:element.getBoundingClientRect() };
+    }).filter(Boolean);
+    const hits = [];
+    for (const control of controls) {
+      for (const surface of surfaces) {
+        const width = Math.min(control.rect.right, surface.rect.right) - Math.max(control.rect.left, surface.rect.left);
+        const height = Math.min(control.rect.bottom, surface.rect.bottom) - Math.max(control.rect.top, surface.rect.top);
+        if (width > 1 && height > 1) hits.push(`${control.name} x ${surface.name} (${width.toFixed(1)}x${height.toFixed(1)})`);
+      }
+    }
+    return hits;
+  });
+  assert.deepEqual(hudCollisions, [], `${label} controls cover race context: ${hudCollisions.join(', ')}`);
+  return geometry;
+}
+
+async function activateMobileForScreenshots(page, touchFallback) {
+  const contractGo = page.locator('.driver-select-go');
+  const legacyStart = page.locator('.mobile-start');
+  if (await contractGo.isVisible()) await contractGo.click();
+  else if (await legacyStart.isVisible()) await legacyStart.click();
+  await page.waitForFunction(() => {
+    const s = window.__harness.mobileStatus();
+    return s.activation === 'calibrating' || s.activation === 'ready';
+  });
+  let status = await page.evaluate(() => window.__harness.mobileStatus());
+  if (!touchFallback && status.activation === 'calibrating') {
+    for (let i = 0; i < 8; i++) {
+      await page.evaluate(() => {
+        const event = new Event('deviceorientation');
+        Object.defineProperties(event, {
+          beta: { value: 0.6 },
+          gamma: { value: 0.4 },
+        });
+        window.dispatchEvent(event);
+      });
+      await page.waitForTimeout(55);
+    }
+  }
+  await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 3500 });
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  const mode = page.locator('.mobile-mode');
+  if (touchFallback && status.mode !== 'touch') await mode.click();
+  assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode,
+    touchFallback ? 'touch' : 'tilt', `mobile screenshot must use the requested ${touchFallback ? 'touch' : 'tilt'} mode`);
 }
 
 async function verifyPerformanceContract(page) {
@@ -986,17 +1095,14 @@ async function main() {
     }
     if (verifyMobile) await verifyMobileControls(page);
     if (verifyPerformance) await verifyPerformanceContract(page);
-    if (mobile && touchFallback) {
-      const contractGo = page.locator('.driver-select-go');
-      const legacyStart = page.locator('.mobile-start');
-      if (await contractGo.isVisible()) await contractGo.click();
-      else if (await legacyStart.isVisible()) await legacyStart.click();
-      await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 3500 });
+    if (mobile && selected.length) {
+      await activateMobileForScreenshots(page, touchFallback);
       const mode = page.locator('.mobile-mode');
-      if ((await page.evaluate(() => window.__harness.mobileStatus())).mode !== 'touch') await mode.click();
-      assert.equal(await page.locator('.mobile-controls').evaluate((el) => el.classList.contains('touch-steer')), true,
-        'touch fallback must expose the two steering zones');
-      assert.equal(await mode.textContent(), '触控', 'touch fallback must identify the active steering mode');
+      if (touchFallback) {
+        assert.equal(await page.locator('.mobile-controls').evaluate((el) => el.classList.contains('touch-steer')), true,
+          'touch fallback must expose the two steering zones');
+        assert.equal(await mode.textContent(), '转向 · 触控', 'touch fallback must identify the active steering mode');
+      }
     }
 
     const mobileSuffix = mobile ? (touchFallback ? '-mobile-touch' : '-mobile') : '';
@@ -1035,20 +1141,27 @@ async function main() {
       console.log(`  -> shots/${name}${mobileSuffix}.png`);
 
       if (responsive) {
-        for (const vp of [
-          { suffix: 'landscape', width: 844, height: 390 },
-        ]) {
+        const viewports = mobile ? [
+          { suffix: touchFallback ? 'touch-844x390' : 'tilt-844x390', width:844, height:390 },
+          { suffix: touchFallback ? 'touch-844x330' : 'tilt-844x330', width:844, height:330 },
+          { suffix: touchFallback ? 'touch-844x300' : 'tilt-844x300', width:844, height:300 },
+          { suffix: touchFallback ? 'touch-932x430' : 'tilt-932x430', width:932, height:430 },
+        ] : [
+          { suffix:'landscape', width:844, height:390 },
+        ];
+        for (const vp of viewports) {
           await page.setViewportSize({ width: vp.width, height: vp.height });
           await page.waitForTimeout(120); // allow ResizeObserver + renderer targets to settle
           await page.evaluate(() => window.__harness.render());
           await page.waitForTimeout(20);
+          if (mobile) await assertMobileControlLayout(page, `${name}-${vp.suffix}`, touchFallback ? 'touch' : 'tilt');
           await assertHudDoesNotOverlap(page, `${name}-${vp.suffix}`);
           await assertBattleLeavesDrivingRoiClear(page, `${name}-${vp.suffix}`);
           await assertCompactActionPromptLeavesDrivingRoiClear(page, `${name}-${vp.suffix}`);
           await page.screenshot({ path: path.join(OUT, `${name}-${vp.suffix}.png`) });
           console.log(`  -> shots/${name}-${vp.suffix}.png`);
         }
-        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.setViewportSize(mobile ? { width:844, height:390 } : { width:1440, height:900 });
         await page.waitForTimeout(120);
       }
     }

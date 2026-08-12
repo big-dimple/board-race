@@ -83,7 +83,7 @@ export class MobileControls {
         <span>本游戏仅支持横屏</span>
       </div>
       <button class="mobile-start" type="button">开始游戏</button>
-      <button class="mobile-mode" type="button" aria-label="切换转向方式">重力</button>
+      <button class="mobile-mode" type="button" aria-label="切换转向方式">转向 · 重力</button>
       <div class="mobile-tilt-meter" aria-hidden="true"><i></i></div>
       <div class="mobile-steer-zones" aria-label="触控转向">
         <button type="button" data-mobile-action="left" aria-label="左转"><span><b>‹</b><small>LEFT</small></span></button>
@@ -347,7 +347,10 @@ export class MobileControls {
       this.root.classList.toggle('touch-steer', this.mode === 'touch');
       this.root.classList.toggle('activated', state === 'ready');
     }
-    if (this.modeButton) this.modeButton.textContent = this.mode === 'tilt' ? '重力' : '触控';
+    if (this.modeButton) {
+      this.modeButton.textContent = this.mode === 'tilt' ? '转向 · 重力' : '转向 · 触控';
+      this.modeButton.setAttribute('aria-label', this.mode === 'tilt' ? '当前重力转向，点击切换触控' : '当前触控转向，点击切换重力');
+    }
     this.syncStartButton();
   }
 
