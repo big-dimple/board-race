@@ -13,7 +13,7 @@ npm run dev
 
 Open the printed localhost URL. You start fourth in a six-racer endless challenge, with three rivals ahead and two behind.
 
-The grid is intentionally frozen at `READY`. On desktop, `Enter` starts the full `3 · 2 · 1 · GO` countdown; no other key starts it. On mobile, the single `GO` button is also the first permission/calibration gesture.
+The grid is intentionally frozen at `READY`. On desktop, `Enter` starts the full `3 · 2 · 1 · GO` countdown. On mobile, the first touch requests fullscreen at the earliest browser-authorized moment; the single `GO` button remains the reliable fullscreen, permission, and calibration gate.
 
 Backgrounding or minimizing the page immediately freezes simulation and hard-mutes audio. Returning never resumes a live run by itself: the player must press `GO`, then a fresh frozen `3 · 2 · 1 · GO` countdown restores control. READY already acts as that explicit resume gate; medal and loading screens resume their unread remainder only after GO.
 
@@ -28,7 +28,9 @@ Backgrounding or minimizing the page immediately freezes simulation and hard-mut
 | `Enter` | Start from READY; continue a loading review after its minimum reading time |
 | `R` | Continue a loading review after its minimum reading time |
 
-On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first `GO` gesture requests motion permission, attempts fullscreen/landscape, and calibrates a stable neutral angle. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
+Keyboard steering remains active in touch-capable Chrome sessions, including `←` / `→`. Standard-mapped controllers are also supported: left stick or D-pad steers, `A / Cross` flies and confirms, and `X / Square`, `LB`, or `RB` holds drift/air-brake. The controller adapter applies a calibrated dead zone, edge-triggered flight/confirmation, disconnect cleanup, optional rumble, and the same no-buffer countdown rule as keyboard input.
+
+On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape; `GO` retries inside its own user gesture, requests motion permission, and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
 A qualifying drift release banks one flight charge, up to two; takeoff spends one and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back-flexing athlete medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. It then runs a complete frozen `3 · 2 · 1 · GO` countdown before restoring control at the exact same position. Flights 4-7 continue around the rest of the circuit; route 4 is an explicit 8m-wide reward portal, and all seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
 
@@ -45,7 +47,8 @@ src/
   contracts.ts      Shared interfaces (IBoat, ICourse, IWake, ISpray, RaceView, LAYER_INK)
   core/             palette.ts (single source of the limited palette), stage.ts (renderer
                     + adaptive pixel ratio), loop.ts (fixed 60Hz sim), input.ts,
-                    mobileControls.ts (tilt steering, touch fallback, multi-touch actions),
+                    gamepadInput.ts (standard controller adapter), mobileControls.ts
+                    (tilt steering, touch fallback, fullscreen, multi-touch actions),
                     prePass.ts (MRT normal/depth prepass for edge detection + foam masks)
   water/
     waves.ts        Gerstner field (5 waves) — ONE definition, compiled into both the
@@ -99,9 +102,9 @@ src/
   hud/
     hud.ts/.css     Responsive minimal goal HUD: flights, 6-racer position, leader gap,
                     edge action feedback, focused adaptive loading, READY gate, and medal UI
-    driverSelect.ts/.css Character contract, centered portrait/radar decision group,
-                    mobile standing portrait, real handling modifiers (up to +/-6%),
-                    explicit roster paddles, and a three-card carousel
+    driverSelect.ts/.css Character contract, centered desktop portrait/radar decision group,
+                    mobile standing portrait with a separate ability column, real handling
+                    modifiers (up to +/-6%), named roster paddles, and a desktop carousel
     raceTower.ts/.css Compact six-driver tower and transient team radio
     medalCeremony.ts One DPR-capped Canvas2D celebration: back-flex athlete and particles
   audio/
@@ -111,7 +114,8 @@ src/
 harness/
     screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
                     (two-charge storage, seven-route timing, qualification, adaptive loading,
-                    mobile controls, route guidance, performance, and battle events)
+                    keyboard/gamepad/mobile controls, radar restore, fullscreen request,
+                    route guidance, performance, and battle events)
     collision.mjs   15-pair CCD, pileup, cooldown, rule isolation, route-4 boundary tests
     audio.mjs       Media playback, mixer, progressive score, ducking, background lifecycle
     systems.mjs     Save migration/import, portraits, rivals, and two-lap/14-flight endurance
@@ -141,8 +145,8 @@ harness/
 node harness/screenshot.mjs                 # all scenarios → shots/*.png (retina)
 node harness/screenshot.mjs water rider     # subset
 node harness/screenshot.mjs --stats sweeper # + renderer.info stats
-npm run verify:flight                     # qualification/endless/failure/guidance assertions
-npm run verify:mobile                     # first gesture, fallback, bottom controls, multi-touch
+npm run verify:flight                     # gameplay plus keyboard/gamepad input contracts
+npm run verify:mobile                     # fullscreen, radar restore, fallback, controls, multi-touch
 npm run verify:performance                # pixel budget, resize coalescing, draw-call ceiling
 npm run verify:collision                  # CCD, impact integration, gate/checkpoint isolation
 npm run verify:audio                      # formal track, mixer, ducking, hidden/resume lifecycle

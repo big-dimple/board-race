@@ -104,6 +104,7 @@ export class HUD {
   private readonly flightPromptCn: HTMLDivElement;
   private readonly flightPromptRule: HTMLDivElement;
   private flightPromptMode: 'hidden' | 'launch' | 'extend' = 'hidden';
+  private flightPromptDevice: 'keyboard' | 'gamepad' | 'mobile' = 'keyboard';
   private flightPromptHitTimer = 0;
 
   // full-screen, event-driven impact layer
@@ -565,20 +566,26 @@ export class HUD {
     const promptMode: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
       ? 'extend'
       : !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
-    if (promptMode !== this.flightPromptMode) {
+    const mobile = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
+    const gamepad = !mobile && hasConnectedGamepad();
+    const promptDevice = mobile ? 'mobile' : gamepad ? 'gamepad' : 'keyboard';
+    if (promptMode !== this.flightPromptMode || promptDevice !== this.flightPromptDevice) {
       this.flightPromptMode = promptMode;
-      const mobile = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
+      this.flightPromptDevice = promptDevice;
       this.flightPrompt.classList.toggle('on', promptMode !== 'hidden');
       this.flightPrompt.classList.toggle('extend', promptMode === 'extend');
+      const key = promptDevice === 'mobile' ? (promptMode === 'extend' ? '续' : '飞')
+        : promptDevice === 'gamepad' ? 'A' : 'SPACE';
+      const action = promptMode === 'extend' ? '续航' : '起飞';
       if (promptMode === 'extend') {
-        this.flightPromptKey.textContent = mobile ? '续' : 'SPACE';
+        this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'AIR CHARGE READY';
-        this.flightPromptCn.textContent = mobile ? '点「续」延长飞行' : '按 SPACE 续航';
+        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「续」延长飞行' : `按 ${key} ${action}`;
         this.flightPromptRule.textContent = '消耗 1 格 · 续航 +2.4 秒';
       } else {
-        this.flightPromptKey.textContent = mobile ? '飞' : 'SPACE';
+        this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'FLIGHT READY';
-        this.flightPromptCn.textContent = mobile ? '点「飞」起飞' : '按 SPACE 起飞';
+        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「飞」起飞' : `按 ${key} ${action}`;
         this.flightPromptRule.textContent = '下一飞已就绪';
       }
     }
@@ -1331,4 +1338,15 @@ export class HUD {
       }
     }
   }
+}
+
+function hasConnectedGamepad(): boolean {
+  try {
+    const pads = navigator.getGamepads?.();
+    if (!pads) return false;
+    for (let i = 0; i < pads.length; i++) if (pads[i]?.connected) return true;
+  } catch {
+    return false;
+  }
+  return false;
 }

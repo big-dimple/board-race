@@ -13,8 +13,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
 ## Stack And Layout
 
 - TypeScript, Vite, Three.js, Web Audio, and Playwright.
-- Gameplay lives in `src/game/`; mobile input in `src/core/mobileControls.ts`;
-  HUD in `src/hud/`; sound in `src/audio/`; deterministic checks in `harness/`.
+- Gameplay lives in `src/game/`; keyboard, gamepad, and mobile input adapters
+  live in `src/core/`; HUD in `src/hud/`; sound in `src/audio/`; deterministic
+  checks in `harness/`.
 - `README.md` is the user-facing source of truth for controls and behavior.
 
 ## Constraints

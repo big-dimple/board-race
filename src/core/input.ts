@@ -52,6 +52,12 @@ export class Input {
     };
   }
 
+  /** True only while a physical steering key is held. */
+  steeringHeld(): boolean {
+    return this.keys.has('KeyA') || this.keys.has('ArrowLeft') ||
+      this.keys.has('KeyD') || this.keys.has('ArrowRight');
+  }
+
   reset(): void {
     this.keys.clear();
     this.pressed.clear();

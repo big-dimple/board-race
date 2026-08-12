@@ -55,6 +55,8 @@ export class MobileControls {
   private showGo = false;
   private goLabel = '开始游戏';
   private landscape = matchMedia('(orientation: landscape)').matches;
+  private fullscreenRequests = 0;
+  private firstImmersiveGestureHandled = false;
 
   get ready(): boolean {
     return !this.enabled || this.landscape && this.activation === 'ready';
@@ -115,7 +117,10 @@ export class MobileControls {
     });
     this.modeButton?.addEventListener('click', () => {
       this.onFirstGesture();
-      if (this.mode === 'touch') void this.activateTilt();
+      if (this.mode === 'touch') {
+        this.enterImmersiveMode();
+        void this.activateTilt();
+      }
       else this.useTouch();
     });
 
@@ -142,6 +147,10 @@ export class MobileControls {
     window.addEventListener('pointerdown', () => {
       this.anyPressQueued = true;
       this.onFirstGesture();
+      if (!this.firstImmersiveGestureHandled) {
+        this.firstImmersiveGestureHandled = true;
+        this.enterImmersiveMode();
+      }
     }, { passive: true });
   }
 
@@ -206,6 +215,9 @@ export class MobileControls {
   /** Shared start gate used by the driver contract screen and fallback GO. */
   requestGo(): void {
     this.onFirstGesture();
+    // Fullscreen must be requested synchronously from the GO click. Waiting
+    // for the sensor permission promise loses browser user activation.
+    this.enterImmersiveMode();
     if (this.activation === 'ready') {
       this.goQueued = true;
       return;
@@ -271,6 +283,7 @@ export class MobileControls {
     sampleCount: number;
     angle: number;
     landscape: boolean;
+    fullscreenRequests: number;
   } {
     return {
       mode: this.mode,
@@ -279,6 +292,7 @@ export class MobileControls {
       sampleCount: this.calibrationSamples.length,
       angle: this.calibrationAngle,
       landscape: this.landscape,
+      fullscreenRequests: this.fullscreenRequests,
     };
   }
 
@@ -291,7 +305,6 @@ export class MobileControls {
       requestPermission?: () => Promise<'granted' | 'denied'>;
     } }).DeviceOrientationEvent;
     const permissionPromise = orientationType?.requestPermission?.();
-    const fullscreenPromise = permissionPromise ? null : this.requestFullscreen();
     try {
       if (!('DeviceOrientationEvent' in window)) {
         this.useTouch();
@@ -303,9 +316,6 @@ export class MobileControls {
       }
       this.tiltAuthorized = true;
       this.mode = 'tilt';
-      if (fullscreenPromise) await fullscreenPromise.catch(() => undefined);
-      else void this.requestFullscreen().catch(() => undefined);
-      void this.lockLandscape();
       this.startCalibration();
     } catch {
       this.useTouch();
@@ -316,7 +326,14 @@ export class MobileControls {
 
   private requestFullscreen(): Promise<void> {
     if (document.fullscreenElement || !document.documentElement.requestFullscreen) return Promise.resolve();
+    this.fullscreenRequests++;
     return document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => undefined);
+  }
+
+  private enterImmersiveMode(): void {
+    void this.requestFullscreen()
+      .then(() => this.lockLandscape())
+      .catch(() => this.lockLandscape());
   }
 
   private async lockLandscape(): Promise<void> {

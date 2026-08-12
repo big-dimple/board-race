@@ -71,6 +71,8 @@
   cursor:pointer;
   transition:color 120ms linear,background 120ms linear,transform 120ms ease-out,box-shadow 120ms linear;
 }
+.driver-switch-icon { display:block; font:400 68px/.7 Arial,sans-serif; }
+.driver-switch-label { display:none; }
 .driver-switch-previous { right:calc(100% + 18px); }
 .driver-switch-next { left:calc(100% + 18px); }
 .driver-switch-control:hover { color:var(--driver-color); background:#16294b; box-shadow:0 0 28px color-mix(in srgb,var(--driver-color) 34%,transparent); }
@@ -200,7 +202,7 @@
     object-fit:contain;
     object-position:50% 100%;
     transform:translateX(-50%);
-    opacity:.3;
+    opacity:.38;
     pointer-events:none;
     mix-blend-mode:screen;
     filter:saturate(.88) contrast(1.08);
@@ -225,7 +227,7 @@
 @keyframes driver-mobile-backdrop-lock {
   0% { opacity:.08; transform:translateX(calc(-50% + var(--switch-enter))) scale(1.035); }
   48% { opacity:.36; }
-  100% { opacity:.3; transform:translateX(-50%); }
+  100% { opacity:.38; transform:translateX(-50%); }
 }
 
 @media (max-height:340px) and (orientation:landscape) {
@@ -262,6 +264,103 @@
   .driver-select-go { min-width:138px; }
   .driver-switch-previous { right:calc(100% + 7px); }
   .driver-switch-next { left:calc(100% + 7px); }
+}
+
+/* Mobile contract screen: one standing driver plus one decision column. The
+   six destination cards stay in the DOM for desktop/accessibility, but they
+   do not become three opaque panels over the mobile portrait. */
+@media (pointer:coarse) and (orientation:landscape) {
+  .driver-select {
+    grid-template-rows:auto minmax(0,1fr) auto;
+    gap:5px;
+    background:linear-gradient(90deg,rgba(4,7,20,.42) 0,rgba(4,7,20,.52) 48%,rgba(4,7,20,.72) 100%);
+  }
+  .driver-select-header { width:calc(100% - 180px); }
+  .driver-select-objective { display:none; }
+  .driver-featured {
+    width:min(calc(100% - 170px),660px);
+    grid-template-columns:minmax(210px,1.2fr) minmax(200px,.8fr);
+    grid-template-areas:'portrait radar' 'portrait identity';
+    grid-template-rows:minmax(0,1fr) auto;
+    column-gap:12px;
+    row-gap:4px;
+  }
+  .driver-mobile-backdrop {
+    left:calc(50% - clamp(105px,16vw,150px));
+    height:98%;
+    bottom:-2%;
+    opacity:.48;
+    filter:saturate(.96) contrast(1.14);
+  }
+  .driver-carousel { display:none; }
+  .driver-switch-control {
+    top:50%;
+    width:76px;
+    height:82px;
+    display:grid;
+    grid-template-rows:48px auto;
+    place-items:center;
+    padding:5px 3px 7px;
+    transform:translateY(-50%);
+    border-color:rgba(244,254,255,.18);
+    background:rgba(8,13,42,.36);
+    box-shadow:0 0 18px color-mix(in srgb,var(--driver-color) 12%,transparent);
+  }
+  .driver-switch-control:active { transform:translateY(-50%) scale(.94); }
+  .driver-switch-previous { right:calc(100% + 9px); }
+  .driver-switch-next { left:calc(100% + 9px); }
+  .driver-switch-icon { font-size:52px; line-height:.72; }
+  .driver-switch-label {
+    display:block;
+    width:100%;
+    overflow:hidden;
+    color:var(--driver-color);
+    font:900 9px/1 system-ui,sans-serif;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .driver-roster-index {
+    left:10px;
+    transform:none;
+    background:rgba(4,7,20,.68);
+  }
+  .driver-portrait-frame { min-width:0; max-height:none; }
+  .driver-radar-wrap {
+    align-self:stretch;
+    max-height:none;
+    padding:6px 8px;
+    border:0;
+    border-top:2px solid rgba(244,254,255,.22);
+    border-left:2px solid rgba(244,254,255,.22);
+    background:rgba(8,13,42,.4);
+  }
+  .driver-radar-title { font-size:8px; }
+  .driver-identity {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    align-self:end;
+    overflow:visible;
+    text-align:left;
+  }
+  .driver-specialty,.driver-name,.driver-meta { justify-self:start; }
+  .driver-specialty { padding:3px 6px; font-size:8px; }
+  .driver-name { margin-top:3px; font-size:30px; text-shadow:3px 3px 0 #14122b; }
+  .driver-meta { margin-top:4px; font-size:8px; }
+  .driver-quote { display:none; }
+  .driver-trait { margin-top:3px; padding:3px 4px; font-size:7px; }
+  .driver-select-footer { min-height:40px; }
+}
+
+@media (pointer:coarse) and (orientation:landscape) and (max-height:340px) {
+  .driver-select { grid-template-rows:auto minmax(0,1fr) 37px; }
+  .driver-featured { width:min(calc(100% - 154px),650px); }
+  .driver-switch-control { width:68px; height:68px; grid-template-rows:38px auto; }
+  .driver-switch-previous { right:calc(100% + 7px); }
+  .driver-switch-next { left:calc(100% + 7px); }
+  .driver-switch-icon { font-size:43px; }
+  .driver-switch-label { font-size:8px; }
+  .driver-name { font-size:25px; }
+  .driver-trait { font-size:6.5px; }
+  .driver-select-go { min-height:35px; }
 }
 
 @media (prefers-reduced-motion:reduce) {

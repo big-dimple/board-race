@@ -18,6 +18,10 @@ export class DriverSelect {
   private readonly specialty: HTMLDivElement;
   private readonly radar: HTMLCanvasElement;
   private readonly rosterIndex: HTMLDivElement;
+  private readonly previousButton: HTMLButtonElement;
+  private readonly nextButton: HTMLButtonElement;
+  private readonly previousLabel: HTMLElement;
+  private readonly nextLabel: HTMLElement;
   private readonly cards = new Map<string, HTMLButtonElement>();
   private readonly dots = new Map<string, HTMLButtonElement>();
   private selectedProfile: DriverProfile;
@@ -52,18 +56,20 @@ export class DriverSelect {
 
     const featured = element('section', 'driver-featured', this.root);
     featured.id = 'driver-featured';
-    const previous = element('button', 'driver-switch-control driver-switch-previous', featured, '‹');
-    previous.type = 'button';
-    previous.title = '上一位选手';
-    previous.setAttribute('aria-label', '上一位选手');
-    previous.setAttribute('aria-controls', featured.id);
-    previous.addEventListener('click', () => this.move(-1));
-    const next = element('button', 'driver-switch-control driver-switch-next', featured, '›');
-    next.type = 'button';
-    next.title = '下一位选手';
-    next.setAttribute('aria-label', '下一位选手');
-    next.setAttribute('aria-controls', featured.id);
-    next.addEventListener('click', () => this.move(1));
+    this.previousButton = element('button', 'driver-switch-control driver-switch-previous', featured);
+    this.previousButton.type = 'button';
+    this.previousButton.title = '上一位选手';
+    this.previousButton.setAttribute('aria-controls', featured.id);
+    element('span', 'driver-switch-icon', this.previousButton, '‹');
+    this.previousLabel = element('small', 'driver-switch-label', this.previousButton);
+    this.previousButton.addEventListener('click', () => this.move(-1));
+    this.nextButton = element('button', 'driver-switch-control driver-switch-next', featured);
+    this.nextButton.type = 'button';
+    this.nextButton.title = '下一位选手';
+    this.nextButton.setAttribute('aria-controls', featured.id);
+    element('span', 'driver-switch-icon', this.nextButton, '›');
+    this.nextLabel = element('small', 'driver-switch-label', this.nextButton);
+    this.nextButton.addEventListener('click', () => this.move(1));
     this.rosterIndex = element('div', 'driver-roster-index', featured);
     this.rosterIndex.setAttribute('aria-live', 'polite');
     this.rosterIndex.setAttribute('aria-atomic', 'true');
@@ -170,6 +176,10 @@ export class DriverSelect {
   show(): void {
     this.parent.classList.add('driver-select-active');
     this.root.classList.add('on');
+    this.drawRadar(this.selectedProfile);
+    requestAnimationFrame(() => {
+      if (this.root.classList.contains('on')) this.drawRadar(this.selectedProfile);
+    });
   }
 
   hide(): void {
@@ -225,6 +235,12 @@ export class DriverSelect {
     this.rosterIndex.textContent = `选手 ${String(index + 1).padStart(2, '0')} / ${String(DRIVER_PROFILES.length).padStart(2, '0')}`;
     const previousId = DRIVER_PROFILES[(index - 1 + DRIVER_PROFILES.length) % DRIVER_PROFILES.length].id;
     const nextId = DRIVER_PROFILES[(index + 1) % DRIVER_PROFILES.length].id;
+    const previousProfile = driverProfile(previousId);
+    const nextProfile = driverProfile(nextId);
+    this.previousLabel.textContent = previousProfile.name;
+    this.nextLabel.textContent = nextProfile.name;
+    this.previousButton.setAttribute('aria-label', `上一位选手，${previousProfile.name}`);
+    this.nextButton.setAttribute('aria-label', `下一位选手，${nextProfile.name}`);
     for (const [id, card] of this.cards) {
       card.classList.toggle('selected', id === profile.id);
       card.classList.toggle('carousel-prev', id === previousId);

@@ -17,6 +17,7 @@ import { Stage, resolveQualityMode } from './core/stage';
 import { PrePass } from './core/prePass';
 import { Loop } from './core/loop';
 import { Input } from './core/input';
+import { GamepadInput } from './core/gamepadInput';
 import { MobileControls } from './core/mobileControls';
 import { Ocean } from './water/ocean';
 import { WakeRibbon } from './water/wake';
@@ -124,9 +125,12 @@ const driverSelect = new DriverSelect(
 );
 
 const input = new Input();
+const gamepadInput = new GamepadInput();
 const mobileInput = new MobileControls(app, () => audio.resume(), params.has('mobile'));
 const haptic = (pattern: number | number[]): void => {
   if (mobileInput.enabled && typeof navigator.vibrate === 'function') navigator.vibrate(pattern);
+  const duration = Array.isArray(pattern) ? pattern.reduce((sum, value) => sum + value, 0) : pattern;
+  gamepadInput.pulse(Array.isArray(pattern) ? 0.72 : 0.38, duration);
 };
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
 stage.onResize((w, h, pr) => {
@@ -269,7 +273,9 @@ function requestRetry(): void {
 function resumeInterruption(): void {
   if (!interruptionActive || document.hidden) return;
   interruptionActive = false;
+  stopInterruptionPadPoll();
   input.reset();
+  gamepadInput.reset();
   mobileInput.reset();
   hud.hideInterruption();
   if (interruptionNeedsCountdown && race.restartAfterInterruption()) {
@@ -286,6 +292,7 @@ function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
   currentRun = records.beginRun();
   input.reset();
+  gamepadInput.reset();
   mobileInput.reset();
   mobileInput.setGoPrompt(false);
   hud.hideReady();
@@ -298,6 +305,7 @@ function startFreshCountdown(): void {
 function startResumeCountdown(): void {
   if (!race.startResumeCountdown()) return;
   input.clearTransient();
+  gamepadInput.clearTransient();
   mobileInput.reset();
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
@@ -309,6 +317,7 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   medalElapsed = 0;
   retryLessonFrozenT = worldTime;
   input.clearTransient();
+  gamepadInput.clearTransient();
   mobileInput.reset();
   mobileInput.setControlPhase('inactive');
   hud.showQualification(tier, medals, best);
@@ -334,6 +343,7 @@ function startRetryLesson(): void {
   retryLessonActive = true;
   retryLessonFrozenT = worldTime;
   input.reset();
+  gamepadInput.reset();
   mobileInput.reset();
   audio.retryLesson();
   audio.setScene('lesson');
@@ -369,6 +379,7 @@ function resetRace(): void {
   course.resetFlightChallenge();
   collisions.reset();
   input.reset();
+  gamepadInput.reset();
   mobileInput.reset();
   resultsShown = false;
   hud.hideResults();
@@ -406,7 +417,7 @@ function resetRace(): void {
   hud.hideReady();
   driverSelect.show();
   mobileInput.setGoPrompt(false);
-  mixer.setVisible(true);
+  mixer.setVisible(!mobileInput.enabled);
   mixer.sync();
   audio.setScene('ready');
 }
@@ -425,9 +436,14 @@ let harnessPlayerInput: BoatInput | null = null;
 let harnessFlightTriggerPulse = false;
 
 function step(dt: number, _t: number): void {
-  if (interruptionActive) return;
+  gamepadInput.poll();
+  if (interruptionActive) {
+    if (gamepadInput.consumeConfirm()) resumeInterruption();
+    return;
+  }
   if (mobileInput.enabled && !mobileInput.isLandscape) {
     input.reset();
+    gamepadInput.reset();
     mobileInput.reset();
     mobileInput.setControlPhase('inactive');
     return;
@@ -437,6 +453,7 @@ function step(dt: number, _t: number): void {
   // race remains queued and can erase the defeat screen on the failure frame.
   const enterPressed = input.consumePress('Enter');
   const retryPressed = input.consumePress('KeyR');
+  const gamepadConfirm = gamepadInput.consumeConfirm();
 
   if (race.phase === 'medal') {
     input.consumePress('Space');
@@ -445,12 +462,12 @@ function step(dt: number, _t: number): void {
     const canContinue = medalElapsed >= MEDAL_MIN_READ_S;
     hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, canContinue);
     updateFrozenPresentation(dt, 'medal');
-    if (medalElapsed >= MEDAL_CEREMONY_S || (enterPressed && canContinue)) startResumeCountdown();
+    if (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || gamepadConfirm) && canContinue)) startResumeCountdown();
     return;
   }
 
   if (retryLessonActive) {
-    const lessonPressed = enterPressed || retryPressed;
+    const lessonPressed = enterPressed || retryPressed || gamepadConfirm;
     input.consumePress('Space');
     mobileInput.consumeAnyPress();
     retryLessonTimer = Math.max(0, retryLessonTimer - dt);
@@ -471,15 +488,15 @@ function step(dt: number, _t: number): void {
     return;
   }
 
-  if ((enterPressed || retryPressed) && race.phase === 'finished') requestRetry();
+  if ((enterPressed || retryPressed || gamepadConfirm) && race.phase === 'finished') requestRetry();
 
   if (race.phase === 'ready') {
     input.consumePress('Space');
     const mobileGo = mobileInput.consumeGoRequest();
     const selectLeft = input.consumePress('ArrowLeft') || input.consumePress('KeyA');
     const selectRight = input.consumePress('ArrowRight') || input.consumePress('KeyD');
-    if (selectLeft) driverSelect.move(-1);
-    if (selectRight) driverSelect.move(1);
+    if (selectLeft || gamepadInput.consumeSelectLeft()) driverSelect.move(-1);
+    if (selectRight || gamepadInput.consumeSelectRight()) driverSelect.move(1);
     mobileInput.consumeAnyPress();
     mobileInput.setControlPhase('inactive');
     cameraRig.update(dt, boats[0], presentationTime);
@@ -490,13 +507,14 @@ function step(dt: number, _t: number): void {
     tower.update(dt, race);
     pipeline.update(dt, worldTime, boats[0].state, 'ready');
     audio.update(dt);
-    if (enterPressed || mobileGo) startFreshCountdown();
+    if (enterPressed || mobileGo || gamepadConfirm) startFreshCountdown();
     return;
   }
 
   if (race.phase === 'countdown' || race.phase === 'resume-countdown') {
     const resuming = race.phase === 'resume-countdown';
     input.consumePress('Space');
+    gamepadInput.consumeFlight();
     mobileInput.consumeAnyPress();
     mobileInput.setControlPhase(resuming ? 'preparing' : 'inactive');
     race.update(dt);
@@ -514,15 +532,35 @@ function step(dt: number, _t: number): void {
     return;
   }
 
-  const waitingForMobile = mobileInput.enabled && !mobileInput.ready && !HARNESS;
+  const waitingForMobile = mobileInput.enabled && !mobileInput.ready && !gamepadInput.connected && !HARNESS;
   const racing = race.phase === 'racing' && !waitingForMobile;
   mobileInput.setControlPhase(racing && (!HARNESS || params.has('mobile')) ? 'racing' : 'inactive');
 
   // Inputs: player keyboard (or AI autopilot in harness), AI for the rest.
   const flightActive = boats[0].state.flightPhase !== 'surface';
-  const playerInput = racing
-    ? (mobileInput.enabled ? mobileInput.read(dt, flightActive) : input.read(dt, flightActive))
-    : ZERO_INPUT;
+  let playerInput = ZERO_INPUT;
+  if (racing) {
+    const keyboardInput = input.read(dt, flightActive);
+    const padInput = gamepadInput.read(flightActive);
+    if (mobileInput.enabled) {
+      const touchInput = mobileInput.read(dt, flightActive);
+      playerInput = {
+        throttle: 1,
+        steer: input.steeringHeld() ? keyboardInput.steer : gamepadInput.steeringHeld() ? padInput.steer : touchInput.steer,
+        drift: keyboardInput.drift || padInput.drift || touchInput.drift,
+        flightTrigger: keyboardInput.flightTrigger || padInput.flightTrigger || touchInput.flightTrigger,
+        airBrake: keyboardInput.airBrake || padInput.airBrake || touchInput.airBrake,
+      };
+    } else {
+      playerInput = {
+        throttle: 1,
+        steer: input.steeringHeld() ? keyboardInput.steer : gamepadInput.steeringHeld() ? padInput.steer : keyboardInput.steer,
+        drift: keyboardInput.drift || padInput.drift,
+        flightTrigger: keyboardInput.flightTrigger || padInput.flightTrigger,
+        airBrake: keyboardInput.airBrake || padInput.airBrake,
+      };
+    }
+  }
   if (!retryLessonActive) mobileInput.consumeAnyPress();
   if (!racing) input.consumePress('Space'); // never buffer a flight press through the countdown
   worldTime += dt;
@@ -740,6 +778,7 @@ function step(dt: number, _t: number): void {
       defeatFreezeTimer = DEFEAT_FREEZE_S;
       retryLessonFrozenT = worldTime;
       input.reset();
+      gamepadInput.reset();
       mobileInput.reset();
       mobileInput.setControlPhase('inactive');
     } else {
@@ -764,13 +803,36 @@ function render(frameMs: number): void {
 }
 
 const loop = new Loop(step, render);
+let interruptionPadRaf = 0;
+
+function stopInterruptionPadPoll(): void {
+  cancelAnimationFrame(interruptionPadRaf);
+  interruptionPadRaf = 0;
+}
+
+function startInterruptionPadPoll(): void {
+  if (HARNESS || interruptionPadRaf || document.hidden || !interruptionActive) return;
+  const poll = () => {
+    interruptionPadRaf = 0;
+    if (document.hidden || !interruptionActive) return;
+    gamepadInput.poll();
+    if (gamepadInput.consumeConfirm()) {
+      resumeInterruption();
+      return;
+    }
+    interruptionPadRaf = requestAnimationFrame(poll);
+  };
+  interruptionPadRaf = requestAnimationFrame(poll);
+}
 
 function handleVisibility(hidden: boolean): void {
   audio.setVisibility(hidden);
   input.reset();
+  gamepadInput.reset();
   mobileInput.reset();
   mobileInput.setControlPhase('inactive');
   if (hidden) {
+    stopInterruptionPadPoll();
     pageWasHidden = true;
     interruptionNeedsCountdown = race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown';
     interruptionActive = race.phase !== 'ready';
@@ -785,6 +847,7 @@ function handleVisibility(hidden: boolean): void {
   }
   interruptionActive = true;
   hud.showInterruption(interruptionNeedsCountdown);
+  startInterruptionPadPoll();
   if (!HARNESS) requestAnimationFrame(() => render(16.7));
 }
 
@@ -818,6 +881,7 @@ interface Harness {
   stats(): Record<string, number | string>;
   guidance(): Record<string, number>;
   mobileStatus(): Record<string, number | string | boolean>;
+  gamepadStatus(): Record<string, number | string | boolean>;
   audioState(): Record<string, number | string | boolean>;
   opponentFx(): Record<string, number | string>;
   setVisibility(hidden: boolean): void;
@@ -1839,6 +1903,8 @@ if (HARNESS) {
         playerX: s.position.x,
         playerY: s.position.y,
         playerZ: s.position.z,
+        steer: s.steer,
+        heading: s.heading,
         flightFxRings: boats[0].debugFlightEffects().rings,
         flightFxPlumeLength: boats[0].debugFlightEffects().plumeLength,
         flightFxDeflection: boats[0].debugFlightEffects().deflection,
@@ -1879,6 +1945,7 @@ if (HARNESS) {
     }),
     guidance: () => course.guidanceStatus(),
     mobileStatus: () => mobileInput.status(),
+    gamepadStatus: () => gamepadInput.status(),
     audioState: () => audio.debugState(),
     opponentFx: () => {
       const opponents = boats.slice(1);

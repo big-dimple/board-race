@@ -626,6 +626,119 @@ async function verifyFlightContract(page) {
   console.log('gameplay contract: OK');
 }
 
+async function verifyGamepadContract(page) {
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear();
+    window.__gamepadFixture.connect();
+    window.__harness.scenario('ready');
+    window.__harness.advance(1 / 30);
+  });
+  assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).connected, true);
+
+  const initialDriver = await page.locator('.driver-card.selected').getAttribute('data-driver');
+  await page.evaluate(() => {
+    window.__gamepadFixture.axis(0, 0.12);
+    window.__harness.advance(1 / 30);
+  });
+  assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).steer, 0,
+    'left-stick noise inside the dead zone must be zero');
+  assert.equal(await page.locator('.driver-card.selected').getAttribute('data-driver'), initialDriver,
+    'dead-zone noise must not rotate the driver roster');
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.axis(0, 0.92);
+    window.__harness.advance(1 / 30);
+  });
+  const nextDriver = await page.locator('.driver-card.selected').getAttribute('data-driver');
+  assert.notEqual(nextDriver, initialDriver, 'right stick edge must select exactly one next driver');
+  await page.evaluate(() => window.__harness.advance(0.5));
+  assert.equal(await page.locator('.driver-card.selected').getAttribute('data-driver'), nextDriver,
+    'holding a stick must not scroll through the whole roster');
+  await page.evaluate(() => {
+    window.__gamepadFixture.axis(0, 0);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.button(0, true);
+    window.__harness.advance(1 / 30);
+  });
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'countdown',
+    'A / Cross must confirm the selected driver and start the countdown');
+  await page.evaluate(() => window.__harness.advance(4.4));
+  let heldCountdownState = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(heldCountdownState.phase, 'racing');
+  assert.equal(heldCountdownState.flightPhase, 'surface',
+    'holding A through the countdown must never buffer a flight edge');
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear();
+    window.__harness.scenario('start');
+    window.__harness.usePlayerInput(true);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.axis(0, 0.9);
+    window.__gamepadFixture.button(2, true);
+    window.__harness.advance(0.5);
+  });
+  let state = await page.evaluate(() => window.__harness.playerState());
+  assert.ok(state.steer > 0.7, `left stick must reach the boat input: ${JSON.stringify(state)}`);
+  assert.equal(state.drifting, true, 'X / Square must hold the contextual drift action');
+  assert.equal(state.driftReleaseReady, true, 'a held gamepad drift must reach the real release threshold');
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.disconnect();
+    window.__harness.advance(1 / 30);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).connected, false);
+  assert.equal(state.drifting, false, 'disconnect must release drift in the next simulation frame');
+  assert.ok(Math.abs(state.steer) < 0.01, `disconnect must release steering: ${state.steer}`);
+  assert.equal(state.flightCharges, 1, 'disconnecting a qualified held drift may release exactly one earned charge');
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear();
+    window.__gamepadFixture.connect();
+    window.__harness.advance(1 / 30);
+  });
+  assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /A.*起飞/s,
+    'a connected controller must be taught A / Cross before spending its charge');
+  await page.evaluate(() => {
+    window.__gamepadFixture.button(0, true);
+    window.__harness.advance(1 / 30);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.notEqual(state.flightPhase, 'surface', 'A / Cross must spend one stored charge and start flight');
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear();
+    window.__gamepadFixture.disconnect();
+    window.__harness.usePlayerInput(false);
+  });
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.connect();
+    window.__harness.advance(1 / 30);
+    window.__harness.setVisibility(true);
+    window.__harness.setVisibility(false);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.button(0, true);
+    window.__harness.advance(1 / 30);
+  });
+  // The first post-reset frame establishes a safe released baseline; the next
+  // A edge resumes exactly as keyboard Enter does.
+  if ((await page.evaluate(() => window.__harness.playerState())).interruptionActive) {
+    await page.evaluate(() => {
+      window.__gamepadFixture.button(0, false);
+      window.__harness.advance(1 / 30);
+      window.__gamepadFixture.button(0, true);
+      window.__harness.advance(1 / 30);
+    });
+  }
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'resume-countdown',
+    'A / Cross must resume a background-paused run through the safety countdown');
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear();
+    window.__gamepadFixture.disconnect();
+  });
+  console.log('gamepad input contract: OK');
+}
+
 async function verifyMobileControls(page) {
   const start = page.locator('.mobile-start');
   const contractGo = page.locator('.driver-select-go');
@@ -655,19 +768,11 @@ async function verifyMobileControls(page) {
   assert.deepEqual(await page.locator('.driver-featured').boundingBox(), featuredBefore,
     'the selection lock may not reflow the featured contract grid');
   const beforeSwipe = await page.locator('.driver-card.selected').getAttribute('data-driver');
-  const carouselBox = await page.locator('.driver-carousel').boundingBox();
-  assert.ok(carouselBox, 'driver carousel needs a stable swipe surface');
-  const swipeY = carouselBox.y + carouselBox.height / 2;
-  await page.dispatchEvent('.driver-carousel', 'pointerdown', {
-    pointerId: 41, pointerType: 'touch', isPrimary: true,
-    clientX: carouselBox.x + carouselBox.width * 0.78, clientY: swipeY,
-  });
-  await page.dispatchEvent('.driver-carousel', 'pointerup', {
-    pointerId: 41, pointerType: 'touch', isPrimary: true,
-    clientX: carouselBox.x + carouselBox.width * 0.3, clientY: swipeY,
-  });
+  assert.equal(await page.locator('.driver-carousel').isVisible(), false,
+    'mobile must not cover the standing portrait with a second card rail');
+  await page.locator('.driver-switch-next').click();
   assert.notEqual(await page.locator('.driver-card.selected').getAttribute('data-driver'), beforeSwipe,
-    'a left swipe must advance exactly one carousel destination');
+    'the explicit next control must advance exactly one hidden roster destination');
   const visitedDrivers = new Set();
   const visitedRosterSlots = new Set();
   for (let i = 0; i < 6; i++) {
@@ -687,7 +792,7 @@ async function verifyMobileControls(page) {
   }
   assert.equal(visitedDrivers.size, 6, `the explicit next control must visit all six drivers: ${[...visitedDrivers].join(', ')}`);
   assert.equal(visitedRosterSlots.size, 6, `the roster counter must expose all six positions: ${[...visitedRosterSlots].join(', ')}`);
-  for (let i = 0; i < 12; i++) await page.locator('.driver-card.carousel-next').click();
+  for (let i = 0; i < 12; i++) await page.locator('.driver-switch-next').click();
   await page.waitForTimeout(650);
   const selectSettled = await page.evaluate(() => window.__harness.audioState());
   assert.equal(Number(selectSettled.activeOneShots), 0, 'rapid driver changes must release every transient audio node');
@@ -699,7 +804,7 @@ async function verifyMobileControls(page) {
     await assertDriverSelectComposition(page, `mobile-844x${height}`);
     const contract = await page.evaluate(() => {
       const selectors = [
-        '.driver-select-header', '.driver-featured', '.driver-rail', '.driver-select-footer',
+        '.driver-select-header', '.driver-featured', '.driver-select-footer',
       ];
       const rects = selectors.map((selector) => {
         const rect = document.querySelector(selector)?.getBoundingClientRect();
@@ -720,7 +825,7 @@ async function verifyMobileControls(page) {
         goCenterX:go ? (go.left + go.right) / 2 : null,
         cardCount:document.querySelectorAll('.driver-card').length,
         visibleCards:[...document.querySelectorAll('.driver-card')]
-          .filter((node) => getComputedStyle(node).display !== 'none')
+          .filter((node) => node.getClientRects().length > 0 && node.getBoundingClientRect().width > 0)
           .map((node) => {
             const r = node.getBoundingClientRect();
             return { id:node.dataset.driver, top:r.top, right:r.right, bottom:r.bottom, left:r.left };
@@ -742,7 +847,7 @@ async function verifyMobileControls(page) {
     assert.ok(Math.abs(contract.goCenterX - contract.width / 2) <= 1.5,
       `GO must own the horizontal center at 844x${height}: ${JSON.stringify(contract.go)}`);
     assert.equal(contract.cardCount, 6, 'all six drivers must remain reachable in the carousel');
-    assert.equal(contract.visibleCards.length, 3, 'only previous, current, and next driver may be visible');
+    assert.equal(contract.visibleCards.length, 0, 'mobile must keep all six destinations behind the two explicit rotation controls');
     assert.equal(contract.dotCount, 6, 'the carousel must expose all six destinations without six cards');
     assert.equal(contract.selectedDotCount, 1, 'exactly one carousel destination must be selected');
     assert.equal(contract.switchControls.length, 2, 'the main driver stage needs two explicit rotation controls');
@@ -751,9 +856,6 @@ async function verifyMobileControls(page) {
         `driver rotation control clips at 844x${height}: ${JSON.stringify(control)}`);
       assert.ok(control.width >= 44 && control.height >= 44,
         `driver rotation control needs a reliable touch target at 844x${height}: ${JSON.stringify(control)}`);
-    }
-    for (const card of contract.visibleCards) {
-      assert.ok(card.top >= 0 && card.bottom <= contract.height, `driver card clips at 844x${height}: ${JSON.stringify(card)}`);
     }
     assert.equal(contract.archiveCount, 0, 'archive import/export must not compete with selection');
     assert.ok(contract.scrollHeight <= contract.height + 1,
@@ -788,7 +890,12 @@ async function verifyMobileControls(page) {
     `stable frames must restore mobile clarity: ${reducedRatio} -> ${renderStats.pixelRatio}`);
   let status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.activation, 'idle');
+  assert.ok(Number(status.fullscreenRequests) >= 1,
+    `the first touch on the driver selector must request fullscreen: ${JSON.stringify(status)}`);
   await contractGo.click();
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.ok(Number(status.fullscreenRequests) >= 1,
+    `the first GO gesture must immediately request fullscreen: ${JSON.stringify(status)}`);
 
   // Headless Chrome may expose no orientation source. In that case the same
   // timeout used on real unsupported devices must land in touch mode.
@@ -894,6 +1001,17 @@ async function verifyMobileControls(page) {
   assert.ok(geometry.controls.right.right < geometry.controls.drift.left,
     'steering and action groups must remain separate');
 
+  // Touch-capable browsers must still accept a real keyboard. The old input
+  // branch discarded ArrowLeft/ArrowRight whenever mobile controls existed.
+  await page.evaluate(() => window.__harness.usePlayerInput(true));
+  await page.keyboard.down('ArrowRight');
+  await page.evaluate(() => window.__harness.advance(0.25));
+  const keyboardState = await page.evaluate(() => window.__harness.playerState());
+  await page.keyboard.up('ArrowRight');
+  assert.ok(keyboardState.steer > 0.7,
+    `ArrowRight must steer even in a touch-capable Chrome session: ${JSON.stringify(keyboardState)}`);
+  await page.evaluate(() => window.__harness.usePlayerInput(false));
+
   for (const [selector, pointerId] of [
     ['[data-mobile-action="left"]', 31],
     ['[data-mobile-action="drift"]', 32],
@@ -907,6 +1025,27 @@ async function verifyMobileControls(page) {
   await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointercancel', { pointerId: 32, pointerType: 'touch' });
   await page.locator('[data-mobile-action="flight"]').dispatchEvent('pointercancel', { pointerId: 33, pointerType: 'touch' });
   assert.equal(await page.locator('.held').count(), 0, 'cancelled touches must never leave sticky controls');
+
+  // Browsers may discard a hidden 2D backing store. Re-entering READY after a
+  // real death must redraw the selected driver's radar, not show an empty box.
+  await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
+  await page.evaluate(() => window.__harness.advance(0.6));
+  await page.locator('.driver-radar').evaluate((canvas) => {
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  });
+  await page.evaluate(() => window.__harness.advance(4.1));
+  await page.evaluate(() => window.__harness.retry());
+  await page.waitForTimeout(50);
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'ready');
+  const radarPixels = await page.locator('.driver-radar').evaluate((canvas) => {
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let visible = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 8) visible++;
+    return visible;
+  });
+  assert.ok(radarPixels > 1200, `radar must redraw after death and READY restore: ${radarPixels} pixels`);
+
+  await page.evaluate(() => window.__harness.scenario('start'));
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(100);
@@ -966,7 +1105,7 @@ async function assertDriverSelectComposition(page, label) {
       switchControls:[...document.querySelectorAll('.driver-switch-control')].map((node) => rect(`.${node.classList.contains('driver-switch-previous') ? 'driver-switch-previous' : 'driver-switch-next'}`)),
       cardCount:document.querySelectorAll('.driver-card').length,
       visibleCardCount:[...document.querySelectorAll('.driver-card')]
-        .filter((node) => getComputedStyle(node).display !== 'none').length,
+        .filter((node) => node.getClientRects().length > 0 && node.getBoundingClientRect().width > 0).length,
       dotCount:document.querySelectorAll('.driver-dot').length,
       selectedDotCount:document.querySelectorAll('.driver-dot.selected').length,
       archiveCount:document.querySelectorAll('.driver-archive,.driver-archive-button').length,
@@ -976,14 +1115,6 @@ async function assertDriverSelectComposition(page, label) {
   assert.ok(featured && portrait && identity && radar && go, `${label} driver composition is incomplete`);
   assert.ok(Math.abs(featured.centerX - geometry.width / 2) <= 1.5,
     `${label} featured stage is not centered: ${JSON.stringify(geometry)}`);
-  assert.ok(Math.abs(identity.centerX - geometry.width / 2) <= 1.5,
-    `${label} identity must anchor the screen center: ${JSON.stringify(identity)}`);
-  assert.ok(Math.abs(portrait.width - radar.width) <= 2,
-    `${label} portrait and radar need equal visual weight: ${portrait.width} vs ${radar.width}`);
-  assert.ok(Math.abs(portrait.centerY - radar.centerY) <= 2,
-    `${label} portrait and radar left their shared horizontal axis: ${portrait.centerY} vs ${radar.centerY}`);
-  assert.ok(Math.abs((portrait.centerX + radar.centerX) / 2 - geometry.width / 2) <= 1.5,
-    `${label} portrait/radar pair is not centered as one unit: ${JSON.stringify(geometry)}`);
   const decisionGap = radar.left - portrait.right;
   assert.ok(decisionGap >= 2 && decisionGap <= 14,
     `${label} portrait and ability analysis must sit tightly together: gap=${decisionGap}`);
@@ -995,7 +1126,7 @@ async function assertDriverSelectComposition(page, label) {
     assert.ok(geometry.backdrop, `${label} needs a standing mobile portrait`);
     assert.equal(geometry.mobileBackdropStyle.display, 'block', `${label} standing portrait must be visible`);
     assert.equal(geometry.mobileBackdropStyle.objectFit, 'contain', `${label} standing portrait must never be cropped`);
-    assert.ok(geometry.mobileBackdropStyle.opacity >= 0.22 && geometry.mobileBackdropStyle.opacity <= 0.38,
+    assert.ok(geometry.mobileBackdropStyle.opacity >= 0.35 && geometry.mobileBackdropStyle.opacity <= 0.52,
       `${label} standing portrait must remain a legible background layer: ${JSON.stringify(geometry.mobileBackdropStyle)}`);
     assert.equal(geometry.mobileBackdropStyle.backdropSrc, geometry.mobileBackdropStyle.portraitSrc,
       `${label} background and selected driver must stay in sync`);
@@ -1007,12 +1138,27 @@ async function assertDriverSelectComposition(page, label) {
     assert.ok(Math.abs(geometry.backdrop.width / geometry.backdrop.height - 2 / 3) < 0.02,
       `${label} standing portrait element lost its vertical aspect: ${JSON.stringify(geometry.backdrop)}`);
     assert.equal(geometry.mobileBackdropStyle.portraitDisplay, 'none', `${label} must not retain the cropped foreground duplicate`);
+    assert.ok(radar.left - portrait.right >= 4 && radar.left - portrait.right <= 18,
+      `${label} mobile decision column must sit beside, not over, the driver: ${JSON.stringify(geometry)}`);
+    assert.ok(Math.abs(identity.left - radar.left) <= 2 && Math.abs(identity.right - radar.right) <= 2,
+      `${label} identity and radar must form one right-side decision column: ${JSON.stringify(geometry)}`);
+    assert.ok(radar.bottom <= identity.top + 1,
+      `${label} radar and identity must not overlap: ${JSON.stringify(geometry)}`);
   } else {
+    assert.ok(Math.abs(identity.centerX - geometry.width / 2) <= 1.5,
+      `${label} desktop identity must anchor the screen center: ${JSON.stringify(identity)}`);
+    assert.ok(Math.abs(portrait.width - radar.width) <= 2,
+      `${label} desktop portrait and radar need equal visual weight: ${portrait.width} vs ${radar.width}`);
+    assert.ok(Math.abs(portrait.centerY - radar.centerY) <= 2,
+      `${label} desktop portrait and radar left their shared axis: ${portrait.centerY} vs ${radar.centerY}`);
+    assert.ok(Math.abs((portrait.centerX + radar.centerX) / 2 - geometry.width / 2) <= 1.5,
+      `${label} desktop portrait/radar pair is not centered: ${JSON.stringify(geometry)}`);
     assert.equal(geometry.mobileBackdropStyle?.display, 'none', `${label} desktop must retain the framed portrait composition`);
     assert.notEqual(geometry.mobileBackdropStyle?.portraitDisplay, 'none', `${label} desktop framed portrait disappeared`);
   }
   assert.equal(geometry.cardCount, 6, `${label} must keep all six carousel destinations`);
-  assert.equal(geometry.visibleCardCount, 3, `${label} must show only previous/current/next cards`);
+  assert.equal(geometry.visibleCardCount, geometry.mobileBackdropStyle?.coarse ? 0 : 3,
+    `${label} must use the viewport-appropriate roster presentation`);
   assert.equal(geometry.dotCount, 6, `${label} must expose six compact destination marks`);
   assert.equal(geometry.selectedDotCount, 1, `${label} must select one destination mark`);
   assert.equal(geometry.archiveCount, 0, `${label} must not render archive tools`);
@@ -1322,6 +1468,35 @@ async function main() {
       reducedMotion: 'no-preference',
       ...(mobile ? { hasTouch: true, isMobile: true } : {}),
     });
+    await page.addInitScript(() => {
+      const buttons = Array.from({ length: 18 }, () => ({ pressed:false, touched:false, value:0 }));
+      const gamepad = {
+        id:'Board Race Test Controller', index:0, connected:true, timestamp:0,
+        mapping:'standard', axes:[0,0,0,0], buttons,
+      };
+      const fixture = {
+        connected:false,
+        connect() { this.connected = true; gamepad.timestamp++; },
+        disconnect() { this.connected = false; gamepad.timestamp++; },
+        axis(index, value) { gamepad.axes[index] = value; gamepad.timestamp++; },
+        button(index, pressed) {
+          buttons[index].pressed = pressed;
+          buttons[index].touched = pressed;
+          buttons[index].value = pressed ? 1 : 0;
+          gamepad.timestamp++;
+        },
+        clear() {
+          gamepad.axes.fill(0);
+          for (const button of buttons) Object.assign(button, { pressed:false, touched:false, value:0 });
+          gamepad.timestamp++;
+        },
+      };
+      Object.defineProperty(window, '__gamepadFixture', { value:fixture });
+      Object.defineProperty(navigator, 'getGamepads', {
+        configurable:true,
+        value:() => fixture.connected ? [gamepad] : [],
+      });
+    });
     page.on('pageerror', (err) => console.error(`[pageerror] ${err.message}`));
     page.on('console', (msg) => {
       if (msg.type() === 'error' || msg.type() === 'warning') console.error(`[console.${msg.type()}] ${msg.text()}`);
@@ -1335,6 +1510,7 @@ async function main() {
       await page.reload({ waitUntil: 'load', timeout: 60000 });
       await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
       await verifyFlightContract(page);
+      await verifyGamepadContract(page);
     }
     if (verifyMobile) await verifyMobileControls(page);
     if (verifyPerformance) await verifyPerformanceContract(page);
