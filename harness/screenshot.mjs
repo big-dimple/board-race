@@ -634,20 +634,20 @@ async function verifyMobileControls(page) {
   await assertDriverSelectComposition(page, 'mobile-844x390');
   const selectedBefore = await page.locator('.driver-card.selected').getAttribute('data-driver');
   const featuredBefore = await page.locator('.driver-featured').boundingBox();
-  const alternate = page.locator('.driver-card.carousel-next');
+  const alternate = page.locator('.driver-switch-next');
   await alternate.click();
   await page.waitForTimeout(95);
   assert.equal(await page.locator('.driver-select').evaluate((el) => el.classList.contains('switching')), true,
     'a driver change must enter the finite selection-lock state');
   assert.notEqual(await page.locator('.driver-card.selected').getAttribute('data-driver'), selectedBefore);
-  const contractAnimation = await page.locator('.driver-contract-card').evaluate((el) => {
+  const backdropAnimation = await page.locator('.driver-mobile-backdrop').evaluate((el) => {
     const style = getComputedStyle(el);
     return { name:style.animationName, duration:parseFloat(style.animationDuration) };
   });
-  assert.equal(contractAnimation.name, 'driver-contract-lock',
-    `the selected portrait must run the authored lock-in animation: ${JSON.stringify(contractAnimation)}`);
-  assert.ok(contractAnimation.duration >= 0.4 && contractAnimation.duration <= 0.6,
-    `the lock-in must stay finite and readable: ${JSON.stringify(contractAnimation)}`);
+  assert.equal(backdropAnimation.name, 'driver-mobile-backdrop-lock',
+    `the standing portrait must run the authored lock-in animation: ${JSON.stringify(backdropAnimation)}`);
+  assert.ok(backdropAnimation.duration >= 0.4 && backdropAnimation.duration <= 0.6,
+    `the standing portrait lock-in must stay finite and readable: ${JSON.stringify(backdropAnimation)}`);
   const selectAudio = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(selectAudio.driverSelectEvents) >= 1, `driver selection must emit its own event: ${JSON.stringify(selectAudio)}`);
   assert.equal(selectAudio.scoreArmed, false, 'selection SFX must never start the background score');
@@ -668,6 +668,25 @@ async function verifyMobileControls(page) {
   });
   assert.notEqual(await page.locator('.driver-card.selected').getAttribute('data-driver'), beforeSwipe,
     'a left swipe must advance exactly one carousel destination');
+  const visitedDrivers = new Set();
+  const visitedRosterSlots = new Set();
+  for (let i = 0; i < 6; i++) {
+    const selection = await page.evaluate(() => ({
+      id:document.querySelector('.driver-card.selected')?.dataset.driver ?? '',
+      cardSrc:document.querySelector('.driver-card.selected img')?.currentSrc ?? '',
+      backdropSrc:document.querySelector('.driver-mobile-backdrop')?.currentSrc ?? '',
+      roster:document.querySelector('.driver-roster-index')?.textContent ?? '',
+    }));
+    assert.equal(selection.backdropSrc, selection.cardSrc,
+      `standing portrait must follow every roster change: ${JSON.stringify(selection)}`);
+    assert.match(selection.roster, /^选手 \d{2} \/ 06$/);
+    visitedDrivers.add(selection.id);
+    visitedRosterSlots.add(selection.roster);
+    await page.locator('.driver-switch-next').click();
+    await page.waitForTimeout(75);
+  }
+  assert.equal(visitedDrivers.size, 6, `the explicit next control must visit all six drivers: ${[...visitedDrivers].join(', ')}`);
+  assert.equal(visitedRosterSlots.size, 6, `the roster counter must expose all six positions: ${[...visitedRosterSlots].join(', ')}`);
   for (let i = 0; i < 12; i++) await page.locator('.driver-card.carousel-next').click();
   await page.waitForTimeout(650);
   const selectSettled = await page.evaluate(() => window.__harness.audioState());
@@ -709,6 +728,10 @@ async function verifyMobileControls(page) {
         dotCount:document.querySelectorAll('.driver-dot').length,
         selectedDotCount:document.querySelectorAll('.driver-dot.selected').length,
         archiveCount:document.querySelectorAll('.driver-archive,.driver-archive-button').length,
+        switchControls:[...document.querySelectorAll('.driver-switch-control')].map((node) => {
+          const r = node.getBoundingClientRect();
+          return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height };
+        }),
         scrollHeight:document.scrollingElement?.scrollHeight ?? 0,
         width:innerWidth, height:innerHeight,
       };
@@ -722,6 +745,13 @@ async function verifyMobileControls(page) {
     assert.equal(contract.visibleCards.length, 3, 'only previous, current, and next driver may be visible');
     assert.equal(contract.dotCount, 6, 'the carousel must expose all six destinations without six cards');
     assert.equal(contract.selectedDotCount, 1, 'exactly one carousel destination must be selected');
+    assert.equal(contract.switchControls.length, 2, 'the main driver stage needs two explicit rotation controls');
+    for (const control of contract.switchControls) {
+      assert.ok(control.left >= 0 && control.right <= contract.width && control.top >= 0 && control.bottom <= contract.height,
+        `driver rotation control clips at 844x${height}: ${JSON.stringify(control)}`);
+      assert.ok(control.width >= 44 && control.height >= 44,
+        `driver rotation control needs a reliable touch target at 844x${height}: ${JSON.stringify(control)}`);
+    }
     for (const card of contract.visibleCards) {
       assert.ok(card.top >= 0 && card.bottom <= contract.height, `driver card clips at 844x${height}: ${JSON.stringify(card)}`);
     }
@@ -913,7 +943,27 @@ async function assertDriverSelectComposition(page, label) {
       portrait:rect('.driver-portrait-frame'),
       identity:rect('.driver-identity'),
       radar:rect('.driver-radar-wrap'),
+      backdrop:rect('.driver-mobile-backdrop'),
       go:rect('.driver-select-go'),
+      mobileBackdropStyle:(() => {
+        const backdrop = document.querySelector('.driver-mobile-backdrop');
+        const portrait = document.querySelector('.driver-portrait-frame > .driver-portrait:not(.driver-portrait-echo)');
+        if (!backdrop || !portrait) return null;
+        const style = getComputedStyle(backdrop);
+        return {
+          display:style.display,
+          opacity:Number(style.opacity),
+          objectFit:style.objectFit,
+          backdropSrc:backdrop.currentSrc,
+          portraitSrc:portrait.currentSrc,
+          portraitDisplay:getComputedStyle(portrait).display,
+          naturalWidth:backdrop.naturalWidth,
+          naturalHeight:backdrop.naturalHeight,
+          coarse:matchMedia('(pointer:coarse)').matches,
+        };
+      })(),
+      rosterIndex:document.querySelector('.driver-roster-index')?.textContent ?? '',
+      switchControls:[...document.querySelectorAll('.driver-switch-control')].map((node) => rect(`.${node.classList.contains('driver-switch-previous') ? 'driver-switch-previous' : 'driver-switch-next'}`)),
       cardCount:document.querySelectorAll('.driver-card').length,
       visibleCardCount:[...document.querySelectorAll('.driver-card')]
         .filter((node) => getComputedStyle(node).display !== 'none').length,
@@ -939,6 +989,28 @@ async function assertDriverSelectComposition(page, label) {
     `${label} portrait and ability analysis must sit tightly together: gap=${decisionGap}`);
   assert.ok(Math.abs(go.centerX - geometry.width / 2) <= 1.5,
     `${label} contract GO must sit on the center axis: ${JSON.stringify(go)}`);
+  assert.match(geometry.rosterIndex, /^选手 \d{2} \/ 06$/, `${label} must expose the current place in the six-driver roster`);
+  assert.equal(geometry.switchControls.length, 2, `${label} needs previous and next driver controls`);
+  if (geometry.mobileBackdropStyle?.coarse) {
+    assert.ok(geometry.backdrop, `${label} needs a standing mobile portrait`);
+    assert.equal(geometry.mobileBackdropStyle.display, 'block', `${label} standing portrait must be visible`);
+    assert.equal(geometry.mobileBackdropStyle.objectFit, 'contain', `${label} standing portrait must never be cropped`);
+    assert.ok(geometry.mobileBackdropStyle.opacity >= 0.22 && geometry.mobileBackdropStyle.opacity <= 0.38,
+      `${label} standing portrait must remain a legible background layer: ${JSON.stringify(geometry.mobileBackdropStyle)}`);
+    assert.equal(geometry.mobileBackdropStyle.backdropSrc, geometry.mobileBackdropStyle.portraitSrc,
+      `${label} background and selected driver must stay in sync`);
+    assert.deepEqual(
+      { width:geometry.mobileBackdropStyle.naturalWidth, height:geometry.mobileBackdropStyle.naturalHeight },
+      { width:640, height:960 },
+      `${label} standing portrait must use the 2:3 master`,
+    );
+    assert.ok(Math.abs(geometry.backdrop.width / geometry.backdrop.height - 2 / 3) < 0.02,
+      `${label} standing portrait element lost its vertical aspect: ${JSON.stringify(geometry.backdrop)}`);
+    assert.equal(geometry.mobileBackdropStyle.portraitDisplay, 'none', `${label} must not retain the cropped foreground duplicate`);
+  } else {
+    assert.equal(geometry.mobileBackdropStyle?.display, 'none', `${label} desktop must retain the framed portrait composition`);
+    assert.notEqual(geometry.mobileBackdropStyle?.portraitDisplay, 'none', `${label} desktop framed portrait disappeared`);
+  }
   assert.equal(geometry.cardCount, 6, `${label} must keep all six carousel destinations`);
   assert.equal(geometry.visibleCardCount, 3, `${label} must show only previous/current/next cards`);
   assert.equal(geometry.dotCount, 6, `${label} must expose six compact destination marks`);

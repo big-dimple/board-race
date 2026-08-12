@@ -21,11 +21,17 @@
   background: linear-gradient(90deg, rgba(4,7,20,.92) 0, rgba(4,7,20,.78) 50%, rgba(4,7,20,.32) 100%);
   font-family: system-ui, sans-serif;
   pointer-events: auto;
+  isolation:isolate;
 }
 .driver-select.on { display: grid; }
 #hud-layer.driver-select-active > .hud,
 #hud-layer.driver-select-active > .race-tower { visibility:hidden; }
 #hud-layer.driver-select-active > .driver-select { visibility:visible; }
+.driver-mobile-backdrop { display:none; }
+.driver-select-header,
+.driver-featured,
+.driver-carousel,
+.driver-select-footer { position:relative; z-index:1; }
 .driver-select-header {
   width:min(100%,760px);
   margin-inline:auto;
@@ -47,6 +53,42 @@
   margin-inline:auto;
   align-items:stretch;
   justify-content:center;
+}
+.driver-switch-control {
+  position:absolute;
+  z-index:6;
+  top:calc(50% - 58px);
+  width:54px;
+  height:96px;
+  padding:0;
+  border:1px solid rgba(244,254,255,.34);
+  border-inline:3px solid var(--driver-color);
+  border-radius:0;
+  color:#f4feff;
+  background:rgba(8,13,42,.82);
+  box-shadow:0 0 22px color-mix(in srgb,var(--driver-color) 18%,transparent);
+  font:400 68px/.7 Arial,sans-serif;
+  cursor:pointer;
+  transition:color 120ms linear,background 120ms linear,transform 120ms ease-out,box-shadow 120ms linear;
+}
+.driver-switch-previous { right:calc(100% + 18px); }
+.driver-switch-next { left:calc(100% + 18px); }
+.driver-switch-control:hover { color:var(--driver-color); background:#16294b; box-shadow:0 0 28px color-mix(in srgb,var(--driver-color) 34%,transparent); }
+.driver-switch-control:active { transform:scale(.94); }
+.driver-switch-control:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+.driver-roster-index {
+  position:absolute;
+  z-index:7;
+  top:10px;
+  left:25%;
+  min-width:84px;
+  padding:5px 8px;
+  transform:translateX(-50%);
+  border-block:1px solid var(--driver-color);
+  color:#f4feff;
+  background:rgba(4,7,20,.92);
+  text-align:center;
+  font:italic 900 12px/1 'Arial Black',Impact,sans-serif;
 }
 .driver-portrait-frame { grid-area:portrait; position:relative; width:100%; height:100%; max-height:450px; align-self:center; overflow:hidden; perspective:900px; box-sizing:border-box; border:2px solid var(--driver-color); background:#1e1b3a; box-shadow:0 0 0 1px rgba(244,254,255,.12),0 12px 30px rgba(0,0,0,.28); }
 .driver-portrait { width:100%; height:100%; min-height:210px; display:block; object-fit:cover; object-position:50% 24%; filter:saturate(1.08) contrast(1.06); }
@@ -115,6 +157,10 @@
   .driver-select-title { margin-top:1px; font-size:24px; }
   .driver-select-objective { margin-top:3px; font-size:9px; }
   .driver-featured { width:min(100%,390px); grid-template-columns:repeat(2,minmax(132px,1fr)); grid-template-rows:minmax(0,1fr) auto; column-gap:6px; row-gap:3px; }
+  .driver-switch-control { top:calc(50% - 36px); width:48px; height:72px; font-size:52px; }
+  .driver-switch-previous { right:calc(100% + 12px); }
+  .driver-switch-next { left:calc(100% + 12px); }
+  .driver-roster-index { top:5px; min-width:68px; padding:4px 6px; font-size:9px; }
   .driver-portrait-frame { height:100%; }
   .driver-portrait { height:100%; min-height:0; }
   .driver-mood { left:5px; bottom:5px; padding:4px 6px; font-size:9px; }
@@ -141,12 +187,57 @@
   .driver-select-go { position:static; min-width:158px; min-height:40px; padding:0 15px; font-size:14px; }
 }
 
+@media (pointer:coarse) and (orientation:landscape) {
+  .driver-mobile-backdrop {
+    position:absolute;
+    z-index:0;
+    display:block;
+    left:calc(50% - clamp(80px,12vw,110px));
+    bottom:0;
+    width:auto;
+    height:100%;
+    aspect-ratio:2 / 3;
+    object-fit:contain;
+    object-position:50% 100%;
+    transform:translateX(-50%);
+    opacity:.3;
+    pointer-events:none;
+    mix-blend-mode:screen;
+    filter:saturate(.88) contrast(1.08);
+    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 7%,#000 88%,transparent 100%);
+    mask-image:linear-gradient(to bottom,transparent 0,#000 7%,#000 88%,transparent 100%);
+  }
+  .driver-portrait-frame {
+    overflow:visible;
+    border-color:transparent;
+    background:transparent;
+    box-shadow:none;
+  }
+  .driver-portrait-frame > .driver-portrait,
+  .driver-contract-card { display:none; }
+  .driver-select.switching .driver-mobile-backdrop {
+    will-change:transform,opacity;
+    animation:driver-mobile-backdrop-lock .42s cubic-bezier(.18,.75,.2,1) both;
+  }
+  .driver-mood { box-shadow:0 0 18px rgba(4,7,20,.46); }
+}
+
+@keyframes driver-mobile-backdrop-lock {
+  0% { opacity:.08; transform:translateX(calc(-50% + var(--switch-enter))) scale(1.035); }
+  48% { opacity:.36; }
+  100% { opacity:.3; transform:translateX(-50%); }
+}
+
 @media (max-height:340px) and (orientation:landscape) {
   .driver-select { grid-template-rows:auto minmax(0,1fr) 31px 37px; gap:3px; padding-top:max(4px,env(safe-area-inset-top)); padding-bottom:max(4px,env(safe-area-inset-bottom)); }
   .driver-select-kicker { font-size:7px; }
   .driver-select-title { font-size:20px; }
   .driver-select-objective { display:none; }
   .driver-featured { width:min(100%,350px); grid-template-columns:repeat(2,minmax(120px,1fr)); column-gap:5px; row-gap:2px; }
+  .driver-switch-control { top:calc(50% - 31px); width:46px; height:62px; font-size:46px; }
+  .driver-switch-previous { right:calc(100% + 9px); }
+  .driver-switch-next { left:calc(100% + 9px); }
+  .driver-roster-index { top:3px; min-width:62px; padding:3px 5px; font-size:8px; }
   .driver-mood { padding:3px 4px; font-size:7px; }
   .driver-specialty { padding:2px 5px; font-size:7px; }
   .driver-name { margin-top:2px; font-size:26px; }
@@ -169,6 +260,8 @@
   .driver-featured { width:min(100%,330px); grid-template-columns:repeat(2,minmax(112px,1fr)); }
   .driver-name { font-size:24px; }
   .driver-select-go { min-width:138px; }
+  .driver-switch-previous { right:calc(100% + 7px); }
+  .driver-switch-next { left:calc(100% + 7px); }
 }
 
 @media (prefers-reduced-motion:reduce) {
@@ -177,4 +270,5 @@
   .driver-select.switching .driver-portrait:not(.driver-portrait-echo),
   .driver-select.switching .driver-name,.driver-select.switching .driver-specialty,
   .driver-select.switching .driver-card.selected { animation:driver-copy-lock .12s ease-out both; }
+  .driver-select.switching .driver-mobile-backdrop { animation:none; }
 }

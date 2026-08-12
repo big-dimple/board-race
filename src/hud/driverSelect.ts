@@ -4,6 +4,7 @@ import './driverSelect.css';
 
 export class DriverSelect {
   readonly root: HTMLDivElement;
+  private readonly mobileBackdrop: HTMLImageElement;
   private readonly portrait: HTMLImageElement;
   private readonly portraitEcho: HTMLImageElement;
   private readonly contractCard: HTMLDivElement;
@@ -16,6 +17,7 @@ export class DriverSelect {
   private readonly weakness: HTMLDivElement;
   private readonly specialty: HTMLDivElement;
   private readonly radar: HTMLCanvasElement;
+  private readonly rosterIndex: HTMLDivElement;
   private readonly cards = new Map<string, HTMLButtonElement>();
   private readonly dots = new Map<string, HTMLButtonElement>();
   private selectedProfile: DriverProfile;
@@ -35,12 +37,36 @@ export class DriverSelect {
     this.root = element('div', 'driver-select', parent);
     this.root.setAttribute('aria-label', '选择成年竞速选手');
 
+    this.mobileBackdrop = document.createElement('img');
+    this.mobileBackdrop.className = 'driver-mobile-backdrop';
+    this.mobileBackdrop.alt = '';
+    this.mobileBackdrop.draggable = false;
+    this.mobileBackdrop.setAttribute('aria-hidden', 'true');
+    this.mobileBackdrop.decoding = 'async';
+    this.root.appendChild(this.mobileBackdrop);
+
     const header = element('div', 'driver-select-header', this.root);
     element('div', 'driver-select-kicker', header, 'WORLD HYDRO LEAGUE // DRIVER CONTRACT');
     element('h1', 'driver-select-title', header, '选择你的选手');
     element('div', 'driver-select-objective', header, '三飞拿勋章 · 第一才算优秀 · 三飞之后远海继续');
 
     const featured = element('section', 'driver-featured', this.root);
+    featured.id = 'driver-featured';
+    const previous = element('button', 'driver-switch-control driver-switch-previous', featured, '‹');
+    previous.type = 'button';
+    previous.title = '上一位选手';
+    previous.setAttribute('aria-label', '上一位选手');
+    previous.setAttribute('aria-controls', featured.id);
+    previous.addEventListener('click', () => this.move(-1));
+    const next = element('button', 'driver-switch-control driver-switch-next', featured, '›');
+    next.type = 'button';
+    next.title = '下一位选手';
+    next.setAttribute('aria-label', '下一位选手');
+    next.setAttribute('aria-controls', featured.id);
+    next.addEventListener('click', () => this.move(1));
+    this.rosterIndex = element('div', 'driver-roster-index', featured);
+    this.rosterIndex.setAttribute('aria-live', 'polite');
+    this.rosterIndex.setAttribute('aria-atomic', 'true');
     const portraitFrame = element('div', 'driver-portrait-frame', featured);
     this.portrait = document.createElement('img');
     this.portrait.className = 'driver-portrait';
@@ -183,6 +209,7 @@ export class DriverSelect {
     const profile = this.selectedProfile;
     this.root.dataset.selectedDriver = profile.id;
     this.root.style.setProperty('--driver-color', hex(profile.color));
+    this.mobileBackdrop.src = profile.portraitUrl;
     this.portrait.src = profile.portraitUrl;
     this.portrait.style.objectPosition = profile.portraitPosition;
     this.portrait.alt = `${profile.name}，${profile.age} 岁成年选手`;
@@ -195,6 +222,7 @@ export class DriverSelect {
     this.weakness.textContent = `短板  ${profile.weakness}`;
     this.radar.setAttribute('aria-label', `${profile.name} 实际性能；${handlingSummary(profile)}`);
     const index = DRIVER_PROFILES.findIndex((item) => item.id === profile.id);
+    this.rosterIndex.textContent = `选手 ${String(index + 1).padStart(2, '0')} / ${String(DRIVER_PROFILES.length).padStart(2, '0')}`;
     const previousId = DRIVER_PROFILES[(index - 1 + DRIVER_PROFILES.length) % DRIVER_PROFILES.length].id;
     const nextId = DRIVER_PROFILES[(index + 1) % DRIVER_PROFILES.length].id;
     for (const [id, card] of this.cards) {

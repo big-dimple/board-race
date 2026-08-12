@@ -100,7 +100,8 @@ src/
     hud.ts/.css     Responsive minimal goal HUD: flights, 6-racer position, leader gap,
                     edge action feedback, focused adaptive loading, READY gate, and medal UI
     driverSelect.ts/.css Character contract, centered portrait/radar decision group,
-                    real handling modifiers (up to +/-6%), and a three-card carousel
+                    mobile standing portrait, real handling modifiers (up to +/-6%),
+                    explicit roster paddles, and a three-card carousel
     raceTower.ts/.css Compact six-driver tower and transient team radio
     medalCeremony.ts One DPR-capped Canvas2D celebration: back-flex athlete and particles
   audio/
