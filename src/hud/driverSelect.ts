@@ -18,6 +18,7 @@ export class DriverSelect {
   private readonly specialty: HTMLDivElement;
   private readonly radar: HTMLCanvasElement;
   private readonly rosterIndex: HTMLDivElement;
+  private readonly controllerStatus: HTMLDivElement;
   private readonly previousButton: HTMLButtonElement;
   private readonly nextButton: HTMLButtonElement;
   private readonly previousLabel: HTMLElement;
@@ -29,6 +30,8 @@ export class DriverSelect {
   private carouselPointerId: number | null = null;
   private carouselStartX = 0;
   private suppressCarouselClick = false;
+  private controllerStatusText = '';
+  private controllerStatusTitle = '';
 
   constructor(
     parent: HTMLElement,
@@ -163,10 +166,43 @@ export class DriverSelect {
     const go = element('button', 'driver-select-go', footer, 'GO · 签约出发');
     go.type = 'button';
     go.addEventListener('click', onStart);
+    this.controllerStatus = element('div', 'driver-controller-status', footer);
+    this.controllerStatus.setAttribute('role', 'status');
+    this.controllerStatus.setAttribute('aria-live', 'polite');
     this.name.addEventListener('animationend', (event) => {
       if (event.animationName === 'driver-copy-lock') this.root.classList.remove('switching');
     });
     this.render();
+  }
+
+  updateControllerStatus(status: Record<string, number | string | boolean>): void {
+    const connected = status.connected === true;
+    this.controllerStatus.classList.toggle('on', connected);
+    this.controllerStatus.classList.toggle('calibrating', Boolean(status.calibrationStep));
+    if (!connected) {
+      if (this.controllerStatusText) {
+        this.controllerStatus.textContent = '';
+        this.controllerStatusText = '';
+        this.controllerStatusTitle = '';
+      }
+      return;
+    }
+    const count = Number(status.connectedCount) || 1;
+    const fullLabel = String(status.id || '游戏手柄').replace(/\s*\([^)]*\)\s*$/, '');
+    const label = fullLabel.slice(0, 18);
+    const mode = status.mappingSource === 'custom' ? '已校准' : status.mappingSource === 'standard' ? '标准' : '待校准';
+    const rumble = status.rumble ? ' · 震动' : '';
+    const prompt = String(status.calibrationPrompt || '');
+    const text = prompt || `PAD ${Number(status.index) + 1}/${count} · ${label} · ${mode}${rumble}`;
+    const title = prompt || `手柄 ${Number(status.index) + 1}/${count} · ${fullLabel} · ${mode}${rumble}`;
+    if (text !== this.controllerStatusText) {
+      this.controllerStatus.textContent = text;
+      this.controllerStatusText = text;
+    }
+    if (title !== this.controllerStatusTitle) {
+      this.controllerStatus.title = title;
+      this.controllerStatusTitle = title;
+    }
   }
 
   get selectedId(): string {

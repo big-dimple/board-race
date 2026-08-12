@@ -147,6 +147,23 @@
 .driver-select-go::after { content:'›'; margin-left:12px; color:var(--driver-color); font-style:normal; }
 .driver-select-go:hover { background:#16294b; box-shadow:0 0 26px rgba(85,231,255,.28); }
 .driver-select-go:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+.driver-controller-status {
+  position:absolute;
+  left:calc(50% + 118px);
+  bottom:50%;
+  width:min(330px,calc(50% - 140px));
+  overflow:hidden;
+  transform:translateY(50%);
+  color:rgba(244,254,255,.66);
+  font:800 10px/1.2 system-ui,sans-serif;
+  text-align:left;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  opacity:0;
+  transition:opacity .16s ease-out;
+}
+.driver-controller-status.on { opacity:1; }
+.driver-controller-status.calibrating { color:#ffcf4a; }
 
 @media (max-width:900px), (max-height:520px) {
   .driver-select {
@@ -190,6 +207,7 @@
 }
 
 @media (pointer:coarse) and (orientation:landscape) {
+  .driver-controller-status { display:none; }
   .driver-mobile-backdrop {
     position:absolute;
     z-index:0;

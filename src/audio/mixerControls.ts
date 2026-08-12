@@ -14,6 +14,7 @@ export class MixerControls {
   private readonly mute: HTMLButtonElement;
   private readonly inputs = new Map<string, HTMLInputElement>();
   private readonly values = new Map<string, HTMLOutputElement>();
+  private hapticsButton: HTMLButtonElement | null = null;
 
   constructor(parent: HTMLElement, private readonly audio: GameAudio) {
     const root = document.createElement('div');
@@ -84,6 +85,21 @@ export class MixerControls {
     this.sync();
   }
 
+  attachHaptics(getEnabled: () => boolean, setEnabled: (enabled: boolean) => void): void {
+    if (this.hapticsButton) return;
+    const button = document.createElement('button');
+    button.className = 'audio-mixer-haptics';
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      const enabled = !getEnabled();
+      setEnabled(enabled);
+      this.syncHaptics(enabled);
+    });
+    this.root.querySelector('.audio-mixer-panel')?.appendChild(button);
+    this.hapticsButton = button;
+    this.syncHaptics(getEnabled());
+  }
+
   setVisible(visible: boolean): void {
     this.root.classList.toggle('visible', visible);
     if (!visible) {
@@ -102,6 +118,13 @@ export class MixerControls {
       if (input && document.activeElement !== input) input.value = String(inputPercent(settings[row.key]));
       if (value && document.activeElement !== input) value.textContent = `${inputPercent(settings[row.key])}%`;
     }
+  }
+
+  private syncHaptics(enabled: boolean): void {
+    if (!this.hapticsButton) return;
+    this.hapticsButton.textContent = enabled ? '体感反馈 · 开' : '体感反馈 · 关';
+    this.hapticsButton.classList.toggle('off', !enabled);
+    this.hapticsButton.setAttribute('aria-pressed', String(enabled));
   }
 }
 

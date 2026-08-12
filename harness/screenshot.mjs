@@ -87,26 +87,36 @@ async function waitForServer(url, tries = 60) {
 }
 
 async function verifyFlightContract(page) {
-  // A fresh page waits forever. Only a new Enter edge may start the run.
+  // A fresh page waits forever. Enter is advertised, while Space is the quiet
+  // one-hand alternative; R remains retry-only.
   await assertDriverSelectComposition(page, 'desktop-1440x900');
+  const coldStart = await page.evaluate(() => window.__harness.startGantryStatus());
+  assert.equal(coldStart.canvasTextures, 0,
+    `START landmark must not depend on a first-load CanvasTexture upload: ${JSON.stringify(coldStart)}`);
+  assert.equal(coldStart.glyphInstances, 36,
+    `START must expose every authored geometry segment before the first render: ${JSON.stringify(coldStart)}`);
   let state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'ready');
   const readyPose = { x: state.playerX, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime };
   await page.evaluate(() => window.__harness.advance(1));
-  await page.keyboard.press('Space');
   await page.keyboard.press('KeyR');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.phase, 'ready', 'Space and R must not start a fresh run');
+  assert.equal(state.phase, 'ready', 'R must not start a fresh run');
   assert.equal(state.playerX, readyPose.x);
   assert.equal(state.playerZ, readyPose.z);
   assert.equal(state.raceTime, readyPose.raceTime);
   assert.equal(state.worldTime, readyPose.worldTime);
-  await page.keyboard.press('Enter');
+  await page.keyboard.down('Space');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.phase, 'countdown', 'Enter must start the full countdown');
+  assert.equal(state.phase, 'countdown', 'Space must start the same full countdown as Enter');
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'countdown');
+  await page.evaluate(() => window.__harness.advance(4.3));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'racing');
+  assert.equal(state.flightPhase, 'surface', 'held Space may confirm READY but must never buffer a launch');
+  await page.keyboard.up('Space');
 
   await page.evaluate(() => window.__harness.scenario('countdown'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -150,9 +160,9 @@ async function verifyFlightContract(page) {
     interruptedRace,
     'returning to the foreground must remain frozen before GO',
   );
-  await page.evaluate(() => window.__harness.resumeInterruption());
+  await page.keyboard.press('Space');
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.phase, 'resume-countdown');
+  assert.equal(state.phase, 'resume-countdown', 'Space must also resume a background-frozen run');
   assert.equal(state.interruptionActive, false);
   await page.evaluate(() => window.__harness.advance(2));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -179,9 +189,10 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.retryLessonActive, true, 'loading cannot skip before its reading gate');
   await page.evaluate(() => window.__harness.advance(4.05));
-  await page.evaluate(() => window.__harness.retry());
+  await page.keyboard.press('Space');
+  await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.phase, 'ready', 'loading exits to READY, never directly to countdown');
+  assert.equal(state.phase, 'ready', 'Space exits a readable loading review to READY, never directly to countdown');
   await page.evaluate(() => window.__harness.advance(0.5));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'ready', 'READY requires a fresh confirmation edge');
@@ -628,16 +639,31 @@ async function verifyFlightContract(page) {
 
 async function verifyGamepadContract(page) {
   await page.evaluate(() => {
-    window.__gamepadFixture.clear();
-    window.__gamepadFixture.connect();
+    window.__gamepadFixture.disconnectAll();
+    window.__gamepadFixture.clearAll();
+    window.__harness.scenario('ready');
+    // Real browsers may expose a newly connected pad only after its first
+    // button is already down. That first edge must not be swallowed.
+    window.__gamepadFixture.connect(1);
+    window.__gamepadFixture.padButton(1, 0, true);
+    window.__harness.advance(1 / 30);
+  });
+  let padStatus = await page.evaluate(() => window.__harness.gamepadStatus());
+  assert.equal(padStatus.connected, true);
+  assert.equal(padStatus.index, 1);
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'countdown',
+    'the first A / Cross edge that reveals a controller must start READY immediately');
+  await page.evaluate(() => {
+    window.__gamepadFixture.padButton(1, 0, false);
     window.__harness.scenario('ready');
     window.__harness.advance(1 / 30);
   });
-  assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).connected, true);
+  assert.match(await page.locator('.driver-controller-status').textContent() ?? '', /G50S.*标准.*震动/,
+    'READY must identify the active controller, mapping and rumble capability');
 
   const initialDriver = await page.locator('.driver-card.selected').getAttribute('data-driver');
   await page.evaluate(() => {
-    window.__gamepadFixture.axis(0, 0.12);
+    window.__gamepadFixture.padAxis(1, 0, 0.12);
     window.__harness.advance(1 / 30);
   });
   assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).steer, 0,
@@ -646,7 +672,7 @@ async function verifyGamepadContract(page) {
     'dead-zone noise must not rotate the driver roster');
 
   await page.evaluate(() => {
-    window.__gamepadFixture.axis(0, 0.92);
+    window.__gamepadFixture.padAxis(1, 0, 0.92);
     window.__harness.advance(1 / 30);
   });
   const nextDriver = await page.locator('.driver-card.selected').getAttribute('data-driver');
@@ -655,9 +681,9 @@ async function verifyGamepadContract(page) {
   assert.equal(await page.locator('.driver-card.selected').getAttribute('data-driver'), nextDriver,
     'holding a stick must not scroll through the whole roster');
   await page.evaluate(() => {
-    window.__gamepadFixture.axis(0, 0);
+    window.__gamepadFixture.padAxis(1, 0, 0);
     window.__harness.advance(1 / 30);
-    window.__gamepadFixture.button(0, true);
+    window.__gamepadFixture.padButton(1, 0, true);
     window.__harness.advance(1 / 30);
   });
   assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'countdown',
@@ -669,12 +695,12 @@ async function verifyGamepadContract(page) {
     'holding A through the countdown must never buffer a flight edge');
 
   await page.evaluate(() => {
-    window.__gamepadFixture.clear();
+    window.__gamepadFixture.clear(1);
     window.__harness.scenario('start');
     window.__harness.usePlayerInput(true);
     window.__harness.advance(1 / 30);
-    window.__gamepadFixture.axis(0, 0.9);
-    window.__gamepadFixture.button(2, true);
+    window.__gamepadFixture.padAxis(1, 0, 0.9);
+    window.__gamepadFixture.padButton(1, 2, true);
     window.__harness.advance(0.5);
   });
   let state = await page.evaluate(() => window.__harness.playerState());
@@ -682,19 +708,41 @@ async function verifyGamepadContract(page) {
   assert.equal(state.drifting, true, 'X / Square must hold the contextual drift action');
   assert.equal(state.driftReleaseReady, true, 'a held gamepad drift must reach the real release threshold');
 
+  // A second idle controller may be present, but deliberate input must take
+  // ownership and steer in the same frame. Small idle noise cannot steal it.
   await page.evaluate(() => {
-    window.__gamepadFixture.disconnect();
+    window.__gamepadFixture.connect(0);
+    window.__gamepadFixture.padAxis(0, 0, 0.11);
+    window.__gamepadFixture.clear(1);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.padAxis(0, 0, -0.96);
     window.__harness.advance(1 / 30);
   });
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).connected, false);
-  assert.equal(state.drifting, false, 'disconnect must release drift in the next simulation frame');
-  assert.ok(Math.abs(state.steer) < 0.01, `disconnect must release steering: ${state.steer}`);
-  assert.equal(state.flightCharges, 1, 'disconnecting a qualified held drift may release exactly one earned charge');
+  padStatus = await page.evaluate(() => window.__harness.gamepadStatus());
+  assert.equal(padStatus.connectedCount, 2);
+  assert.equal(padStatus.index, 0, 'the pad producing deliberate input must become active');
+  assert.ok(state.steer < -0.7, `a newly active second pad must steer without a dead frame: ${JSON.stringify(state)}`);
 
   await page.evaluate(() => {
-    window.__gamepadFixture.clear();
-    window.__gamepadFixture.connect();
+    window.__gamepadFixture.padAxis(0, 0, 0);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.padAxis(1, 0, 0.94);
+    window.__gamepadFixture.padButton(1, 2, true);
+    window.__harness.advance(0.5);
+    window.__gamepadFixture.disconnect(1);
+    window.__harness.advance(1 / 30);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  padStatus = await page.evaluate(() => window.__harness.gamepadStatus());
+  assert.equal(padStatus.connected, true);
+  assert.equal(padStatus.index, 0, 'disconnecting the active pad must fall back to another connected pad');
+  assert.equal(state.drifting, false, 'disconnect must release drift in the next simulation frame');
+  assert.ok(Math.abs(state.steer) < 0.01, `disconnect must release steering: ${state.steer}`);
+  assert.ok(state.flightCharges >= 1, 'disconnecting a qualified held drift may release its earned charge once');
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear(0);
     window.__harness.advance(1 / 30);
   });
   assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /A.*起飞/s,
@@ -711,30 +759,95 @@ async function verifyGamepadContract(page) {
     window.__harness.usePlayerInput(false);
   });
 
+  // Non-standard devices use a four-action READY calibration rather than a
+  // guessed vendor layout. The resulting map survives a reconnect.
   await page.evaluate(() => {
-    window.__gamepadFixture.connect();
+    window.__gamepadFixture.disconnectAll();
+    window.__gamepadFixture.clearAll();
+    window.__gamepadFixture.configure(1, { id:'Generic DirectInput Racer', mapping:'' });
+    window.__gamepadFixture.connect(1);
+    window.__harness.scenario('ready');
+    window.__harness.advance(1 / 30);
+  });
+  padStatus = await page.evaluate(() => window.__harness.gamepadStatus());
+  assert.equal(padStatus.mappingSource, 'fallback');
+  assert.equal(padStatus.calibrationStep, 'left');
+  for (let i = 0; i < 7; i++) {
+    await page.evaluate((step) => {
+      const actions = [
+        () => window.__gamepadFixture.padAxis(1, 1, -0.9),
+        () => window.__gamepadFixture.padAxis(1, 1, 0),
+        () => window.__gamepadFixture.padAxis(1, 1, 0.9),
+        () => window.__gamepadFixture.padAxis(1, 1, 0),
+        () => window.__gamepadFixture.padButton(1, 5, true),
+        () => window.__gamepadFixture.padButton(1, 5, false),
+        () => window.__gamepadFixture.padButton(1, 1, true),
+      ];
+      actions[step]();
+      window.__harness.advance(1 / 30);
+    }, i);
+  }
+  padStatus = await page.evaluate(() => window.__harness.gamepadStatus());
+  assert.equal(padStatus.mappingSource, 'custom');
+  assert.equal(padStatus.calibrationStep, '');
+  assert.ok(await page.evaluate(() => Boolean(localStorage.getItem('board-race.gamepad.v1'))),
+    'custom mapping must persist by device signature');
+  await page.evaluate(() => {
+    window.__gamepadFixture.padButton(1, 1, false);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.disconnect(1);
+    window.__harness.advance(1 / 30);
+    window.__gamepadFixture.connect(1);
+    window.__harness.advance(1 / 30);
+  });
+  assert.equal((await page.evaluate(() => window.__harness.gamepadStatus())).mappingSource, 'custom',
+    'reconnecting the same unknown controller must restore its mapping without recalibration');
+
+  // Haptics are discrete, bounded, priority-aware and independent from mute.
+  await page.evaluate(() => {
+    window.__harness.setHapticsEnabled(false);
+    window.__harness.setHapticsEnabled(true);
+    window.__gamepadFixture.clearEffects();
+    window.__harness.hapticCue('collision-heavy');
+    window.__harness.hapticCue('drift-active');
+  });
+  let effects = await page.evaluate(() => window.__gamepadFixture.effects(1));
+  const pulses = effects.filter((entry) => entry.kind === 'play' && Number(entry.options?.duration) > 0);
+  assert.equal(pulses.length, 1, 'a lower-priority cue must not stack over a heavy collision pulse');
+  assert.ok(Number(pulses[0].options.duration) <= 80, `controller feedback must remain short: ${JSON.stringify(pulses[0])}`);
+  assert.ok(Number(pulses[0].options.strongMagnitude) <= 0.55,
+    `controller feedback must remain conservative: ${JSON.stringify(pulses[0])}`);
+  await page.locator('.audio-mixer-toggle').click();
+  const hapticButton = page.locator('.audio-mixer-haptics');
+  await hapticButton.click();
+  assert.equal((await page.evaluate(() => window.__harness.hapticStatus())).enabled, false);
+  await page.evaluate(() => {
+    window.__gamepadFixture.clearEffects();
+    window.__harness.hapticCue('gate');
+  });
+  effects = await page.evaluate(() => window.__gamepadFixture.effects(1));
+  assert.equal(effects.filter((entry) => entry.kind === 'play' && Number(entry.options?.duration) > 0).length, 0,
+    'the independent haptic switch must silence controller feedback');
+  await hapticButton.click();
+  assert.equal((await page.evaluate(() => window.__harness.hapticStatus())).enabled, true);
+  await page.locator('.audio-mixer-toggle').click();
+
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear(1);
+    window.__harness.scenario('start');
+    window.__harness.usePlayerInput(true);
     window.__harness.advance(1 / 30);
     window.__harness.setVisibility(true);
     window.__harness.setVisibility(false);
     window.__harness.advance(1 / 30);
-    window.__gamepadFixture.button(0, true);
+    window.__gamepadFixture.padButton(1, 1, true);
     window.__harness.advance(1 / 30);
   });
-  // The first post-reset frame establishes a safe released baseline; the next
-  // A edge resumes exactly as keyboard Enter does.
-  if ((await page.evaluate(() => window.__harness.playerState())).interruptionActive) {
-    await page.evaluate(() => {
-      window.__gamepadFixture.button(0, false);
-      window.__harness.advance(1 / 30);
-      window.__gamepadFixture.button(0, true);
-      window.__harness.advance(1 / 30);
-    });
-  }
   assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'resume-countdown',
-    'A / Cross must resume a background-paused run through the safety countdown');
+    'the calibrated flight/confirm button must resume a background-paused run');
   await page.evaluate(() => {
-    window.__gamepadFixture.clear();
-    window.__gamepadFixture.disconnect();
+    window.__gamepadFixture.clearAll();
+    window.__gamepadFixture.disconnectAll();
   });
   console.log('gamepad input contract: OK');
 }
@@ -745,6 +858,26 @@ async function verifyMobileControls(page) {
   assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
   assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
   await assertDriverSelectComposition(page, 'mobile-844x390');
+  const coldStart = await page.evaluate(() => window.__harness.startGantryStatus());
+  assert.equal(coldStart.canvasTextures, 0,
+    `mobile cold load must use texture-independent START geometry: ${JSON.stringify(coldStart)}`);
+  assert.equal(coldStart.glyphInstances, 36);
+  await page.evaluate(() => {
+    window.__gamepadFixture.clearVibrations();
+    window.__harness.hapticCue('gate');
+  });
+  let vibrationLog = await page.evaluate(() => window.__gamepadFixture.vibrations());
+  assert.equal(vibrationLog.length, 1, 'a mobile gate event must emit one discrete phone vibration');
+  assert.ok(Number(vibrationLog[0]) >= 8 && Number(vibrationLog[0]) <= 20,
+    `mobile feedback must remain brief: ${JSON.stringify(vibrationLog)}`);
+  await page.evaluate(() => {
+    window.__harness.setHapticsEnabled(false);
+    window.__gamepadFixture.clearVibrations();
+    window.__harness.hapticCue('launch');
+  });
+  vibrationLog = await page.evaluate(() => window.__gamepadFixture.vibrations());
+  assert.deepEqual(vibrationLog, [], 'disabling haptics must silence phone vibration independently');
+  await page.evaluate(() => window.__harness.setHapticsEnabled(true));
   const selectedBefore = await page.locator('.driver-card.selected').getAttribute('data-driver');
   const featuredBefore = await page.locator('.driver-featured').boundingBox();
   const alternate = page.locator('.driver-switch-next');
@@ -1469,32 +1602,88 @@ async function main() {
       ...(mobile ? { hasTouch: true, isMobile: true } : {}),
     });
     await page.addInitScript(() => {
-      const buttons = Array.from({ length: 18 }, () => ({ pressed:false, touched:false, value:0 }));
-      const gamepad = {
-        id:'Board Race Test Controller', index:0, connected:true, timestamp:0,
-        mapping:'standard', axes:[0,0,0,0], buttons,
+      const createPad = (index, id) => {
+        const buttons = Array.from({ length: 18 }, () => ({ pressed:false, touched:false, value:0 }));
+        const effects = [];
+        const actuator = {
+          effects:['dual-rumble'],
+          playEffect(type, options) {
+            effects.push({ kind:'play', type, options:{ ...options } });
+            return Promise.resolve('complete');
+          },
+          reset() {
+            effects.push({ kind:'reset' });
+            return Promise.resolve('complete');
+          },
+        };
+        return {
+          connected:false,
+          effects,
+          gamepad:{
+            id, index, connected:true, timestamp:0, mapping:'standard',
+            axes:[0,0,0,0], buttons, vibrationActuator:actuator,
+          },
+        };
+      };
+      const pads = [
+        createPad(0, 'Board Race Idle Controller'),
+        createPad(1, 'Thunderobot G50S Test Controller'),
+      ];
+      const padAt = (index) => {
+        const pad = pads[index];
+        if (!pad) throw new Error(`unknown virtual pad ${index}`);
+        return pad;
+      };
+      const clearPad = (pad) => {
+        pad.gamepad.axes.fill(0);
+        for (const button of pad.gamepad.buttons) Object.assign(button, { pressed:false, touched:false, value:0 });
+        pad.gamepad.timestamp++;
       };
       const fixture = {
-        connected:false,
-        connect() { this.connected = true; gamepad.timestamp++; },
-        disconnect() { this.connected = false; gamepad.timestamp++; },
-        axis(index, value) { gamepad.axes[index] = value; gamepad.timestamp++; },
-        button(index, pressed) {
-          buttons[index].pressed = pressed;
-          buttons[index].touched = pressed;
-          buttons[index].value = pressed ? 1 : 0;
-          gamepad.timestamp++;
+        connect(index = 0) { const pad = padAt(index); pad.connected = true; pad.gamepad.timestamp++; },
+        disconnect(index = 0) { const pad = padAt(index); pad.connected = false; pad.gamepad.timestamp++; },
+        axis(index, value) { this.padAxis(0, index, value); },
+        padAxis(padIndex, index, value) {
+          const pad = padAt(padIndex);
+          pad.gamepad.axes[index] = value;
+          pad.gamepad.timestamp++;
         },
-        clear() {
-          gamepad.axes.fill(0);
-          for (const button of buttons) Object.assign(button, { pressed:false, touched:false, value:0 });
-          gamepad.timestamp++;
+        button(index, pressed) { this.padButton(0, index, pressed); },
+        padButton(padIndex, index, pressed) {
+          const pad = padAt(padIndex);
+          const button = pad.gamepad.buttons[index];
+          Object.assign(button, { pressed, touched:pressed, value:pressed ? 1 : 0 });
+          pad.gamepad.timestamp++;
         },
+        clear(index = 0) { clearPad(padAt(index)); },
+        clearAll() { for (const pad of pads) clearPad(pad); },
+        disconnectAll() { for (const pad of pads) { pad.connected = false; pad.gamepad.timestamp++; } },
+        configure(index, { id, mapping } = {}) {
+          const pad = padAt(index);
+          if (id !== undefined) pad.gamepad.id = id;
+          if (mapping !== undefined) pad.gamepad.mapping = mapping;
+          pad.gamepad.timestamp++;
+        },
+        effects(index = 0) { return padAt(index).effects.map((entry) => structuredClone(entry)); },
+        clearEffects(index = null) {
+          if (index === null) for (const pad of pads) pad.effects.length = 0;
+          else padAt(index).effects.length = 0;
+        },
+        vibrations() { return [...vibrationLog]; },
+        clearVibrations() { vibrationLog.length = 0; },
       };
+      const vibrationLog = [];
       Object.defineProperty(window, '__gamepadFixture', { value:fixture });
+      Object.defineProperty(navigator, 'vibrate', {
+        configurable:true,
+        value:(pattern) => {
+          vibrationLog.push(pattern);
+          return true;
+        },
+      });
       Object.defineProperty(navigator, 'getGamepads', {
         configurable:true,
-        value:() => fixture.connected ? [gamepad] : [],
+        value:() => pads.map((pad) => pad.connected ? pad.gamepad : null),
       });
     });
     page.on('pageerror', (err) => console.error(`[pageerror] ${err.message}`));

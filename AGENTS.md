@@ -26,6 +26,8 @@ automatically; players steer, drift/air-brake, and trigger flight.
   air-brake and flight fixed in the same right-thumb positions.
 - Preserve the unified `BoatInput` contract and fixed-step simulation.
 - Keep flight guidance player-owned: at most one active branch may be visible.
+- Gamepad changes must cover first-edge activation, multiple connected pads,
+  unknown mappings, disconnect cleanup, and bounded actuator feedback.
 - Changes to physics, lifecycle, audio, records, or rendering need the matching
   harness contract. Do not weaken thresholds to make a release pass.
 - GitHub Pages deploys `main` through `.github/workflows/deploy.yml`.

@@ -13,7 +13,7 @@ npm run dev
 
 Open the printed localhost URL. You start fourth in a six-racer endless challenge, with three rivals ahead and two behind.
 
-The grid is intentionally frozen at `READY`. On desktop, `Enter` starts the full `3 · 2 · 1 · GO` countdown. On mobile, the first touch requests fullscreen at the earliest browser-authorized moment; the single `GO` button remains the reliable fullscreen, permission, and calibration gate.
+The grid is intentionally frozen at `READY`. On desktop, `Enter` or `Space` starts the full `3 · 2 · 1 · GO` countdown. On mobile, the first touch requests fullscreen at the earliest browser-authorized moment; the single `GO` button remains the reliable fullscreen, permission, and calibration gate.
 
 Backgrounding or minimizing the page immediately freezes simulation and hard-mutes audio. Returning never resumes a live run by itself: the player must press `GO`, then a fresh frozen `3 · 2 · 1 · GO` countdown restores control. READY already acts as that explicit resume gate; medal and loading screens resume their unread remainder only after GO.
 
@@ -24,11 +24,11 @@ Backgrounding or minimizing the page immediately freezes simulation and hard-mut
 | Automatic | Forward throttle; no accelerate key |
 | `A` `D` / `←` `→` | Steer |
 | `Shift` (hold) | Drift on water; contextual vector air-brake while flying |
-| `Space` (press) | Spend one charge to take off; press again in cruise or descent to spend the spare charge on `+2.4s` airtime |
-| `Enter` | Start from READY; continue a loading review after its minimum reading time |
+| `Space` (press) | Start/continue from a frozen prompt; while racing, spend one charge to take off or extend flight |
+| `Enter` | Start from READY; continue a medal/loading review after its minimum reading time |
 | `R` | Continue a loading review after its minimum reading time |
 
-Keyboard steering remains active in touch-capable Chrome sessions, including `←` / `→`. Standard-mapped controllers are also supported: left stick or D-pad steers, `A / Cross` flies and confirms, and `X / Square`, `LB`, or `RB` holds drift/air-brake. The controller adapter applies a calibrated dead zone, edge-triggered flight/confirmation, disconnect cleanup, optional rumble, and the same no-buffer countdown rule as keyboard input.
+Keyboard steering remains active in touch-capable Chrome sessions, including `←` / `→`. Standard-mapped controllers are also supported: left stick or D-pad steers, `A / Cross` flies and confirms, and `X / Square`, `LB`, or `RB` holds drift/air-brake. Connected pads are scanned together and the pad producing deliberate input becomes active; an idle first-listed device cannot block the controller in hand. Unknown browser mappings enter a four-step READY calibration and persist by device signature. Controller rumble and short phone vibration share an independent, default-on `体感反馈` setting and the same no-buffer countdown rule as keyboard input.
 
 On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape; `GO` retries inside its own user gesture, requests motion permission, and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
@@ -47,7 +47,8 @@ src/
   contracts.ts      Shared interfaces (IBoat, ICourse, IWake, ISpray, RaceView, LAYER_INK)
   core/             palette.ts (single source of the limited palette), stage.ts (renderer
                     + adaptive pixel ratio), loop.ts (fixed 60Hz sim), input.ts,
-                    gamepadInput.ts (standard controller adapter), mobileControls.ts
+                    gamepadInput.ts (multi-pad arbitration, calibration, rumble), haptics.ts,
+                    mobileControls.ts
                     (tilt steering, touch fallback, fullscreen, multi-touch actions),
                     prePass.ts (MRT normal/depth prepass for edge detection + foam masks)
   water/
@@ -87,7 +88,7 @@ src/
                     "whee" pose, idle breathing, celebration pump
     course.ts       CatmullRom circuit plus seven repeating 3D flight branches, a single
                     player-owned active guide, locally masked water line, gates/buoys with foam
-                    collars, START/finish gantry + checker strip
+                    collars, cold-load-safe geometry START/finish gantry + checker strip
     ai.ts           Spline-following AI with lookahead, six-racer pace profiles,
                     readable drift, elite consistency, and bounded traffic avoidance
     collision.ts    Swept capsule CCD, bounded arcade impulses, pileup separation,
@@ -114,7 +115,8 @@ src/
 harness/
     screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
                     (two-charge storage, seven-route timing, qualification, adaptive loading,
-                    keyboard/gamepad/mobile controls, radar restore, fullscreen request,
+                    keyboard/dual-gamepad/custom-map/mobile controls, haptics, cold START,
+                    radar restore, fullscreen request,
                     route guidance, performance, and battle events)
     collision.mjs   15-pair CCD, pileup, cooldown, rule isolation, route-4 boundary tests
     audio.mjs       Media playback, mixer, progressive score, ducking, background lifecycle

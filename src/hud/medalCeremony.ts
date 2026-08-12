@@ -122,26 +122,37 @@ export class MedalCeremonyCanvas {
 
   private drawFirecrackerChains(t: number, w: number, h: number): void {
     const ctx = this.ctx;
+    const compact = w < 900;
+    // The vertical chains frame a phone naturally, but at desktop width they
+    // read like two rulers. Fireworks and confetti already fill that space.
+    if (!compact) return;
     for (const side of [-1, 1]) {
-      const x = side < 0 ? Math.max(22, w * 0.045) : Math.min(w - 22, w * 0.955);
+      const x = side < 0
+        ? Math.max(22, w * 0.045)
+        : Math.min(w - 22, w * 0.955);
+      const top = h * 0.17;
+      const bottom = h * 0.78;
       ctx.strokeStyle = '#ffcf4a';
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(x, h * 0.17);
-      ctx.lineTo(x, h * 0.78);
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, bottom);
       ctx.stroke();
-      for (let i = 0; i < 8; i++) {
-        const y = h * 0.22 + i * Math.min(34, h * 0.072);
+      const count = 8;
+      for (let i = 0; i < count; i++) {
+        const y = top + (i + 0.65) * (bottom - top) / count;
         const pulse = 1 + Math.sin(t * 12 - i * 1.7) * 0.12;
         ctx.save();
-        ctx.translate(x + side * (i % 2 ? 8 : -8), y);
+        ctx.translate(x + side * (i % 2 ? 10 : -10), y);
         ctx.rotate(side * 0.24);
         ctx.scale(pulse, pulse);
         ctx.fillStyle = '#ff3d7f';
         ctx.strokeStyle = '#14122b';
         ctx.lineWidth = 3;
-        ctx.fillRect(-7, -12, 14, 24);
-        ctx.strokeRect(-7, -12, 14, 24);
+        const halfW = 7;
+        const halfH = 12;
+        ctx.fillRect(-halfW, -halfH, halfW * 2, halfH * 2);
+        ctx.strokeRect(-halfW, -halfH, halfW * 2, halfH * 2);
         ctx.restore();
       }
     }
@@ -170,7 +181,7 @@ export class MedalCeremonyCanvas {
   private drawMedal(t: number, w: number, h: number, tier: MedalTier): void {
     const ctx = this.ctx;
     const compact = h < 520;
-    const radius = Math.min(compact ? 61 : 92, w * 0.105, h * (compact ? 0.17 : 0.15));
+    const radius = Math.min(compact ? 61 : 108, w * 0.105, h * (compact ? 0.17 : 0.17));
     const cx = w * 0.5;
     const cy = h * (compact ? 0.28 : 0.31);
     const reveal = this.reducedMotion ? 1 : easeOutBack(Math.min(1, t / 0.52));
@@ -219,60 +230,111 @@ export class MedalCeremonyCanvas {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
-    // Full back-double-biceps silhouette: both hands, arms, shoulders, torso,
-    // waist and trunks remain legible at mobile medal size.
+    const skin = ctx.createLinearGradient(0, -62, 0, 60);
+    skin.addColorStop(0, '#ffd0a6');
+    skin.addColorStop(0.56, '#e99468');
+    skin.addColorStop(1, '#b85d49');
+
+    // Front double-biceps pose. Fists sit above the shoulders and the peaks
+    // are deliberately oversized so the pose survives at phone size.
+    const drawArm = (side: -1 | 1): void => {
+      ctx.save();
+      ctx.scale(side, 1);
+      ctx.beginPath();
+      ctx.moveTo(30, -16);
+      ctx.bezierCurveTo(42, -31, 55, -32, 62, -21);
+      ctx.bezierCurveTo(66, -16, 68, -23, 65, -31);
+      ctx.lineTo(61, -42);
+      ctx.bezierCurveTo(56, -48, 58, -57, 65, -62);
+      ctx.bezierCurveTo(71, -66, 79, -62, 80, -55);
+      ctx.bezierCurveTo(82, -48, 77, -43, 73, -40);
+      ctx.bezierCurveTo(81, -24, 83, -11, 76, 0);
+      ctx.bezierCurveTo(69, 12, 57, 15, 47, 8);
+      ctx.bezierCurveTo(40, 4, 34, 3, 29, 2);
+      ctx.closePath();
+      ctx.fillStyle = skin;
+      ctx.strokeStyle = '#171329';
+      ctx.lineWidth = 7;
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#9d5144';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(44, -21); ctx.quadraticCurveTo(54, -12, 64, -20);
+      ctx.moveTo(52, 0); ctx.quadraticCurveTo(64, 5, 73, -5);
+      ctx.moveTo(65, -31); ctx.quadraticCurveTo(72, -36, 73, -45);
+      ctx.moveTo(62, -57); ctx.lineTo(74, -54);
+      ctx.stroke();
+      ctx.restore();
+    };
+    drawArm(-1);
+    drawArm(1);
+
+    // Large pec shelf and narrow waist make this a bodybuilder silhouette,
+    // not a generic flexed-arm icon.
     ctx.beginPath();
-    ctx.moveTo(-24, 48);
-    ctx.quadraticCurveTo(-38, 36, -38, 18);
-    ctx.quadraticCurveTo(-47, 14, -54, 4);
-    ctx.quadraticCurveTo(-63, 5, -73, -2);
-    ctx.quadraticCurveTo(-82, -9, -78, -20);
-    ctx.quadraticCurveTo(-75, -31, -65, -34);
-    ctx.quadraticCurveTo(-56, -37, -51, -28);
-    ctx.lineTo(-46, -16);
-    ctx.quadraticCurveTo(-38, -29, -25, -28);
-    ctx.quadraticCurveTo(-21, -42, -10, -48);
-    ctx.quadraticCurveTo(0, -53, 10, -48);
-    ctx.quadraticCurveTo(21, -42, 25, -28);
-    ctx.quadraticCurveTo(38, -29, 46, -16);
-    ctx.lineTo(51, -28);
-    ctx.quadraticCurveTo(56, -37, 65, -34);
-    ctx.quadraticCurveTo(75, -31, 78, -20);
-    ctx.quadraticCurveTo(82, -9, 73, -2);
-    ctx.quadraticCurveTo(63, 5, 54, 4);
-    ctx.quadraticCurveTo(47, 14, 38, 18);
-    ctx.quadraticCurveTo(38, 36, 24, 48);
+    ctx.moveTo(-14, -31);
+    ctx.bezierCurveTo(-20, -25, -33, -23, -39, -11);
+    ctx.bezierCurveTo(-45, 2, -41, 18, -32, 30);
+    ctx.lineTo(-24, 57);
+    ctx.quadraticCurveTo(0, 64, 24, 57);
+    ctx.lineTo(32, 30);
+    ctx.bezierCurveTo(41, 18, 45, 2, 39, -11);
+    ctx.bezierCurveTo(33, -23, 20, -25, 14, -31);
     ctx.closePath();
-    ctx.fillStyle = '#e9a67f';
-    ctx.strokeStyle = '#14122b';
-    ctx.lineWidth = 8;
+    ctx.fillStyle = skin;
+    ctx.strokeStyle = '#171329';
+    ctx.lineWidth = 7;
     ctx.fill();
     ctx.stroke();
 
-    // Hair and neck.
-    ctx.fillStyle = '#14122b';
+    // Separate neck, face and hair keep the champion unmistakably human.
+    ctx.fillStyle = '#d77c5d';
+    ctx.fillRect(-10, -38, 20, 16);
     ctx.beginPath();
-    ctx.moveTo(-15, -45);
-    ctx.quadraticCurveTo(-8, -61, 0, -56);
-    ctx.quadraticCurveTo(11, -62, 17, -45);
-    ctx.lineTo(11, -31);
-    ctx.lineTo(-11, -31);
+    ctx.moveTo(-17, -59);
+    ctx.quadraticCurveTo(-16, -72, 0, -76);
+    ctx.quadraticCurveTo(16, -72, 17, -59);
+    ctx.lineTo(14, -42);
+    ctx.quadraticCurveTo(0, -32, -14, -42);
+    ctx.closePath();
+    ctx.fillStyle = '#efad83';
+    ctx.strokeStyle = '#171329';
+    ctx.lineWidth = 6;
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#171329';
+    ctx.beginPath();
+    ctx.moveTo(-16, -59);
+    ctx.quadraticCurveTo(-11, -77, 0, -73);
+    ctx.quadraticCurveTo(11, -78, 17, -59);
+    ctx.lineTo(9, -64);
+    ctx.lineTo(4, -58);
+    ctx.lineTo(-2, -65);
+    ctx.lineTo(-8, -58);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = '#5a302e';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-9, -52); ctx.lineTo(-3, -53);
+    ctx.moveTo(3, -53); ctx.lineTo(9, -52);
+    ctx.moveTo(-6, -43); ctx.quadraticCurveTo(0, -39, 6, -43);
+    ctx.stroke();
 
-    // Anatomical planes kept graphic, not photorealistic.
-    ctx.strokeStyle = '#9f5e4d';
+    // Graphic pec and six-pack planes stay visible at compact scale.
+    ctx.strokeStyle = '#93483f';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.moveTo(0, -28); ctx.lineTo(0, 35);
-    ctx.moveTo(-6, -24); ctx.quadraticCurveTo(-27, -24, -36, -11);
-    ctx.moveTo(6, -24); ctx.quadraticCurveTo(27, -24, 36, -11);
-    ctx.moveTo(-35, -8); ctx.quadraticCurveTo(-18, 4, -8, 12);
-    ctx.moveTo(35, -8); ctx.quadraticCurveTo(18, 4, 8, 12);
-    ctx.moveTo(-28, 20); ctx.quadraticCurveTo(-14, 15, -5, 30);
-    ctx.moveTo(28, 20); ctx.quadraticCurveTo(14, 15, 5, 30);
-    ctx.moveTo(-67, -24); ctx.quadraticCurveTo(-59, -12, -50, -17);
-    ctx.moveTo(67, -24); ctx.quadraticCurveTo(59, -12, 50, -17);
+    ctx.moveTo(0, -23); ctx.lineTo(0, 44);
+    ctx.moveTo(-34, -8); ctx.quadraticCurveTo(-18, -20, -2, -11);
+    ctx.moveTo(34, -8); ctx.quadraticCurveTo(18, -20, 2, -11);
+    ctx.moveTo(-28, 5); ctx.quadraticCurveTo(-14, 12, -5, 9);
+    ctx.moveTo(28, 5); ctx.quadraticCurveTo(14, 12, 5, 9);
+    ctx.moveTo(-20, 20); ctx.lineTo(-5, 20);
+    ctx.moveTo(20, 20); ctx.lineTo(5, 20);
+    ctx.moveTo(-18, 34); ctx.lineTo(-5, 34);
+    ctx.moveTo(18, 34); ctx.lineTo(5, 34);
     ctx.stroke();
 
     // Racing trunks anchor the body and echo the cyan flight system.
@@ -280,10 +342,10 @@ export class MedalCeremonyCanvas {
     ctx.strokeStyle = '#14122b';
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(-26, 37);
-    ctx.quadraticCurveTo(0, 43, 26, 37);
-    ctx.lineTo(22, 56);
-    ctx.lineTo(-22, 56);
+    ctx.moveTo(-25, 45);
+    ctx.quadraticCurveTo(0, 51, 25, 45);
+    ctx.lineTo(22, 61);
+    ctx.lineTo(-22, 61);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -293,8 +355,8 @@ export class MedalCeremonyCanvas {
     ctx.lineWidth = 4;
     for (const x of [-11, 0, 11]) {
       ctx.beginPath();
-      ctx.moveTo(x, 53);
-      ctx.lineTo(x * 1.5, 72);
+      ctx.moveTo(x, 59);
+      ctx.lineTo(x * 1.5, 75);
       ctx.stroke();
     }
     ctx.restore();

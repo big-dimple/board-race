@@ -28,6 +28,7 @@
  *   GRID_SLOTS    — four staggered start positions, with the player at the back
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   markInk,
   LAYER_ENERGY,
@@ -561,99 +562,79 @@ function makeStripeTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-/** 'START' banner graphic: chunky ink checker borders + bold ink text on foam. */
-function makeStartTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = hexCss(PALETTE.foam);
-  g.fillRect(0, 0, 512, 128);
-  // crisp race checker, cells big enough to read at distance
-  g.fillStyle = hexCss(PALETTE.ink);
-  const s = 32;
-  for (let row = 0; row < 1; row++) {
-    for (let x = 0; x < 512 / s; x++) {
-      if ((x + row) % 2 === 0) {
-        g.fillRect(x * s, row * s, s, s);
-        g.fillRect(x * s + s, 128 - s, s, s);
-      }
+/** Continuous block strokes keep START legible without a canvas upload. */
+const START_GLYPHS: Record<string, readonly (readonly [number, number, number, number])[]> = {
+  S: [[0, .78, 1, .22], [0, .39, 1, .22], [0, 0, 1, .22], [0, .5, .22, .5], [.78, 0, .22, .5]],
+  T: [[0, .78, 1, .22], [.39, 0, .22, 1]],
+  A: [[0, .39, 1, .22], [0, .78, 1, .22], [0, 0, .22, 1], [.78, 0, .22, 1]],
+  R: [[0, .39, 1, .22], [0, .78, 1, .22], [0, 0, .22, 1], [.78, .5, .22, .5], [.55, 0, .22, .55]],
+};
+
+function makeStartGantryVisuals(): {
+  towerMaterial: THREE.Material;
+  bannerFront: THREE.Group;
+  bannerBack: THREE.Group;
+} {
+  const foamMat = createToonMaterial({ color: PALETTE.foam, emissive: PALETTE.foam, emissiveIntensity: 0.12 });
+  const inkMat = createToonMaterial({ color: PALETTE.ink });
+  const accentMat = createToonMaterial({ color: PALETTE.uiAccent, emissive: PALETTE.uiAccent, emissiveIntensity: 0.28 });
+  const bannerFront = new THREE.Group();
+  const bannerBack = new THREE.Group();
+  const panelGeo = new THREE.BoxGeometry(17, 2.6, 0.16);
+  const panel = new THREE.Mesh(panelGeo, foamMat);
+  panel.userData.noOutline = true;
+  bannerFront.add(panel);
+  const backPanel = new THREE.Mesh(panelGeo, foamMat);
+  backPanel.userData.noOutline = true;
+  bannerBack.add(backPanel);
+  const edgeParts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 2; i++) {
+    const edge = new THREE.BoxGeometry(0.3, 2.05, 0.18);
+    edge.translate(i === 0 ? -8.32 : 8.32, 0, 0.15);
+    edgeParts.push(edge);
+  }
+  const edgeGeo = mergeGeometries(edgeParts, false);
+  edgeParts.forEach((part) => part.dispose());
+  if (!edgeGeo) throw new Error('Unable to merge START banner edges');
+  const edges = new THREE.Mesh(edgeGeo, accentMat);
+  edges.name = 'start-banner-edges';
+  edges.userData.noOutline = true;
+  bannerFront.add(edges);
+  const backEdges = edges.clone();
+  backEdges.name = 'start-banner-edges-back';
+  bannerBack.add(backEdges);
+
+  const text = 'START';
+  const letterWidth = 2.05;
+  const startX = -(text.length - 1) * letterWidth * 0.5;
+  const segmentCount = [...text].reduce((sum, glyph) => sum + START_GLYPHS[glyph].length, 0);
+  const letterParts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < text.length; i++) {
+    for (const [x, y, width, height] of START_GLYPHS[text[i]]) {
+      const part = new THREE.BoxGeometry(width * 1.65, height * 1.45, 0.12);
+      part.translate(
+        startX + i * letterWidth + (x + width * 0.5 - 0.5) * 1.65,
+        (y + height * 0.5 - 0.5) * 1.45,
+        0.18,
+      );
+      letterParts.push(part);
     }
   }
-  // ink frame + green end posts
-  g.fillStyle = hexCss(PALETTE.uiAccent);
-  g.fillRect(0, s, 14, 128 - 2 * s);
-  g.fillRect(498, s, 14, 128 - 2 * s);
-  g.fillStyle = hexCss(PALETTE.ink);
-  g.font = '900 76px system-ui, sans-serif';
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.fillText('START', 256, 66);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.magFilter = THREE.NearestFilter; // hard checker up close
-  tex.minFilter = THREE.NearestFilter; // ...and no mipmap mush at range
-  tex.generateMipmaps = false;
-  return tex;
-}
-
-/**
- * Reverse face of the banner: full-face race checker on foam (the finish-line
- * read from beyond the line — the old DoubleSide plane showed a washed-out
- * mirrored START). 2 rows of big cells, razor-hard at any distance.
- */
-function makeCheckerTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = hexCss(PALETTE.foam);
-  g.fillRect(0, 0, 512, 128);
-  g.fillStyle = hexCss(PALETTE.ink);
-  const s = 32; // 16 x 4 cells
-  for (let row = 0; row < 128 / s; row++) {
-    for (let x = 0; x < 512 / s; x++) {
-      if ((x + row) % 2 === 0) g.fillRect(x * s, row * s, s, s);
-    }
-  }
-  // green end posts, matching the START face
-  g.fillStyle = hexCss(PALETTE.uiAccent);
-  g.fillRect(0, 0, 14, 128);
-  g.fillRect(498, 0, 14, 128);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  return tex;
-}
-
-/** Vertical-post stripes for the gantry towers: foam post, ink bands, green collar. */
-function makeTowerTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 64;
-  const g = c.getContext('2d')!;
-  const bands: readonly (readonly [number, number])[] = [
-    [PALETTE.uiAccent, 12], // collar just under the cap
-    [PALETTE.ink, 6],
-    [PALETTE.foam, 28],
-    [PALETTE.ink, 6],
-    [PALETTE.foam, 12],
-  ];
-  let y = 0;
-  for (const [hex, h] of bands) {
-    g.fillStyle = hexCss(hex);
-    g.fillRect(0, y, 64, h);
-    y += h;
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.NoColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  return tex;
+  const letterGeo = mergeGeometries(letterParts, false);
+  letterParts.forEach((part) => part.dispose());
+  if (!letterGeo) throw new Error('Unable to merge START glyphs');
+  const letters = new THREE.Mesh(letterGeo, inkMat);
+  letters.name = 'start-glyphs';
+  letters.userData.noOutline = true;
+  letters.userData.startGlyphInstances = segmentCount;
+  bannerFront.add(letters);
+  const backLetters = letters.clone();
+  backLetters.name = 'start-glyphs-back';
+  backLetters.userData.startGlyphInstances = segmentCount;
+  bannerBack.add(backLetters);
+  bannerFront.name = 'start-banner-front';
+  bannerBack.name = 'start-banner-back';
+  return { towerMaterial: foamMat, bannerFront, bannerBack };
 }
 
 /** Pink low-altitude lock: the open cyan aperture only exists above this field. */
@@ -939,6 +920,7 @@ export class Course implements ICourse {
   private playerTargetGateDistance = -1;
   private playerTargetAnchorScale = 1;
   private activeGuideRoute = -1;
+  private startGantry: THREE.Group | null = null;
 
   constructor() {
     this.object = new THREE.Group();
@@ -947,6 +929,30 @@ export class Course implements ICourse {
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
     this.buildGates();
+  }
+
+  /** Cold-load contract for the START landmark. No browser canvas upload is allowed. */
+  startGantryStatus(): Record<string, number> {
+    let canvasTextures = 0;
+    let meshes = 0;
+    let glyphInstances = 0;
+    this.startGantry?.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      meshes++;
+      glyphInstances += Number(object.userData.startGlyphInstances ?? 0);
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        for (const value of Object.values(material)) {
+          if (value instanceof THREE.CanvasTexture) canvasTextures++;
+        }
+        if (material instanceof THREE.ShaderMaterial) {
+          for (const uniform of Object.values(material.uniforms)) {
+            if (uniform?.value instanceof THREE.CanvasTexture) canvasTextures++;
+          }
+        }
+      }
+    });
+    return { canvasTextures, meshes, glyphInstances };
   }
 
   /** Closed loop; u wraps. Arc-length normalized. */
@@ -1827,20 +1833,22 @@ export class Course implements ICourse {
       emissiveIntensity: 0.4,
     });
     foamRingMat.side = THREE.DoubleSide;
-    // gantry post: foam-white shaft with ink bands + green collar (stripe toon),
-    // so even the shadow band reads as a color instead of a dead ink void
-    const towerMat = makeStripeToon(makeTowerTexture());
+    // START/FINISH uses pure geometry for its towers, panel and lettering.
+    // This avoids a first-load mobile GPU race that could upload CanvasTexture
+    // data as black until the page was refreshed.
+    const startVisuals = makeStartGantryVisuals();
+    const towerMat = startVisuals.towerMaterial;
+    const towerBandMat = createToonMaterial({ color: PALETTE.ink });
+    const towerAccentMat = createToonMaterial({
+      color: PALETTE.uiAccent,
+      emissive: PALETTE.uiAccent,
+      emissiveIntensity: 0.28,
+    });
     const towerCapMat = createToonMaterial({
       color: PALETTE.hullPlayer,
       emissive: PALETTE.hullPlayer,
       emissiveIntensity: 0.5,
     });
-    // banner is double-FACED (two FrontSide planes back to back): START on the
-    // approach face, race checker on the reverse — the old single DoubleSide
-    // plane read as a washed-out mirrored START from beyond the line
-    const bannerFrontMat = makeStripeToon(makeStartTexture(), 0.8);
-    const bannerBackMat = makeStripeToon(makeCheckerTexture(), 0.8);
-
     // ~30% smaller float: the old disc was wider than the buoy above it is tall
     const floatGeo = new THREE.TorusGeometry(0.88, 0.3, 10, 20);
     floatGeo.rotateX(Math.PI / 2);
@@ -1848,8 +1856,9 @@ export class Course implements ICourse {
     const coneGeo = new THREE.ConeGeometry(0.66, 0.85, 14); // short squat cap, not a spire
     const foamRingGeo = makeFoamRingGeometry();
     const towerGeo = new THREE.CylinderGeometry(0.72, 1.05, 10.0, 12);
+    const towerBandGeo = new THREE.CylinderGeometry(0.78, 0.9, 0.48, 12);
+    const towerAccentGeo = new THREE.CylinderGeometry(0.77, 0.82, 0.72, 12);
     const towerCapGeo = new THREE.ConeGeometry(1.08, 1.5, 12);
-    const bannerGeo = new THREE.PlaneGeometry(17, 2.6);
 
     const makeBuoy = (): THREE.Group => {
       const g = new THREE.Group();
@@ -1899,23 +1908,30 @@ export class Course implements ICourse {
     CURVE.getTangentAt(0, t);
     const heading = Math.atan2(-t.x, t.z);
     const gantry = new THREE.Group();
+    gantry.name = 'start-gantry';
     for (const side of [-1, 1]) {
       const tower = new THREE.Group();
       const shaft = new THREE.Mesh(towerGeo, towerMat);
       shaft.position.y = 5.0;
+      const lowerBand = new THREE.Mesh(towerBandGeo, towerBandMat);
+      lowerBand.position.y = 2.35;
+      const upperBand = new THREE.Mesh(towerBandGeo, towerBandMat);
+      upperBand.position.y = 7.15;
+      const collar = new THREE.Mesh(towerAccentGeo, towerAccentMat);
+      collar.position.y = 8.55;
       const cap = new THREE.Mesh(towerCapGeo, towerCapMat);
       cap.position.y = 10.6;
-      tower.add(shaft, cap);
+      tower.add(shaft, lowerBand, upperBand, collar, cap);
       tower.position.x = side * 8.5;
       gantry.add(tower);
     }
-    // START face looks back at the approaching pack (local -Z = against
-    // travel, see yawQ below); the checker face looks past the line
-    const bannerFront = new THREE.Mesh(bannerGeo, bannerFrontMat);
+    // Both faces carry START because the frozen selection camera can orbit to
+    // either side; local -Z faces the approaching pack (see yawQ below).
+    const bannerFront = startVisuals.bannerFront;
     bannerFront.rotation.y = Math.PI;
-    bannerFront.position.set(0, 8.6, -0.045);
-    const bannerBack = new THREE.Mesh(bannerGeo, bannerBackMat);
-    bannerBack.position.set(0, 8.6, 0.045);
+    bannerFront.position.set(0, 8.6, -0.06);
+    const bannerBack = startVisuals.bannerBack;
+    bannerBack.position.set(0, 8.6, 0.06);
     gantry.add(bannerFront, bannerBack);
     addOutline(gantry);
     markInk(gantry);
@@ -1923,6 +1939,7 @@ export class Course implements ICourse {
     const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, -heading);
     gantry.quaternion.copy(yawQ);
     this.object.add(gantry);
+    this.startGantry = gantry;
     this.floaters.push({ obj: gantry, x: p.x, z: p.z, yawQ });
   }
 }
