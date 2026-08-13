@@ -258,6 +258,8 @@ export interface ICourse {
   flightTurnWarning(id: number): boolean;
   armFinalStation(): void;
   finalStationArmed(): boolean;
+  triggerFinaleCelebration(): void;
+  finaleCelebrating(): boolean;
   resetFinalStation(): void;
   guidanceStatus(): CourseGuidanceStatus;
   resetFlightChallenge(): void;

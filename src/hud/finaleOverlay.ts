@@ -1,4 +1,5 @@
 import type { ChallengeResult } from '../contracts';
+import { FinaleCelebrationCanvas, type FinaleVisualState } from './finaleCelebration';
 import './finaleOverlay.css';
 
 export class FinaleOverlay {
@@ -8,6 +9,7 @@ export class FinaleOverlay {
   private readonly actions: HTMLDivElement;
   private readonly saveButton: HTMLButtonElement;
   private readonly continueButton: HTMLButtonElement;
+  private readonly celebration: FinaleCelebrationCanvas;
 
   constructor(parent: HTMLElement, onContinue: () => void, onGallery: () => void, onSave: () => void) {
     const root = document.createElement('div');
@@ -16,6 +18,7 @@ export class FinaleOverlay {
     root.setAttribute('aria-modal', 'true');
     root.innerHTML = `
       <div class="finale-flare" aria-hidden="true"></div>
+      <div class="finale-visual" aria-hidden="true"></div>
       <div class="finale-copy">
         <div class="finale-kicker">FINAL STATION · SEVEN FLIGHTS</div>
         <div class="finale-title">七飞认证</div>
@@ -37,6 +40,7 @@ export class FinaleOverlay {
     this.actions = root.querySelector('.finale-actions')!;
     this.saveButton = root.querySelector('[data-action="save"]')!;
     this.continueButton = root.querySelector('[data-action="continue"]')!;
+    this.celebration = new FinaleCelebrationCanvas(root.querySelector('.finale-visual')!);
     this.continueButton.addEventListener('click', onContinue);
     root.querySelector<HTMLButtonElement>('[data-action="gallery"]')!.addEventListener('click', onGallery);
     this.saveButton.addEventListener('click', onSave);
@@ -49,14 +53,25 @@ export class FinaleOverlay {
     this.saveButton.disabled = true;
     this.saveButton.textContent = '生成截图中';
     this.root.style.setProperty('--finale-progress', '0');
+    this.root.classList.remove('impact', 'crown', 'hero', 'settled');
+    this.celebration.reset();
     this.root.classList.add('on');
   }
 
-  update(elapsed: number, duration: number, canContinue: boolean): void {
-    this.root.style.setProperty('--finale-progress', String(Math.max(0, Math.min(1, elapsed / duration))));
+  update(elapsed: number, _duration: number, canContinue: boolean): void {
+    this.root.style.setProperty('--finale-progress', String(Math.max(0, Math.min(1, elapsed / 2.4))));
+    const state = this.celebration.render(elapsed, canContinue);
+    this.root.classList.toggle('impact', state.phase === 'impact');
+    this.root.classList.toggle('crown', state.phase === 'crown');
+    this.root.classList.toggle('hero', state.phase === 'hero');
+    this.root.classList.toggle('settled', state.phase === 'settled');
     this.root.classList.toggle('reveal', elapsed >= 1.15);
     this.actions.classList.toggle('on', canContinue);
   }
+
+  visualState(): FinaleVisualState { return this.celebration.visualState(); }
+
+  getCaptureCanvas(): HTMLCanvasElement { return this.celebration.canvas; }
 
   setCaptureReady(ready: boolean): void {
     this.saveButton.disabled = !ready;
@@ -66,8 +81,9 @@ export class FinaleOverlay {
   setSaveLabel(label: string): void { this.saveButton.textContent = label; }
 
   hide(): void {
-    this.root.classList.remove('on', 'reveal');
+    this.root.classList.remove('on', 'impact', 'crown', 'hero', 'settled', 'reveal');
     this.actions.classList.remove('on');
+    this.celebration.reset();
   }
 
   focusContinue(): void { this.continueButton.focus({ preventScroll: true }); }

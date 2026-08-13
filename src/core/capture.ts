@@ -5,6 +5,8 @@ export interface CaptureCard {
   title: string;
   kicker: string;
   lines: readonly string[];
+  /** Optional transparent celebration layer, composited over the live frame. */
+  overlayCanvas?: HTMLCanvasElement;
 }
 
 export class CaptureService {
@@ -26,13 +28,24 @@ export class CaptureService {
 
     // Copy the rendered WebGL frame synchronously while its backbuffer is valid.
     ctx.drawImage(this.source, 0, 0, width, height);
-    ctx.fillStyle = 'rgba(4, 7, 24, 0.36)';
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = 'rgba(8, 13, 42, 0.9)';
-    ctx.fillRect(width * 0.08, height * 0.12, width * 0.84, height * 0.76);
-    ctx.strokeStyle = card.kind === 'medal' ? '#ffcf4a' : '#fff3ae';
-    ctx.lineWidth = Math.max(5, width / 220);
-    ctx.strokeRect(width * 0.08, height * 0.12, width * 0.84, height * 0.76);
+    if (card.kind === 'medal') {
+      ctx.fillStyle = 'rgba(4, 7, 24, 0.36)';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = 'rgba(8, 13, 42, 0.9)';
+      ctx.fillRect(width * 0.08, height * 0.12, width * 0.84, height * 0.76);
+      ctx.strokeStyle = '#ffcf4a';
+      ctx.lineWidth = Math.max(5, width / 220);
+      ctx.strokeRect(width * 0.08, height * 0.12, width * 0.84, height * 0.76);
+    } else {
+      ctx.fillStyle = 'rgba(4, 7, 24, 0.12)';
+      ctx.fillRect(0, 0, width, height);
+      const vignette = ctx.createRadialGradient(width * .5, height * .42, 0, width * .5, height * .42, width * .72);
+      vignette.addColorStop(0, 'rgba(255, 207, 74, .06)');
+      vignette.addColorStop(1, 'rgba(4, 7, 24, .26)');
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, width, height);
+      if (card.overlayCanvas) ctx.drawImage(card.overlayCanvas, 0, 0, width, height);
+    }
 
     if (card.kind === 'medal') {
       try {

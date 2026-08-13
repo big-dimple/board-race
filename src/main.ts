@@ -169,6 +169,8 @@ const MEDAL_CEREMONY_S = 4.5;
 const MEDAL_MIN_READ_S = MEDAL_CEREMONY_S;
 const FINALE_REVEAL_S = 4.8;
 const FINALE_MIN_READ_S = 3.2;
+const FINALE_CAMERA_HERO_S = 0.75;
+const FINALE_CAPTURE_S = 0.78;
 let retryLessonActive = false;
 let retryLessonTimer = 0;
 let retryLessonDuration = 0;
@@ -417,6 +419,7 @@ async function createFinaleCapture(): Promise<void> {
     finaleCapture = await capture.create({
       kind: 'finale', title: '七飞认证', kicker: 'FINAL STATION',
       lines: [`第 ${result.place} / ${result.totalRacers} 名`, `本局 ${result.flightsCleared} 飞`],
+      overlayCanvas: finale.getCaptureCanvas(),
     });
     finale.setCaptureReady(true);
     trackGameEvent('screenshot_created', { kind: 'finale', run: currentRun });
@@ -472,14 +475,21 @@ function startRetryLesson(): void {
   hud.showRetryLesson(result, currentRun, repeatCount, pendingFailureNewBest, mobileInput.enabled);
 }
 
-function updateFrozenPresentation(dt: number, phase = race.phase): void {
+function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentation = false): void {
   const frozen = boats[0].state;
   audio.setEngine(0, 0, false);
   audio.setWaterRush(0);
   audio.setAirborne(false);
   audio.setFlight(0, false);
   audio.setDrift(0);
-  pipeline.update(dt, retryLessonFrozenT, frozen, phase);
+  if (finalPresentation) {
+    if (finaleElapsed >= FINALE_CAMERA_HERO_S && cameraRig.mode !== 'results') cameraRig.mode = 'results';
+    cameraRig.update(dt, boats[0], presentationTime);
+    ocean.update(presentationTime, stage.camera.position);
+    sky.update(presentationTime, stage.camera.position);
+    course.update(dt, presentationTime);
+  }
+  pipeline.update(dt, finalPresentation ? presentationTime : retryLessonFrozenT, frozen, phase);
   hud.update(dt, race, boats[0], boats);
   audio.update(dt);
 }
@@ -621,7 +631,7 @@ function step(dt: number, _t: number): void {
     finaleElapsed += dt;
     const canContinue = finaleElapsed >= FINALE_MIN_READ_S;
     finale.update(finaleElapsed, FINALE_REVEAL_S, canContinue);
-    updateFrozenPresentation(dt, 'finished');
+    updateFrozenPresentation(dt, 'finished', true);
     if (!expansionGallery.visible() && canContinue && (enterPressed || spaceConfirmPressed || gamepadConfirm)) {
       continueAfterFinale();
     }
@@ -911,7 +921,7 @@ function step(dt: number, _t: number): void {
   // loop directly. The legacy finished branch remains available to scripted modes.
   if ((race.phase === 'finished' || race.phase === 'defeated') && !resultsShown) {
     resultsShown = true;
-    cameraRig.mode = race.phase === 'defeated' ? 'defeat' : 'results';
+    cameraRig.mode = race.phase === 'defeated' ? 'defeat' : 'chase';
     if (race.phase === 'defeated') {
       cameraRig.defeatKick();
       audio.setScene('defeat');
@@ -932,11 +942,12 @@ function step(dt: number, _t: number): void {
       haptics.cue('defeat');
     } else {
       cameraRig.finishKick();
-      pipeline.pulse('finish', 1.25);
+      pipeline.pulse('finish', 1.35);
       if (race.challengeResult) {
         race.challengeResult.ordinaryNew = ordinaryNewThisRun;
         records.decorateResult(race.challengeResult, newBestThisRun, medalEarnedThisRun);
         records.recordFinale();
+        course.triggerFinaleCelebration();
         finale.show(race.challengeResult);
         finaleElapsed = 0;
         finalePresentation = true;
@@ -971,7 +982,7 @@ function processCaptureQueue(): void {
     medalCapturePending = false;
     void createMedalCapture();
   }
-  if (finaleCapturePending) {
+  if (finaleCapturePending && finaleElapsed >= FINALE_CAPTURE_S) {
     finaleCapturePending = false;
     void createFinaleCapture();
   }
@@ -1060,7 +1071,7 @@ interface Harness {
   stats(): Record<string, number | string>;
   guidance(): Record<string, number>;
   startGantryStatus(): Record<string, number>;
-  finalStationStatus(): Record<string, number | boolean>;
+  finalStationStatus(): Record<string, number | string | boolean>;
   mobileStatus(): Record<string, number | string | boolean>;
   gamepadStatus(): Record<string, number | string | boolean>;
   hapticStatus(): Record<string, number | string | boolean>;
@@ -2117,6 +2128,13 @@ if (HARNESS) {
         finaleElapsed,
         finaleActive: finalePresentation,
         finalStationArmed: course.finalStationArmed(),
+        finalStationCelebrating: course.finaleCelebrating(),
+        finaleVisualPhase: finale.visualState().phase,
+        finaleFxProgress: finale.visualState().progress,
+        finaleFxFlash: finale.visualState().flash,
+        finaleFxCrown: finale.visualState().crown,
+        finaleFxImpact: finale.visualState().impact,
+        finaleActionsVisible: finale.visualState().actionsVisible,
         finaleCompleted: race.finaleCompleted,
         expansionSeenMask: records.data.expansionSeenMask,
         interruptionActive,
@@ -2167,7 +2185,12 @@ if (HARNESS) {
     }),
     guidance: () => course.guidanceStatus(),
     startGantryStatus: () => course.startGantryStatus(),
-    finalStationStatus: () => ({ armed: course.finalStationArmed(), visible: course.finalStationArmed() }),
+    finalStationStatus: () => ({
+      armed: course.finalStationArmed(),
+      celebrating: course.finaleCelebrating(),
+      visible: course.finalStationArmed() || course.finaleCelebrating(),
+      finalePhase: finale.visualState().phase,
+    }),
     mobileStatus: () => mobileInput.status(),
     gamepadStatus: () => gamepadInput.status(),
     hapticStatus: () => haptics.status(),

@@ -35,8 +35,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
 ## Current State
 
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
-- Final presentation is functional but its visual climax is still a planned
-  redesign; see `docs/expansion-gallery-handoff.md`.
+- Final presentation uses a world-first frozen celebration: the live finish
+  station remains visible while a code-authored Canvas2D flash, gold crown,
+  radial particles, camera kick, and staged result actions play. The PNG
+  capture composites that transparent celebration layer instead of a dark
+  result card; deterministic Final screenshots cover impact, hero, and settled
+  beats.
 - Expansion images are replaceable owner-supplied WebP concept assets under
   `src/assets/expansions/`; prompts and semantic filenames are the durable contract.
 - The dossier pages are concept previews; no expansion gameplay exists yet.

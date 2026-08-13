@@ -1788,6 +1788,31 @@ async function main() {
       await assertBattleLeavesDrivingRoiClear(page, name);
       await assertCompactActionPromptLeavesDrivingRoiClear(page, name);
       await page.screenshot({ path: path.join(OUT, `${name}${mobileSuffix}.png`) });
+      if (name === 'final-station') {
+        const impactState = await page.evaluate(() => window.__harness.playerState());
+        assert.ok(['impact', 'crown'].includes(impactState.finaleVisualPhase),
+          `final station impact phase must be visible: ${JSON.stringify(impactState)}`);
+        const frozenPose = {
+          x: impactState.playerX, y: impactState.playerY, z: impactState.playerZ,
+          heading: impactState.heading, raceTime: impactState.raceTime, worldTime: impactState.worldTime,
+        };
+        await page.evaluate(() => window.__harness.advance(0.65));
+        await page.evaluate(() => window.__harness.render());
+        const heroState = await page.evaluate(() => window.__harness.playerState());
+        assert.ok(['crown', 'hero'].includes(heroState.finaleVisualPhase),
+          `final station hero phase must be visible: ${JSON.stringify(heroState)}`);
+        assert.deepEqual({
+          x: heroState.playerX, y: heroState.playerY, z: heroState.playerZ,
+          heading: heroState.heading, raceTime: heroState.raceTime, worldTime: heroState.worldTime,
+        }, frozenPose, 'finale presentation must freeze race state during the hero beat');
+        await page.screenshot({ path: path.join(OUT, `final-station-hero${mobileSuffix}.png`) });
+        await page.evaluate(() => window.__harness.advance(2.6));
+        await page.evaluate(() => window.__harness.render());
+        const settledState = await page.evaluate(() => window.__harness.playerState());
+        assert.equal(settledState.finaleVisualPhase, 'settled');
+        assert.equal(settledState.finaleActionsVisible, true, 'finale actions must wait for the minimum read');
+        await page.screenshot({ path: path.join(OUT, `final-station-settled${mobileSuffix}.png`) });
+      }
       if (wantStats) console.log(JSON.stringify(await page.evaluate(() => window.__harness.stats())));
       console.log(`  -> shots/${name}${mobileSuffix}.png`);
 

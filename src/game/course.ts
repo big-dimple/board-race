@@ -957,6 +957,8 @@ export class Course implements ICourse {
   private finalStation: THREE.Group | null = null;
   private finalStationBlend = 0;
   private finalArmed = false;
+  private finalCelebrating = false;
+  private finalCelebrationTime = 0;
 
   constructor() {
     this.object = new THREE.Group();
@@ -1099,6 +1101,8 @@ export class Course implements ICourse {
     this.playerTargetAnchorScale = 1;
     this.activeGuideRoute = -1;
     this.finalArmed = false;
+    this.finalCelebrating = false;
+    this.finalCelebrationTime = 0;
     this.finalStationBlend = 0;
     if (this.finalStation) this.finalStation.visible = false;
     this.ribbonMat.uniforms.uGuideActive.value = 0;
@@ -1126,8 +1130,21 @@ export class Course implements ICourse {
     return this.finalArmed;
   }
 
+  triggerFinaleCelebration(): void {
+    this.finalCelebrating = true;
+    this.finalCelebrationTime = 0;
+    if (this.finalStation) this.finalStation.visible = true;
+  }
+
+  finaleCelebrating(): boolean {
+    return this.finalCelebrating;
+  }
+
   resetFinalStation(): void {
     this.finalArmed = false;
+    this.finalCelebrating = false;
+    this.finalCelebrationTime = 0;
+    this.finalStationBlend = 0;
     if (this.finalStation) this.finalStation.visible = false;
   }
 
@@ -1434,12 +1451,14 @@ export class Course implements ICourse {
     this.flightWarn = Math.max(0, this.flightWarn - dt);
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
     if (this.finalStation) {
-      const target = this.finalArmed ? 1 : 0;
+      if (this.finalCelebrating) this.finalCelebrationTime += dt;
+      const target = this.finalArmed || this.finalCelebrating ? 1 : 0;
       this.finalStationBlend += (target - this.finalStationBlend) * (1 - Math.exp(-dt * 4.5));
       const blend = Math.max(0, Math.min(1, this.finalStationBlend));
       this.finalStation.visible = blend > 0.005;
-      this.finalStation.scale.set(1, 0.24 + blend * 0.76, 1);
-      const pulse = 0.82 + Math.sin(t * 3.2) * 0.18;
+      const burst = this.finalCelebrating ? Math.max(0, 1 - this.finalCelebrationTime / 1.2) : 0;
+      this.finalStation.scale.set(1 + burst * 0.08, 0.24 + blend * (0.76 + burst * 0.32), 1 + burst * 0.08);
+      const pulse = 0.82 + Math.sin(t * (this.finalCelebrating ? 8.5 : 3.2)) * (this.finalCelebrating ? 0.28 : 0.18) + burst * 0.22;
       this.finalStation.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         const material = object.material as THREE.MeshBasicMaterial;
