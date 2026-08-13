@@ -11,7 +11,11 @@
   --mobile-ink: #14122b;
   --mobile-flight: #55e7ff;
   --mobile-drift: #39ff88;
-  --mobile-charge: 0;
+  --mobile-drift-progress: 0;
+  --mobile-bank-progress: 0;
+  --mobile-boost-progress: 0;
+  --mobile-flight-progress: 0;
+  --mobile-airbrake-progress: 0;
   --control-h: clamp(128px, 36vh, 158px);
   --control-w: clamp(288px, 39vw, 340px);
 }
@@ -209,21 +213,43 @@
   font-size: .86em;
 }
 
-.mobile-action-zones button::after {
+.mobile-action-zones button::after { display: none; }
+
+/* Continuous timing lives on the rim, outside the thumb's occlusion area. */
+.mobile-action-zones button span::after {
   content: '';
   position: absolute;
-  left: 50%;
-  top: calc(var(--control-face-y) + clamp(38px, 11vh, 48px));
-  width: clamp(46px, 13vh, 58px);
-  height: 4px;
-  background: currentColor;
-  box-shadow: 0 0 14px currentColor;
-  opacity: 0.62;
-  transform-origin: left center;
-  margin-left: calc(clamp(46px, 13vh, 58px) / -2);
+  inset: -7px;
+  border-radius: inherit;
+  background: conic-gradient(from -90deg, currentColor calc(var(--rim-progress, 0) * 1turn), rgba(244,254,255,.16) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
+  opacity: .72;
+  pointer-events: none;
 }
-
-.mobile-action-zones button:first-child::after { transform: scaleX(max(0.08, var(--mobile-charge))); }
+.mobile-action-zones [data-mobile-action="drift"] span { --rim-progress: var(--mobile-drift-progress); }
+.mobile-action-zones [data-mobile-action="flight"] span { --rim-progress: var(--mobile-flight-progress); }
+.mobile-controls[data-left-mode='boost']:not(.in-flight) [data-mobile-action="drift"] span { --rim-progress: var(--mobile-boost-progress); }
+.mobile-controls.in-flight [data-mobile-action="drift"] span { --rim-progress: var(--mobile-airbrake-progress); }
+.mobile-controls:not(.in-flight) [data-mobile-action="flight"] span { --rim-progress: 0; }
+.mobile-threshold {
+  position:absolute;
+  inset:-9px;
+  border-radius:50%;
+  transform:rotate(115.2deg);
+  pointer-events:none;
+}
+.mobile-threshold::after {
+  content:'';
+  position:absolute;
+  left:50%;
+  top:-1px;
+  width:3px;
+  height:10px;
+  transform:translateX(-50%);
+  background:#ffcf4a;
+  box-shadow:0 0 7px #ffcf4a;
+}
 .mobile-action-zones button.held,
 .mobile-steer-zones button.held {
   background: transparent;
@@ -243,10 +269,12 @@
   border-color: var(--mobile-flight);
   box-shadow: inset 0 0 0 5px rgba(20,18,43,.5), inset 0 -12px 0 rgba(20,18,43,.24), 0 8px 20px rgba(0,0,0,.22), 0 0 22px rgba(85,231,255,.42);
 }
-.mobile-controls.flight-ready .mobile-action-zones button:last-child::after { height: 8px; opacity: 1; }
+.mobile-controls.flight-ready .mobile-action-zones button:last-child::after { display: none; }
 .mobile-controls.flight-extension-ready .mobile-action-zones button:last-child {
   color: #f8ff7a;
 }
+.mobile-controls[data-flight-mode='finish'] .mobile-action-zones button:last-child { color:#ffcf4a; }
+.mobile-controls[data-flight-mode='finish'] .mobile-action-zones button:last-child span::after { --rim-progress:1; opacity:1; }
 .mobile-controls.flight-extension-ready .mobile-action-zones button:last-child span {
   border-color: #f8ff7a;
   background: color-mix(in srgb, #55e7ff 12%, rgba(10, 16, 42, 0.82));
@@ -257,7 +285,7 @@
     0 0 12px rgba(248,255,122,.5),
     0 0 28px rgba(85,231,255,.34);
 }
-.mobile-action-zones button:last-child span::after {
+.mobile-stock {
   content: 'x0';
   position: absolute;
   right: 2px;
@@ -266,8 +294,8 @@
   font: 900 12px/1 system-ui, sans-serif;
   text-shadow: 1px 1px 0 var(--mobile-ink);
 }
-.mobile-controls[data-flight-charges='1'] .mobile-action-zones button:last-child span::after { content: 'x1'; color: var(--mobile-flight); }
-.mobile-controls[data-flight-charges='2'] .mobile-action-zones button:last-child span::after { content: 'x2'; color: #f8ff7a; }
+.mobile-controls[data-flight-charges='1'] .mobile-stock { color: var(--mobile-flight); }
+.mobile-controls[data-flight-charges='2'] .mobile-stock { color: #f8ff7a; }
 .mobile-controls.drift-release-ready .mobile-action-zones button:first-child {
   color: #f8ff7a;
 }
@@ -275,11 +303,14 @@
   border-color:#f8ff7a;
   box-shadow:inset 0 0 0 5px rgba(20,18,43,.5),inset 0 -12px 0 rgba(20,18,43,.24),0 8px 20px rgba(0,0,0,.22),0 0 22px rgba(248,255,122,.48);
 }
+.mobile-controls.drift-bank-full .mobile-action-zones button:first-child span::after { opacity: 1; filter: brightness(1.25); }
 .mobile-controls.in-flight .mobile-action-zones button:first-child { color: #ffcf4a; }
 .mobile-controls.turn-warning .mobile-action-zones button:first-child {
   color: #ffcf4a;
 }
 .mobile-controls.turn-warning .mobile-action-zones button:first-child span { border-color:#ffcf4a; box-shadow:inset 0 0 0 5px rgba(20,18,43,.5),0 0 24px rgba(255,207,74,.42); }
+.mobile-controls.flight-urgent .mobile-action-zones button:last-child span::after { filter: hue-rotate(28deg); }
+.mobile-controls.flight-critical .mobile-action-zones button:last-child span::after { filter: hue-rotate(110deg) saturate(1.4); opacity: 1; }
 
 .mobile-tilt-meter {
   position: absolute;

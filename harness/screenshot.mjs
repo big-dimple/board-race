@@ -60,6 +60,8 @@ const SCENARIOS = {
   'medal-ceremony': { scenario: 'medal-ceremony', timeout: 180000, settleMs: 180 },
   'endless-four': { scenario: 'endless-four', timeout: 180000, settleMs: 180 },
   'endless-medal-fail': { scenario: 'endless-medal-fail', timeout: 180000, settleMs: 180 },
+  'final-station': { scenario: 'final-station', timeout: 180000, settleMs: 180 },
+  'expansion-gallery': { scenario: 'expansion-gallery', timeout: 180000, settleMs: 180 },
   overtake: { scenario: 'overtake', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
   'overtake-chain': { scenario: 'overtake-chain', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
   'position-lost': { scenario: 'position-lost', freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
@@ -1726,6 +1728,44 @@ async function main() {
       }
       console.log(`scenario: ${name} ...`);
       await page.evaluate((n) => window.__harness.scenario(n), def.scenario);
+      if (name === 'final-station') {
+        const finalState = await page.evaluate(() => window.__harness.playerState());
+        assert.equal(finalState.phase, 'finished', `final station must finish after seven routes: ${JSON.stringify(finalState)}`);
+        assert.equal(finalState.flightsCleared, 7);
+        assert.equal(finalState.finaleActive, true);
+      }
+      if (name === 'expansion-gallery') {
+        const gallery = page.locator('.expansion-gallery');
+        const title = page.locator('.expansion-gallery-name');
+        const tabs = page.locator('.expansion-gallery-dots button');
+        assert.equal(await gallery.evaluate((element) => element.classList.contains('on')), true,
+          'expansion gallery must open from the frozen finale');
+        assert.equal(await tabs.count(), 7, 'expansion gallery must list seven planned games');
+        assert.deepEqual(await tabs.allTextContents(), [
+          '沙漠：圣甲虫', '城市：磁轨轮滑手', '雪地：北极狐', '沼泽：树蛙',
+          '丛林：长臂猿', '外星：浮空鳐形生命', '肠道：益生菌',
+        ]);
+        assert.equal(await title.textContent(), '沙漠：圣甲虫');
+        await page.keyboard.press('ArrowRight');
+        assert.equal(await title.textContent(), '城市：磁轨轮滑手', 'right arrow must advance one page');
+        await tabs.nth(6).click();
+        assert.equal(await title.textContent(), '肠道：益生菌', 'Chinese game tab must jump directly to its page');
+        assert.equal(await page.locator('.expansion-gallery-arrow.next').isDisabled(), true,
+          'last page must not wrap to the first page');
+        await page.keyboard.press('Escape');
+        assert.equal(await gallery.evaluate((element) => element.classList.contains('on')), false,
+          'Escape must return to the frozen finale');
+        await page.locator('[data-action="gallery"]').click();
+        assert.equal(await title.textContent(), '沙漠：圣甲虫', 'reopening starts from the first dossier page');
+        const galleryBox = await gallery.boundingBox();
+        assert.ok(galleryBox, 'visible gallery must expose a swipe surface');
+        await page.mouse.move(galleryBox.x + galleryBox.width * 0.68, galleryBox.y + galleryBox.height * 0.6);
+        await page.mouse.down();
+        await page.mouse.move(galleryBox.x + galleryBox.width * 0.54, galleryBox.y + galleryBox.height * 0.6, { steps: 4 });
+        await page.mouse.up();
+        assert.equal(await title.textContent(), '城市：磁轨轮滑手', 'left swipe must advance one page');
+        await tabs.nth(0).click();
+      }
       if (def.timeout) await page.waitForTimeout(0); // scenario itself blocks in evaluate
       if (def.settleMs) await page.waitForTimeout(def.settleMs);
 

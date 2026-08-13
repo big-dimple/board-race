@@ -31,3 +31,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Changes to physics, lifecycle, audio, records, or rendering need the matching
   harness contract. Do not weaken thresholds to make a release pass.
 - GitHub Pages deploys `main` through `.github/workflows/deploy.yml`.
+
+## Current State
+
+- Seven-flight Final Station and the frozen dossier viewer are implemented.
+- Final presentation is functional but its visual climax is still a planned
+  redesign; see `docs/expansion-gallery-handoff.md`.
+- Expansion images are replaceable owner-supplied WebP concept assets under
+  `src/assets/expansions/`; prompts and semantic filenames are the durable contract.
+- The dossier pages are concept previews; no expansion gameplay exists yet.

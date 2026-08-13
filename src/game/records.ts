@@ -1,12 +1,13 @@
 import type { ChallengeResult, FlightFailureSnapshot } from '../contracts';
 
-const STORAGE_KEY = 'board-race:challenge:v4';
+const STORAGE_KEY = 'board-race:challenge:v5';
+const V4_KEY = 'board-race:challenge:v4';
 const V3_KEY = 'board-race:challenge:v3';
 const V2_KEY = 'board-race:challenge:v2';
 const LEGACY_MEDAL_KEY = 'board-race:man-medals:v1';
 
 export interface ChallengeRecords {
-  version: 4;
+  version: 5;
   runs: number;
   ordinaryUnlocked: boolean;
   manMedalsTotal: number;
@@ -19,10 +20,13 @@ export interface ChallengeRecords {
   bestFlightsByDriver: Record<string, number>;
   farSeaDossierUnlocked: boolean;
   rivalWins: number;
+  finaleCompletions: number;
+  expansionSeenMask: number;
+  finaleScreenshotCount: number;
 }
 
 const defaults = (): ChallengeRecords => ({
-  version: 4,
+  version: 5,
   runs: 0,
   ordinaryUnlocked: false,
   manMedalsTotal: readLegacyMedals(),
@@ -35,6 +39,9 @@ const defaults = (): ChallengeRecords => ({
   bestFlightsByDriver: {},
   farSeaDossierUnlocked: false,
   rivalWins: 0,
+  finaleCompletions: 0,
+  expansionSeenMask: 0,
+  finaleScreenshotCount: 0,
 });
 
 export class RecordsStore {
@@ -88,6 +95,25 @@ export class RecordsStore {
     this.save();
   }
 
+  recordFinale(): void {
+    this.data.finaleCompletions++;
+    this.data.farSeaDossierUnlocked = true;
+    this.save();
+  }
+
+  markExpansionSeen(index: number): void {
+    if (!Number.isInteger(index) || index < 0 || index > 6) return;
+    const next = this.data.expansionSeenMask | (1 << index);
+    if (next === this.data.expansionSeenMask) return;
+    this.data.expansionSeenMask = next;
+    this.save();
+  }
+
+  recordFinaleScreenshot(): void {
+    this.data.finaleScreenshotCount++;
+    this.save();
+  }
+
   exportJson(selectedDriverId: string): string {
     return JSON.stringify({ schema: 'board-race-save', exportedAt: new Date().toISOString(), selectedDriverId, records: this.data }, null, 2);
   }
@@ -97,7 +123,7 @@ export class RecordsStore {
     if (parsed.schema !== 'board-race-save' || !parsed.records || typeof parsed.records !== 'object') {
       throw new Error('存档格式不正确');
     }
-    const incoming = sanitizeV4(parsed.records as Partial<ChallengeRecords>, this.data);
+    const incoming = sanitizeV5(parsed.records as Partial<ChallengeRecords>, this.data);
     Object.assign(this.data, incoming);
     this.save();
     return { selectedDriverId: typeof parsed.selectedDriverId === 'string' ? parsed.selectedDriverId : null };
@@ -140,12 +166,17 @@ function loadRecords(): ChallengeRecords {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
-      if (parsed.version === 4) return sanitizeV4(parsed, fallback);
+      if (parsed.version === 5) return sanitizeV5(parsed, fallback);
+    }
+    const v4Raw = localStorage.getItem(V4_KEY);
+    if (v4Raw) {
+      const v4 = JSON.parse(v4Raw) as Record<string, unknown>;
+      if (v4.version === 4) return sanitizeV5(v4 as Partial<ChallengeRecords>, fallback);
     }
     const v3Raw = localStorage.getItem(V3_KEY);
     if (v3Raw) {
       const v3 = JSON.parse(v3Raw) as Record<string, unknown>;
-      if (v3.version === 3) return sanitizeV4(v3 as Partial<ChallengeRecords>, fallback);
+      if (v3.version === 3) return sanitizeV5(v3 as Partial<ChallengeRecords>, fallback);
     }
     const v2Raw = localStorage.getItem(V2_KEY);
     if (!v2Raw) return fallback;
@@ -154,7 +185,7 @@ function loadRecords(): ChallengeRecords {
     const excellentCount = finiteNonNegative(v2.excellentCount, 0);
     const ordinaryUnlocked = v2.ordinaryUnlocked === true;
     return {
-      version: 4,
+      version: 5,
       runs: finiteNonNegative(v2.runs, 0),
       ordinaryUnlocked,
       manMedalsTotal: Math.max(
@@ -172,13 +203,16 @@ function loadRecords(): ChallengeRecords {
       bestFlightsByDriver: {},
       farSeaDossierUnlocked: finiteNonNegative(v2.bestFlightsCleared, 0) >= 3,
       rivalWins: 0,
+      finaleCompletions: 0,
+      expansionSeenMask: 0,
+      finaleScreenshotCount: 0,
     };
   } catch {
     return fallback;
   }
 }
 
-function sanitizeV4(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords): ChallengeRecords {
+function sanitizeV5(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords): ChallengeRecords {
   const byDriver: Record<string, number> = {};
   if (parsed.bestFlightsByDriver && typeof parsed.bestFlightsByDriver === 'object') {
     for (const [key, value] of Object.entries(parsed.bestFlightsByDriver)) {
@@ -187,7 +221,7 @@ function sanitizeV4(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
   }
   const bestFlights = finiteNonNegative(parsed.bestFlights, 0);
   return {
-    version: 4,
+    version: 5,
     runs: finiteNonNegative(parsed.runs, 0),
     ordinaryUnlocked: parsed.ordinaryUnlocked === true,
     manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),
@@ -200,6 +234,9 @@ function sanitizeV4(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
     bestFlightsByDriver: byDriver,
     farSeaDossierUnlocked: parsed.farSeaDossierUnlocked === true || bestFlights >= 3,
     rivalWins: finiteNonNegative(parsed.rivalWins, 0),
+    finaleCompletions: finiteNonNegative(parsed.finaleCompletions, 0),
+    expansionSeenMask: Math.min(0x7f, Math.floor(finiteNonNegative(parsed.expansionSeenMask, 0))),
+    finaleScreenshotCount: finiteNonNegative(parsed.finaleScreenshotCount, 0),
   };
 }
 

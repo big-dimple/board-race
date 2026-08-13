@@ -769,6 +769,7 @@ export class Boat implements IBoat {
       steer: 0,
       drifting: false,
       boostCharge: 0,
+      driftBankProgress: 0,
       driftReleaseReady: false,
       boosting: false,
       boostRemaining: 0,
@@ -1178,6 +1179,7 @@ export class Boat implements IBoat {
       speedAbs > TUNING.driftMinSpeed && st.boostCharge >= TUNING.boostReleaseMin;
     st.boosting = boosting;
     st.boostRemaining = boosting && this.boostTotal > 0 ? clamp(this.boostTimer / this.boostTotal, 0, 1) : 0;
+    st.driftBankProgress = clamp(st.boostCharge / TUNING.boostReleaseMin, 0, 1);
     st.flightClearance = pos.y - surfaceY;
     st.flightAirBrake = this.airBrakeFx;
     st.flightExtensionReady = this.canExtendFlight();
@@ -1688,6 +1690,7 @@ export class Boat implements IBoat {
 
     const st = this.state;
     st.boostCharge = 0;
+    st.driftBankProgress = 0;
     st.driftReleaseReady = false;
     st.boostRemaining = 0;
     st.flightCharges = 0;

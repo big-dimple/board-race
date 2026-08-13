@@ -954,6 +954,9 @@ export class Course implements ICourse {
   private playerTargetAnchorScale = 1;
   private activeGuideRoute = -1;
   private startGantry: THREE.Group | null = null;
+  private finalStation: THREE.Group | null = null;
+  private finalStationBlend = 0;
+  private finalArmed = false;
 
   constructor() {
     this.object = new THREE.Group();
@@ -1095,6 +1098,9 @@ export class Course implements ICourse {
     this.playerTargetGateDistance = -1;
     this.playerTargetAnchorScale = 1;
     this.activeGuideRoute = -1;
+    this.finalArmed = false;
+    this.finalStationBlend = 0;
+    if (this.finalStation) this.finalStation.visible = false;
     this.ribbonMat.uniforms.uGuideActive.value = 0;
     for (const visual of this.flightVisuals) {
       visual.group.visible = false;
@@ -1109,6 +1115,20 @@ export class Course implements ICourse {
       }
     }
     for (const floater of this.floaters) floater.obj.visible = true;
+  }
+
+  armFinalStation(): void {
+    this.finalArmed = true;
+    if (this.finalStation) this.finalStation.visible = true;
+  }
+
+  finalStationArmed(): boolean {
+    return this.finalArmed;
+  }
+
+  resetFinalStation(): void {
+    this.finalArmed = false;
+    if (this.finalStation) this.finalStation.visible = false;
   }
 
   /** Deterministic harness diagnostic for the single-guide contract. */
@@ -1171,7 +1191,8 @@ export class Course implements ICourse {
       if (id === 0) {
         this.playerPosition.copy(pos);
         this.playerFlightReady = st.flightCharges > 0;
-        this.playerFlightIndex = st.flightRouteIndex >= 0
+        const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length;
+        this.playerFlightIndex = finalApproach ? -1 : st.flightRouteIndex >= 0
           ? st.flightRouteIndex
           : st.flightRouteCursor % FLIGHT_ROUTES.length;
         this.playerFlightPressure = st.flightPressure;
@@ -1194,6 +1215,13 @@ export class Course implements ICourse {
       const surfaceU = _routeSample.u;
       if (id === 0) this.playerSurfaceU = surfaceU;
       const flightActive = st.flightPhase !== 'surface';
+      if (id === 0 && this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
+          st.flightRouteState === 'idle') {
+        // The seventh pass owns the approach until Race certifies the line.
+        prev.copy(pos);
+        this.flightPrevClearance[id] = st.flightClearance;
+        continue;
+      }
       const routeIndex = st.flightRouteIndex >= 0
         ? st.flightRouteIndex
         : st.flightRouteCursor % FLIGHT_ROUTES.length;
@@ -1362,7 +1390,9 @@ export class Course implements ICourse {
     let next = -1;
     if (player) {
       const st = player.state;
-      const slot = st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
+      const slot = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length
+        ? -1
+        : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
       const def = FLIGHT_ROUTES[slot];
       if (def && (st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
           (this.playerSurfaceU >= def.qualifyFromU && this.playerSurfaceU <= def.exitU + 0.01))) {
@@ -1403,6 +1433,27 @@ export class Course implements ICourse {
     this.stripMat.uniforms.uTime.value = t;
     this.flightWarn = Math.max(0, this.flightWarn - dt);
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
+    if (this.finalStation) {
+      const target = this.finalArmed ? 1 : 0;
+      this.finalStationBlend += (target - this.finalStationBlend) * (1 - Math.exp(-dt * 4.5));
+      const blend = Math.max(0, Math.min(1, this.finalStationBlend));
+      this.finalStation.visible = blend > 0.005;
+      this.finalStation.scale.set(1, 0.24 + blend * 0.76, 1);
+      const pulse = 0.82 + Math.sin(t * 3.2) * 0.18;
+      this.finalStation.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        const material = object.material as THREE.MeshBasicMaterial;
+        const baseOpacity = Number(object.userData.finalBaseOpacity ?? 0);
+        if (baseOpacity > 0) material.opacity = baseOpacity * blend * pulse;
+        const particle = Number(object.userData.finalParticle ?? -1);
+        if (particle >= 0) {
+          object.position.y = 1.2 + ((t * (1.5 + particle * 0.035) + particle * 1.17) % 10.5);
+          object.rotation.y = t * (0.9 + particle * 0.04);
+          const drift = Math.sin(t * 1.7 + particle * 2.1) * 0.28;
+          object.position.z = drift;
+        }
+      });
+    }
     const readyStep = this.playerFlightReady && Math.floor(t * 4) % 2 === 0 ? 1 : 0;
     for (let routeIndex = 0; routeIndex < this.flightVisuals.length; routeIndex++) {
       const visual = this.flightVisuals[routeIndex];
@@ -1991,6 +2042,63 @@ export class Course implements ICourse {
     gantry.quaternion.copy(yawQ);
     this.object.add(gantry);
     this.startGantry = gantry;
+    this.buildFinalStation(gantry);
     this.floaters.push({ obj: gantry, x: p.x, z: p.z, yawQ });
+  }
+
+  /** Gold energy columns that remain dormant until all seven routes are cleared. */
+  private buildFinalStation(gantry: THREE.Group): void {
+    const station = new THREE.Group();
+    station.name = 'final-station';
+    station.visible = false;
+    const makeEnergyMaterial = (color: number, opacity: number): THREE.MeshBasicMaterial => new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const addEnergy = (mesh: THREE.Mesh, opacity: number): void => {
+      mesh.userData.noOutline = true;
+      mesh.userData.finalBaseOpacity = opacity;
+      mesh.layers.enable(LAYER_ENERGY);
+      station.add(mesh);
+    };
+    const coreGeo = new THREE.CylinderGeometry(0.32, 0.58, 11.5, 12, 1, true);
+    const glowGeo = new THREE.CylinderGeometry(0.9, 1.22, 12.5, 12, 1, true);
+    for (const side of [-1, 1]) {
+      const glow = new THREE.Mesh(glowGeo, makeEnergyMaterial(PALETTE.sunFlare, 0.24));
+      glow.position.set(side * 7.15, 6.1, 0);
+      addEnergy(glow, 0.24);
+      const core = new THREE.Mesh(coreGeo, makeEnergyMaterial(PALETTE.sunCore, 0.88));
+      core.position.set(side * 7.15, 6, 0);
+      addEnergy(core, 0.88);
+      for (let i = 0; i < 8; i++) {
+        const particle = new THREE.Mesh(
+          new THREE.OctahedronGeometry(0.14 + (i % 3) * 0.04, 0),
+          makeEnergyMaterial(i % 2 ? PALETTE.sunCore : PALETTE.sunFlare, 0.72),
+        );
+        particle.position.x = side * (6.7 + (i % 4) * 0.28);
+        particle.userData.finalParticle = i + (side > 0 ? 8 : 0);
+        addEnergy(particle, 0.72);
+      }
+    }
+    const crown = new THREE.Mesh(
+      new THREE.TorusGeometry(5.8, 0.2, 8, 36),
+      makeEnergyMaterial(PALETTE.sunCore, 0.72),
+    );
+    crown.position.y = 8.6;
+    crown.scale.set(1.22, 0.66, 1);
+    addEnergy(crown, 0.72);
+    const beam = new THREE.Mesh(
+      new THREE.BoxGeometry(13.8, 0.16, 0.2),
+      makeEnergyMaterial(PALETTE.sunFlare, 0.62),
+    );
+    beam.position.y = 9.1;
+    addEnergy(beam, 0.62);
+    station.traverse((object) => object.layers.enable(LAYER_ENERGY));
+    gantry.add(station);
+    this.finalStation = station;
   }
 }

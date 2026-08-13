@@ -22,6 +22,7 @@ import type {
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
 import { MedalCeremonyCanvas } from './medalCeremony';
+import { deriveAbilityHudState } from '../core/abilityTelemetry';
 import './hud.css';
 
 const MAP_SIZE = 190;
@@ -78,6 +79,7 @@ const ctx2d = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => {
 export class HUD {
   private readonly root: HTMLDivElement;
   private readonly course: ICourse;
+  private readonly camera: THREE.PerspectiveCamera;
 
   // speedometer
   private readonly speedNum: HTMLDivElement;
@@ -92,6 +94,15 @@ export class HUD {
 
   // boost / stored flight charges
   private readonly powerPanel: HTMLDivElement;
+  private readonly driverPower: HTMLDivElement;
+  private readonly driverLeftRail: HTMLDivElement;
+  private readonly driverRightRail: HTMLDivElement;
+  private readonly driverLeftLabel: HTMLDivElement;
+  private readonly driverRightLabel: HTMLDivElement;
+  private readonly driverStocks: HTMLDivElement;
+  private readonly driverAnchor = new THREE.Vector3();
+  private driverAnchorX = 0;
+  private driverAnchorY = 0;
   private readonly boostBar: HTMLDivElement;
   private readonly boostLabel: HTMLDivElement;
   private readonly boostSegEls: HTMLDivElement[] = [];
@@ -106,6 +117,7 @@ export class HUD {
   private flightPromptMode: 'hidden' | 'launch' | 'extend' = 'hidden';
   private flightPromptDevice: 'keyboard' | 'gamepad' | 'mobile' = 'keyboard';
   private flightPromptHitTimer = 0;
+  private lastFlightExtensionReady = false;
 
   // full-screen, event-driven impact layer
   private readonly driftFx: HTMLDivElement;
@@ -154,6 +166,7 @@ export class HUD {
   private readonly medalTier: HTMLDivElement;
   private readonly medalNext: HTMLDivElement;
   private readonly medalContinue: HTMLButtonElement;
+  private readonly medalSave: HTMLButtonElement;
   private currentMedalTier: 'ordinary' | 'excellent' = 'ordinary';
 
   // minimap
@@ -216,10 +229,15 @@ export class HUD {
     onRetry: () => void,
     bestFlights = 0,
     onResume: () => void = () => {},
+    camera?: THREE.PerspectiveCamera,
+    onMedalSave: () => void = () => {},
   ) {
     this.course = course;
+    this.camera = camera ?? new THREE.PerspectiveCamera();
     this.bestFlights = bestFlights;
     this.root = h('div', 'hud', container);
+    this.driverAnchorX = innerWidth * 0.5;
+    this.driverAnchorY = innerHeight * 0.56;
     // palette → CSS custom properties (single source of truth)
     const rs = this.root.style;
     rs.setProperty('--ink', PALETTE.inkCss);
@@ -290,6 +308,17 @@ export class HUD {
       if (i >= BOOST_SEGS - 2) seg.classList.add('hot');
       this.boostSegEls.push(seg);
     }
+
+    // Near-boat driver instrument. It is deliberately transparent and compact:
+    // the track remains the primary visual, while the two rails carry timing.
+    this.driverPower = h('div', 'hud-driver-power', this.root);
+    this.driverPower.setAttribute('aria-hidden', 'true');
+    this.driverLeftRail = h('div', 'hud-driver-rail hud-driver-rail-left', this.driverPower);
+    this.driverRightRail = h('div', 'hud-driver-rail hud-driver-rail-right', this.driverPower);
+    this.driverLeftLabel = h('div', 'hud-driver-label hud-driver-label-left', this.driverPower, '');
+    this.driverRightLabel = h('div', 'hud-driver-label hud-driver-label-right', this.driverPower, '');
+    this.driverStocks = h('div', 'hud-driver-stocks', this.driverPower);
+    for (let i = 0; i < 2; i++) h('i', 'hud-driver-stock', this.driverStocks);
 
     // ---- toasts / wrong way / countdown ----------------------------------------------
     this.toastBox = h('div', 'hud-toasts', this.root);
@@ -391,10 +420,17 @@ export class HUD {
     this.medalContinue = document.createElement('button');
     this.medalContinue.className = 'hud-medal-continue';
     this.medalContinue.type = 'button';
-    this.medalContinue.textContent = '继续挑战';
+    this.medalContinue.textContent = '继续游戏';
     this.medalContinue.hidden = true;
     this.medalContinue.addEventListener('click', onRetry);
     medalCopy.appendChild(this.medalContinue);
+    this.medalSave = document.createElement('button');
+    this.medalSave.className = 'hud-medal-continue hud-medal-save';
+    this.medalSave.type = 'button';
+    this.medalSave.textContent = '生成截图中';
+    this.medalSave.disabled = true;
+    this.medalSave.addEventListener('click', onMedalSave);
+    medalCopy.appendChild(this.medalSave);
     h('div', 'hud-medal-foot', medalCopy, '继续后 3 · 2 · 1 · GO');
 
     // ---- results ------------------------------------------------------------------------
@@ -439,6 +475,7 @@ export class HUD {
   update(dt: number, race: RaceView, player: IBoat, _all: IBoat[]): void {
     const st = player.state;
     this.hudTime += dt;
+    this.updateDriverPower(dt, race, player);
 
     // player racer state (RaceView exposes no player() accessor)
     let me: RacerState | undefined;
@@ -533,7 +570,9 @@ export class HUD {
     if (st.drifting !== this.lastDrifting) {
       this.lastDrifting = st.drifting;
     }
-    this.boostLabel.textContent = st.driftReleaseReady ? 'RELEASE' : st.drifting ? 'DRIFT' : 'BOOST';
+    this.boostLabel.textContent = st.driftReleaseReady
+      ? 'RELEASE'
+      : st.drifting ? 'DRIFT' : st.boosting ? 'BOOST' : 'BANK';
     this.driftFx.classList.toggle('on', st.drifting && st.speed > 12);
     this.driftFx.classList.toggle('ready', st.driftReleaseReady);
     this.driftFx.classList.toggle('full', st.drifting && st.boostCharge >= 0.999);
@@ -563,9 +602,11 @@ export class HUD {
         this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
       }
     }
-    const promptMode: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
+    if (st.flightExtensionReady && !this.lastFlightExtensionReady) this.flightPromptHitTimer = 1.2;
+    const availablePrompt: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
       ? 'extend'
       : !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
+    const promptMode: 'hidden' | 'launch' | 'extend' = this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
     const mobile = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
     const gamepad = !mobile && hasConnectedGamepad();
     const promptDevice = mobile ? 'mobile' : gamepad ? 'gamepad' : 'keyboard';
@@ -593,6 +634,7 @@ export class HUD {
       this.flightPromptHitTimer -= dt;
       if (this.flightPromptHitTimer <= 0) this.flightPrompt.classList.remove('acquired');
     }
+    this.lastFlightExtensionReady = st.flightExtensionReady;
     if (flightActive !== this.lastFlightActive) {
       this.lastFlightActive = flightActive;
       for (const token of this.flightTokens) token.classList.toggle('active', flightActive);
@@ -676,6 +718,45 @@ export class HUD {
 
   }
 
+  private updateDriverPower(dt: number, race: RaceView, player: IBoat): void {
+    const state = deriveAbilityHudState(player.state, this.course.finalStationArmed());
+    const active = race.phase === 'racing' && state.showNearRail;
+    this.driverPower.classList.toggle('on', active);
+    this.driverPower.dataset.left = state.leftMode;
+    this.driverPower.dataset.flight = state.flightMode;
+    this.driverPower.dataset.urgency = state.urgency;
+    this.driverPower.style.setProperty('--driver-drift', String(state.boostCharge));
+    this.driverPower.style.setProperty('--driver-bank', String(state.driftBankProgress));
+    this.driverPower.style.setProperty('--driver-boost', String(state.boostRemaining));
+    this.driverPower.style.setProperty('--driver-flight', String(state.flightRemaining));
+    this.driverPower.style.setProperty('--driver-airbrake', String(state.flightAirBrake));
+    this.driverLeftRail.classList.toggle('on', active && state.leftMode !== 'idle');
+    // Stored cells are shown as diamonds; the continuous rail only appears
+    // once an airborne envelope is actually consuming time.
+    this.driverRightRail.classList.toggle('on', active &&
+      (state.flightMode === 'active' || state.flightMode === 'extend' || state.flightMode === 'finish'));
+    this.driverLeftLabel.textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'FINAL' : state.driftReleaseReady && state.flightCharges < 2 ? 'BANK' : state.drifting && state.flightCharges >= 2 ? 'MAX' : '';
+    this.driverRightLabel.textContent = state.flightMode === 'finish' ? 'GO' : state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
+    this.driverPower.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < 2);
+    this.driverPower.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
+    this.driverPower.classList.toggle('extend', state.flightMode === 'extend');
+    this.driverPower.classList.toggle('final', state.flightMode === 'finish');
+    for (let i = 0; i < this.driverStocks.children.length; i++) {
+      (this.driverStocks.children[i] as HTMLElement).classList.toggle('on', i < state.flightCharges);
+    }
+
+    if (!active) return;
+    player.riderMount.getWorldPosition(this.driverAnchor);
+    this.driverAnchor.project(this.camera);
+    const targetX = Math.max(innerWidth * 0.42, Math.min(innerWidth * 0.58, (this.driverAnchor.x * 0.5 + 0.5) * innerWidth));
+    const targetY = Math.max(innerHeight * 0.38, Math.min(innerHeight * 0.64, (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight + 18));
+    const blend = 1 - Math.exp(-10 * Math.max(0, dt));
+    this.driverAnchorX += (targetX - this.driverAnchorX) * blend;
+    this.driverAnchorY += (targetY - this.driverAnchorY) * blend;
+    this.driverPower.style.setProperty('--driver-power-x', `${this.driverAnchorX}px`);
+    this.driverPower.style.setProperty('--driver-power-y', `${this.driverAnchorY}px`);
+  }
+
   showBattle(event: RaceBattleEvent): void {
     const names = event.opponents.map((o) => o.name).join(' + ');
     const color = event.kind === 'overtake'
@@ -717,6 +798,8 @@ export class HUD {
       : '三飞证明你会飞 · 远海档案现在才开始';
     this.medalNext.classList.remove('on');
     this.medalContinue.hidden = true;
+    this.medalSave.disabled = true;
+    this.medalSave.textContent = '生成截图中';
     this.medalEl.classList.add('on');
     this.root.classList.add('medal-on');
     this.medalContinue.blur();
@@ -736,6 +819,18 @@ export class HUD {
     this.medalContinue.hidden = true;
     this.medalNext.classList.remove('on');
     this.medalCanvas.clear();
+  }
+
+  setMedalCaptureReady(ready: boolean, label = '保存勋章截图'): void {
+    this.medalSave.disabled = !ready;
+    this.medalSave.textContent = ready ? label : '生成截图中';
+  }
+
+  showFinalReady(): void {
+    this.enqueueImpact({
+      kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '冲向金色终点', detail: '落水后穿过 FINAL 终点站',
+      color: PALETTE.sunFlare, duration: 2.1, priority: 96,
+    });
   }
 
   showReady(mobile: boolean, nextRun: boolean): void {
@@ -771,11 +866,11 @@ export class HUD {
     });
   }
 
-  showEndlessPass(flights: number, best: number, newBest: boolean): void {
+  showFlightPass(flights: number, best: number, newBest: boolean): void {
     this.setBestFlights(best, flights);
     if (flights <= 3) return;
     this.enqueueImpact({
-      kind: 'endless', kicker: newBest ? 'NEW BEST' : `FLIGHT ${flights}`,
+      kind: 'flight-pass', kicker: newBest ? 'NEW BEST' : `FLIGHT ${flights}`,
       title: `第 ${flights} 飞通过`, detail: `本局 ${flights} 飞 · BEST ${best}`,
       color: PALETTE.flight, duration: 0.75, priority: 58,
     });

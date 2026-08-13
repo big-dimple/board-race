@@ -1,5 +1,5 @@
 /**
- * race.ts — endless race state: countdown, laps, checkpoints, splits,
+ * race.ts — race state: countdown, laps, checkpoints, splits,
  * places, challenge qualification, and wrong-way detection.
  *
  * Checkpoint gates live at course.ts's CHECKPOINT_US (shared const, so the
@@ -82,6 +82,8 @@ export class Race implements RaceView {
   challengeResult: ChallengeResult | null = null;
   challengeTier: ChallengeTier = 'unqualified';
   qualificationTime: number | null = null;
+  finalStationArmed = false;
+  finaleCompleted = false;
 
   private readonly course: ICourse;
   private readonly boats: IBoat[];
@@ -171,6 +173,8 @@ export class Race implements RaceView {
     this.challengeResult = null;
     this.challengeTier = 'unqualified';
     this.qualificationTime = null;
+    this.finalStationArmed = false;
+    this.finaleCompleted = false;
     for (const r of this.racers) {
       r.lap = 1;
       r.progress = 0;
@@ -231,6 +235,28 @@ export class Race implements RaceView {
     return true;
   }
 
+  /** Arm the authored finish after a complete seven-flight set. */
+  armFinale(): boolean {
+    const routeCount = Math.max(1, this.course.flightRoutes.length);
+    if (this.phase !== 'racing' || this.finalStationArmed || this.player().finished ||
+        this.player().eliminated || this.boats[0].state.flightsCleared < routeCount ||
+        this.boats[0].state.flightsCleared % routeCount !== 0) return false;
+    this.finalStationArmed = true;
+    return true;
+  }
+
+  /** Continue the same run after the finale presentation. */
+  startFinalContinueCountdown(): boolean {
+    if (this.phase !== 'finished' || !this.finaleCompleted) return false;
+    this.finalStationArmed = false;
+    this.finaleCompleted = false;
+    this.challengeResult = null;
+    this.player().finished = false;
+    this.player().finishTime = -1;
+    this.armCountdown('resume-countdown');
+    return true;
+  }
+
   /** Restart safely after the page returns from the background. */
   restartAfterInterruption(): boolean {
     if (this.phase === 'racing') {
@@ -265,7 +291,7 @@ export class Race implements RaceView {
       overtakes: this.totalOvertakes,
       excellentTotal: 0,
       ordinaryNew: false,
-      manMedalEarned: this.challengeTier !== 'unqualified',
+      manMedalEarned: true,
       manMedalsTotal: 0,
       bestFlights: 0,
       newBest: false,
@@ -363,6 +389,7 @@ export class Race implements RaceView {
       const r = this.racers[id];
       this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
       const u = _sample.u;
+      const crossedFinishPlane = this.prevU[id] > 0.92 && u < 0.08;
       if (!resyncOnly && id === this.boats[0].id && this.phase === 'racing' &&
           boat.state.flightPhase === 'surface' && this.course.routeForBoat(id) === 'surface') {
         const outside = _sample.distance >= OFF_COURSE_FAIL_M;
@@ -398,6 +425,11 @@ export class Race implements RaceView {
       else if (du > 0.5) du -= 1;
       this.prevU[id] = u;
 
+      if (!resyncOnly && id === this.boats[0].id && crossedFinishPlane &&
+          _sample.distance <= GATE_CREDIT_DIST &&
+          boat.state.flightPhase === 'surface' && boat.state.flightRouteState === 'idle' &&
+          this.tryCompleteFinale(r, id, boat)) return;
+
       if (Math.abs(du) > JUMP_U) {
         this.resynced[id] = true;
         // cut / teleport: resync tracking to the physical position and deny
@@ -413,7 +445,12 @@ export class Race implements RaceView {
         this.contU[id] = newCu;
         this.prevContU[id] = newCu;
         if (!resyncOnly && !r.finished) {
-          if (newCu >= this.lapWindow[id] + 1) this.completeWindow(r, id);
+          if (newCu >= this.lapWindow[id] + 1) {
+            if (id === this.boats[0].id && this.finalStationArmed &&
+                boat.state.flightPhase === 'surface' && boat.state.flightRouteState === 'idle' &&
+                this.tryCompleteFinale(r, id, boat)) return;
+            this.completeWindow(r, id);
+          }
           r.progress = this.windowedProgress(id);
         }
         continue;
@@ -445,6 +482,7 @@ export class Race implements RaceView {
 
         // start/finish line, with checkpoint sanity
         if (cu >= this.lapWindow[id] + 1 && _sample.distance <= GATE_CREDIT_DIST) {
+          if (this.tryCompleteFinale(r, id, boat)) return;
           this.completeWindow(r, id);
         }
         r.lap = this.legitLaps[id] + 1;
@@ -504,6 +542,48 @@ export class Race implements RaceView {
     const oldestWindow = Math.max(0, Math.min(...this.lapWindow) - 1);
     const minKey = oldestWindow * CHECKPOINT_US.length;
     for (const key of this.cpLeaderTimes.keys()) if (key < minKey) this.cpLeaderTimes.delete(key);
+  }
+
+  /** Finish only after the seventh route has landed and the line is crossed. */
+  private tryCompleteFinale(r: RacerState, id: number, boat = this.boats[id]): boolean {
+    if (id !== this.boats[0].id || !this.finalStationArmed || this.finaleCompleted ||
+        boat.state.flightPhase !== 'surface' || boat.state.flightRouteState !== 'idle' ||
+        boat.state.speed <= 0) return false;
+    const forwardDot = Math.sin(boat.state.heading) * _sample.tangent.x +
+      Math.cos(boat.state.heading) * _sample.tangent.z;
+    if (forwardDot < 0.15 || _sample.distance > GATE_CREDIT_DIST) return false;
+    const leader = this.order[0] ?? r;
+    const gapM = Math.max(0, leader.progress - r.progress);
+    const leaderSpeed = Math.max(1, Math.abs(this.boats[leader.id]?.state.speed ?? 0));
+    const outcome: ChallengeResult['outcome'] = this.challengeTier === 'excellent' || r.place === 1
+      ? 'excellent' : 'ordinary';
+    this.finaleCompleted = true;
+    this.finalStationArmed = false;
+    r.finished = true;
+    r.finishTime = this.raceTime;
+    this.challengeTier = outcome;
+    this.challengeResult = {
+      outcome,
+      reason: 'none',
+      gate: 0,
+      place: r.place,
+      totalRacers: this.racers.length,
+      raceTime: this.raceTime,
+      flightsCleared: boat.state.flightsCleared,
+      leaderGapSeconds: r.place === 1 ? 0 : gapM / leaderSpeed,
+      leaderGapMeters: r.place === 1 ? 0 : gapM,
+      overtakes: this.totalOvertakes,
+      excellentTotal: 0,
+      ordinaryNew: false,
+      manMedalEarned: true,
+      manMedalsTotal: 0,
+      bestFlights: boat.state.flightsCleared,
+      newBest: false,
+      failure: null,
+    };
+    this.phase = 'finished';
+    this.events.finish(r);
+    return true;
   }
 
   private sortPlaces(): void {

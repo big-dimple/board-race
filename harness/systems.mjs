@@ -115,12 +115,13 @@ try {
     },
   });
   let state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 4);
+  assert.equal(state.version, 5);
   assert.equal(state.runs, 7);
   assert.equal(state.manMedalsTotal, 4);
   assert.equal(state.bestFlights, 5);
   assert.equal(state.farSeaDossierUnlocked, true);
   assert.deepEqual(state.bestFlightsByDriver, {});
+  assert.equal(state.finaleCompletions, 0);
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v2': {
@@ -130,12 +131,13 @@ try {
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 4);
+  assert.equal(state.version, 5);
   assert.equal(state.runs, 5);
   assert.equal(state.manMedalsTotal, 3);
   assert.equal(state.bestQualificationTime, 33);
   assert.equal(state.bestFlights, 3);
   assert.equal(state.farSeaDossierUnlocked, true);
+  assert.equal(state.expansionSeenMask, 0);
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v4': {

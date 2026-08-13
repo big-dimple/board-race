@@ -46,10 +46,18 @@ import { GameAudio } from './audio/audio';
 import { MixerControls } from './audio/mixerControls';
 import { DriverSelect } from './hud/driverSelect';
 import { RaceTower } from './hud/raceTower';
+import { FinaleOverlay } from './hud/finaleOverlay';
+import { ExpansionGallery } from './hud/expansionGallery';
+import { CaptureService } from './core/capture';
+import { trackGameEvent } from './game/eventLog';
 import type { BoatInput, ChallengeTier, FlightRouteState } from './contracts';
+import { deriveAbilityHudState } from './core/abilityTelemetry';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
+// Existing deterministic endurance probes intentionally exercise the optional
+// post-finale continuation. Normal players always reach Final Station.
+let harnessEndlessMode = HARNESS && !params.has('finale');
 
 // ------------------------------------------------------------ construction
 const app = document.getElementById('app')!;
@@ -110,7 +118,18 @@ const hudLayer = document.createElement('div');
 hudLayer.id = 'hud-layer';
 hudLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;';
 app.appendChild(hudLayer);
-const hud = new HUD(hudLayer, course, requestRetry, records.data.bestFlights, resumeInterruption);
+const capture = new CaptureService(stage.renderer.domElement);
+let medalCapture: Blob | null = null;
+let finaleCapture: Blob | null = null;
+const hud = new HUD(
+  hudLayer,
+  course,
+  requestRetry,
+  records.data.bestFlights,
+  resumeInterruption,
+  stage.camera,
+  saveMedalCapture,
+);
 const mixer = new MixerControls(app, audio);
 const tower = new RaceTower(hudLayer);
 tower.setRoster(roster);
@@ -123,6 +142,12 @@ const driverSelect = new DriverSelect(
     applySelectedDriver(profile.id);
   },
   requestFreshStart,
+);
+const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, saveFinaleCapture);
+const expansionGallery = new ExpansionGallery(
+  hudLayer,
+  (index) => records.markExpansionSeen(index),
+  () => finale.focusContinue(),
 );
 
 const input = new Input();
@@ -142,6 +167,8 @@ let resultsShown = false;
 const DEFEAT_FREEZE_S = 0.35;
 const MEDAL_CEREMONY_S = 4.5;
 const MEDAL_MIN_READ_S = MEDAL_CEREMONY_S;
+const FINALE_REVEAL_S = 4.8;
+const FINALE_MIN_READ_S = 3.2;
 let retryLessonActive = false;
 let retryLessonTimer = 0;
 let retryLessonDuration = 0;
@@ -159,6 +186,11 @@ let currentRun = 0;
 let worldTime = 0;
 let presentationTime = 0;
 let medalElapsed = 0;
+let finaleElapsed = 0;
+let finalePresentation = false;
+let medalCapturePending = false;
+let finaleCapturePending = false;
+let medalCaptureCard = { title: '猛男', kicker: '三飞达成', lines: [] as string[] };
 let interruptionActive = false;
 let pageWasHidden = false;
 let interruptionNeedsCountdown = false;
@@ -201,7 +233,7 @@ const race = new Race(course, boats, {
     if (HARNESS) harnessCheckpointEvents++;
   },
   finish: (r) => {
-    if (r.isPlayer && race.challengeResult?.outcome === 'excellent') audio.finishSting();
+    if (r.isPlayer) audio.finishSting();
   },
   wrongWay: (r, on) => {
     if (r.isPlayer && on) haptics.cue('warning');
@@ -315,6 +347,84 @@ function startResumeCountdown(): void {
   audio.setScene('countdown');
 }
 
+function continueAfterFinale(): void {
+  if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
+  if (!race.startFinalContinueCountdown()) return;
+  finalePresentation = false;
+  finaleElapsed = 0;
+  resultsShown = false;
+  course.resetFinalStation();
+  finale.hide();
+  input.clearTransient();
+  gamepadInput.clearTransient();
+  mobileInput.reset();
+  mobileInput.setControlPhase('preparing');
+  cameraRig.mode = 'chase';
+  audio.startRaceScore(false);
+  audio.setScene('countdown');
+  trackGameEvent('continue_game', { run: currentRun, flights: boats[0].state.flightsCleared });
+}
+
+function openExpansionGallery(): void {
+  if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S) return;
+  expansionGallery.show(0);
+}
+
+async function saveMedalCapture(): Promise<void> {
+  if (!medalCapture) return;
+  hud.setMedalCaptureReady(false, '保存中');
+  try {
+    const outcome = await capture.saveOrShare(medalCapture, `board-race-macho-${currentRun}.png`);
+    hud.setMedalCaptureReady(true, outcome === 'cancelled' ? '再次保存' : '已保存');
+    if (outcome !== 'cancelled') trackGameEvent('screenshot_saved', { kind: 'medal', run: currentRun });
+  } catch {
+    hud.setMedalCaptureReady(true, '再次保存');
+  }
+}
+
+async function saveFinaleCapture(): Promise<void> {
+  if (!finaleCapture) return;
+  finale.setCaptureReady(false);
+  finale.setSaveLabel('保存中');
+  try {
+    const outcome = await capture.saveOrShare(finaleCapture, `board-race-final-${currentRun}.png`);
+    finale.setCaptureReady(true);
+    finale.setSaveLabel(outcome === 'cancelled' ? '再次保存' : '已保存');
+    if (outcome !== 'cancelled') {
+      records.recordFinaleScreenshot();
+      trackGameEvent('screenshot_saved', { kind: 'finale', run: currentRun });
+    }
+  } catch {
+    finale.setCaptureReady(true);
+    finale.setSaveLabel('再次保存');
+  }
+}
+
+async function createMedalCapture(): Promise<void> {
+  try {
+    medalCapture = await capture.create({ kind: 'medal', ...medalCaptureCard });
+    hud.setMedalCaptureReady(true);
+    trackGameEvent('screenshot_created', { kind: 'medal', run: currentRun });
+  } catch {
+    hud.setMedalCaptureReady(false);
+  }
+}
+
+async function createFinaleCapture(): Promise<void> {
+  const result = race.challengeResult;
+  if (!result) return;
+  try {
+    finaleCapture = await capture.create({
+      kind: 'finale', title: '七飞认证', kicker: 'FINAL STATION',
+      lines: [`第 ${result.place} / ${result.totalRacers} 名`, `本局 ${result.flightsCleared} 飞`],
+    });
+    finale.setCaptureReady(true);
+    trackGameEvent('screenshot_created', { kind: 'finale', run: currentRun });
+  } catch {
+    finale.setCaptureReady(false);
+  }
+}
+
 function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals: number, best: number): void {
   if (!race.beginMedalCeremony()) return;
   medalElapsed = 0;
@@ -325,6 +435,13 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   mobileInput.setControlPhase('inactive');
   hud.showQualification(tier, medals, best);
   hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, false);
+  medalCapture = null;
+  medalCapturePending = true;
+  medalCaptureCard = {
+    title: '猛男',
+    kicker: tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成',
+    lines: [`男人勋章 +1 · 累计 ${medals}`, `本局 BEST ${best} 飞`],
+  };
   audio.setScene('medal');
   audio.playMedalCeremony();
   haptics.cue('medal');
@@ -380,6 +497,12 @@ function resetRace(): void {
   ordinaryNewThisRun = false;
   excellentRecordedThisRun = false;
   previousChallengeTier = 'unqualified';
+  finalePresentation = false;
+  finaleElapsed = 0;
+  medalCapture = null;
+  finaleCapture = null;
+  medalCapturePending = false;
+  finaleCapturePending = false;
   course.resetFlightChallenge();
   collisions.reset();
   input.reset();
@@ -389,6 +512,7 @@ function resetRace(): void {
   hud.hideResults();
   hud.hideRetryLesson();
   hud.hideMedalCeremony();
+  finale.hide();
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
     boats[i].teleport(s.x, s.z, s.heading);
@@ -492,6 +616,18 @@ function step(dt: number, _t: number): void {
     return;
   }
 
+  if (finalePresentation) {
+    mobileInput.consumeAnyPress();
+    finaleElapsed += dt;
+    const canContinue = finaleElapsed >= FINALE_MIN_READ_S;
+    finale.update(finaleElapsed, FINALE_REVEAL_S, canContinue);
+    updateFrozenPresentation(dt, 'finished');
+    if (!expansionGallery.visible() && canContinue && (enterPressed || spaceConfirmPressed || gamepadConfirm)) {
+      continueAfterFinale();
+    }
+    return;
+  }
+
   if ((enterPressed || spaceConfirmPressed || retryPressed || gamepadConfirm) && race.phase === 'finished') requestRetry();
 
   if (race.phase === 'ready') {
@@ -563,6 +699,7 @@ function step(dt: number, _t: number): void {
         airBrake: keyboardInput.airBrake || padInput.airBrake,
       };
     }
+    if (course.finalStationArmed()) playerInput = { ...playerInput, flightTrigger: false };
   }
   if (!retryLessonActive) mobileInput.consumeAnyPress();
   if (!racing) input.consumePress('Space'); // never buffer a flight press through the countdown
@@ -642,7 +779,7 @@ function step(dt: number, _t: number): void {
     const flights = boats[0].state.flightsCleared;
     const pass = records.recordFlightPass(flights, selectedDriverId);
     newBestThisRun ||= pass.newBest;
-    hud.showEndlessPass(flights, pass.bestFlights, pass.newBest);
+    hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
     tower.announceFlight(flights, pass.bestFlights);
     if (flights === 3 && race.challengeTier === 'unqualified') {
       const tier = race.qualifyChallenge();
@@ -653,6 +790,12 @@ function step(dt: number, _t: number): void {
         startMedalCeremony(tier, qualification.manMedalsTotal, pass.bestFlights);
         enteredMedal = true;
       }
+    } else if (!harnessEndlessMode && flights > 0 && flights % course.flightRoutes.length === 0 && race.armFinale()) {
+      course.armFinalStation();
+      hud.showFinalReady();
+      tower.announceFlight(flights, pass.bestFlights);
+      pipeline.pulse('finish', 0.55);
+      trackGameEvent('final_station_armed', { run: currentRun, flights, elapsed: race.raceTime });
     }
   }
   if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
@@ -747,14 +890,7 @@ function step(dt: number, _t: number): void {
   tower.update(dt, race, ps.flightPhase !== 'surface');
 
   audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
-  mobileInput.setActionState(
-    ps.boosting ? ps.boostRemaining : ps.boostCharge,
-    ps.driftReleaseReady,
-    ps.flightCharges,
-    ps.flightPhase !== 'surface',
-    ps.flightExtensionReady,
-    course.flightTurnWarning(boats[0].id),
-  );
+  mobileInput.setActionState(deriveAbilityHudState(ps, course.finalStationArmed()), course.flightTurnWarning(boats[0].id));
   audio.setEngine(ps.rpm, ps.throttle, ps.boosting);
   audio.setWaterRush(Math.min(1, Math.abs(ps.speed) / 34));
   audio.setAirborne(ps.airborne);
@@ -795,15 +931,29 @@ function step(dt: number, _t: number): void {
       mobileInput.setControlPhase('inactive');
       haptics.cue('defeat');
     } else {
-      const excellent = race.challengeResult?.outcome === 'excellent';
-      if (excellent) {
-        cameraRig.finishKick();
-        pipeline.pulse('finish', 1.25);
-      } else {
-        cameraRig.routeMissKick();
-        pipeline.pulse('lost', 0.55);
+      cameraRig.finishKick();
+      pipeline.pulse('finish', 1.25);
+      if (race.challengeResult) {
+        race.challengeResult.ordinaryNew = ordinaryNewThisRun;
+        records.decorateResult(race.challengeResult, newBestThisRun, medalEarnedThisRun);
+        records.recordFinale();
+        finale.show(race.challengeResult);
+        finaleElapsed = 0;
+        finalePresentation = true;
+        finaleCapture = null;
+        finaleCapturePending = true;
+        retryLessonFrozenT = worldTime;
+        input.reset();
+        gamepadInput.reset();
+        mobileInput.reset();
+        mobileInput.setControlPhase('inactive');
+        audio.setScene('medal');
+        haptics.cue('medal');
+        trackGameEvent('final_station_crossed', {
+          run: currentRun, flights: race.challengeResult.flightsCleared, elapsed: race.challengeResult.raceTime,
+        });
+        trackGameEvent('finale_shown', { run: currentRun, place: race.challengeResult.place });
       }
-      hud.showChallengeResult(race);
     }
   }
   audio.update(dt);
@@ -812,7 +962,19 @@ function step(dt: number, _t: number): void {
 function render(frameMs: number): void {
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
   pipeline.render();
+  processCaptureQueue();
   stage.updatePerf(frameMs);
+}
+
+function processCaptureQueue(): void {
+  if (medalCapturePending) {
+    medalCapturePending = false;
+    void createMedalCapture();
+  }
+  if (finaleCapturePending) {
+    finaleCapturePending = false;
+    void createFinaleCapture();
+  }
 }
 
 const loop = new Loop(step, render);
@@ -898,6 +1060,7 @@ interface Harness {
   stats(): Record<string, number | string>;
   guidance(): Record<string, number>;
   startGantryStatus(): Record<string, number>;
+  finalStationStatus(): Record<string, number | boolean>;
   mobileStatus(): Record<string, number | string | boolean>;
   gamepadStatus(): Record<string, number | string | boolean>;
   hapticStatus(): Record<string, number | string | boolean>;
@@ -1522,6 +1685,8 @@ function runRivalCase(): Record<string, unknown> {
 }
 
 function runEnduranceCase(requestedFlights: number): Record<string, unknown> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = true;
   const targetFlights = Math.max(7, Math.min(21, Math.floor(requestedFlights)));
   resetRace();
   startFreshCountdown();
@@ -1555,6 +1720,7 @@ function runEnduranceCase(requestedFlights: number): Record<string, unknown> {
     ].every(Number.isFinite)),
   };
   resetRace();
+  harnessEndlessMode = previousEndlessMode;
   return {
     ...final,
     resetPhase: race.phase,
@@ -1565,6 +1731,10 @@ function runEnduranceCase(requestedFlights: number): Record<string, unknown> {
 }
 
 function scenario(name: string): void {
+  // Normal harness scenarios exercise the legacy continuation path. The
+  // authored finish is isolated to its explicit scenario (or ?finale=1).
+  harnessEndlessMode = HARNESS && !params.has('finale');
+  if (name === 'final-station' || name === 'expansion-gallery') harnessEndlessMode = false;
   freeCamPose = null;
   harnessUsePlayerInput = false;
   harnessSuppressAirborneFlightTrigger = false;
@@ -1782,6 +1952,30 @@ function scenario(name: string): void {
       advanceUntil(() => retryLessonActive, 1);
       break;
     }
+    case 'final-station': {
+      harnessEndlessMode = false;
+      advanceUntil(() => race.phase === 'racing', 8);
+      for (let i = 0; i < course.flightRoutes.length; i++) {
+        passHarnessFlight(i);
+        if (race.phase === 'medal') resumeHarnessQualifiedRun();
+      }
+      // The authored station sits one short straight beyond route seven. Let
+      // the player settle and cross the actual line for a deterministic finish.
+      advanceUntil(() => race.phase === 'finished', 8);
+      break;
+    }
+    case 'expansion-gallery': {
+      harnessEndlessMode = false;
+      advanceUntil(() => race.phase === 'racing', 8);
+      for (let i = 0; i < course.flightRoutes.length; i++) {
+        passHarnessFlight(i);
+        if (race.phase === 'medal') resumeHarnessQualifiedRun();
+      }
+      advanceUntil(() => race.phase === 'finished', 8);
+      loop.advance(FINALE_MIN_READ_S + 0.05);
+      openExpansionGallery();
+      break;
+    }
     case 'overtake':
       advanceUntil(() => race.phase === 'racing', 8);
       loop.advance(1.25);
@@ -1814,6 +2008,7 @@ if (HARNESS) {
       }
       stage.renderer.info.reset();
       pipeline.render();
+      processCaptureQueue();
     },
     freeCam: (px, py, pz, lx, ly, lz) => {
       freeCamPose = { p: [px, py, pz], l: [lx, ly, lz] };
@@ -1858,6 +2053,7 @@ if (HARNESS) {
         speed: s.speed,
         drifting: s.drifting,
         boostCharge: s.boostCharge,
+        driftBankProgress: s.driftBankProgress,
         driftReleaseReady: s.driftReleaseReady,
         boosting: s.boosting,
         boostRemaining: s.boostRemaining,
@@ -1918,6 +2114,11 @@ if (HARNESS) {
           : 0,
         medalElapsed,
         medalActive: race.phase === 'medal',
+        finaleElapsed,
+        finaleActive: finalePresentation,
+        finalStationArmed: course.finalStationArmed(),
+        finaleCompleted: race.finaleCompleted,
+        expansionSeenMask: records.data.expansionSeenMask,
         interruptionActive,
         raceTime: race.raceTime,
         worldTime,
@@ -1966,6 +2167,7 @@ if (HARNESS) {
     }),
     guidance: () => course.guidanceStatus(),
     startGantryStatus: () => course.startGantryStatus(),
+    finalStationStatus: () => ({ armed: course.finalStationArmed(), visible: course.finalStationArmed() }),
     mobileStatus: () => mobileInput.status(),
     gamepadStatus: () => gamepadInput.status(),
     hapticStatus: () => haptics.status(),

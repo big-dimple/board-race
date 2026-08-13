@@ -111,6 +111,8 @@ export interface BoatState {
   drifting: boolean;
   /** 0..1, charged by drifting, spent by boosting. */
   boostCharge: number;
+  /** 0..1 progress toward the release threshold, derived from boostCharge. */
+  driftBankProgress: number;
   /** True once releasing the current surface drift will earn a flight charge. */
   driftReleaseReady: boolean;
   boosting: boolean;
@@ -254,6 +256,9 @@ export interface ICourse {
   sample(pos: THREE.Vector3, out: CourseSample, routeHint?: CourseRouteId): CourseSample;
   routeForBoat(id: number): CourseRouteId;
   flightTurnWarning(id: number): boolean;
+  armFinalStation(): void;
+  finalStationArmed(): boolean;
+  resetFinalStation(): void;
   guidanceStatus(): CourseGuidanceStatus;
   resetFlightChallenge(): void;
   updateFlightRoute(dt: number, boats: readonly IBoat[]): void;
@@ -283,6 +288,10 @@ export interface RaceView {
   readonly challengeResult: ChallengeResult | null;
   readonly challengeTier: ChallengeTier;
   readonly qualificationTime: number | null;
+  /** True after a complete seven-flight set has armed the finish station. */
+  readonly finalStationArmed: boolean;
+  /** True after the player has crossed the final station in this presentation. */
+  readonly finaleCompleted: boolean;
 }
 
 // ----------------------------------------------------------------- race ----

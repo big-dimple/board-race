@@ -1,6 +1,13 @@
 # 是男人就飞三次
 
-Cel-shaded arcade boat racing on an infinite open ocean. The boat moves automatically; three independently earned flights grant a `男人勋章`, then the same run continues as an endless flight-record chase. Take first place after qualifying to lock `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. World geometry and effects are authored in code; project character portraits and the owner-supplied score are documented under `src/assets/**/LICENSES.md`.
+Cel-shaded arcade boat racing on an open ocean. The boat moves automatically; three independently earned flights grant a `男人勋章`, and seven route flights unlock the golden `FINAL STATION`. Cross it to finish, view the post-race easter egg and expansion dossier, then choose `继续游戏` to carry the same run onward. Take first place after qualifying to lock `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. World geometry and effects are authored in code; project character portraits and the owner-supplied score are documented under `src/assets/**/LICENSES.md`.
+
+The dossier is a frozen, full-screen, one-game-per-page viewer for seven planned
+games: `沙漠：圣甲虫`, `城市：磁轨轮滑手`, `雪地：北极狐`, `沼泽：树蛙`,
+`丛林：长臂猿`, `外星：浮空鳐形生命`, and `肠道：益生菌`. It supports the
+arrow buttons, `←` / `→`, `A` / `D`, touch swipes, clickable Chinese page tabs,
+and `Esc` / `返回结算`. The images are concept art; the seven playable games
+remain tracked in [`docs/expansion-gallery-handoff.md`](docs/expansion-gallery-handoff.md).
 
 **Play online:** [https://big-dimple.github.io/board-race/](https://big-dimple.github.io/board-race/)
 
@@ -11,7 +18,7 @@ npm install
 npm run dev
 ```
 
-Open the printed localhost URL. You start fourth in a six-racer endless challenge, with three rivals ahead and two behind.
+Open the printed localhost URL. You start fourth in a six-racer challenge, with three rivals ahead and two behind.
 
 The grid is intentionally frozen at `READY`. On desktop, `Enter` or `Space` starts the full `3 · 2 · 1 · GO` countdown. On mobile, the first touch requests fullscreen at the earliest browser-authorized moment; the single `GO` button remains the reliable fullscreen, permission, and calibration gate.
 
@@ -32,11 +39,11 @@ Keyboard steering remains active in touch-capable Chrome sessions, including `�
 
 On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape; `GO` retries inside its own user gesture, requests motion permission, and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
-A qualifying drift release banks one flight charge, up to two; takeoff spends one and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. It then runs a complete frozen `3 · 2 · 1 · GO` countdown before restoring control at the exact same position. Flights 4-7 continue around the rest of the circuit; route 4 is an explicit 8m-wide reward portal, and all seven routes repeat each lap. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
+A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit; after the seventh route, two golden energy columns charge at the existing finish gantry and wait for a real water-surface crossing. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
 
 Failure goes directly to one focused loading review. A new failure type displays for `8s`, the second occurrence for `6.5s`, and later repeats for `5s`; minimum reading times are `4s`, `3s`, and `2.5s`. A real PB adds `0.75s`, capped at `9s`. Course-deviation reviews teach the contextual air brake on the first occurrence, with a large factual miss, one concrete correction, emotional encouragement, flights/PB, and any medal already earned before the mistake. The next run still returns to READY and requires a fresh Enter/GO edge.
 
-Runs, medals, excellent finishes, per-driver PB flights, closest misses, rival wins, and audio preferences are saved in versioned browser `localStorage` with v2/v3 record migration into schema v4. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; the versioned data contract remains suitable for a future authenticated server sync. Archive controls stay out of the selection screen so the first decision remains focused.
+Runs, medals, excellent finishes, per-driver PB flights, final completions, expansion pages seen, screenshot counts, closest misses, rival wins, and audio preferences are saved in versioned browser `localStorage` with v2/v3/v4 record migration into schema v5. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; the versioned data contract remains suitable for a future authenticated server sync. Archive controls stay out of the selection screen so the first decision remains focused.
 
 Audio uses the complete owner-selected 127-second instrumental rock track plus Web Audio engine, restrained water/air pressure, air-brake, gate, collision, battle, failure, and medal layers. The first explicit GO starts the song from its opening and brings it in progressively; later runs, loading, medals, and READY preserve the same browser-session timeline. Only the natural end loops back to the song opening. `SOUND` exposes separate master, music, effects, ambience, visible percentages, audition feedback, and mute. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately until explicit GO resumes it.
 
@@ -50,6 +57,8 @@ src/
                     gamepadInput.ts (multi-pad arbitration, calibration, rumble), haptics.ts,
                     mobileControls.ts
                     (tilt steering, touch fallback, fullscreen, multi-touch actions),
+                    abilityTelemetry.ts (shared drift/flight HUD state), capture.ts
+                    (WebGL plus authored-card PNG capture),
                     prePass.ts (MRT normal/depth prepass for edge detection + foam masks)
   water/
     waves.ts        Gerstner field (5 waves) — ONE definition, compiled into both the
@@ -86,18 +95,20 @@ src/
                     Animated from BoatState: lean ∝ lateral G, weight shift ∝ long G,
                     drift hip twist, throttle wrist, landing crouch spring, airborne
                     "whee" pose, idle breathing, celebration pump
-    course.ts       CatmullRom circuit plus seven repeating 3D flight branches, a single
-                    player-owned active guide, locally masked water line, gates/buoys with foam
-                    collars, cold-load-safe geometry START/finish gantry + checker strip
+    course.ts       CatmullRom circuit plus seven 3D flight branches, a single player-owned
+                    active guide, locally masked water line, gates/buoys with foam collars,
+                    cold-load-safe START/finish gantry and armed golden final station
     ai.ts           Spline-following AI with lookahead, six-racer pace profiles,
                     readable drift, elite consistency, and bounded traffic avoidance
     collision.ts    Swept capsule CCD, bounded arcade impulses, pileup separation,
                     feedback cooldown, and race/gate correction isolation
     rivalDirector.ts Two-rival pace director with hysteresis, battle lock, and impact grace
     racers.ts       Six adult profiles, two women, handling styles, grid ranks, lanes, pace
-    records.ts      v4 local records, per-driver PBs, JSON export/import, v2/v3 migration
-    race.ts         Explicit READY, fresh/resume countdowns, endless challenge qualification,
+    records.ts      v5 local records, per-driver PBs, final/gallery state, JSON export/import,
+                    v2/v3/v4 migration
+    race.ts         Explicit READY, fresh/resume countdowns, seven-flight final station,
                     medal freeze, hard flight failure, laps, and battle events
+    eventLog.ts     Capped local-only gameplay event log; no network analytics transport
     chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
                     reduced-motion support, cinematic orbit for countdown/results
   hud/
@@ -108,6 +119,8 @@ src/
                     modifiers (up to +/-6%), named roster paddles, and a desktop carousel
     raceTower.ts/.css Compact six-driver tower and transient team radio
     medalCeremony.ts Asset-backed champion medal plus one DPR-capped Canvas2D particle layer
+    expansionGallery.ts Full-screen Chinese-name dossier viewer for planned games
+    finaleOverlay.ts Frozen seven-flight result actions and dossier entry point
   audio/
     audio.ts        Streamed local rock plus four-bus Web Audio engine, water/air,
                     air-brake pressure, impacts, ducking, horn, and medal sting

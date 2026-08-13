@@ -85,7 +85,7 @@ export class RaceTower {
 
   announceFlight(flights: number, best: number): void {
     const messages = flights === 3
-      ? [`三飞认证。远海档案开启，BEST ${best}。`, '勋章到手。这不是终点，远海没有上限。']
+      ? [`三飞认证。远海档案开启，BEST ${best}。`, '勋章到手。下一段线路已经开放。']
       : [`第 ${flights} 飞通过，艇况正常。`, `航门确认。本局 ${flights} 飞，继续。`];
     this.announce(messages[this.messageIndex++ % messages.length]);
   }
