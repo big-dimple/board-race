@@ -55,6 +55,7 @@ const SCENARIOS = {
   'flight-miss': { scenario: 'flight-miss', settleMs: 760 },
   'flight-no-launch': { scenario: 'flight-no-launch', settleMs: 760 },
   'retry-lesson': { scenario: 'retry-lesson', settleMs: 380 },
+  'first-failure-offer': { scenario: 'first-failure-offer', settleMs: 180 },
   'flight-route': { scenario: 'flight-route' },
   'flight-spent-charge': { scenario: 'flight-spent-charge' },
   'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
@@ -127,6 +128,10 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.place, 4, 'player must start fourth');
   assert.equal(state.totalRacers, 6, 'the challenge must field six racers');
+  assert.equal(await page.locator('.hud-countdown-light').count(), 3);
+  assert.equal(await page.locator('.hud-countdown-light.on').count(), 2,
+    'the visual start rail must mirror the mid-countdown number without spoken numerals');
+  assert.equal(await page.locator('.hud-countdown-label').textContent(), '2');
 
   await page.evaluate(() => window.__harness.scenario('start'));
   await page.evaluate(() => {
@@ -181,7 +186,9 @@ async function verifyFlightContract(page) {
 
   // The first run is a clean skill check. Its first real failure arms a light,
   // immediately skippable coach for the next run.
-  assert.equal((await page.evaluate(() => window.__harness.coachState())).status, 'dormant');
+  const freshCoach = await page.evaluate(() => window.__harness.coachState());
+  assert.equal(freshCoach.status, 'dormant');
+  assert.equal(freshCoach.automaticEligible, true);
   assert.equal(await page.locator('.hud-coach.on').count(), 0, 'the first run must add no tutorial');
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -193,9 +200,13 @@ async function verifyFlightContract(page) {
   assert.equal(state.retryLessonActive, true, 'failure must enter its focused review automatically');
   assert.ok(Math.abs(state.retryLessonDuration - 5) < 0.05, `failure review duration ${state.retryLessonDuration}`);
   assert.equal(state.retryLessonMinRead, 0, 'failure review must be skippable from its first frame');
-  assert.equal(state.coachStatus, 'active', 'the first real failure arms contextual tips');
+  assert.equal(state.coachStatus, 'active', 'the first real failure arms the spotlight guide');
+  assert.equal((await page.evaluate(() => window.__harness.coachState())).automaticEligible, false,
+    'the first real failure permanently consumes the automatic invitation');
   assert.equal(await page.locator('.hud-lesson-disable:visible').count(), 1, 'first failure exposes a permanent close choice');
-  await page.evaluate(() => window.__harness.retry());
+  assert.equal(await page.locator('.hud-lesson-continue').textContent(), '带标注再冲');
+  assert.equal(await page.locator('.hud-lesson-disable').textContent(), '不用引导');
+  await page.locator('.hud-lesson-continue').click();
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'ready', 'first-frame continue returns to READY, never directly to countdown');
   await page.evaluate(() => window.__harness.advance(0.5));
@@ -210,11 +221,32 @@ async function verifyFlightContract(page) {
     for (let i = 0; i < 20 && !window.__harness.playerState().coachVisible; i++) window.__harness.advance(0.15);
   });
   assert.equal((await page.evaluate(() => window.__harness.playerState())).coachVisible, true);
+  const coachSpotlight = await page.evaluate(() => {
+    const rect = (selector) => {
+      const value = document.querySelector(selector)?.getBoundingClientRect();
+      return value && { left:value.left, right:value.right, top:value.top, bottom:value.bottom };
+    };
+    return {
+      coach:window.__harness.coachState(),
+      title:document.querySelector('.hud-coach-title')?.textContent,
+      control:document.querySelector('.hud-coach-control')?.textContent,
+      spotlight:rect('.hud-coach-spotlight.on'),
+      controlRect:rect('.hud-coach-control'),
+    };
+  });
+  assert.equal(coachSpotlight.coach.activeStep, 'drift', 'the first missing core action must teach PC drift');
+  assert.equal(coachSpotlight.coach.focus, 'drift-control');
+  assert.match(`${coachSpotlight.title} ${coachSpotlight.control}`, /SHIFT/,
+    'desktop drift onboarding must make the Shift control unmistakable');
+  assert.ok(coachSpotlight.spotlight && coachSpotlight.controlRect &&
+    coachSpotlight.spotlight.left <= coachSpotlight.controlRect.left &&
+    coachSpotlight.spotlight.right >= coachSpotlight.controlRect.right,
+  `the spotlight must frame the live Shift keycap: ${JSON.stringify(coachSpotlight)}`);
   const chargesBeforeDismiss = (await page.evaluate(() => window.__harness.playerState())).flightCharges;
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.coachStatus, 'disabled', 'Escape permanently closes the contextual coach');
+  assert.equal(state.coachStatus, 'disabled', 'Escape permanently closes the spotlight guide');
   assert.equal(state.coachVisible, false);
   assert.equal(state.flightPhase, 'surface', 'closing a hint cannot buffer or trigger flight');
   assert.equal(state.flightCharges, chargesBeforeDismiss);
@@ -228,7 +260,7 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.advance(0.8));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.coachStatus, 'active');
-  assert.notEqual(state.coachStep, 'none', 'READY help can re-enable the remaining contextual curriculum');
+  assert.notEqual(state.coachStep, 'none', 'READY help can re-enable the remaining spotlight curriculum');
 
   // Surface abandonment uses the same terminal pipeline as a flight miss. A
   // brief collision excursion gets a recovery window, but sustained departure
@@ -244,6 +276,8 @@ async function verifyFlightContract(page) {
   assert.equal(state.challengeReason, 'off_course');
   await page.evaluate(() => window.__harness.advance(0.6));
   assert.match(await page.locator('.hud-lesson-title').textContent() ?? '', /偏航太远/);
+  assert.equal(await page.locator('.hud-lesson-disable:visible').textContent(), '不用引导',
+    'every failure while the guide is active must retain a direct opt-out');
 
   await page.evaluate(() => window.__harness.scenario('surface-wrong-way'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -1188,9 +1222,13 @@ async function verifyMobileControls(page) {
     };
     return {
       coach:rect('.hud-coach.on'),
+      spotlight:rect('.hud-coach-spotlight.on'),
+      objective:rect('.hud-topleft'),
+      tower:rect('.race-tower.on'),
       driverPower:rect('.hud-driver-power'),
       flight:rect('[data-mobile-action="flight"]'),
       drift:rect('[data-mobile-action="drift"]'),
+      driftDisc:rect('[data-mobile-action="drift"] span'),
       coachState:window.__harness.coachState(),
       playerState:window.__harness.playerState(),
       impactVisible:Boolean(document.querySelector('.hud-impact.on')),
@@ -1198,12 +1236,25 @@ async function verifyMobileControls(page) {
       turnWarningVisible:Boolean(document.querySelector('.hud-turn-warning.on')),
     };
   });
-  assert.ok(coachLayout.coach && coachLayout.driverPower && coachLayout.flight && coachLayout.drift,
-    `mobile contextual coach must render with all fixed controls: ${JSON.stringify(coachLayout)}`);
-  assert.ok(coachLayout.coach.right + 8 <= coachLayout.driverPower.left,
+  assert.ok(coachLayout.coach && coachLayout.driverPower && coachLayout.flight && coachLayout.drift && coachLayout.driftDisc,
+    `mobile spotlight guide must render with all fixed controls: ${JSON.stringify(coachLayout)}`);
+  const overlaps = (a, b, gap = 6) => a && b &&
+    a.left < b.right + gap && a.right > b.left - gap && a.top < b.bottom + gap && a.bottom > b.top - gap;
+  assert.equal(overlaps(coachLayout.coach, coachLayout.driverPower), false,
     `coach must not cover the near-boat meter: ${JSON.stringify(coachLayout)}`);
-  assert.ok(coachLayout.coach.right + 8 <= coachLayout.flight.left,
-    `coach must not cover the fixed right-thumb flight/drift zone: ${JSON.stringify(coachLayout)}`);
+  assert.equal(overlaps(coachLayout.coach, coachLayout.flight), false,
+    `coach must not cover the fixed right-thumb flight zone: ${JSON.stringify(coachLayout)}`);
+  assert.equal(overlaps(coachLayout.coach, coachLayout.drift), false,
+    `coach must not cover the fixed right-thumb drift zone: ${JSON.stringify(coachLayout)}`);
+  assert.equal(overlaps(coachLayout.coach, coachLayout.objective), false,
+    `coach must not cover the objective block: ${JSON.stringify(coachLayout)}`);
+  assert.equal(overlaps(coachLayout.coach, coachLayout.tower), false,
+    `coach must not cover the race tower: ${JSON.stringify(coachLayout)}`);
+  assert.equal(coachLayout.coachState.focus, 'drift-control');
+  assert.ok(coachLayout.spotlight &&
+    coachLayout.spotlight.left <= coachLayout.driftDisc.left && coachLayout.spotlight.right >= coachLayout.driftDisc.right &&
+    coachLayout.spotlight.top <= coachLayout.driftDisc.top && coachLayout.spotlight.bottom >= coachLayout.driftDisc.bottom,
+  `mobile drift onboarding must frame the actual fixed thumb control: ${JSON.stringify(coachLayout)}`);
 
   // Browsers may discard a hidden 2D backing store. Re-entering READY after a
   // real death must redraw the selected driver's radar, not show an empty box.

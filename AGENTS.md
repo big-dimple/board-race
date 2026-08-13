@@ -43,9 +43,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
 ## Current State
 
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
-- First-run onboarding is intentionally absent. The first real failure arms an
-  immediately skippable, action-observed contextual driving coach; progress and
-  disable state persist in challenge-record schema v6.
+- First-run onboarding is intentionally absent. Only a brand-new save's first
+  real failure may invite the immediately skippable, action-observed spotlight
+  guide; progress, eligibility, and disable state persist in record schema v7.
+- Countdown `3/2/1` uses lights and ticks only. `GO` gets exactly one local
+  announcer, alternating male/female by fresh run; resume countdowns keep the
+  current run's voice and never stack both.
 - Final presentation uses a world-first frozen celebration: the live finish
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG

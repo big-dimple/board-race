@@ -18,6 +18,8 @@
  */
 import rockOgg from '../assets/audio/board-race-rock.ogg?url';
 import rockMp3 from '../assets/audio/board-race-rock.mp3?url';
+import goMale from '../assets/audio/countdown-go-male.ogg?url';
+import goFemale from '../assets/audio/countdown-go-female.ogg?url';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
@@ -84,6 +86,10 @@ export class GameAudio {
   private ambiencePreviewToken = 0;
   private ambiencePreview = false;
   private countdownStageValue = 3;
+  private countdownVoice: 'male' | 'female' = 'male';
+  private countdownVoiceBuffers: Partial<Record<'male' | 'female', AudioBuffer>> = {};
+  private countdownVoiceFailed = false;
+  private countdownVoiceEvents = 0;
   private raceScoreElapsed = 0;
   private lastFlowStep = -1;
   private lastDriftTier = 0;
@@ -247,10 +253,41 @@ export class GameAudio {
     this.ensureMusicPlaying();
   }
 
+  /** Alternate one announcer per countdown. The two voices never stack. */
+  prepareCountdownAnnouncer(run: number): void {
+    this.countdownVoice = Math.max(1, Math.floor(run)) % 2 === 0 ? 'female' : 'male';
+  }
+
   /** Open the score one layer at a time behind the 3/2/1 count. */
   countdownStage(n: number): void {
     this.countdownStageValue = Math.max(1, Math.min(3, Math.round(n)));
     this.applyMix(0.075);
+  }
+
+  /** A single semantic callout at GO; 3/2/1 stay clean ticks and lights. */
+  countdownGoVoice(): boolean {
+    const c = this.ctx;
+    const bus = this.eventBus;
+    const buffer = this.countdownVoiceBuffers[this.countdownVoice];
+    if (!c || !bus || !buffer) return false;
+    const source = c.createBufferSource();
+    source.buffer = buffer;
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 90;
+    const gain = c.createGain();
+    const t = c.currentTime;
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.linearRampToValueAtTime(0.34, t + 0.012);
+    gain.gain.setValueAtTime(0.34, Math.max(t + 0.02, t + buffer.duration - 0.09));
+    gain.gain.exponentialRampToValueAtTime(0.001, t + buffer.duration);
+    source.connect(hp);
+    hp.connect(gain);
+    gain.connect(bus);
+    this.countdownVoiceEvents++;
+    this.duckMusic(0.58, Math.max(0.3, buffer.duration));
+    this.trackOneShot(source, [hp, gain], t, t + buffer.duration + 0.01);
+    return true;
   }
 
   debugState(): Record<string, number | string | boolean> {
@@ -281,6 +318,10 @@ export class GameAudio {
       scoreArmed: this.scoreArmed,
       musicPreview: this.musicPreview,
       countdownStage: this.countdownStageValue,
+      countdownVoice: this.countdownVoice,
+      countdownVoiceReady: Boolean(this.countdownVoiceBuffers.male && this.countdownVoiceBuffers.female),
+      countdownVoiceFailed: this.countdownVoiceFailed,
+      countdownVoiceEvents: this.countdownVoiceEvents,
       scoreElapsed: this.raceScoreElapsed,
       driftTier: this.lastDriftTier,
       musicDuck: this.musicDuckMultiplier,
@@ -878,6 +919,32 @@ export class GameAudio {
     };
   }
 
+  private async loadCountdownVoices(): Promise<void> {
+    const c = this.ctx;
+    if (!c || this.countdownVoiceBuffers.male || this.countdownVoiceFailed) return;
+    try {
+      const [maleData, femaleData] = await Promise.all([
+        fetch(goMale).then((response) => {
+          if (!response.ok) throw new Error(`male countdown voice ${response.status}`);
+          return response.arrayBuffer();
+        }),
+        fetch(goFemale).then((response) => {
+          if (!response.ok) throw new Error(`female countdown voice ${response.status}`);
+          return response.arrayBuffer();
+        }),
+      ]);
+      const [male, female] = await Promise.all([
+        c.decodeAudioData(maleData.slice(0)),
+        c.decodeAudioData(femaleData.slice(0)),
+      ]);
+      this.countdownVoiceBuffers.male = male;
+      this.countdownVoiceBuffers.female = female;
+    } catch {
+      // The existing GO hit and horn remain a complete fallback.
+      this.countdownVoiceFailed = true;
+    }
+  }
+
   private applyRush(): void {
     const c = this.ctx;
     if (!c || !this.rushGain || !this.rushBp) return;
@@ -1062,6 +1129,7 @@ export class GameAudio {
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = buf;
+    void this.loadCountdownVoices();
 
     // ---- engine: 2 detuned saws + sub sine → shaper → lowpass → level --------
     const shaper = ctx.createWaveShaper();

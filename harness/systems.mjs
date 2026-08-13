@@ -54,6 +54,11 @@ try {
   const recordsContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const recordsPage = await recordsContext.newPage();
   await load(recordsPage);
+  const freshRecords = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(freshRecords.version, 7);
+  assert.equal(freshRecords.coach.status, 'dormant');
+  assert.equal(freshRecords.coach.automaticEligible, true,
+    'only a brand-new v7 save may receive the one-time first-failure invitation');
 
   const portraits = await recordsPage.locator('.driver-card').evaluateAll((cards) => cards.map((card) => {
     const image = card.querySelector('img');
@@ -117,7 +122,7 @@ try {
     },
   });
   let state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 6);
+  assert.equal(state.version, 7);
   assert.equal(state.runs, 7);
   assert.equal(state.manMedalsTotal, 4);
   assert.equal(state.bestFlights, 5);
@@ -125,6 +130,7 @@ try {
   assert.deepEqual(state.bestFlightsByDriver, {});
   assert.equal(state.finaleCompletions, 0);
   assert.equal(state.coach.status, 'expert');
+  assert.equal(state.coach.automaticEligible, false);
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v2': {
@@ -134,7 +140,7 @@ try {
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 6);
+  assert.equal(state.version, 7);
   assert.equal(state.runs, 5);
   assert.equal(state.manMedalsTotal, 3);
   assert.equal(state.bestQualificationTime, 33);
@@ -142,6 +148,7 @@ try {
   assert.equal(state.farSeaDossierUnlocked, true);
   assert.equal(state.expansionSeenMask, 0);
   assert.equal(state.coach.status, 'expert');
+  assert.equal(state.coach.automaticEligible, false);
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v4': {
@@ -159,6 +166,7 @@ try {
   assert.deepEqual(state.bestFlightsByDriver, { tide: 4, sol: 0 });
   assert.equal(state.bestQualificationTime, null);
   assert.equal(state.coach.status, 'dormant');
+  assert.equal(state.coach.automaticEligible, false, 'legacy saves are returning players, regardless of runs');
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v5': {
@@ -170,13 +178,42 @@ try {
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 6);
+  assert.equal(state.version, 7);
   assert.equal(state.coach.status, 'dormant', 'legacy non-experts wait for their next real failure');
+  assert.equal(state.coach.automaticEligible, false,
+    'legacy non-experts may opt in from READY but are never interrupted automatically');
   assert.equal(state.coach.mastery.bankedCharge, true, 'one passed flight proves bank, launch, and route actions');
   assert.equal(state.coach.mastery.launched, true);
   assert.equal(state.coach.mastery.passedRoute, true);
   assert.equal(state.coach.knowledge.bankRule, false,
     'a passed route proves the action, not that the player knows extra drift does not extend base flight');
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v7': {
+      version: 7, runs: 3, ordinaryUnlocked: false, manMedalsTotal: 0, excellentCount: 0,
+      bestQualificationTime: null, bestExcellentTime: null, bestFlights: 0,
+      bestRouteProgress: 0, closestMissM: null, bestFlightsByDriver: {},
+      farSeaDossierUnlocked: false, rivalWins: 0, finaleCompletions: 0,
+      expansionSeenMask: 0, finaleScreenshotCount: 0,
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.coach.status, 'dormant');
+  assert.equal(state.coach.automaticEligible, false,
+    'an existing but incomplete v7 record is returning/corrupt data, never a fresh install');
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v7': {
+      version: 7, runs: 1, ordinaryUnlocked: false, bestFlights: 0,
+      coach: {
+        status: 'dormant', automaticEligible: true,
+        mastery: { steered: 'yes' }, knowledge: { bankRule: true },
+      },
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.coach.automaticEligible, false,
+    'malformed v7 mastery cannot forge first-failure eligibility');
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v6': {
@@ -190,6 +227,7 @@ try {
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
   assert.equal(state.coach.status, 'dormant');
+  assert.equal(state.coach.automaticEligible, false);
   assert.equal(state.coach.mastery.steered, false);
   assert.equal(state.coach.mastery.bankedCharge, true);
   assert.equal(state.coach.knowledge.bankRule, false);

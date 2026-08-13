@@ -43,6 +43,8 @@ try {
   await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
   await page.locator('.audio-mixer-toggle').click();
   await page.waitForFunction(() => window.__harness.audioState().contextState === 'running');
+  await page.waitForFunction(() => window.__harness.audioState().countdownVoiceReady === true ||
+    window.__harness.audioState().countdownVoiceFailed === true, null, { timeout: 5000 });
   await page.waitForTimeout(180);
   let state = await page.evaluate(() => window.__harness.audioState());
   assert.equal(state.scene, 'ready');
@@ -54,6 +56,8 @@ try {
   assert.ok(Number(state.safetyHighpassHz) >= 48, `sub-bass protection must stay enabled: ${state.safetyHighpassHz}`);
   assert.ok(Number(state.limiterThresholdDb) <= -12 && Number(state.limiterRatio) >= 12,
     `the phone output limiter must stay protective: ${state.limiterThresholdDb}dB/${state.limiterRatio}:1`);
+  assert.equal(state.countdownVoiceFailed, false, 'both local GO announcers must decode');
+  assert.equal(state.countdownVoiceReady, true);
 
   // The mixer is still honest: dragging the music row gives a short, explicit
   // preview and then returns READY to silence.
@@ -108,6 +112,9 @@ try {
   assert.equal(state.scoreArmed, true);
   assert.equal(state.musicPlaying, true);
   assert.equal(state.countdownStage, 2);
+  const firstAnnouncer = state.countdownVoice;
+  const voiceEventsBeforeGo = Number(state.countdownVoiceEvents);
+  assert.equal(voiceEventsBeforeGo, 0, '3/2/1 must remain visual lights and ticks, without speech');
   assert.equal(Number(state.scorePreroll), 0, 'the first GO must start the complete song from its opening');
   assert.equal(state.musicLoop, true, 'the media element must loop only after the complete song');
   assert.ok(Number(state.musicDuration) > 120, `the complete selected song must be loaded: ${state.musicDuration}`);
@@ -118,6 +125,8 @@ try {
   await page.waitForTimeout(220);
   state = await page.evaluate(() => window.__harness.audioState());
   assert.equal(state.scene, 'racing');
+  assert.equal(Number(state.countdownVoiceEvents), voiceEventsBeforeGo + 1,
+    'GO must play exactly one announcer, never a stacked male/female call');
   assert.ok(Number(state.musicFilterHz) > 4200, `GO must start opening the score: ${state.musicFilterHz}`);
   await page.waitForTimeout(650);
   state = await page.evaluate(() => window.__harness.audioState());
@@ -134,6 +143,9 @@ try {
   await page.evaluate(() => window.__harness.scenario('countdown'));
   await page.waitForTimeout(220);
   state = await page.evaluate(() => window.__harness.audioState());
+  assert.notEqual(state.countdownVoice, firstAnnouncer, 'the next fresh run must alternate the GO announcer');
+  assert.equal(Number(state.countdownVoiceEvents), voiceEventsBeforeGo + 1,
+    'the next 3/2/1 still must not speak before GO');
   assert.ok(Number(state.musicTime) >= beforeNextRun,
     `a new run must continue the full song: ${beforeNextRun} -> ${state.musicTime}`);
   assert.equal(state.musicPlaying, true);

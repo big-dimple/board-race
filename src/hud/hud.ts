@@ -23,7 +23,7 @@ import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
 import { MedalCeremonyCanvas } from './medalCeremony';
 import { deriveAbilityHudState } from '../core/abilityTelemetry';
-import type { CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
+import type { CoachFocus, CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
 import type { CoachMastery } from '../game/drivingCoach';
 import './hud.css';
 
@@ -146,10 +146,15 @@ export class HUD {
   private readonly turnWarningDetail: HTMLDivElement;
   private turnWarningTimer = 0;
   private readonly coachEl: HTMLDivElement;
+  private readonly coachSpotlight: HTMLDivElement;
+  private readonly coachConnector: HTMLDivElement;
+  private readonly coachStage: HTMLDivElement;
+  private readonly coachControl: HTMLDivElement;
   private readonly coachKicker: HTMLDivElement;
   private readonly coachTitle: HTMLDivElement;
   private readonly coachDetail: HTMLDivElement;
   private readonly coachClose: HTMLButtonElement;
+  private activeCoach: CoachPresentation | null = null;
 
   // split toasts
   private readonly toastBox: HTMLDivElement;
@@ -158,6 +163,8 @@ export class HUD {
   // wrong way / countdown
   private readonly wrongWayEl: HTMLDivElement;
   private readonly countdownEl: HTMLDivElement;
+  private readonly countdownLights: HTMLDivElement[] = [];
+  private readonly countdownLabel: HTMLDivElement;
   private readonly brandEl: HTMLDivElement;
   private readonly readyEl: HTMLDivElement;
   private readonly readyTitle: HTMLDivElement;
@@ -396,6 +403,9 @@ export class HUD {
     h('span', 'hud-brand-drift', brandAction, '三飞全过');
     h('span', 'hud-brand-flight', brandAction, '第一才算优秀');
     this.countdownEl = h('div', 'hud-countdown', this.root);
+    const countdownRail = h('div', 'hud-countdown-rail', this.countdownEl);
+    for (let i = 0; i < 3; i++) this.countdownLights.push(h('i', 'hud-countdown-light', countdownRail));
+    this.countdownLabel = h('div', 'hud-countdown-label hud-inked', this.countdownEl, '3');
 
     // ---- explicit READY gate ----------------------------------------------------------
     this.readyEl = h('div', 'hud-ready', this.root);
@@ -463,7 +473,7 @@ export class HUD {
     this.resultsPanel.appendChild(this.retryButton);
     h('div', 'hud-results-again', this.resultsPanel, 'ENTER / R  ·  立即重试');
 
-    // ---- forced retry lesson ----------------------------------------------------------
+    // ---- focused failure review -------------------------------------------------------
     this.lessonEl = h('div', 'hud-retry-lesson', this.root);
     h('div', 'hud-lesson-grid', this.lessonEl);
     const lessonInner = h('div', 'hud-lesson-inner', this.lessonEl);
@@ -484,14 +494,20 @@ export class HUD {
     this.lessonDisable = document.createElement('button');
     this.lessonDisable.className = 'hud-lesson-disable';
     this.lessonDisable.type = 'button';
-    this.lessonDisable.textContent = '关闭驾驶提示';
+    this.lessonDisable.textContent = '不用引导';
     this.lessonDisable.addEventListener('click', onCoachDisable);
     lessonInner.appendChild(this.lessonDisable);
 
-    // ---- contextual driving coach ----------------------------------------------------
+    // ---- progressive spotlight driving guide -----------------------------------------
+    this.coachSpotlight = h('div', 'hud-coach-spotlight', this.root);
+    this.coachConnector = h('div', 'hud-coach-connector', this.root);
     this.coachEl = h('div', 'hud-coach', this.root);
-    this.coachEl.setAttribute('role', 'status');
+    this.coachEl.setAttribute('role', 'complementary');
+    this.coachEl.setAttribute('aria-label', '驾驶标注');
     this.coachEl.setAttribute('aria-live', 'polite');
+    const coachHead = h('div', 'hud-coach-head', this.coachEl);
+    this.coachStage = h('div', 'hud-coach-stage', coachHead);
+    this.coachControl = h('div', 'hud-coach-control', coachHead);
     const coachCopy = h('div', 'hud-coach-copy', this.coachEl);
     this.coachKicker = h('div', 'hud-coach-kicker', coachCopy);
     this.coachTitle = h('div', 'hud-coach-title', coachCopy);
@@ -499,9 +515,9 @@ export class HUD {
     this.coachClose = document.createElement('button');
     this.coachClose.className = 'hud-coach-close';
     this.coachClose.type = 'button';
-    this.coachClose.textContent = '×';
-    this.coachClose.title = '关闭驾驶提示';
-    this.coachClose.setAttribute('aria-label', '关闭驾驶提示');
+    this.coachClose.textContent = '跳过引导';
+    this.coachClose.title = '跳过全部驾驶引导';
+    this.coachClose.setAttribute('aria-label', '跳过全部驾驶引导');
     this.coachClose.addEventListener('click', onCoachDisable);
     this.coachEl.appendChild(this.coachClose);
   }
@@ -510,6 +526,7 @@ export class HUD {
     const st = player.state;
     this.hudTime += dt;
     this.updateDriverPower(dt, race, player);
+    if (this.activeCoach) this.positionCoach(this.activeCoach.focus);
 
     // player racer state (RaceView exposes no player() accessor)
     let me: RacerState | undefined;
@@ -973,10 +990,13 @@ export class HUD {
       : encouragement.progress;
     this.lessonMedal.classList.toggle('earned', result.manMedalEarned);
     this.lessonTitle.textContent = lesson.title;
-    this.lessonCopy.textContent = `${lesson.copy}${coachArmed ? ' · 下一局只补你没掌握的动作' : ''}`;
+    this.lessonCopy.textContent = coachArmed
+      ? `${lesson.copy}。下一局可用聚光标注边开边学，随时能跳过。`
+      : lesson.copy;
     this.lessonMetric.textContent = `本局 ${result.flightsCleared} 飞 · BEST ${result.bestFlights}${newBest ? ' · NEW BEST' : ''}`;
     this.lessonContinue.hidden = false;
     this.lessonDisable.hidden = !coachArmed;
+    this.lessonContinue.textContent = coachArmed ? '带标注再冲' : '再冲一次';
     this.updateRetryLesson(0, true);
     this.root.classList.add('lesson-on');
     this.lessonEl.classList.add('on');
@@ -999,24 +1019,133 @@ export class HUD {
   showCoach(presentation: CoachPresentation | null): void {
     if (presentation && (this.battleTimer > 0 || this.impactTimer > 0)) presentation = null;
     if (!presentation) {
+      this.activeCoach = null;
       this.coachEl.classList.remove('on');
+      this.coachSpotlight.classList.remove('on');
+      this.coachConnector.classList.remove('on');
       this.root.classList.remove('coach-on');
       delete this.root.dataset.coachStep;
       delete this.coachEl.dataset.tone;
+      delete this.root.dataset.coachFocus;
       return;
     }
+    this.activeCoach = presentation;
     this.coachEl.dataset.tone = presentation.tone;
     this.coachEl.dataset.step = presentation.id;
     this.root.dataset.coachStep = presentation.id;
+    this.root.dataset.coachFocus = presentation.focus;
+    this.coachStage.textContent = presentation.stage;
+    this.coachControl.textContent = presentation.control;
+    this.coachControl.hidden = presentation.control.length === 0;
     this.coachKicker.textContent = presentation.kicker;
     this.coachTitle.textContent = presentation.title;
     this.coachDetail.textContent = presentation.detail;
     this.coachEl.classList.add('on');
+    this.positionCoach(presentation.focus);
+    this.coachSpotlight.classList.add('on');
     this.root.classList.add('coach-on');
   }
 
   coachPresentationBlocked(): boolean {
     return this.battleTimer > 0 || this.impactTimer > 0;
+  }
+
+  private positionCoach(focus: CoachFocus): void {
+    const target = this.coachTarget(focus);
+    if (!target) {
+      this.coachSpotlight.classList.remove('on');
+      this.coachConnector.classList.remove('on');
+      return;
+    }
+    const bounds = this.root.getBoundingClientRect();
+    let rect = target.getBoundingClientRect();
+    const pad = focus === 'drift-meter' || focus === 'flight-meter' ? 8 : 10;
+    const left = Math.max(6, rect.left - bounds.left - pad);
+    const top = Math.max(6, rect.top - bounds.top - pad);
+    const width = Math.min(bounds.width - left - 6, rect.width + pad * 2);
+    const height = Math.min(bounds.height - top - 6, rect.height + pad * 2);
+    this.coachSpotlight.style.left = `${left}px`;
+    this.coachSpotlight.style.top = `${top}px`;
+    this.coachSpotlight.style.width = `${Math.max(24, width)}px`;
+    this.coachSpotlight.style.height = `${Math.max(24, height)}px`;
+
+    const compact = innerWidth <= 900 || innerHeight <= 520;
+    const cardWidth = compact ? Math.min(300, Math.max(220, bounds.width - 190)) : Math.min(390, bounds.width - 32);
+    const cardHeight = compact ? 116 : 142;
+    const safe = compact ? 12 : 20;
+    const targetCx = left + width * 0.5;
+    const targetCy = top + height * 0.5;
+    let cardLeft = compact ? safe : bounds.width - cardWidth - safe;
+    let cardTop = compact ? safe : targetCy - cardHeight * 0.5;
+    if (compact) {
+      const occupiedLeft = [
+        this.root.querySelector('.hud-topleft'),
+        document.querySelector('.race-tower.on'),
+      ].reduce((right, element) => {
+        if (!element) return right;
+        const occupied = element.getBoundingClientRect();
+        return Math.max(right, occupied.right - bounds.left);
+      }, 0);
+      const candidate = occupiedLeft + safe;
+      if (candidate + cardWidth <= bounds.width - safe) cardLeft = candidate;
+    }
+    cardLeft = Math.max(safe, Math.min(cardLeft, bounds.width - cardWidth - safe));
+    cardTop = Math.max(safe, Math.min(cardTop, bounds.height - cardHeight - safe));
+    this.coachEl.style.left = `${cardLeft}px`;
+    this.coachEl.style.top = `${cardTop}px`;
+    this.coachEl.style.width = `${cardWidth}px`;
+
+    // Keyboard/gamepad controls have no permanent world-space button. Their
+    // actual glyph lives in the annotation itself, so locate it only after
+    // the card has been placed; mobile always spotlights the live thumb zone.
+    if (target === this.coachControl) {
+      rect = this.coachControl.getBoundingClientRect();
+      const controlLeft = Math.max(6, rect.left - bounds.left - pad);
+      const controlTop = Math.max(6, rect.top - bounds.top - pad);
+      const controlWidth = Math.min(bounds.width - controlLeft - 6, rect.width + pad * 2);
+      const controlHeight = Math.min(bounds.height - controlTop - 6, rect.height + pad * 2);
+      this.coachSpotlight.style.left = `${controlLeft}px`;
+      this.coachSpotlight.style.top = `${controlTop}px`;
+      this.coachSpotlight.style.width = `${Math.max(24, controlWidth)}px`;
+      this.coachSpotlight.style.height = `${Math.max(24, controlHeight)}px`;
+      this.coachConnector.classList.remove('on');
+      return;
+    }
+
+    const cardCx = cardLeft + cardWidth * 0.5;
+    const cardCy = cardTop + cardHeight * 0.5;
+    const dx = targetCx - cardCx;
+    const dy = targetCy - cardCy;
+    const length = Math.hypot(dx, dy);
+    if (length < 28) {
+      this.coachConnector.classList.remove('on');
+      return;
+    }
+    this.coachConnector.style.left = `${cardCx}px`;
+    this.coachConnector.style.top = `${cardCy}px`;
+    this.coachConnector.style.width = `${length}px`;
+    this.coachConnector.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+    this.coachConnector.classList.add('on');
+  }
+
+  private coachTarget(focus: CoachFocus): Element | null {
+    if (focus === 'drift-control') {
+      return this.controlDevice === 'mobile'
+        ? document.querySelector('[data-mobile-action="drift"] span')
+        : this.coachControl;
+    }
+    if (focus === 'drift-meter') return this.driverLeftRail;
+    if (focus === 'flight-stock') return this.driverStocks;
+    if (focus === 'flight-control') {
+      return this.controlDevice === 'mobile'
+        ? document.querySelector('[data-mobile-action="flight"] span')
+        : this.flightPromptKey;
+    }
+    if (focus === 'flight-meter') return this.driverRightRail;
+    if (this.controlDevice === 'mobile') {
+      return document.querySelector('.mobile-tilt-meter') ?? document.querySelector('.mobile-steer-zones');
+    }
+    return this.coachControl;
   }
 
   setControlDevice(device: CoachInputDevice, labels?: { steer: string; drift: string; flight: string }): void {
@@ -1220,7 +1349,7 @@ export class HUD {
       };
     }
     if (flights === 1) return { title: '太可惜了！', progress: '第一飞已经拿下，离勋章还差两飞' };
-    return { title: '只是小小失误', progress: '动作已经看懂，下一局把第一飞做完整' };
+    return { title: '只是小小失误', progress: '下一局把第一飞拿下' };
   }
 
   // ------------------------------------------------------------------ pieces ----
@@ -1229,7 +1358,12 @@ export class HUD {
     const el = this.countdownEl;
     el.classList.remove('pop', 'go');
     void el.offsetWidth; // restart the CSS pop animation
-    el.textContent = v > 0 ? String(v) : 'GO!';
+    this.countdownLabel.textContent = v > 0 ? String(v) : 'GO!';
+    const lit = v > 0 ? 4 - v : 3;
+    for (let i = 0; i < this.countdownLights.length; i++) {
+      this.countdownLights[i].classList.toggle('on', i < lit);
+      this.countdownLights[i].classList.toggle('go', v === 0);
+    }
     el.classList.add('pop');
     if (v === 0) {
       el.classList.add('go');

@@ -174,8 +174,8 @@ export class DriverSelect {
     const footer = element('div', 'driver-select-footer', this.root);
     this.coachButton = element('button', 'driver-coach-button', footer);
     this.coachButton.type = 'button';
-    this.coachButton.title = '驾驶提示';
-    this.coachButton.setAttribute('aria-label', '打开驾驶提示');
+    this.coachButton.title = '驾驶标注与进阶规则';
+    this.coachButton.setAttribute('aria-label', '打开驾驶标注与进阶规则');
     this.coachButton.setAttribute('aria-expanded', 'false');
     this.coachButton.textContent = '?';
     this.coachButton.addEventListener('click', () => {
@@ -190,16 +190,21 @@ export class DriverSelect {
     this.controllerStatus.setAttribute('role', 'status');
     this.controllerStatus.setAttribute('aria-live', 'polite');
     this.coachPanel = element('section', 'driver-coach-panel', this.root);
-    this.coachPanel.setAttribute('aria-label', '驾驶提示');
+    this.coachPanel.setAttribute('aria-label', '驾驶标注与进阶规则');
     const coachHead = element('div', 'driver-coach-head', this.coachPanel);
-    element('strong', '', coachHead, '驾驶提示');
+    element('strong', '', coachHead, '驾驶标注');
     this.coachState = element('span', '', coachHead) as unknown as HTMLSpanElement;
-    element('div', 'driver-coach-row', this.coachPanel, '漂到船边左条黄线，松开才存入 1 格飞行');
-    element('div', 'driver-coach-row', this.coachPanel, '继续漂只增强水面 BOOST，基础飞行时间固定');
-    element('div', 'driver-coach-row', this.coachPanel, '菱形是库存；备用格可在空中续航 +2.4 秒');
-    element('div', 'driver-coach-row', this.coachPanel, '左条显示漂移 / BOOST / 空刹；右条显示本次飞行剩余时间');
-    element('div', 'driver-coach-row', this.coachPanel, '选手雷达四项会真实改变加速、转向、蓄力和空控，最高 ±6%');
-    const coachToggle = element('button', 'driver-coach-toggle', this.coachPanel, '开启情境提示');
+    element('div', 'driver-coach-row', this.coachPanel, '下一局会在真实控件旁逐项标注；完成动作自动进入下一项，随时可跳过。');
+    const advanced = document.createElement('details');
+    advanced.className = 'driver-coach-advanced';
+    const advancedSummary = document.createElement('summary');
+    advancedSummary.textContent = '进阶规则';
+    advanced.appendChild(advancedSummary);
+    element('div', 'driver-coach-row', advanced, '黄线后松开才存入菱形；继续漂只延长水面 BOOST，基础飞行时间固定。');
+    element('div', 'driver-coach-row', advanced, '左条随动作变化，右条是本次飞行剩余；备用菱形可续航 +2.4 秒。');
+    element('div', 'driver-coach-row', advanced, '选手雷达会真实改变加速、转向、蓄力和空控，幅度最高 ±6%。');
+    this.coachPanel.appendChild(advanced);
+    const coachToggle = element('button', 'driver-coach-toggle', this.coachPanel, '开启逐步标注');
     coachToggle.type = 'button';
     coachToggle.addEventListener('click', () => {
       this.onCoachToggle();
@@ -216,9 +221,9 @@ export class DriverSelect {
     const enabled = status === 'active';
     this.root.dataset.coachStatus = status;
     this.coachButton.classList.toggle('active', enabled);
-    this.coachState.textContent = enabled ? '情境提示已开启' : status === 'expert' ? '已通过三飞认证' : status === 'complete' ? '核心驾驶已掌握' : '情境提示已关闭';
+    this.coachState.textContent = enabled ? '逐步标注已开启' : status === 'expert' ? '已通过三飞认证' : status === 'complete' ? '核心驾驶已掌握' : '逐步标注已关闭';
     const toggle = this.coachPanel.querySelector<HTMLButtonElement>('.driver-coach-toggle');
-    if (toggle) toggle.textContent = enabled ? '关闭情境提示' : '开启情境提示';
+    if (toggle) toggle.textContent = enabled ? '关闭逐步标注' : '开启逐步标注';
   }
 
   updateControllerStatus(status: Record<string, number | string | boolean>): void {

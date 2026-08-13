@@ -1136,11 +1136,20 @@
   position: absolute;
   left: 50%;
   top: 42%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:18px;
   transform: translate(-50%, -50%);
-  font-size: 190px;
-  line-height: 1;
   color: var(--text);
   opacity: 0;
+}
+
+.hud-countdown-label {
+  min-width:2.4ch;
+  font-size:190px;
+  line-height:.78;
+  text-align:center;
   text-shadow:
     6px 6px 0 var(--ink),
     -3px -3px 0 var(--ink),
@@ -1151,6 +1160,26 @@
     12px 12px 0 var(--ink);
 }
 
+.hud-countdown-rail {
+  display:grid;
+  grid-template-columns:repeat(3, 46px);
+  gap:14px;
+  padding:10px 16px;
+  border:4px solid var(--ink);
+  border-radius:4px;
+  background:rgba(4,7,20,.84);
+  box-shadow:7px 7px 0 var(--ink);
+}
+.hud-countdown-light {
+  width:46px;
+  height:18px;
+  border:2px solid rgba(244,254,255,.44);
+  border-radius:2px;
+  background:rgba(244,254,255,.1);
+}
+.hud-countdown-light.on { border-color:var(--warn); background:var(--warn); box-shadow:0 0 20px rgba(255,61,127,.72); }
+.hud-countdown-light.go { border-color:var(--accent); background:var(--accent); box-shadow:0 0 24px rgba(57,255,136,.82); }
+
 .hud-countdown.pop {
   animation: hud-pop 0.5s cubic-bezier(0.2, 1.8, 0.3, 1) forwards;
 }
@@ -1158,6 +1187,7 @@
 .hud-countdown.go {
   color: var(--accent);
 }
+.hud-countdown.go .hud-countdown-label { font-size:146px; }
 
 @keyframes hud-pop {
   0% {
@@ -1190,7 +1220,7 @@
   }
 }
 
-/* ---- forced retry lesson -------------------------------------------------------------- */
+/* ---- focused failure review ----------------------------------------------------------- */
 
 .hud-retry-lesson {
   position: absolute;
@@ -1307,19 +1337,66 @@
 .hud-lesson-disable:focus-visible,
 .hud-coach-close:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
-/* ---- one-slot contextual coach ------------------------------------------------------ */
+/* ---- one-slot, real-control spotlight guide ---------------------------------------- */
+.hud-coach-spotlight {
+  --coach-color: var(--boost);
+  --coach-dim: .3;
+  position: absolute;
+  z-index: 17;
+  border: 3px solid var(--coach-color);
+  border-radius: 7px;
+  box-shadow:
+    0 0 0 9999px rgba(4, 7, 20, var(--coach-dim)),
+    0 0 0 7px rgba(57, 255, 136, .16),
+    0 0 26px var(--coach-color);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.hud-coach-spotlight.on {
+  opacity: 1;
+  visibility: visible;
+  animation: hud-coach-focus 1.15s ease-in-out infinite;
+}
+.hud[data-coach-focus='drift-control'] .hud-coach-spotlight,
+.hud[data-coach-focus='flight-control'] .hud-coach-spotlight { border-radius: 999px; }
+.hud[data-coach-step='launch'] .hud-coach-spotlight,
+.hud[data-coach-step='flight-gauge'] .hud-coach-spotlight,
+.hud[data-coach-step='extension'] .hud-coach-spotlight { --coach-color: var(--flight); }
+.hud[data-coach-step='air-brake'] .hud-coach-spotlight { --coach-color: #ffcf4a; }
+.hud[data-coach-step='banked'] .hud-coach-spotlight { --coach-color: var(--accent); }
+
+.hud-coach-connector {
+  position: absolute;
+  z-index: 18;
+  height: 2px;
+  border-top: 2px dashed rgba(244, 254, 255, .8);
+  opacity: 0;
+  transform-origin: 0 50%;
+  pointer-events: none;
+}
+.hud-coach-connector.on { opacity: 1; }
+.hud-coach-connector::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: -6px;
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid var(--text);
+  border-right: 2px solid var(--text);
+  transform: rotate(45deg);
+}
+
 .hud-coach {
   --coach-color: var(--flight);
   position: absolute;
-  z-index: 18;
-  left: 50%;
-  bottom: 116px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  gap: 12px;
-  width: min(480px, calc(100% - 56px));
-  min-height: 78px;
-  padding: 12px 10px 12px 16px;
+  z-index: 19;
+  left: 20px;
+  top: 20px;
+  width: min(390px, calc(100% - 40px));
+  min-height: 132px;
+  padding: 12px 14px 46px 16px;
   border: 3px solid var(--coach-color);
   border-left-width: 7px;
   border-radius: 6px;
@@ -1328,34 +1405,85 @@
   box-shadow: 6px 6px 0 var(--ink);
   opacity: 0;
   visibility: hidden;
-  transform: translateX(-50%) translateY(10px);
+  transform: translateY(8px) scale(.98);
   transition: opacity 120ms linear, transform 160ms ease-out;
   pointer-events: none;
 }
-.hud-coach.on { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.hud-coach.on { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 .hud-coach[data-tone='surface'] { --coach-color: var(--boost); }
 .hud-coach[data-tone='warning'] { --coach-color: var(--warn); }
 .hud-coach[data-tone='info'] { --coach-color: var(--accent); }
-.hud-coach-kicker { color: var(--coach-color); font: 900 11px/1 system-ui,sans-serif; }
-.hud-coach-title { margin-top: 5px; font: 900 22px/1.06 system-ui,sans-serif; }
-.hud-coach-detail { margin-top: 6px; color: rgba(244,254,255,.72); font: 750 13px/1.25 system-ui,sans-serif; }
+.hud-coach-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.hud-coach-stage { color:rgba(244,254,255,.66); font:900 10px/1 system-ui,sans-serif; }
+.hud-coach-control {
+  min-width: 62px;
+  max-width: 160px;
+  min-height: 30px;
+  padding: 7px 10px;
+  overflow: hidden;
+  border: 2px solid var(--coach-color);
+  border-radius: 3px;
+  color: var(--coach-color);
+  background: rgba(4,7,20,.84);
+  box-shadow: 3px 3px 0 var(--ink);
+  font: normal 950 12px/1 system-ui,sans-serif;
+  text-align:center;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.hud-coach-kicker { margin-top:9px; color: var(--coach-color); font: 900 11px/1 system-ui,sans-serif; }
+.hud-coach-title { margin-top: 5px; font: 900 22px/1.08 system-ui,sans-serif; }
+.hud-coach-detail { margin-top: 6px; padding-right:96px; color: rgba(244,254,255,.72); font: 750 13px/1.3 system-ui,sans-serif; }
 .hud-coach-close {
-  align-self: start;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 2px solid rgba(244,254,255,.38);
+  position:absolute;
+  right:11px;
+  bottom:10px;
+  min-width:86px;
+  min-height:28px;
+  padding:0 10px;
+  border: 1px solid rgba(244,254,255,.4);
   border-radius: 4px;
-  color: var(--text);
+  color: rgba(244,254,255,.78);
   background: rgba(4,7,20,.72);
-  font: 800 24px/1 system-ui,sans-serif;
+  font: 800 11px/1 system-ui,sans-serif;
   cursor: pointer;
 }
 .hud-coach-close:hover { border-color: var(--coach-color); color: var(--coach-color); }
 .hud.lesson-on .hud-coach,
-.hud.results-on .hud-coach { display: none; }
-.hud.coach-on .hud-flight-prompt { opacity:0; visibility:hidden; }
+.hud.lesson-on .hud-coach-spotlight,
+.hud.lesson-on .hud-coach-connector,
+.hud.results-on .hud-coach,
+.hud.results-on .hud-coach-spotlight,
+.hud.results-on .hud-coach-connector { display: none; }
+.hud.coach-on:not([data-coach-focus='flight-control']) .hud-flight-prompt { opacity:0; visibility:hidden; }
+.hud.coach-on[data-coach-focus='flight-control'] .hud-flight-prompt {
+  opacity:1;
+  visibility:visible;
+  transform:translateX(-50%) translateY(0) scale(1) skew(-8deg);
+}
 .hud.coach-on[data-coach-step='air-brake'] .hud-turn-warning { opacity:0; visibility:hidden; }
+.hud.coach-on[data-coach-focus='drift-control'] .hud-driver-power,
+.hud.coach-on[data-coach-focus='drift-meter'] .hud-driver-power,
+.hud.coach-on[data-coach-focus='flight-stock'] .hud-driver-power,
+.hud.coach-on[data-coach-focus='flight-meter'] .hud-driver-power { opacity:.96; }
+.hud.coach-on[data-coach-focus='drift-control'] .hud-driver-power { opacity:1; }
+.hud.coach-on[data-coach-focus='drift-control'] .hud-driver-rail-left,
+.hud.coach-on[data-coach-focus='drift-meter'] .hud-driver-rail-left,
+.hud.coach-on[data-coach-focus='flight-meter'] .hud-driver-rail-right { opacity:.96; }
+.hud.coach-on[data-coach-focus='drift-control'] .hud-driver-rail-left::after {
+  content:'';
+  position:absolute;
+  left:-5px;
+  bottom:32%;
+  width:14px;
+  height:3px;
+  background:#ffcf4a;
+  box-shadow:0 0 9px #ffcf4a;
+}
+
+@keyframes hud-coach-focus {
+  50% { filter:brightness(1.22); }
+}
 
 @keyframes hud-lesson-in {
   from { opacity: 0; transform: scaleX(0.72) scaleY(1.12) skew(-8deg); }
@@ -1624,6 +1752,7 @@
 /* ---- compact layouts ---------------------------------------------------------------- */
 
 @media (max-width: 900px), (max-height: 520px) {
+  .hud-coach-spotlight { --coach-dim:.22; }
   .hud-topleft {
     left: max(12px, env(safe-area-inset-left));
     top: max(10px, env(safe-area-inset-top));
@@ -1732,8 +1861,12 @@
 
   .hud-countdown {
     top: 54%;
-    font-size: 112px;
+    gap:10px;
   }
+  .hud-countdown-label { font-size:112px; }
+  .hud-countdown.go .hud-countdown-label { font-size:92px; }
+  .hud-countdown-rail { grid-template-columns:repeat(3,32px); gap:8px; padding:7px 10px; border-width:3px; }
+  .hud-countdown-light { width:32px; height:12px; }
 
   .hud-flight-prompt {
     top: 22%;
@@ -1878,8 +2011,10 @@
 
   .hud-countdown {
     top: 49%;
-    font-size: 104px;
+    gap:9px;
   }
+  .hud-countdown-label { font-size:104px; }
+  .hud-countdown.go .hud-countdown-label { font-size:86px; }
 
   .hud-flight-prompt {
     top: max(148px, calc(env(safe-area-inset-top) + 140px));
@@ -2514,21 +2649,21 @@
   .hud-lesson-continue,.hud-lesson-disable { min-height:38px; margin-top:12px; padding:0 14px; font-size:12px; }
   .hud-coach {
     left: max(12px, env(safe-area-inset-left));
-    bottom: max(12px, env(safe-area-inset-bottom));
+    top: max(12px, env(safe-area-inset-top));
     width: min(330px, calc(100% - 190px));
-    min-height: 58px;
-    grid-template-columns:minmax(0,1fr) 28px;
-    gap:7px;
-    padding:8px 7px 8px 11px;
+    min-height: 108px;
+    padding:8px 10px 36px 11px;
     border-width:2px 2px 2px 5px;
     box-shadow:3px 3px 0 var(--ink);
     transform:translateY(8px);
   }
   .hud-coach.on { transform:none; }
+  .hud-coach-stage { font-size:7px; }
+  .hud-coach-control { min-width:52px; min-height:24px; padding:5px 7px; font-size:9px; }
   .hud-coach-kicker { font-size:8px; }
   .hud-coach-title { margin-top:3px; font-size:14px; }
-  .hud-coach-detail { margin-top:4px; font-size:9px; }
-  .hud-coach-close { width:27px; height:27px; font-size:19px; }
+  .hud-coach-detail { margin-top:4px; padding-right:78px; font-size:9px; }
+  .hud-coach-close { right:7px; bottom:7px; min-width:72px; min-height:24px; padding:0 7px; font-size:9px; }
   .hud-lesson-copy { margin-top: 8px; font-size: 13px; }
   .hud-lesson-metric { margin-top: 7px; font-size: 11px; }
   .hud-lesson-progress { margin-top: 12px; }

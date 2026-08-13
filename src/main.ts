@@ -241,7 +241,7 @@ const race = new Race(course, boats, {
   },
   go: (_resuming) => {
     audio.setScene('racing');
-    audio.countdownBeep(true);
+    if (!audio.countdownGoVoice()) audio.countdownBeep(true);
     audio.horn();
     cameraRig.mode = 'chase';
     tower.announceGo(roster[0].name);
@@ -373,6 +373,7 @@ function resumeInterruption(): void {
   hud.hideInterruption();
   if (interruptionNeedsCountdown && race.restartAfterInterruption()) {
     audio.startRaceScore(false);
+    audio.prepareCountdownAnnouncer(currentRun);
     audio.setScene('countdown');
   } else {
     audio.resume();
@@ -392,6 +393,7 @@ function startFreshCountdown(): void {
   driverSelect.hide();
   mixer.setVisible(false);
   audio.startRaceScore(true);
+  audio.prepareCountdownAnnouncer(currentRun);
   audio.setScene('countdown');
   drivingCoach.resetRun(boats[0].state);
   coachPresentation = null;
@@ -405,6 +407,7 @@ function startResumeCountdown(): void {
   mobileInput.reset();
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
+  audio.prepareCountdownAnnouncer(currentRun);
   audio.setScene('countdown');
   coachPresentation = null;
   hud.showCoach(null);
@@ -424,6 +427,7 @@ function continueAfterFinale(): void {
   mobileInput.setControlPhase('preparing');
   cameraRig.mode = 'chase';
   audio.startRaceScore(false);
+  audio.prepareCountdownAnnouncer(currentRun);
   audio.setScene('countdown');
   trackGameEvent('continue_game', { run: currentRun, flights: boats[0].state.flightsCleared });
 }
@@ -521,7 +525,8 @@ function startRetryLesson(): void {
   const key = `${failure?.routeSlot ?? 0}:${reason}`;
   const repeatCount = (retryReasonCounts.get(key) ?? 0) + 1;
   retryReasonCounts.set(key, repeatCount);
-  const coachArmed = drivingCoach.onFailure(result.flightsCleared, failure.reason, result.manMedalEarned);
+  const coachArmed = drivingCoach.onFailure(result.flightsCleared, failure.reason, result.manMedalEarned) ||
+    drivingCoach.progress.status === 'active';
   retryLessonDuration = FAILURE_REVIEW_AUTO_S;
   retryLessonMinRead = 0;
   retryLessonTimer = retryLessonDuration;
@@ -1375,8 +1380,18 @@ function stageHarnessCoachDrift(): void {
   for (const key of Object.keys(progress.knowledge) as (keyof typeof progress.knowledge)[]) progress.knowledge[key] = false;
   progress.mastery.steered = true;
   // This is a visual fixture, not a save-migration fixture. The mobile suite
-  // may already have earned three flights, whose v6 sanitizer correctly
+  // may already have earned three flights, whose v7 sanitizer correctly
   // restores proven mastery if this synthetic state is persisted.
+  drivingCoach.resetRun(boats[0].state);
+  syncDrivingCoachUi();
+}
+
+function stageHarnessFirstFailureOffer(): void {
+  const progress = drivingCoach.progress;
+  progress.status = 'dormant';
+  progress.automaticEligible = true;
+  for (const key of Object.keys(progress.mastery) as (keyof typeof progress.mastery)[]) progress.mastery[key] = false;
+  for (const key of Object.keys(progress.knowledge) as (keyof typeof progress.knowledge)[]) progress.knowledge[key] = false;
   drivingCoach.resetRun(boats[0].state);
   syncDrivingCoachUi();
 }
@@ -2038,6 +2053,16 @@ function scenario(name: string): void {
       advanceUntil(() => retryLessonActive, 1);
       loop.advance(0.78);
       break;
+    case 'first-failure-offer':
+      stageHarnessFirstFailureOffer();
+      advanceUntil(() => race.phase === 'racing', 8);
+      placePack(course.flightEntryU - 0.025);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => race.phase === 'defeated', 8);
+      setHarnessInput(null);
+      advanceUntil(() => retryLessonActive, 1);
+      loop.advance(0.32);
+      break;
     case 'flight-route':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
@@ -2184,9 +2209,11 @@ if (HARNESS) {
     },
     coachState: () => ({
       status: drivingCoach.progress.status,
+      automaticEligible: drivingCoach.progress.automaticEligible,
       mastery: { ...drivingCoach.progress.mastery },
       knowledge: { ...drivingCoach.progress.knowledge },
       activeStep: coachPresentation?.id ?? 'none',
+      focus: coachPresentation?.focus ?? 'none',
       device: activeInputDevice,
       visible: Boolean(coachPresentation),
     }),

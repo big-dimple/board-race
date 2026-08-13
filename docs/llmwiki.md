@@ -1,6 +1,6 @@
 # Board Race AI 运行手册
 
-状态：`current / schema-v6`
+状态：`current / schema-v7`
 
 这份文档给接手代码的 AI 使用，记录容易因上下文压缩而丢失、但又不能靠猜的
 稳定事实。面向玩家的操作与行为合同仍在 `README.md`；项目级硬约束在
@@ -13,8 +13,8 @@
   水面漂移 / 空中空刹，以及主动起飞 / 空中续航。
 - 核心循环是 `漂移 -> 松开入库 -> 在青色分支前起飞 -> 穿门`。三次独立飞行
   获得男人勋章，拿到第一升级为优秀男人；七飞后开放 Final Station。
-- 首次 READY 与首局不出现新手教程，让熟练玩家直接冲勋章。第一次真实失败后
-  才启动情境驾驶提示，而且从出现第一帧起就能继续或关闭。
+- 首次 READY 与首局不出现新手教程，让熟练玩家直接冲勋章。仅全新 v7 存档的
+  第一次真实失败会出现一次邀请；接受后才在下一局启动聚光式逐步标注。
 - `BoatInput` 和 60 Hz fixed-step 是稳定合同。教学只观察状态和成功动作，绝不
   注入输入、改物理、放宽路线判定或创建教程专用比赛规则。
 - 任何本地改动都不等于已发布。GitHub Pages 只会在 `main` 推送并通过 workflow 后
@@ -74,12 +74,16 @@
 ### 产品原则
 
 - 首局是裸考，不在选手页或倒计时前强塞控制总图。
-- 第一次真实失败完成成绩、勋章和失败快照结算后，展示一张聚焦本次错误的复盘。
-  `再冲一次` 从第一帧可用，结束只回 READY，不会直接开局或缓冲 Space。
-- 非专家玩家在该失败后把 coach 从 `dormant` 置为 `active`。下一局只显示一个
-  当前可执行提示；危险警告、碰撞冲击、勋章和 Final 表现优先，coach 暂停而非叠层。
-- `x`、键盘 `Esc`、手柄 `View / Back` 可立即关闭并持久化为 `disabled`；READY
-  的 `?` 可按需重开。三飞前已经证明水平的玩家标记为 `expert`，不进入基础课。
+- 第一次真实失败完成成绩、勋章和失败快照结算后，展示聚焦本次错误的复盘，给出
+  `带标注再冲 / 不用引导`。两个选择从第一帧可用，结束只回 READY，不会直接开局
+  或缓冲 Space；超时默认接受并回 READY。
+- 只有 `automaticEligible=true` 的全新存档可自动从 `dormant` 进入 `active`，该资格
+  一经失败、主动启用、关闭、完成或 expert 就永久消费。v2-v6 和 import 都是回访。
+- 下一局只显示一个当前可执行提示，并把聚光框落在真实控件或船边仪表：桌面第一步
+  必须明确框住 `SHIFT` 键帽；按下后框住左条，再按成功状态边沿推进到库存和起飞。
+- 危险警告、碰撞冲击、勋章和 Final 表现优先，guide 暂停而非叠层。可见
+  `跳过引导`、键盘 `Esc`、手柄 `View / Back` 可立即关闭并持久化为 `disabled`；
+  READY `?` 可按需重开。三飞前已证明水平的玩家标记为 `expert`。
 
 ### 最小课程与掌握证据
 
@@ -117,12 +121,12 @@ DriverSelect / READY
 
 ## 存档合同
 
-- 当前 key 是 `board-race:challenge:v6`，模型在 `src/game/records.ts`。
-- v6 持久化 coach 的 `status`、逐项 `mastery` 和机制 `knowledge`，并参与 JSON
-  导入 / 导出和恶意值清洗。
-- v2-v5 迁移不能用 `runs` 猜历史失败，因为它只表示按过 GO。旧档若
-  `bestFlights >= 3` 或已经解锁勋章，迁为 `expert`；其他旧档等下一次真实失败
-  再获得一次可关闭提示。
+- 当前 key 是 `board-race:challenge:v7`，模型在 `src/game/records.ts`。
+- v7 持久化 guide 的 `status`、`automaticEligible`、逐项 `mastery` 和机制
+  `knowledge`，并参与 JSON 导入 / 导出和恶意值清洗。
+- v2-v6 迁移不能用 `runs` 猜历史失败，因为它只表示按过 GO。旧档若
+  `bestFlights >= 3` 或已经解锁勋章，迁为 `expert`；其他旧档保持 `dormant`，但
+  `automaticEligible=false`，只能由玩家从 READY `?` 主动启用。import 同样不自动。
 - `bestFlights >= 1` 可以证明玩家做过入库、起飞和过门，但不能证明理解固定飞行
   时长、空刹、两格策略或续航；不要把这些知识位一并猜成完成。
 - localStorage 写入失败不能阻塞当前游戏。导入时必须保持 live coach 引用同步，
@@ -131,10 +135,10 @@ DriverSelect / READY
 ## 视觉与可访问性边界
 
 - 支持桌面和横屏手机；竖屏保持阻断式旋转提示，不设计第二套竖屏玩法。
-- 同一时刻最多一个教育提示。coach 不能遮挡船边仪表、右拇指技能区、急弯警告、
+- 同一时刻最多一个教育提示。guide 不能遮挡船边仪表、右拇指技能区、急弯警告、
   medal、Final 或 interruption gate。
-- 提示标题先写动作，副行写结果；每次只讲一个当前有意义的概念。隐藏知识放在
-  READY `?`，不把完整说明塞进首败 modal。
+- 提示标题先写动作，副行写结果；每次只讲一个当前有意义的概念。READY `?` 默认
+  只解释逐步标注，黄线、左右条、备用格和雷达放在玩家主动展开的“进阶规则”。
 - 控制 glyph 必须跟随最近活动设备和自定义手柄映射，不能硬编码 Shift 给所有人。
 - 教学帮助不降低物理难度、不影响勋章资格，也不自动驾驶。
 
@@ -156,16 +160,24 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 
 教学相关的最低回归集：
 
-- 全新存档首局 coach 为 dormant 且无提示。
+- 全新存档首局 guide 为 dormant、`automaticEligible=true` 且无提示。
 - 首次真实失败才激活；复盘第一帧可继续 / 关闭；退出只回 READY。
 - 关闭后刷新不复活，READY `?` 可重开，三飞后变 expert。
 - 漂移掌握以真实入库为准；launch、route、air-brake、extension 也使用成功状态边沿。
 - 键盘、移动、标准 / 自定义 / 多手柄及运行中换设备显示正确 glyph。
 - 手机 coach 与船边仪表、固定右拇指区不重叠；portrait / background 冻结安全。
-- v2-v6 迁移、坏存档清洗与 JSON import 后的 live coach 一致。
+- v2-v6 迁移、坏存档清洗与 JSON import 后的 live guide 一致且不会自动打扰。
 
 确定性浏览器入口是 `?harness=1`；`harness/screenshot.mjs` 负责玩法、输入、移动端
 和视觉几何，`harness/systems.mjs` 负责记录迁移与长跑合同。
+
+## 倒计时播报合同
+
+- `3/2/1` 只使用三格起步灯、数字和短促 tick，不播数字人声。
+- `GO` 正常路径只播放一个本地人声，再叠加开赛 horn；男声用于奇数 fresh run，
+  女声用于偶数 fresh run。两段人声绝不同时连接，语音解码失败才退回电子 GO。
+- medal、Final 和 interruption 的 resume countdown 属于同一 run，保持当前播报者，
+  不额外翻转男女；harness 以 `countdownVoiceEvents` 锁定 GO 前 0、GO 后恰好 +1。
 
 ## 开发、端口与收尾纪律
 
