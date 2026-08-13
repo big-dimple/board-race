@@ -57,6 +57,7 @@ export class MobileControls {
   private goLabel = '开始游戏';
   private landscape = matchMedia('(orientation: landscape)').matches;
   private fullscreenRequests = 0;
+  private fullscreenRequestPending = false;
   private firstImmersiveGestureHandled = false;
 
   get ready(): boolean {
@@ -223,9 +224,9 @@ export class MobileControls {
   }
 
   /** Try immersive mode from any first pre-game touch, before async work. */
-  requestImmersiveFromGesture(): void {
+  requestImmersiveFromGesture(force = false): void {
     this.onFirstGesture();
-    if (this.firstImmersiveGestureHandled) return;
+    if (this.firstImmersiveGestureHandled && !force) return;
     this.firstImmersiveGestureHandled = true;
     this.enterImmersiveMode();
   }
@@ -338,8 +339,12 @@ export class MobileControls {
 
   private requestFullscreen(): Promise<void> {
     if (document.fullscreenElement || !document.documentElement.requestFullscreen) return Promise.resolve();
+    if (this.fullscreenRequestPending) return Promise.resolve();
     this.fullscreenRequests++;
-    return document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => undefined);
+    this.fullscreenRequestPending = true;
+    return document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => undefined)
+      .finally(() => { this.fullscreenRequestPending = false; });
   }
 
   private enterImmersiveMode(): void {

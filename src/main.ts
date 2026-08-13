@@ -143,7 +143,7 @@ const driverSelect = new DriverSelect(
     applySelectedDriver(profile.id);
   },
   requestFreshStart,
-  () => mobileInput.requestImmersiveFromGesture(),
+  () => mobileInput.requestImmersiveFromGesture(true),
 );
 const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, saveFinaleCapture);
 const expansionGallery = new ExpansionGallery(

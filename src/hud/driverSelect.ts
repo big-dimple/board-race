@@ -44,7 +44,10 @@ export class DriverSelect {
     this.parent = parent;
     this.root = element('div', 'driver-select', parent);
     this.root.setAttribute('aria-label', '选择成年竞速选手');
-    this.root.addEventListener('pointerdown', () => this.onFirstInteraction?.(), { capture: true, passive: true });
+    // Mobile Chrome treats click as the reliable fullscreen user-activation
+    // boundary. Pointerdown is still handled by the controls fallback, but
+    // the contract selector retries from the actual click gesture.
+    this.root.addEventListener('click', () => this.onFirstInteraction?.(), { capture: true });
 
     this.mobileBackdrop = document.createElement('img');
     this.mobileBackdrop.className = 'driver-mobile-backdrop';
