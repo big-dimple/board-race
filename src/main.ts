@@ -36,6 +36,12 @@ import {
   saveSelectedDriver,
 } from './game/racers';
 import { RecordsStore } from './game/records';
+import {
+  DrivingCoach,
+  type CoachInputDevice,
+  type CoachControls,
+  type CoachPresentation,
+} from './game/drivingCoach';
 import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
@@ -83,6 +89,7 @@ stage.scene.add(jetTrail.object);
 const course = new Course();
 stage.scene.add(course.object);
 const records = new RecordsStore();
+const drivingCoach = new DrivingCoach(records.data.coach, (progress) => records.saveCoach(progress));
 let selectedDriverId = loadSelectedDriver();
 let roster = buildRaceRoster(selectedDriverId);
 
@@ -130,6 +137,7 @@ const hud = new HUD(
   resumeInterruption,
   stage.camera,
   saveMedalCapture,
+  disableDrivingCoach,
 );
 const mixer = new MixerControls(app, audio);
 const tower = new RaceTower(hudLayer);
@@ -144,6 +152,7 @@ const driverSelect = new DriverSelect(
   },
   requestFreshStart,
   () => mobileInput.requestImmersiveFromGesture(true),
+  toggleDrivingCoach,
 );
 const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, saveFinaleCapture);
 const expansionGallery = new ExpansionGallery(
@@ -155,6 +164,11 @@ const expansionGallery = new ExpansionGallery(
 const input = new Input();
 const gamepadInput = new GamepadInput();
 const haptics = new Haptics(gamepadInput, () => mobileInput.enabled);
+let activeInputDevice: CoachInputDevice = mobileInput.enabled ? 'mobile' : 'keyboard';
+let lastKeyboardActivity = input.activitySerial;
+let lastGamepadActivity = gamepadInput.activitySerial;
+let lastMobileActivity = mobileInput.activitySerial;
+let coachPresentation: CoachPresentation | null = null;
 mixer.attachHaptics(() => haptics.enabled, (enabled) => haptics.setEnabled(enabled));
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
 stage.onResize((w, h, pr) => {
@@ -166,6 +180,7 @@ stage.onResize((w, h, pr) => {
 // -------------------------------------------------------------- race events
 let resultsShown = false;
 const DEFEAT_FREEZE_S = 0.35;
+const FAILURE_REVIEW_AUTO_S = 5;
 const MEDAL_CEREMONY_S = 4.5;
 const MEDAL_MIN_READ_S = MEDAL_CEREMONY_S;
 const FINALE_REVEAL_S = 4.8;
@@ -295,6 +310,46 @@ function requestFreshStart(): void {
   else startFreshCountdown();
 }
 
+function toggleDrivingCoach(): void {
+  if (drivingCoach.progress.status === 'active') drivingCoach.disable();
+  else drivingCoach.enable();
+  syncDrivingCoachUi();
+}
+
+function disableDrivingCoach(): void {
+  drivingCoach.disable();
+  syncDrivingCoachUi();
+  if (retryLessonActive) resetRace();
+}
+
+function syncDrivingCoachUi(): void {
+  driverSelect.setCoachStatus(drivingCoach.progress.status);
+  if (drivingCoach.progress.status !== 'active') {
+    coachPresentation = null;
+    hud.showCoach(null);
+  }
+}
+
+function updateActiveInputDevice(): void {
+  const keyboardSerial = input.activitySerial;
+  const gamepadSerial = gamepadInput.activitySerial;
+  const mobileSerial = mobileInput.activitySerial;
+  if (keyboardSerial !== lastKeyboardActivity) activeInputDevice = 'keyboard';
+  else if (gamepadSerial !== lastGamepadActivity) activeInputDevice = 'gamepad';
+  else if (mobileSerial !== lastMobileActivity) activeInputDevice = 'mobile';
+  lastKeyboardActivity = keyboardSerial;
+  lastGamepadActivity = gamepadSerial;
+  lastMobileActivity = mobileSerial;
+  const labels = activeCoachControls();
+  hud.setControlDevice(activeInputDevice, labels);
+}
+
+function activeCoachControls(): CoachControls {
+  if (activeInputDevice === 'gamepad') return gamepadInput.controlLabels();
+  if (activeInputDevice === 'mobile') return mobileInput.controlLabels();
+  return { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
+}
+
 function requestRetry(): void {
   if (race.phase === 'medal') {
     if (medalElapsed >= MEDAL_MIN_READ_S) startResumeCountdown();
@@ -338,6 +393,9 @@ function startFreshCountdown(): void {
   mixer.setVisible(false);
   audio.startRaceScore(true);
   audio.setScene('countdown');
+  drivingCoach.resetRun(boats[0].state);
+  coachPresentation = null;
+  hud.showCoach(null);
 }
 
 function startResumeCountdown(): void {
@@ -348,6 +406,8 @@ function startResumeCountdown(): void {
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
   audio.setScene('countdown');
+  coachPresentation = null;
+  hud.showCoach(null);
 }
 
 function continueAfterFinale(): void {
@@ -449,6 +509,8 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   audio.setScene('medal');
   audio.playMedalCeremony();
   haptics.cue('medal');
+  coachPresentation = null;
+  hud.showCoach(null);
 }
 
 function startRetryLesson(): void {
@@ -459,10 +521,9 @@ function startRetryLesson(): void {
   const key = `${failure?.routeSlot ?? 0}:${reason}`;
   const repeatCount = (retryReasonCounts.get(key) ?? 0) + 1;
   retryReasonCounts.set(key, repeatCount);
-  const baseDuration = repeatCount === 1 ? 8 : repeatCount === 2 ? 6.5 : 5;
-  retryLessonDuration = Math.min(9, baseDuration + (pendingFailureNewBest ? 0.75 : 0));
-  if (result.manMedalEarned) retryLessonDuration = Math.max(8, retryLessonDuration);
-  retryLessonMinRead = repeatCount === 1 ? 4 : repeatCount === 2 ? 3 : 2.5;
+  const coachArmed = drivingCoach.onFailure(result.flightsCleared, failure.reason, result.manMedalEarned);
+  retryLessonDuration = FAILURE_REVIEW_AUTO_S;
+  retryLessonMinRead = 0;
   retryLessonTimer = retryLessonDuration;
   retryLessonElapsed = 0;
   retryLessonActive = true;
@@ -473,7 +534,12 @@ function startRetryLesson(): void {
   audio.retryLesson();
   audio.setScene('lesson');
   mixer.setVisible(true);
-  hud.showRetryLesson(result, currentRun, repeatCount, pendingFailureNewBest, mobileInput.enabled);
+  hud.showRetryLesson(
+    result, currentRun, repeatCount, pendingFailureNewBest, activeInputDevice, coachArmed, drivingCoach.progress.mastery,
+  );
+  syncDrivingCoachUi();
+  coachPresentation = null;
+  hud.showCoach(null);
 }
 
 function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentation = false): void {
@@ -521,8 +587,11 @@ function resetRace(): void {
   mobileInput.reset();
   resultsShown = false;
   hud.hideResults();
+  hud.clearTransientNotices();
   hud.hideRetryLesson();
   hud.hideMedalCeremony();
+  coachPresentation = null;
+  hud.showCoach(null);
   finale.hide();
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
@@ -540,6 +609,7 @@ function resetRace(): void {
   prevAirBraking = false;
   prevDrifting = boats[0].state.drifting;
   prevTurnWarning = false;
+  drivingCoach.resetRun(boats[0].state);
   harnessBattleEvents = 0;
   harnessOvertakes = 0;
   harnessPositionLosses = 0;
@@ -557,6 +627,7 @@ function resetRace(): void {
   cameraRig.mode = 'orbit';
   hud.hideReady();
   driverSelect.show();
+  syncDrivingCoachUi();
   mobileInput.setGoPrompt(false);
   mixer.setVisible(!mobileInput.enabled);
   mixer.sync();
@@ -578,6 +649,7 @@ let harnessFlightTriggerPulse = false;
 
 function step(dt: number, _t: number): void {
   gamepadInput.poll(race.phase === 'ready' && !interruptionActive);
+  updateActiveInputDevice();
   if (interruptionActive) {
     if (gamepadInput.consumeConfirm()) resumeInterruption();
     return;
@@ -596,6 +668,9 @@ function step(dt: number, _t: number): void {
   const retryPressed = input.consumePress('KeyR');
   const spaceConfirmPressed = race.phase === 'racing' ? false : input.consumePress('Space');
   const gamepadConfirm = gamepadInput.consumeConfirm();
+  const coachDismissed = input.consumePress('Escape') || gamepadInput.consumeDismiss();
+
+  if (coachDismissed && drivingCoach.progress.status === 'active') disableDrivingCoach();
 
   if (race.phase === 'medal') {
     mobileInput.consumeAnyPress();
@@ -612,7 +687,7 @@ function step(dt: number, _t: number): void {
     mobileInput.consumeAnyPress();
     retryLessonTimer = Math.max(0, retryLessonTimer - dt);
     retryLessonElapsed += dt;
-    const canContinue = retryLessonElapsed >= retryLessonMinRead;
+    const canContinue = true;
     hud.updateRetryLesson(retryLessonDuration > 0 ? retryLessonElapsed / retryLessonDuration : 1, canContinue);
     updateFrozenPresentation(dt);
     if (retryLessonTimer <= 0 || (lessonPressed && canContinue)) resetRace();
@@ -650,6 +725,7 @@ function step(dt: number, _t: number): void {
     mobileInput.consumeAnyPress();
     mobileInput.setControlPhase('inactive');
     driverSelect.updateControllerStatus(gamepadInput.status());
+    driverSelect.setCoachStatus(drivingCoach.progress.status);
     cameraRig.update(dt, boats[0], presentationTime);
     ocean.update(worldTime, stage.camera.position);
     sky.update(worldTime, stage.camera.position);
@@ -793,6 +869,8 @@ function step(dt: number, _t: number): void {
     hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
     tower.announceFlight(flights, pass.bestFlights);
     if (flights === 3 && race.challengeTier === 'unqualified') {
+      drivingCoach.markExpert();
+      syncDrivingCoachUi();
       const tier = race.qualifyChallenge();
       const qualification = records.qualifyRun(race.raceTime);
       medalEarnedThisRun = true;
@@ -873,6 +951,20 @@ function step(dt: number, _t: number): void {
   if (turnWarning && !prevTurnWarning) haptics.cue('warning');
   prevTurnWarning = turnWarning;
 
+  const controls = activeCoachControls();
+  coachPresentation = drivingCoach.update(dt, {
+    state: playerState,
+    input: HARNESS && harnessPlayerInput ? harnessPlayerInput : playerInput,
+    guideActive: course.guidanceStatus().activeRouteIndex >= 0,
+    turnWarning,
+    presentationBlocked: hud.coachPresentationBlocked() || turnWarning,
+  }, controls);
+  if (turnWarning && coachPresentation?.id !== 'air-brake') coachPresentation = null;
+  // The authored hazard callout owns the slot unless it is itself carrying
+  // the air-brake lesson. Generic flight acquisition is already represented
+  // by the launch/extension coach steps and must not stack over them.
+  hud.showCoach(coachPresentation);
+
   // Landing feedback: camera shake + thud on slams, splash on soft landings.
   for (let i = 0; i < boats.length; i++) {
     const imp = boats[i].state.landImpulse;
@@ -941,6 +1033,8 @@ function step(dt: number, _t: number): void {
       mobileInput.reset();
       mobileInput.setControlPhase('inactive');
       haptics.cue('defeat');
+      coachPresentation = null;
+      hud.showCoach(null);
     } else {
       cameraRig.finishKick();
       pipeline.pulse('finish', 1.35);
@@ -1068,6 +1162,8 @@ interface Harness {
   passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
   flightBudgetCase(): Record<string, unknown>;
   retry(): void;
+  setCoachEnabled(enabled: boolean): void;
+  coachState(): Record<string, unknown>;
   playerState(): Record<string, number | string | boolean>;
   stats(): Record<string, number | string>;
   guidance(): Record<string, number>;
@@ -1270,6 +1366,19 @@ function qualifyHarnessRun(): void {
   passHarnessFlight(0);
   passHarnessFlight(1);
   passHarnessFlight(2);
+}
+
+function stageHarnessCoachDrift(): void {
+  const progress = drivingCoach.progress;
+  progress.status = 'active';
+  for (const key of Object.keys(progress.mastery) as (keyof typeof progress.mastery)[]) progress.mastery[key] = false;
+  for (const key of Object.keys(progress.knowledge) as (keyof typeof progress.knowledge)[]) progress.knowledge[key] = false;
+  progress.mastery.steered = true;
+  // This is a visual fixture, not a save-migration fixture. The mobile suite
+  // may already have earned three flights, whose v6 sanitizer correctly
+  // restores proven mastery if this synthetic state is persisted.
+  drivingCoach.resetRun(boats[0].state);
+  syncDrivingCoachUi();
 }
 
 function resumeHarnessQualifiedRun(): void {
@@ -1812,6 +1921,17 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 1, drift: true });
       loop.advance(0.9);
       break;
+    case 'coach-drift':
+      advanceUntil(() => race.phase === 'racing', 8);
+      stageHarnessCoachDrift();
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => boats[0].state.speed >= 18, 5);
+      loop.advance(1.55);
+      // Isolate the coach layout from legitimate battle/impact priority. The
+      // production arbiter must still let those notices win during real play.
+      hud.clearTransientNotices();
+      loop.advance(1 / 60);
+      break;
     case 'opponent-drift':
       advanceUntil(() => race.phase === 'racing', 8);
       setHarnessInput({ throttle: 1 });
@@ -2057,6 +2177,19 @@ if (HARNESS) {
     passExtendedFlight: passHarnessExtendedFlight,
     flightBudgetCase,
     retry: requestRetry,
+    setCoachEnabled: (enabled) => {
+      if (enabled) drivingCoach.enable();
+      else drivingCoach.disable();
+      syncDrivingCoachUi();
+    },
+    coachState: () => ({
+      status: drivingCoach.progress.status,
+      mastery: { ...drivingCoach.progress.mastery },
+      knowledge: { ...drivingCoach.progress.knowledge },
+      activeStep: coachPresentation?.id ?? 'none',
+      device: activeInputDevice,
+      visible: Boolean(coachPresentation),
+    }),
     playerState: () => {
       const s = boats[0].state;
       const handling = boats[0].debugDriverHandling();
@@ -2124,6 +2257,10 @@ if (HARNESS) {
         retryLessonProgress: retryLessonActive && retryLessonDuration > 0
           ? retryLessonElapsed / retryLessonDuration
           : 0,
+        coachStatus: drivingCoach.progress.status,
+        coachStep: coachPresentation?.id ?? 'none',
+        coachVisible: Boolean(coachPresentation),
+        activeInputDevice,
         medalElapsed,
         medalActive: race.phase === 'medal',
         finaleElapsed,
@@ -2215,7 +2352,11 @@ if (HARNESS) {
     collisionFeedbackCase: runCollisionFeedbackCase,
     recordsState: recordsSnapshot,
     recordsExport: () => records.exportJson(selectedDriverId),
-    recordsImport: (raw) => records.importJson(raw),
+    recordsImport: (raw) => {
+      const result = records.importJson(raw);
+      syncDrivingCoachUi();
+      return result;
+    },
     recordsCase: runRecordsCase,
     rivalCase: runRivalCase,
     enduranceCase: runEnduranceCase,

@@ -1,13 +1,19 @@
 import type { ChallengeResult, FlightFailureSnapshot } from '../contracts';
+import {
+  freshCoachProgress,
+  sanitizeCoachProgress,
+  type DrivingCoachProgress,
+} from './drivingCoach';
 
-const STORAGE_KEY = 'board-race:challenge:v5';
+const STORAGE_KEY = 'board-race:challenge:v6';
+const V5_KEY = 'board-race:challenge:v5';
 const V4_KEY = 'board-race:challenge:v4';
 const V3_KEY = 'board-race:challenge:v3';
 const V2_KEY = 'board-race:challenge:v2';
 const LEGACY_MEDAL_KEY = 'board-race:man-medals:v1';
 
 export interface ChallengeRecords {
-  version: 5;
+  version: 6;
   runs: number;
   ordinaryUnlocked: boolean;
   manMedalsTotal: number;
@@ -23,10 +29,11 @@ export interface ChallengeRecords {
   finaleCompletions: number;
   expansionSeenMask: number;
   finaleScreenshotCount: number;
+  coach: DrivingCoachProgress;
 }
 
 const defaults = (): ChallengeRecords => ({
-  version: 5,
+  version: 6,
   runs: 0,
   ordinaryUnlocked: false,
   manMedalsTotal: readLegacyMedals(),
@@ -42,6 +49,7 @@ const defaults = (): ChallengeRecords => ({
   finaleCompletions: 0,
   expansionSeenMask: 0,
   finaleScreenshotCount: 0,
+  coach: freshCoachProgress(),
 });
 
 export class RecordsStore {
@@ -66,7 +74,11 @@ export class RecordsStore {
       this.data.bestFlights = flights;
       this.data.bestRouteProgress = 0;
     }
-    if (flights >= 3) this.data.farSeaDossierUnlocked = true;
+    if (flights >= 3) {
+      this.data.farSeaDossierUnlocked = true;
+      this.data.coach.status = 'expert';
+      this.normalizeCoach();
+    }
     if (newBest || driverNewBest || flights === 3) this.save();
     return { newBest, bestFlights: this.data.bestFlights, driverBest };
   }
@@ -75,6 +87,8 @@ export class RecordsStore {
     const ordinaryNew = !this.data.ordinaryUnlocked;
     this.data.ordinaryUnlocked = true;
     this.data.manMedalsTotal++;
+    this.data.coach.status = 'expert';
+    this.normalizeCoach();
     if (this.data.bestQualificationTime === null || raceTime < this.data.bestQualificationTime) {
       this.data.bestQualificationTime = raceTime;
     }
@@ -114,6 +128,12 @@ export class RecordsStore {
     this.save();
   }
 
+  saveCoach(progress: DrivingCoachProgress): void {
+    const sanitized = sanitizeCoachProgress(progress, this.data.bestFlights, this.data.ordinaryUnlocked);
+    Object.assign(this.data.coach, sanitized);
+    this.save();
+  }
+
   exportJson(selectedDriverId: string): string {
     return JSON.stringify({ schema: 'board-race-save', exportedAt: new Date().toISOString(), selectedDriverId, records: this.data }, null, 2);
   }
@@ -123,8 +143,11 @@ export class RecordsStore {
     if (parsed.schema !== 'board-race-save' || !parsed.records || typeof parsed.records !== 'object') {
       throw new Error('存档格式不正确');
     }
-    const incoming = sanitizeV5(parsed.records as Partial<ChallengeRecords>, this.data);
+    const incoming = sanitizeV6(parsed.records as Partial<ChallengeRecords>, this.data);
+    const coach = this.data.coach;
     Object.assign(this.data, incoming);
+    Object.assign(coach, incoming.coach);
+    this.data.coach = coach;
     this.save();
     return { selectedDriverId: typeof parsed.selectedDriverId === 'string' ? parsed.selectedDriverId : null };
   }
@@ -158,6 +181,11 @@ export class RecordsStore {
       // Storage is optional; gameplay and the current session still continue.
     }
   }
+
+  private normalizeCoach(): void {
+    const sanitized = sanitizeCoachProgress(this.data.coach, this.data.bestFlights, this.data.ordinaryUnlocked);
+    Object.assign(this.data.coach, sanitized);
+  }
 }
 
 function loadRecords(): ChallengeRecords {
@@ -166,17 +194,22 @@ function loadRecords(): ChallengeRecords {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
-      if (parsed.version === 5) return sanitizeV5(parsed, fallback);
+      if (parsed.version === 6) return sanitizeV6(parsed, fallback);
+    }
+    const v5Raw = localStorage.getItem(V5_KEY);
+    if (v5Raw) {
+      const v5 = JSON.parse(v5Raw) as Record<string, unknown>;
+      if (v5.version === 5) return sanitizeV6(v5 as Partial<ChallengeRecords>, fallback);
     }
     const v4Raw = localStorage.getItem(V4_KEY);
     if (v4Raw) {
       const v4 = JSON.parse(v4Raw) as Record<string, unknown>;
-      if (v4.version === 4) return sanitizeV5(v4 as Partial<ChallengeRecords>, fallback);
+      if (v4.version === 4) return sanitizeV6(v4 as Partial<ChallengeRecords>, fallback);
     }
     const v3Raw = localStorage.getItem(V3_KEY);
     if (v3Raw) {
       const v3 = JSON.parse(v3Raw) as Record<string, unknown>;
-      if (v3.version === 3) return sanitizeV5(v3 as Partial<ChallengeRecords>, fallback);
+      if (v3.version === 3) return sanitizeV6(v3 as Partial<ChallengeRecords>, fallback);
     }
     const v2Raw = localStorage.getItem(V2_KEY);
     if (!v2Raw) return fallback;
@@ -185,7 +218,7 @@ function loadRecords(): ChallengeRecords {
     const excellentCount = finiteNonNegative(v2.excellentCount, 0);
     const ordinaryUnlocked = v2.ordinaryUnlocked === true;
     return {
-      version: 5,
+      version: 6,
       runs: finiteNonNegative(v2.runs, 0),
       ordinaryUnlocked,
       manMedalsTotal: Math.max(
@@ -206,13 +239,14 @@ function loadRecords(): ChallengeRecords {
       finaleCompletions: 0,
       expansionSeenMask: 0,
       finaleScreenshotCount: 0,
+      coach: sanitizeCoachProgress(undefined, finiteNonNegative(v2.bestFlightsCleared, 0), ordinaryUnlocked),
     };
   } catch {
     return fallback;
   }
 }
 
-function sanitizeV5(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords): ChallengeRecords {
+function sanitizeV6(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords): ChallengeRecords {
   const byDriver: Record<string, number> = {};
   if (parsed.bestFlightsByDriver && typeof parsed.bestFlightsByDriver === 'object') {
     for (const [key, value] of Object.entries(parsed.bestFlightsByDriver)) {
@@ -221,7 +255,7 @@ function sanitizeV5(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
   }
   const bestFlights = finiteNonNegative(parsed.bestFlights, 0);
   return {
-    version: 5,
+    version: 6,
     runs: finiteNonNegative(parsed.runs, 0),
     ordinaryUnlocked: parsed.ordinaryUnlocked === true,
     manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),
@@ -237,6 +271,7 @@ function sanitizeV5(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
     finaleCompletions: finiteNonNegative(parsed.finaleCompletions, 0),
     expansionSeenMask: Math.min(0x7f, Math.floor(finiteNonNegative(parsed.expansionSeenMask, 0))),
     finaleScreenshotCount: finiteNonNegative(parsed.finaleScreenshotCount, 0),
+    coach: sanitizeCoachProgress(parsed.coach, bestFlights, parsed.ordinaryUnlocked === true),
   };
 }
 

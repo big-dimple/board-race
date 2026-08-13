@@ -12,12 +12,16 @@ export class Input {
   /** Edge-triggered: true for one consume() call after keydown. */
   private pressed = new Set<string>();
   private steerVal = 0;
+  private activitySerialValue = 0;
 
   constructor(target: Window = window) {
     target.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.keys.add(e.code);
       this.pressed.add(e.code);
+      if (['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
+        this.activitySerialValue++;
+      }
       if (['ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();
     });
     target.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -56,6 +60,10 @@ export class Input {
   steeringHeld(): boolean {
     return this.keys.has('KeyA') || this.keys.has('ArrowLeft') ||
       this.keys.has('KeyD') || this.keys.has('ArrowRight');
+  }
+
+  get activitySerial(): number {
+    return this.activitySerialValue;
   }
 
   reset(): void {

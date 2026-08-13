@@ -59,6 +59,8 @@ export class MobileControls {
   private fullscreenRequests = 0;
   private fullscreenRequestPending = false;
   private firstImmersiveGestureHandled = false;
+  private activitySerialValue = 0;
+  private previousTiltActivity = 0;
 
   get ready(): boolean {
     return !this.enabled || this.landscape && this.activation === 'ready';
@@ -66,6 +68,18 @@ export class MobileControls {
 
   get isLandscape(): boolean {
     return !this.enabled || this.landscape;
+  }
+
+  get activitySerial(): number {
+    return this.activitySerialValue;
+  }
+
+  controlLabels(): { steer: string; drift: string; flight: string } {
+    return {
+      steer: this.mode === 'tilt' ? '倾斜手机' : '左侧方向区',
+      drift: '右下「漂」',
+      flight: '右上「飞」',
+    };
   }
 
   constructor(parent: HTMLElement, onFirstGesture: () => void, force = false) {
@@ -180,6 +194,11 @@ export class MobileControls {
     const tiltDegrees = Math.abs(this.filteredTilt);
     const tiltMagnitude = clamp((tiltDegrees - 3) / 19, 0, 1);
     const tiltSteer = Math.sign(this.filteredTilt) * tiltMagnitude;
+    if (this.mode === 'tilt' && Math.abs(tiltSteer) >= 0.42 &&
+        (Math.abs(this.previousTiltActivity) < 0.24 || Math.abs(tiltSteer - this.previousTiltActivity) >= 0.5)) {
+      this.activitySerialValue++;
+    }
+    this.previousTiltActivity = tiltSteer;
     const steer = this.mode === 'tilt' ? tiltSteer : this.touchSteer;
     if (this.tiltMeter) this.tiltMeter.style.transform = `translateX(${steer * 34}px)`;
 
@@ -287,6 +306,7 @@ export class MobileControls {
     this.goQueued = false;
     this.touchSteer = 0;
     this.filteredTilt = 0;
+    this.previousTiltActivity = 0;
   }
 
   status(): {
@@ -464,6 +484,7 @@ export class MobileControls {
   private pointerDown(event: PointerEvent, action: PointerAction): void {
     this.requestImmersiveFromGesture();
     this.anyPressQueued = true;
+    this.activitySerialValue++;
     if (this.controlPhase === 'inactive' || this.activation !== 'ready') return;
     if (this.controlPhase === 'preparing' && action === 'flight') return;
     event.preventDefault();

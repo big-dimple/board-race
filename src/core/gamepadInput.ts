@@ -99,6 +99,8 @@ export class GamepadInput {
   private confirmPressed = false;
   private selectLeftPressed = false;
   private selectRightPressed = false;
+  private activitySerialValue = 0;
+  private dismissPressed = false;
 
   constructor(provider: GamepadProvider = () => navigator.getGamepads?.() ?? EMPTY_GAMEPADS) {
     this.provider = provider;
@@ -231,6 +233,24 @@ export class GamepadInput {
     return value;
   }
 
+  consumeDismiss(): boolean {
+    const value = this.dismissPressed;
+    this.dismissPressed = false;
+    return value;
+  }
+
+  get activitySerial(): number {
+    return this.activitySerialValue;
+  }
+
+  controlLabels(): { steer: string; drift: string; flight: string } {
+    if (this.bindingSource === 'standard') return { steer: '左摇杆 / D-PAD', drift: 'X / LB / RB', flight: 'A' };
+    const drift = `B${this.bindings.driftButton + 1}`;
+    const flight = `B${this.bindings.flightButton + 1}`;
+    const steer = this.bindings.steerAxis === null ? '方向键' : `摇杆轴 ${this.bindings.steerAxis + 1}`;
+    return { steer, drift, flight };
+  }
+
   /** Hard lifecycle reset: preserve no edge, and block only actions already held now. */
   reset(): void {
     this.clearEdges();
@@ -302,6 +322,8 @@ export class GamepadInput {
       rumble: Boolean(this.pad && actuatorFor(this.pad)),
       steer: this.steer,
       drift: this.driftHeld,
+      driftLabel: this.controlLabels().drift,
+      flightLabel: this.controlLabels().flight,
     };
   }
 
@@ -326,6 +348,11 @@ export class GamepadInput {
     const confirm = flight || button(current, this.bindings.confirmButton);
     const prevFlight = button(previous, this.bindings.flightButton);
     const prevConfirm = prevFlight || button(previous, this.bindings.confirmButton);
+    const dismissSafe = ![this.bindings.driftButton, this.bindings.flightButton, this.bindings.confirmButton].includes(8);
+    const dismiss = dismissSafe && button(current, 8);
+    const prevDismiss = dismissSafe && button(previous, 8);
+
+    if (selected.activity > 0.01) this.activitySerialValue++;
 
     if (this.suppressActionsUntilRelease && !drift && !flight && !confirm) {
       this.suppressActionsUntilRelease = false;
@@ -335,6 +362,7 @@ export class GamepadInput {
     this.confirmPressed = !this.suppressActionsUntilRelease && confirm && !prevConfirm;
     this.selectLeftPressed = navLeft && !prevNavLeft;
     this.selectRightPressed = navRight && !prevNavRight;
+    this.dismissPressed = dismiss && !prevDismiss;
   }
 
   private ensureCalibration(pad: Gamepad): void {
@@ -491,6 +519,7 @@ export class GamepadInput {
     this.confirmPressed = false;
     this.selectLeftPressed = false;
     this.selectRightPressed = false;
+    this.dismissPressed = false;
   }
 }
 

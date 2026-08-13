@@ -23,6 +23,8 @@ import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
 import { MedalCeremonyCanvas } from './medalCeremony';
 import { deriveAbilityHudState } from '../core/abilityTelemetry';
+import type { CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
+import type { CoachMastery } from '../game/drivingCoach';
 import './hud.css';
 
 const MAP_SIZE = 190;
@@ -116,6 +118,8 @@ export class HUD {
   private readonly flightPromptRule: HTMLDivElement;
   private flightPromptMode: 'hidden' | 'launch' | 'extend' = 'hidden';
   private flightPromptDevice: 'keyboard' | 'gamepad' | 'mobile' = 'keyboard';
+  private controlDevice: CoachInputDevice = 'keyboard';
+  private controlLabels = { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
   private flightPromptHitTimer = 0;
   private lastFlightExtensionReady = false;
 
@@ -139,7 +143,13 @@ export class HUD {
   private readonly battleStreak: HTMLDivElement;
   private battleTimer = 0;
   private readonly turnWarning: HTMLDivElement;
+  private readonly turnWarningDetail: HTMLDivElement;
   private turnWarningTimer = 0;
+  private readonly coachEl: HTMLDivElement;
+  private readonly coachKicker: HTMLDivElement;
+  private readonly coachTitle: HTMLDivElement;
+  private readonly coachDetail: HTMLDivElement;
+  private readonly coachClose: HTMLButtonElement;
 
   // split toasts
   private readonly toastBox: HTMLDivElement;
@@ -194,6 +204,7 @@ export class HUD {
   private readonly lessonCopy: HTMLDivElement;
   private readonly lessonMetric: HTMLDivElement;
   private readonly lessonContinue: HTMLButtonElement;
+  private readonly lessonDisable: HTMLButtonElement;
   private readonly lessonPips: HTMLDivElement[] = [];
   private bestFlights: number;
 
@@ -231,6 +242,7 @@ export class HUD {
     onResume: () => void = () => {},
     camera?: THREE.PerspectiveCamera,
     onMedalSave: () => void = () => {},
+    onCoachDisable: () => void = () => {},
   ) {
     this.course = course;
     this.camera = camera ?? new THREE.PerspectiveCamera();
@@ -376,7 +388,7 @@ export class HUD {
     h('div', 'hud-turn-warning-mark hud-inked', this.turnWarning, '!');
     const turnCopy = h('div', 'hud-turn-warning-copy', this.turnWarning);
     h('div', 'hud-turn-warning-title hud-inked', turnCopy, '急弯逼近');
-    h('div', 'hud-turn-warning-detail', turnCopy, '按住 SHIFT 空刹 · A / D 转向');
+    this.turnWarningDetail = h('div', 'hud-turn-warning-detail', turnCopy, '按住 SHIFT 空刹 · A / D 转向');
     this.wrongWayEl = h('div', 'hud-wrongway', this.root, 'WRONG WAY!');
     this.brandEl = h('div', 'hud-brand', this.root);
     h('div', 'hud-brand-lead hud-inked', this.brandEl, '是男人就飞三次');
@@ -466,10 +478,32 @@ export class HUD {
     this.lessonContinue = document.createElement('button');
     this.lessonContinue.className = 'hud-lesson-continue';
     this.lessonContinue.type = 'button';
-    this.lessonContinue.textContent = '继续';
-    this.lessonContinue.hidden = true;
+    this.lessonContinue.textContent = '再冲一次';
     this.lessonContinue.addEventListener('click', onRetry);
     lessonInner.appendChild(this.lessonContinue);
+    this.lessonDisable = document.createElement('button');
+    this.lessonDisable.className = 'hud-lesson-disable';
+    this.lessonDisable.type = 'button';
+    this.lessonDisable.textContent = '关闭驾驶提示';
+    this.lessonDisable.addEventListener('click', onCoachDisable);
+    lessonInner.appendChild(this.lessonDisable);
+
+    // ---- contextual driving coach ----------------------------------------------------
+    this.coachEl = h('div', 'hud-coach', this.root);
+    this.coachEl.setAttribute('role', 'status');
+    this.coachEl.setAttribute('aria-live', 'polite');
+    const coachCopy = h('div', 'hud-coach-copy', this.coachEl);
+    this.coachKicker = h('div', 'hud-coach-kicker', coachCopy);
+    this.coachTitle = h('div', 'hud-coach-title', coachCopy);
+    this.coachDetail = h('div', 'hud-coach-detail', coachCopy);
+    this.coachClose = document.createElement('button');
+    this.coachClose.className = 'hud-coach-close';
+    this.coachClose.type = 'button';
+    this.coachClose.textContent = '×';
+    this.coachClose.title = '关闭驾驶提示';
+    this.coachClose.setAttribute('aria-label', '关闭驾驶提示');
+    this.coachClose.addEventListener('click', onCoachDisable);
+    this.coachEl.appendChild(this.coachClose);
   }
 
   update(dt: number, race: RaceView, player: IBoat, _all: IBoat[]): void {
@@ -607,16 +641,13 @@ export class HUD {
       ? 'extend'
       : !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
     const promptMode: 'hidden' | 'launch' | 'extend' = this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
-    const mobile = navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
-    const gamepad = !mobile && hasConnectedGamepad();
-    const promptDevice = mobile ? 'mobile' : gamepad ? 'gamepad' : 'keyboard';
+    const promptDevice = this.controlDevice;
     if (promptMode !== this.flightPromptMode || promptDevice !== this.flightPromptDevice) {
       this.flightPromptMode = promptMode;
       this.flightPromptDevice = promptDevice;
       this.flightPrompt.classList.toggle('on', promptMode !== 'hidden');
       this.flightPrompt.classList.toggle('extend', promptMode === 'extend');
-      const key = promptDevice === 'mobile' ? (promptMode === 'extend' ? '续' : '飞')
-        : promptDevice === 'gamepad' ? 'A' : 'SPACE';
+      const key = promptDevice === 'mobile' ? (promptMode === 'extend' ? '续' : '飞') : this.controlLabels.flight;
       const action = promptMode === 'extend' ? '续航' : '起飞';
       if (promptMode === 'extend') {
         this.flightPromptKey.textContent = key;
@@ -921,23 +952,32 @@ export class HUD {
     this.turnWarning.classList.remove('on', 'braking');
   }
 
-  showRetryLesson(result: ChallengeResult, attempt: number, repeatCount: number, newBest = false, mobile = false): void {
+  showRetryLesson(
+    result: ChallengeResult,
+    attempt: number,
+    repeatCount: number,
+    newBest = false,
+    device: CoachInputDevice = 'keyboard',
+    coachArmed = false,
+    mastery?: CoachMastery,
+  ): void {
     const failure = result.failure;
-    const lesson = this.lessonFor(failure, mobile);
+    const lesson = this.lessonFor(failure, device, mastery);
     this.hideResults();
     const flight = failure?.flightNumber ?? result.flightsCleared + 1;
     const encouragement = this.encouragementFor(result);
-    this.lessonAttempt.textContent = `LOADING NEXT RUN // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞`;
+    this.lessonAttempt.textContent = `RUN REVIEW // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞`;
     this.lessonEmotion.textContent = encouragement.title;
     this.lessonMedal.textContent = result.manMedalEarned
       ? `本局男人勋章 +1 · 累计 ${result.manMedalsTotal}`
       : encouragement.progress;
     this.lessonMedal.classList.toggle('earned', result.manMedalEarned);
     this.lessonTitle.textContent = lesson.title;
-    this.lessonCopy.textContent = lesson.copy;
+    this.lessonCopy.textContent = `${lesson.copy}${coachArmed ? ' · 下一局只补你没掌握的动作' : ''}`;
     this.lessonMetric.textContent = `本局 ${result.flightsCleared} 飞 · BEST ${result.bestFlights}${newBest ? ' · NEW BEST' : ''}`;
-    this.lessonContinue.hidden = true;
-    this.updateRetryLesson(0, false);
+    this.lessonContinue.hidden = false;
+    this.lessonDisable.hidden = !coachArmed;
+    this.updateRetryLesson(0, true);
     this.root.classList.add('lesson-on');
     this.lessonEl.classList.add('on');
   }
@@ -952,12 +992,56 @@ export class HUD {
     this.root.classList.remove('lesson-on');
     this.lessonEl.classList.remove('on');
     this.lessonContinue.hidden = true;
+    this.lessonDisable.hidden = true;
     for (const pip of this.lessonPips) pip.classList.remove('on');
+  }
+
+  showCoach(presentation: CoachPresentation | null): void {
+    if (presentation && (this.battleTimer > 0 || this.impactTimer > 0)) presentation = null;
+    if (!presentation) {
+      this.coachEl.classList.remove('on');
+      this.root.classList.remove('coach-on');
+      delete this.root.dataset.coachStep;
+      delete this.coachEl.dataset.tone;
+      return;
+    }
+    this.coachEl.dataset.tone = presentation.tone;
+    this.coachEl.dataset.step = presentation.id;
+    this.root.dataset.coachStep = presentation.id;
+    this.coachKicker.textContent = presentation.kicker;
+    this.coachTitle.textContent = presentation.title;
+    this.coachDetail.textContent = presentation.detail;
+    this.coachEl.classList.add('on');
+    this.root.classList.add('coach-on');
+  }
+
+  coachPresentationBlocked(): boolean {
+    return this.battleTimer > 0 || this.impactTimer > 0;
+  }
+
+  setControlDevice(device: CoachInputDevice, labels?: { steer: string; drift: string; flight: string }): void {
+    const controls = labels ?? (device === 'mobile'
+      ? { steer: '轻调方向', drift: '「漂」', flight: '「飞」' }
+      : device === 'gamepad'
+        ? { steer: '左摇杆', drift: 'X / LB / RB', flight: 'A' }
+        : { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
+    this.controlDevice = device;
+    this.controlLabels = controls;
+    this.turnWarningDetail.textContent = `按住 ${controls.drift} 空刹 · ${controls.steer} 转向`;
   }
 
   clearBattle(): void {
     this.battleTimer = 0;
     this.battleEl.classList.remove('on', 'safety-compact');
+  }
+
+  clearTransientNotices(): void {
+    this.clearBattle();
+    this.impactQueue.length = 0;
+    this.impactTimer = 0;
+    this.impactPriority = -1;
+    this.activeImpact = null;
+    this.impactEl.classList.remove('on');
   }
 
   private activateBattle(
@@ -1026,17 +1110,26 @@ export class HUD {
     return why[reason];
   }
 
-  private lessonFor(failure: FlightFailureSnapshot | null, mobile: boolean): { title: string; copy: string; metric: string } {
+  private lessonFor(
+    failure: FlightFailureSnapshot | null,
+    device: CoachInputDevice,
+    mastery?: CoachMastery,
+  ): { title: string; copy: string; metric: string } {
+    const mobile = device === 'mobile';
+    const gamepad = device === 'gamepad';
+    const drift = this.controlLabels.drift;
+    const flight = this.controlLabels.flight;
+    const steer = mobile ? '轻调方向' : gamepad ? `${this.controlLabels.steer}轻调` : '用 A / D 轻调';
     if (!failure) return {
       title: '还差一飞',
-      copy: mobile ? '下一次：按住「漂」拿资格，再点「飞」' : '下一次：先按 SHIFT 漂移，再按 SPACE 起飞',
+      copy: `下一次：按住 ${drift} 到黄线，松开入库，再按 ${flight} 起飞`,
       metric: '',
     };
     switch (failure.reason) {
       case 'off_course':
         return {
           title: `偏航太远 · ${failure.corridorDistanceM?.toFixed(0) ?? '?'}m`,
-          copy: mobile ? '下一次：警告出现就松开方向，向赛道轻调回正' : '下一次：警告出现就松开方向，用 A / D 轻调回主航线',
+          copy: `下一次：警告出现就松开方向，${steer}回主航线`,
           metric: '',
         };
       case 'wrong_way':
@@ -1048,14 +1141,16 @@ export class HUD {
       case 'no_launch':
         return {
           title: '没有起飞',
-          copy: mobile ? '下一次：按住「漂」，松开后点「飞」' : '下一次：按住 SHIFT 漂移，松开后按 SPACE',
+          copy: mastery?.bankedCharge
+            ? `你已经会入库；下一次青线展开时按 ${flight} 起飞`
+            : `下一次：按住 ${drift} 到黄线，松开入库后按 ${flight}`,
           metric: '',
         };
       case 'late': {
         const short = Math.max(0, 2.8 - failure.clearanceM);
         return {
           title: `高度差 ${short.toFixed(1)}m`,
-          copy: mobile ? '下一次：更早点「飞」' : '下一次：更早按 SPACE',
+          copy: `下一次：更早按 ${flight}`,
           metric: '',
         };
       }
@@ -1066,31 +1161,33 @@ export class HUD {
           ? Math.max(0, Math.abs(failure.lateralOffsetM) - failure.lateralLimitM) : 0;
         const direction = left ? (mobile ? '向右' : 'D') : (mobile ? '向左' : 'A');
         return {
-          title: `偏航先空刹 · 差 ${miss.toFixed(1)}m`,
-          copy: mobile
+          title: `${mastery?.airBrakedInTurn ? '方向修正' : '偏航先空刹'} · 差 ${miss.toFixed(1)}m`,
+          copy: mastery?.airBrakedInTurn
+            ? `${steer}回到两杆中点`
+            : mobile
             ? `按住「漂 / 空刹」，再${direction}轻调回正`
-            : `按住 SHIFT 空刹，再用 ${direction} 轻调回正`,
+            : gamepad ? `按住 ${drift} 空刹，再用左摇杆向${left ? '右' : '左'}轻调` : `按住 SHIFT 空刹，再用 ${direction} 轻调回正`,
           metric: '',
         };
       }
       case 'corridor':
         return {
           title: `偏航先空刹 · 偏离 ${failure.corridorDistanceM?.toFixed(1) ?? '?'}m`,
-          copy: mobile ? '按住「漂 / 空刹」减速，再轻调回青线' : '按住 SHIFT 空刹减速，再用 A / D 回青线',
+          copy: `按住 ${drift} 空刹减速，再${steer}回青线`,
           metric: '',
         };
       case 'landing':
-        return { title: '提前落水', copy: mobile ? '下一次：靠近入口再点「飞」' : '下一次：靠近入口再按 SPACE', metric: '' };
+        return { title: '提前落水', copy: `下一次：靠近入口再按 ${flight}；有备用格时空中再按可续航`, metric: '' };
       case 'exit':
         return {
           title: '偏航先空刹 · 飞行未完成',
-          copy: mobile ? '按住「漂 / 空刹」，轻调回青色航线' : '按住 SHIFT 空刹，再用 A / D 回青线',
+          copy: `按住 ${drift} 空刹，${steer}回青色航线`,
           metric: '',
         };
       case 'gate':
         return {
           title: '偏航先空刹 · 只差这一门',
-          copy: mobile ? '按住「漂 / 空刹」，对准两根发光杆中点' : '按住 SHIFT 空刹，对准两根发光杆中点',
+          copy: `按住 ${drift} 空刹，对准两根发光杆中点`,
           metric: '',
         };
       case 'teleport':
@@ -1098,7 +1195,7 @@ export class HUD {
       default:
         return {
           title: '还差一飞',
-          copy: mobile ? '下一次：先按「漂」，再点「飞」' : '下一次：先按 SHIFT，再按 SPACE',
+          copy: `下一次：先按 ${drift} 到黄线并松开，再按 ${flight}`,
           metric: '',
         };
     }
@@ -1433,15 +1530,4 @@ export class HUD {
       }
     }
   }
-}
-
-function hasConnectedGamepad(): boolean {
-  try {
-    const pads = navigator.getGamepads?.();
-    if (!pads) return false;
-    for (let i = 0; i < pads.length; i++) if (pads[i]?.connected) return true;
-  } catch {
-    return false;
-  }
-  return false;
 }

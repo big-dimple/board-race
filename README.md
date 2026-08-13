@@ -32,8 +32,9 @@ Backgrounding or minimizing the page immediately freezes simulation and hard-mut
 | `A` `D` / `←` `→` | Steer |
 | `Shift` (hold) | Drift on water; contextual vector air-brake while flying |
 | `Space` (press) | Start/continue from a frozen prompt; while racing, spend one charge to take off or extend flight |
-| `Enter` | Start from READY; continue a medal/loading review after its minimum reading time |
-| `R` | Continue a loading review after its minimum reading time |
+| `Enter` | Start from READY; immediately continue a failure review |
+| `R` | Immediately continue a failure review |
+| `Esc` | Close contextual driving tips; READY `?` can enable them again |
 
 Keyboard steering remains active in touch-capable Chrome sessions, including `←` / `→`. Standard-mapped controllers are also supported: left stick or D-pad steers, `A / Cross` flies and confirms, and `X / Square`, `LB`, or `RB` holds drift/air-brake. Connected pads are scanned together and the pad producing deliberate input becomes active; an idle first-listed device cannot block the controller in hand. Unknown browser mappings enter a four-step READY calibration and persist by device signature. Controller rumble and short phone vibration share an independent, default-on `体感反馈` setting and the same no-buffer countdown rule as keyboard input.
 
@@ -41,9 +42,11 @@ On mobile, landscape is required. Portrait mode is a full interaction blocker an
 
 A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit; after the seventh route, two golden energy columns charge at the existing finish gantry and wait for a real water-surface crossing. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
 
-Failure goes directly to one focused loading review. A new failure type displays for `8s`, the second occurrence for `6.5s`, and later repeats for `5s`; minimum reading times are `4s`, `3s`, and `2.5s`. A real PB adds `0.75s`, capped at `9s`. Course-deviation reviews teach the contextual air brake on the first occurrence, with a large factual miss, one concrete correction, emotional encouragement, flights/PB, and any medal already earned before the mistake. The next run still returns to READY and requires a fresh Enter/GO edge.
+The first run deliberately contains no onboarding: experienced players can attack the `男人勋章` immediately. The first real failure arms a contextual driving coach for the next run and opens one focused review with the factual miss, one correction, progress/PB, and any medal already earned. It may be continued from its first frame and returns to READY after `5s`; it never launches a run or buffers a flight input. Each live hint observes successful game state instead of raw button presses: a drift is mastered only after crossing the yellow `BANK` mark and releasing into a stored diamond, a launch only after the charge is accepted, and air-brake only through real use in a flight turn. One hint is visible at a time and can be permanently closed by its `×`, keyboard `Esc`, or controller `View / Back`; READY `?` re-enables remaining lessons. Players who reach three flights before their first failure are treated as experts and only receive the one-line failure review.
 
-Runs, medals, excellent finishes, per-driver PB flights, final completions, expansion pages seen, screenshot counts, closest misses, rival wins, and audio preferences are saved in versioned browser `localStorage` with v2/v3/v4 record migration into schema v5. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; the versioned data contract remains suitable for a future authenticated server sync. Archive controls stay out of the selection screen so the first decision remains focused.
+The near-boat left rail is contextual: drift charge on water, remaining surface `BOOST` after release, or air-brake strength in flight. The yellow line means “enough to bank one cell”; releasing is what stores it. The right rail is the current flight's remaining envelope, while the two diamonds are the actual inventory. Holding a drift longer after the yellow line only lengthens the resulting water boost and never changes the fixed base flight duration. A spare diamond can instead add exactly `+2.4s` during cruise or descent.
+
+Runs, medals, excellent finishes, per-driver PB flights, final completions, expansion pages seen, screenshot counts, closest misses, rival wins, and driving-coach mastery/preferences are saved in versioned browser `localStorage` with v2-v5 record migration into schema v6. Old saves with three flights or an unlocked medal migrate as experts; other old saves receive the optional coach only after their next real failure. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; the versioned data contract remains suitable for a future authenticated server sync. Archive controls stay out of the selection screen so the first decision remains focused.
 
 Audio uses the complete owner-selected 127-second instrumental rock track plus Web Audio engine, restrained water/air pressure, air-brake, gate, collision, battle, failure, and medal layers. The first explicit GO starts the song from its opening and brings it in progressively; later runs, loading, medals, and READY preserve the same browser-session timeline. Only the natural end loops back to the song opening. `SOUND` exposes separate master, music, effects, ambience, visible percentages, audition feedback, and mute. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately until explicit GO resumes it.
 
@@ -104,16 +107,17 @@ src/
                     feedback cooldown, and race/gate correction isolation
     rivalDirector.ts Two-rival pace director with hysteresis, battle lock, and impact grace
     racers.ts       Six adult profiles, two women, handling styles, grid ranks, lanes, pace
-    records.ts      v5 local records, per-driver PBs, final/gallery state, JSON export/import,
-                    v2/v3/v4 migration
+    records.ts      v6 local records, coach mastery, per-driver PBs, final/gallery state,
+                    JSON export/import, and v2-v5 migration
+    drivingCoach.ts Pure contextual curriculum and successful-action mastery observer
     race.ts         Explicit READY, fresh/resume countdowns, seven-flight final station,
                     medal freeze, hard flight failure, laps, and battle events
     eventLog.ts     Capped local-only gameplay event log; no network analytics transport
     chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
                     reduced-motion support, cinematic orbit for countdown/results
   hud/
-    hud.ts/.css     Responsive minimal goal HUD: flights, 6-racer position, leader gap,
-                    edge action feedback, focused adaptive loading, READY gate, and medal UI
+    hud.ts/.css     Responsive minimal goal HUD: flights, position, contextual coach,
+                    focused failure review, READY gate, and medal UI
     driverSelect.ts/.css Character contract, centered desktop portrait/radar decision group,
                     mobile standing portrait with a separate ability column, real handling
                     modifiers (up to +/-6%), named roster paddles, and a desktop carousel

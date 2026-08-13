@@ -79,6 +79,8 @@ try {
   assert.equal(await recordsPage.locator('.driver-dot.selected').count(), 1);
   assert.match(await recordsPage.locator('.driver-radar-title').textContent() ?? '', /±6%/,
     'the radar must state its real physics ceiling');
+  assert.match(await recordsPage.locator('.driver-radar-title').textContent() ?? '', /实机性能修正.*基准 0%/,
+    'the radar must say that the values are live physics modifiers, not decoration');
   assert.match(await recordsPage.locator('.driver-radar').getAttribute('aria-label') ?? '', /加速 .+%，转向 .+%，漂移 .+%，空控 .+%/,
     'the radar must expose the four live handling modifiers');
   assert.equal(await recordsPage.locator('.driver-archive-button').count(), 0,
@@ -115,13 +117,14 @@ try {
     },
   });
   let state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 5);
+  assert.equal(state.version, 6);
   assert.equal(state.runs, 7);
   assert.equal(state.manMedalsTotal, 4);
   assert.equal(state.bestFlights, 5);
   assert.equal(state.farSeaDossierUnlocked, true);
   assert.deepEqual(state.bestFlightsByDriver, {});
   assert.equal(state.finaleCompletions, 0);
+  assert.equal(state.coach.status, 'expert');
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v2': {
@@ -131,13 +134,14 @@ try {
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 5);
+  assert.equal(state.version, 6);
   assert.equal(state.runs, 5);
   assert.equal(state.manMedalsTotal, 3);
   assert.equal(state.bestQualificationTime, 33);
   assert.equal(state.bestFlights, 3);
   assert.equal(state.farSeaDossierUnlocked, true);
   assert.equal(state.expansionSeenMask, 0);
+  assert.equal(state.coach.status, 'expert');
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v4': {
@@ -154,6 +158,50 @@ try {
   assert.equal(state.bestFlights, 0);
   assert.deepEqual(state.bestFlightsByDriver, { tide: 4, sol: 0 });
   assert.equal(state.bestQualificationTime, null);
+  assert.equal(state.coach.status, 'dormant');
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v5': {
+      version: 5, runs: 11, ordinaryUnlocked: false, manMedalsTotal: 0, excellentCount: 0,
+      bestQualificationTime: null, bestExcellentTime: null, bestFlights: 1,
+      bestRouteProgress: 0.2, closestMissM: null, bestFlightsByDriver: { axle: 1 },
+      farSeaDossierUnlocked: false, rivalWins: 0, finaleCompletions: 0,
+      expansionSeenMask: 0, finaleScreenshotCount: 0,
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.version, 6);
+  assert.equal(state.coach.status, 'dormant', 'legacy non-experts wait for their next real failure');
+  assert.equal(state.coach.mastery.bankedCharge, true, 'one passed flight proves bank, launch, and route actions');
+  assert.equal(state.coach.mastery.launched, true);
+  assert.equal(state.coach.mastery.passedRoute, true);
+  assert.equal(state.coach.knowledge.bankRule, false,
+    'a passed route proves the action, not that the player knows extra drift does not extend base flight');
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v6': {
+      version: 6, runs: 2, ordinaryUnlocked: false, manMedalsTotal: 0, excellentCount: 0,
+      bestQualificationTime: null, bestExcellentTime: null, bestFlights: 0,
+      bestRouteProgress: 0, closestMissM: null, bestFlightsByDriver: {},
+      farSeaDossierUnlocked: false, rivalWins: 0, finaleCompletions: 0,
+      expansionSeenMask: 0, finaleScreenshotCount: 0,
+      coach: { status: 'hacked', mastery: { steered: 'yes', bankedCharge: true }, knowledge: { bankRule: 1 } },
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.coach.status, 'dormant');
+  assert.equal(state.coach.mastery.steered, false);
+  assert.equal(state.coach.mastery.bankedCharge, true);
+  assert.equal(state.coach.knowledge.bankRule, false);
+  await recordsPage.evaluate(() => {
+    window.__harness.setCoachEnabled(true);
+    window.__harness.setCoachEnabled(false);
+  });
+  assert.equal((await recordsPage.evaluate(() => window.__harness.coachState())).status, 'disabled');
+  await recordsPage.reload({ waitUntil: 'load', timeout: 60000 });
+  await recordsPage.waitForFunction(() => window.__harness?.ready);
+  assert.equal((await recordsPage.evaluate(() => window.__harness.coachState())).status, 'disabled',
+    'closing contextual tips must survive reload');
 
   await replaceStorage(recordsPage, {});
   state = await recordsPage.evaluate(() => window.__harness.recordsCase('progress'));
@@ -164,6 +212,7 @@ try {
   assert.equal(state.excellentCount, 1);
   assert.equal(state.rivalWins, 1);
   assert.equal(state.farSeaDossierUnlocked, true);
+  assert.equal(state.coach.status, 'expert');
   await recordsPage.reload({ waitUntil: 'load', timeout: 60000 });
   await recordsPage.waitForFunction(() => window.__harness?.ready);
   assert.deepEqual(await recordsPage.evaluate(() => window.__harness.recordsState()), state, 'v4 records must survive reload');
@@ -190,6 +239,11 @@ try {
   assert.equal(state.bestFlights, 8);
   assert.equal(state.manMedalsTotal, 6);
   assert.deepEqual(state.bestFlightsByDriver, { sol: 8 });
+  assert.equal((await recordsPage.evaluate(() => window.__harness.coachState())).status, 'expert',
+    'an imported expert save must update the live coach, not only the serialized record');
+  await recordsPage.evaluate(() => window.__harness.setCoachEnabled(true));
+  assert.equal((await recordsPage.evaluate(() => window.__harness.coachState())).status, 'active',
+    'an expert may explicitly reopen contextual practice from READY');
   const invalidImport = await recordsPage.evaluate(() => {
     try {
       window.__harness.recordsImport('{"schema":"wrong","records":{}}');

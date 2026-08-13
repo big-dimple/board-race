@@ -19,6 +19,9 @@ export class DriverSelect {
   private readonly radar: HTMLCanvasElement;
   private readonly rosterIndex: HTMLDivElement;
   private readonly controllerStatus: HTMLDivElement;
+  private readonly coachButton: HTMLButtonElement;
+  private readonly coachPanel: HTMLElement;
+  private readonly coachState: HTMLSpanElement;
   private readonly previousButton: HTMLButtonElement;
   private readonly nextButton: HTMLButtonElement;
   private readonly previousLabel: HTMLElement;
@@ -39,6 +42,7 @@ export class DriverSelect {
     private readonly onSelect: (profile: DriverProfile, index: number, direction: -1 | 1) => void,
     onStart: () => void,
     private readonly onFirstInteraction?: () => void,
+    private readonly onCoachToggle: () => void = () => {},
   ) {
     this.selectedProfile = driverProfile(initialId);
     this.parent = parent;
@@ -108,7 +112,7 @@ export class DriverSelect {
     this.weakness = element('div', 'driver-con driver-trait', identity);
 
     const radarWrap = element('div', 'driver-radar-wrap', featured);
-    element('div', 'driver-radar-title', radarWrap, '能力分析 · 单项最高 ±6%');
+    element('div', 'driver-radar-title', radarWrap, '实机性能修正 · 基准 0% · 单项最高 ±6%');
     this.radar = document.createElement('canvas');
     this.radar.className = 'driver-radar';
     this.radar.width = 320;
@@ -168,16 +172,53 @@ export class DriverSelect {
     carousel.addEventListener('pointercancel', () => { this.carouselPointerId = null; });
 
     const footer = element('div', 'driver-select-footer', this.root);
+    this.coachButton = element('button', 'driver-coach-button', footer);
+    this.coachButton.type = 'button';
+    this.coachButton.title = '驾驶提示';
+    this.coachButton.setAttribute('aria-label', '打开驾驶提示');
+    this.coachButton.setAttribute('aria-expanded', 'false');
+    this.coachButton.textContent = '?';
+    this.coachButton.addEventListener('click', () => {
+      const open = !this.coachPanel.classList.contains('on');
+      this.coachPanel.classList.toggle('on', open);
+      this.coachButton.setAttribute('aria-expanded', String(open));
+    });
     const go = element('button', 'driver-select-go', footer, 'GO · 签约出发');
     go.type = 'button';
     go.addEventListener('click', onStart);
     this.controllerStatus = element('div', 'driver-controller-status', footer);
     this.controllerStatus.setAttribute('role', 'status');
     this.controllerStatus.setAttribute('aria-live', 'polite');
+    this.coachPanel = element('section', 'driver-coach-panel', this.root);
+    this.coachPanel.setAttribute('aria-label', '驾驶提示');
+    const coachHead = element('div', 'driver-coach-head', this.coachPanel);
+    element('strong', '', coachHead, '驾驶提示');
+    this.coachState = element('span', '', coachHead) as unknown as HTMLSpanElement;
+    element('div', 'driver-coach-row', this.coachPanel, '漂到船边左条黄线，松开才存入 1 格飞行');
+    element('div', 'driver-coach-row', this.coachPanel, '继续漂只增强水面 BOOST，基础飞行时间固定');
+    element('div', 'driver-coach-row', this.coachPanel, '菱形是库存；备用格可在空中续航 +2.4 秒');
+    element('div', 'driver-coach-row', this.coachPanel, '左条显示漂移 / BOOST / 空刹；右条显示本次飞行剩余时间');
+    element('div', 'driver-coach-row', this.coachPanel, '选手雷达四项会真实改变加速、转向、蓄力和空控，最高 ±6%');
+    const coachToggle = element('button', 'driver-coach-toggle', this.coachPanel, '开启情境提示');
+    coachToggle.type = 'button';
+    coachToggle.addEventListener('click', () => {
+      this.onCoachToggle();
+      this.coachPanel.classList.remove('on');
+      this.coachButton.setAttribute('aria-expanded', 'false');
+    });
     this.name.addEventListener('animationend', (event) => {
       if (event.animationName === 'driver-copy-lock') this.root.classList.remove('switching');
     });
     this.render();
+  }
+
+  setCoachStatus(status: string): void {
+    const enabled = status === 'active';
+    this.root.dataset.coachStatus = status;
+    this.coachButton.classList.toggle('active', enabled);
+    this.coachState.textContent = enabled ? '情境提示已开启' : status === 'expert' ? '已通过三飞认证' : status === 'complete' ? '核心驾驶已掌握' : '情境提示已关闭';
+    const toggle = this.coachPanel.querySelector<HTMLButtonElement>('.driver-coach-toggle');
+    if (toggle) toggle.textContent = enabled ? '关闭情境提示' : '开启情境提示';
   }
 
   updateControllerStatus(status: Record<string, number | string | boolean>): void {
@@ -362,7 +403,7 @@ function formatHandling(value: number): string {
 function handlingSummary(profile: DriverProfile): string {
   const h = profile.handling;
   return `加速 ${formatHandling(h.acceleration)}，转向 ${formatHandling(h.steering)}，` +
-    `漂移 ${formatHandling(h.driftCharge)}，空控 ${formatHandling(h.airControl)}；单项最高正负 6%`;
+    `漂移 ${formatHandling(h.driftCharge)}，空控 ${formatHandling(h.airControl)}；这些数值直接影响本局物理，单项最高正负 6%`;
 }
 
 function polygon(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, sides: number): void {

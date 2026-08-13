@@ -4,7 +4,9 @@ export default defineConfig({
   base: './',
   server: {
     port: 5173,
-    strictPort: false,
+    // Do not silently leave a second Vite process on 5174 when a previous
+    // session still owns the canonical development port.
+    strictPort: true,
   },
   build: {
     target: 'es2022',

@@ -17,6 +17,8 @@ automatically; players steer, drift/air-brake, and trigger flight.
   live in `src/core/`; HUD in `src/hud/`; sound in `src/audio/`; deterministic
   checks in `harness/`.
 - `README.md` is the user-facing source of truth for controls and behavior.
+- `docs/llmwiki.md` is the AI-facing source of truth for runtime ownership,
+  onboarding state, hidden mechanics, verification, and closeout discipline.
 
 ## Constraints
 
@@ -31,10 +33,19 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Changes to physics, lifecycle, audio, records, or rendering need the matching
   harness contract. Do not weaken thresholds to make a release pass.
 - GitHub Pages deploys `main` through `.github/workflows/deploy.yml`.
+- Do not leave manual Vite servers running. Port `5173` is strict; use an
+  explicit alternate port only for a deliberate concurrent session, and stop
+  the exact recorded process before handoff.
+- GitHub mutation or release work must use the available GitHub operations
+  skill. Knowledge/workspace closeout must use `neat-freak`; neither is implied
+  by a local implementation request.
 
 ## Current State
 
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
+- First-run onboarding is intentionally absent. The first real failure arms an
+  immediately skippable, action-observed contextual driving coach; progress and
+  disable state persist in challenge-record schema v6.
 - Final presentation uses a world-first frozen celebration: the live finish
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG
