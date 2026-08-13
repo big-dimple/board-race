@@ -1178,7 +1178,7 @@
   background:rgba(244,254,255,.1);
 }
 .hud-countdown-light.on { border-color:var(--warn); background:var(--warn); box-shadow:0 0 20px rgba(255,61,127,.72); }
-.hud-countdown-light.go { border-color:var(--accent); background:var(--accent); box-shadow:0 0 24px rgba(57,255,136,.82); }
+.hud-countdown.go .hud-countdown-rail { border-color:var(--accent); box-shadow:7px 7px 0 var(--ink),0 0 22px rgba(57,255,136,.32); }
 
 .hud-countdown.pop {
   animation: hud-pop 0.5s cubic-bezier(0.2, 1.8, 0.3, 1) forwards;
@@ -1342,13 +1342,13 @@
   --coach-color: var(--boost);
   --coach-dim: .3;
   position: absolute;
-  z-index: 17;
-  border: 3px solid var(--coach-color);
+  z-index: 27;
+  border: 4px solid var(--coach-color);
   border-radius: 7px;
   box-shadow:
     0 0 0 9999px rgba(4, 7, 20, var(--coach-dim)),
-    0 0 0 7px rgba(57, 255, 136, .16),
-    0 0 26px var(--coach-color);
+    0 0 0 8px rgba(244, 254, 255, .16),
+    0 0 34px 8px var(--coach-color);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -1368,9 +1368,9 @@
 
 .hud-coach-connector {
   position: absolute;
-  z-index: 18;
+  z-index: 28;
   height: 2px;
-  border-top: 2px dashed rgba(244, 254, 255, .8);
+  border-top: 3px dashed rgba(244, 254, 255, .94);
   opacity: 0;
   transform-origin: 0 50%;
   pointer-events: none;
@@ -1391,7 +1391,7 @@
 .hud-coach {
   --coach-color: var(--flight);
   position: absolute;
-  z-index: 19;
+  z-index: 29;
   left: 20px;
   top: 20px;
   width: min(390px, calc(100% - 40px));
@@ -1752,7 +1752,7 @@
 /* ---- compact layouts ---------------------------------------------------------------- */
 
 @media (max-width: 900px), (max-height: 520px) {
-  .hud-coach-spotlight { --coach-dim:.22; }
+  .hud-coach-spotlight { --coach-dim:.5; }
   .hud-topleft {
     left: max(12px, env(safe-area-inset-left));
     top: max(10px, env(safe-area-inset-top));
@@ -2650,20 +2650,20 @@
   .hud-coach {
     left: max(12px, env(safe-area-inset-left));
     top: max(12px, env(safe-area-inset-top));
-    width: min(330px, calc(100% - 190px));
-    min-height: 108px;
+    width: min(320px, calc(100% - 172px));
+    min-height: 116px;
     padding:8px 10px 36px 11px;
     border-width:2px 2px 2px 5px;
     box-shadow:3px 3px 0 var(--ink);
     transform:translateY(8px);
   }
   .hud-coach.on { transform:none; }
-  .hud-coach-stage { font-size:7px; }
-  .hud-coach-control { min-width:52px; min-height:24px; padding:5px 7px; font-size:9px; }
-  .hud-coach-kicker { font-size:8px; }
-  .hud-coach-title { margin-top:3px; font-size:14px; }
-  .hud-coach-detail { margin-top:4px; padding-right:78px; font-size:9px; }
-  .hud-coach-close { right:7px; bottom:7px; min-width:72px; min-height:24px; padding:0 7px; font-size:9px; }
+  .hud-coach-stage { font-size:8px; }
+  .hud-coach-control { min-width:58px; min-height:26px; padding:5px 8px; font-size:10px; }
+  .hud-coach-kicker { font-size:9px; }
+  .hud-coach-title { margin-top:3px; font-size:16px; }
+  .hud-coach-detail { margin-top:4px; padding-right:82px; font-size:10px; }
+  .hud-coach-close { right:7px; bottom:7px; min-width:78px; min-height:26px; padding:0 8px; font-size:10px; }
   .hud-lesson-copy { margin-top: 8px; font-size: 13px; }
   .hud-lesson-metric { margin-top: 7px; font-size: 11px; }
   .hud-lesson-progress { margin-top: 12px; }

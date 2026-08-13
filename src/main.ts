@@ -241,8 +241,10 @@ const race = new Race(course, boats, {
   },
   go: (_resuming) => {
     audio.setScene('racing');
-    if (!audio.countdownGoVoice()) audio.countdownBeep(true);
-    audio.horn();
+    const announced = audio.countdownGoVoice();
+    if (!announced) audio.countdownBeep(true);
+    // Let the short word lead instead of burying it under the horn transient.
+    audio.horn(announced ? 0.22 : 0);
     cameraRig.mode = 'chase';
     tower.announceGo(roster[0].name);
   },
@@ -1380,7 +1382,7 @@ function stageHarnessCoachDrift(): void {
   for (const key of Object.keys(progress.knowledge) as (keyof typeof progress.knowledge)[]) progress.knowledge[key] = false;
   progress.mastery.steered = true;
   // This is a visual fixture, not a save-migration fixture. The mobile suite
-  // may already have earned three flights, whose v7 sanitizer correctly
+  // may already have earned three flights, whose records sanitizer correctly
   // restores proven mastery if this synthetic state is persisted.
   drivingCoach.resetRun(boats[0].state);
   syncDrivingCoachUi();

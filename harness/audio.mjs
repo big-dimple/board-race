@@ -58,6 +58,8 @@ try {
     `the phone output limiter must stay protective: ${state.limiterThresholdDb}dB/${state.limiterRatio}:1`);
   assert.equal(state.countdownVoiceFailed, false, 'both local GO announcers must decode');
   assert.equal(state.countdownVoiceReady, true);
+  assert.ok(['ogg', 'mp3'].includes(String(state.countdownVoiceFormat)),
+    `GO announcers need a browser-selected local compatibility format: ${state.countdownVoiceFormat}`);
 
   // The mixer is still honest: dragging the music row gives a short, explicit
   // preview and then returns READY to silence.
@@ -161,7 +163,10 @@ try {
   await page.waitForTimeout(40);
   state = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(state.musicDuck) <= 0.67, `an overtake callout must duck the score: ${state.musicDuck}`);
-  await page.waitForTimeout(450);
+  // The phone-normalized announcer carries a short arena tail. Synthetic
+  // harness scenarios can trigger several GO calls without wall-clock time,
+  // so wait past the longest local clip before checking recovery.
+  await page.waitForTimeout(750);
   await page.evaluate(() => window.__harness.advance(0.1));
   state = await page.evaluate(() => window.__harness.audioState());
   assert.equal(Number(state.musicDuck), 1, 'event ducking must recover instead of permanently muting the score');
@@ -191,6 +196,34 @@ try {
     { master: 1, music: 1, sfx: 1, ambience: 1 },
     'mixer settings must survive reload',
   );
+
+  // Safari/iOS commonly declines Vorbis. Force the capability probe down the
+  // MP3 path in a touch/mobile context and still require one real GO event.
+  const mobileContext = await browser.newContext({ viewport:{ width:844, height:390 }, hasTouch:true, isMobile:true });
+  await mobileContext.addInitScript(() => {
+    const original = HTMLMediaElement.prototype.canPlayType;
+    HTMLMediaElement.prototype.canPlayType = function(type) {
+      if (String(type).includes('ogg')) return '';
+      return original.call(this, type);
+    };
+  });
+  const mobilePage = await mobileContext.newPage();
+  await mobilePage.goto(`http://127.0.0.1:${port}/?harness=1&mobile=1&quality=performance`, { waitUntil:'load', timeout:60000 });
+  await mobilePage.waitForFunction(() => window.__harness?.ready, null, { timeout:60000 });
+  await mobilePage.locator('.driver-select-go').click();
+  await mobilePage.waitForFunction(() => window.__harness.audioState().contextState === 'running');
+  await mobilePage.waitForFunction(() => window.__harness.audioState().countdownVoiceReady === true ||
+    window.__harness.audioState().countdownVoiceFailed === true, null, { timeout:5000 });
+  let mobileAudio = await mobilePage.evaluate(() => window.__harness.audioState());
+  assert.equal(mobileAudio.countdownVoiceFormat, 'mp3');
+  assert.equal(mobileAudio.countdownVoiceReady, true, 'mobile MP3 announcers must decode before GO');
+  const mobileVoiceEvents = Number(mobileAudio.countdownVoiceEvents);
+  await mobilePage.evaluate(() => window.__harness.scenario('countdown'));
+  await mobilePage.evaluate(() => window.__harness.advance(2.7));
+  mobileAudio = await mobilePage.evaluate(() => window.__harness.audioState());
+  assert.equal(Number(mobileAudio.countdownVoiceEvents), mobileVoiceEvents + 1,
+    'the MP3 compatibility path must emit exactly one GO announcer');
+  await mobileContext.close();
   console.log('audio contract: OK');
   await browser.close();
 } finally {

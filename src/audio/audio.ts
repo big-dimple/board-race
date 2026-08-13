@@ -18,8 +18,10 @@
  */
 import rockOgg from '../assets/audio/board-race-rock.ogg?url';
 import rockMp3 from '../assets/audio/board-race-rock.mp3?url';
-import goMale from '../assets/audio/countdown-go-male.ogg?url';
-import goFemale from '../assets/audio/countdown-go-female.ogg?url';
+import goMaleOgg from '../assets/audio/countdown-go-male.ogg?url';
+import goMaleMp3 from '../assets/audio/countdown-go-male.mp3?url';
+import goFemaleOgg from '../assets/audio/countdown-go-female.ogg?url';
+import goFemaleMp3 from '../assets/audio/countdown-go-female.mp3?url';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
@@ -88,6 +90,8 @@ export class GameAudio {
   private countdownStageValue = 3;
   private countdownVoice: 'male' | 'female' = 'male';
   private countdownVoiceBuffers: Partial<Record<'male' | 'female', AudioBuffer>> = {};
+  private countdownVoiceData: Promise<Partial<Record<'male' | 'female', ArrayBuffer>>>;
+  private countdownVoiceFormat: 'ogg' | 'mp3';
   private countdownVoiceFailed = false;
   private countdownVoiceEvents = 0;
   private raceScoreElapsed = 0;
@@ -149,6 +153,17 @@ export class GameAudio {
   private flightClearance = 0;
   private flightAirBrake = 0;
   private flightSteer = 0;
+
+  constructor() {
+    const probe = document.createElement('audio');
+    this.countdownVoiceFormat = probe.canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3';
+    const urls = this.countdownVoiceFormat === 'ogg'
+      ? { male: goMaleOgg, female: goFemaleOgg }
+      : { male: goMaleMp3, female: goFemaleMp3 };
+    // Fetch before the first gesture. Mobile browsers only allow AudioContext
+    // creation from that gesture, but the local bytes can already be warm.
+    this.countdownVoiceData = this.preloadCountdownVoiceData(urls);
+  }
 
   /** Call on first user gesture. Safe to call repeatedly. */
   resume(): void {
@@ -278,8 +293,8 @@ export class GameAudio {
     const gain = c.createGain();
     const t = c.currentTime;
     gain.gain.setValueAtTime(0.001, t);
-    gain.gain.linearRampToValueAtTime(0.34, t + 0.012);
-    gain.gain.setValueAtTime(0.34, Math.max(t + 0.02, t + buffer.duration - 0.09));
+    gain.gain.linearRampToValueAtTime(0.58, t + 0.012);
+    gain.gain.setValueAtTime(0.58, Math.max(t + 0.02, t + buffer.duration - 0.09));
     gain.gain.exponentialRampToValueAtTime(0.001, t + buffer.duration);
     source.connect(hp);
     hp.connect(gain);
@@ -319,6 +334,7 @@ export class GameAudio {
       musicPreview: this.musicPreview,
       countdownStage: this.countdownStageValue,
       countdownVoice: this.countdownVoice,
+      countdownVoiceFormat: this.countdownVoiceFormat,
       countdownVoiceReady: Boolean(this.countdownVoiceBuffers.male && this.countdownVoiceBuffers.female),
       countdownVoiceFailed: this.countdownVoiceFailed,
       countdownVoiceEvents: this.countdownVoiceEvents,
@@ -771,10 +787,10 @@ export class GameAudio {
   }
 
   /** Race-start horn: stacked A-major triad (220/277/330 Hz) saws, 1.2s, punchy. */
-  horn(): void {
+  horn(delay = 0): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
-    const t0 = c.currentTime;
+    const t0 = c.currentTime + Math.max(0, delay);
 
     const g = c.createGain();
     g.gain.setValueAtTime(0, t0);
@@ -919,24 +935,56 @@ export class GameAudio {
     };
   }
 
+  private async preloadCountdownVoiceData(
+    urls: Record<'male' | 'female', string>,
+  ): Promise<Partial<Record<'male' | 'female', ArrayBuffer>>> {
+    try {
+      const [male, female] = await Promise.all((['male', 'female'] as const).map(async (voice) => {
+        const response = await fetch(urls[voice]);
+        if (!response.ok) throw new Error(`${voice} countdown voice ${response.status}`);
+        return response.arrayBuffer();
+      }));
+      return { male, female };
+    } catch {
+      return {};
+    }
+  }
+
   private async loadCountdownVoices(): Promise<void> {
     const c = this.ctx;
     if (!c || this.countdownVoiceBuffers.male || this.countdownVoiceFailed) return;
     try {
-      const [maleData, femaleData] = await Promise.all([
-        fetch(goMale).then((response) => {
-          if (!response.ok) throw new Error(`male countdown voice ${response.status}`);
-          return response.arrayBuffer();
-        }),
-        fetch(goFemale).then((response) => {
-          if (!response.ok) throw new Error(`female countdown voice ${response.status}`);
-          return response.arrayBuffer();
-        }),
-      ]);
-      const [male, female] = await Promise.all([
-        c.decodeAudioData(maleData.slice(0)),
-        c.decodeAudioData(femaleData.slice(0)),
-      ]);
+      let data = await this.countdownVoiceData;
+      let maleData = data.male;
+      let femaleData = data.female;
+      if ((!maleData || !femaleData) && this.countdownVoiceFormat === 'ogg') {
+        this.countdownVoiceFormat = 'mp3';
+        data = await this.preloadCountdownVoiceData({ male: goMaleMp3, female: goFemaleMp3 });
+        maleData = data.male;
+        femaleData = data.female;
+      }
+      if (!maleData || !femaleData) throw new Error('countdown voice preload failed');
+      let male: AudioBuffer;
+      let female: AudioBuffer;
+      try {
+        [male, female] = await Promise.all([
+          c.decodeAudioData(maleData.slice(0)),
+          c.decodeAudioData(femaleData.slice(0)),
+        ]);
+      } catch {
+        // canPlayType is advisory. If a browser overstates Vorbis support,
+        // retry the universally-supported MP3 pair before falling back to a beep.
+        if (this.countdownVoiceFormat !== 'ogg') throw new Error('MP3 countdown voice decode failed');
+        this.countdownVoiceFormat = 'mp3';
+        data = await this.preloadCountdownVoiceData({ male: goMaleMp3, female: goFemaleMp3 });
+        maleData = data.male;
+        femaleData = data.female;
+        if (!maleData || !femaleData) throw new Error('MP3 countdown voice preload failed');
+        [male, female] = await Promise.all([
+          c.decodeAudioData(maleData.slice(0)),
+          c.decodeAudioData(femaleData.slice(0)),
+        ]);
+      }
       this.countdownVoiceBuffers.male = male;
       this.countdownVoiceBuffers.female = female;
     } catch {

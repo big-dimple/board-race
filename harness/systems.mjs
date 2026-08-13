@@ -55,10 +55,10 @@ try {
   const recordsPage = await recordsContext.newPage();
   await load(recordsPage);
   const freshRecords = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(freshRecords.version, 7);
+  assert.equal(freshRecords.version, 8);
   assert.equal(freshRecords.coach.status, 'dormant');
   assert.equal(freshRecords.coach.automaticEligible, true,
-    'only a brand-new v7 save may receive the one-time first-failure invitation');
+    'a brand-new v8 save must receive the one-time first-failure invitation');
 
   const portraits = await recordsPage.locator('.driver-card').evaluateAll((cards) => cards.map((card) => {
     const image = card.querySelector('img');
@@ -122,7 +122,7 @@ try {
     },
   });
   let state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 7);
+  assert.equal(state.version, 8);
   assert.equal(state.runs, 7);
   assert.equal(state.manMedalsTotal, 4);
   assert.equal(state.bestFlights, 5);
@@ -140,7 +140,7 @@ try {
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 7);
+  assert.equal(state.version, 8);
   assert.equal(state.runs, 5);
   assert.equal(state.manMedalsTotal, 3);
   assert.equal(state.bestQualificationTime, 33);
@@ -178,7 +178,7 @@ try {
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
-  assert.equal(state.version, 7);
+  assert.equal(state.version, 8);
   assert.equal(state.coach.status, 'dormant', 'legacy non-experts wait for their next real failure');
   assert.equal(state.coach.automaticEligible, false,
     'legacy non-experts may opt in from READY but are never interrupted automatically');
@@ -195,12 +195,32 @@ try {
       bestRouteProgress: 0, closestMissM: null, bestFlightsByDriver: {},
       farSeaDossierUnlocked: false, rivalWins: 0, finaleCompletions: 0,
       expansionSeenMask: 0, finaleScreenshotCount: 0,
+      coach: {
+        status: 'dormant', automaticEligible: false,
+        mastery: { steered: false, bankedCharge: false, launched: false, passedRoute: false, airBrakedInTurn: false, extendedFlight: false },
+        knowledge: { bankRule: false, inventory: false, flightGauge: false, extension: false },
+      },
     },
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
   assert.equal(state.coach.status, 'dormant');
+  assert.equal(state.coach.automaticEligible, true,
+    'the shipped v7 dormant novice must receive the one-time rollout repair');
+
+  await replaceStorage(recordsPage, {
+    'board-race:challenge:v7': {
+      version: 7, runs: 3, ordinaryUnlocked: false, bestFlights: 0,
+      coach: {
+        status: 'disabled', automaticEligible: false,
+        mastery: { steered: false, bankedCharge: false, launched: false, passedRoute: false, airBrakedInTurn: false, extendedFlight: false },
+        knowledge: { bankRule: false, inventory: false, flightGauge: false, extension: false },
+      },
+    },
+  });
+  state = await recordsPage.evaluate(() => window.__harness.recordsState());
+  assert.equal(state.coach.status, 'disabled');
   assert.equal(state.coach.automaticEligible, false,
-    'an existing but incomplete v7 record is returning/corrupt data, never a fresh install');
+    'the rollout repair must preserve an explicit skip');
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v7': {
@@ -227,7 +247,7 @@ try {
   });
   state = await recordsPage.evaluate(() => window.__harness.recordsState());
   assert.equal(state.coach.status, 'dormant');
-  assert.equal(state.coach.automaticEligible, false);
+  assert.equal(state.coach.automaticEligible, false, 'malformed v6 state cannot forge repair eligibility');
   assert.equal(state.coach.mastery.steered, false);
   assert.equal(state.coach.mastery.bankedCharge, true);
   assert.equal(state.coach.knowledge.bankRule, false);

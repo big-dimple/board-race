@@ -5,7 +5,8 @@ import {
   type DrivingCoachProgress,
 } from './drivingCoach';
 
-const STORAGE_KEY = 'board-race:challenge:v7';
+const STORAGE_KEY = 'board-race:challenge:v8';
+const V7_KEY = 'board-race:challenge:v7';
 const V6_KEY = 'board-race:challenge:v6';
 const V5_KEY = 'board-race:challenge:v5';
 const V4_KEY = 'board-race:challenge:v4';
@@ -14,7 +15,7 @@ const V2_KEY = 'board-race:challenge:v2';
 const LEGACY_MEDAL_KEY = 'board-race:man-medals:v1';
 
 export interface ChallengeRecords {
-  version: 7;
+  version: 8;
   runs: number;
   ordinaryUnlocked: boolean;
   manMedalsTotal: number;
@@ -36,7 +37,7 @@ export interface ChallengeRecords {
 const defaults = (): ChallengeRecords => {
   const legacyMedals = readLegacyMedals();
   return {
-    version: 7,
+    version: 8,
     runs: 0,
     ordinaryUnlocked: false,
     manMedalsTotal: legacyMedals,
@@ -147,7 +148,7 @@ export class RecordsStore {
     if (parsed.schema !== 'board-race-save' || !parsed.records || typeof parsed.records !== 'object') {
       throw new Error('存档格式不正确');
     }
-    const incoming = sanitizeV7(parsed.records as Partial<ChallengeRecords>, this.data, false);
+    const incoming = sanitizeV8(parsed.records as Partial<ChallengeRecords>, this.data, 'import');
     // Import is an explicit return path, never a first visit. Preserve
     // mastery/preferences but do not arm the one-time automatic invitation.
     incoming.coach.automaticEligible = false;
@@ -201,27 +202,32 @@ function loadRecords(): ChallengeRecords {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
-      if (parsed.version === 7) return sanitizeV7(parsed, fallback, true);
+      if (parsed.version === 8) return sanitizeV8(parsed, fallback, 'v8');
+    }
+    const v7Raw = localStorage.getItem(V7_KEY);
+    if (v7Raw) {
+      const v7 = JSON.parse(v7Raw) as Record<string, unknown>;
+      if (v7.version === 7) return sanitizeV8(v7 as Partial<ChallengeRecords>, fallback, 'v7');
     }
     const v6Raw = localStorage.getItem(V6_KEY);
     if (v6Raw) {
       const v6 = JSON.parse(v6Raw) as Record<string, unknown>;
-      if (v6.version === 6) return sanitizeV7(v6 as Partial<ChallengeRecords>, fallback, false);
+      if (v6.version === 6) return sanitizeV8(v6 as Partial<ChallengeRecords>, fallback, 'v6');
     }
     const v5Raw = localStorage.getItem(V5_KEY);
     if (v5Raw) {
       const v5 = JSON.parse(v5Raw) as Record<string, unknown>;
-      if (v5.version === 5) return sanitizeV7(v5 as Partial<ChallengeRecords>, fallback, false);
+      if (v5.version === 5) return sanitizeV8(v5 as Partial<ChallengeRecords>, fallback, 'legacy');
     }
     const v4Raw = localStorage.getItem(V4_KEY);
     if (v4Raw) {
       const v4 = JSON.parse(v4Raw) as Record<string, unknown>;
-      if (v4.version === 4) return sanitizeV7(v4 as Partial<ChallengeRecords>, fallback, false);
+      if (v4.version === 4) return sanitizeV8(v4 as Partial<ChallengeRecords>, fallback, 'legacy');
     }
     const v3Raw = localStorage.getItem(V3_KEY);
     if (v3Raw) {
       const v3 = JSON.parse(v3Raw) as Record<string, unknown>;
-      if (v3.version === 3) return sanitizeV7(v3 as Partial<ChallengeRecords>, fallback, false);
+      if (v3.version === 3) return sanitizeV8(v3 as Partial<ChallengeRecords>, fallback, 'legacy');
     }
     const v2Raw = localStorage.getItem(V2_KEY);
     if (!v2Raw) return fallback;
@@ -230,7 +236,7 @@ function loadRecords(): ChallengeRecords {
     const excellentCount = finiteNonNegative(v2.excellentCount, 0);
     const ordinaryUnlocked = v2.ordinaryUnlocked === true;
     return {
-      version: 7,
+      version: 8,
       runs: finiteNonNegative(v2.runs, 0),
       ordinaryUnlocked,
       manMedalsTotal: Math.max(
@@ -258,7 +264,9 @@ function loadRecords(): ChallengeRecords {
   }
 }
 
-function sanitizeV7(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords, currentSchema: boolean): ChallengeRecords {
+type RecordsSource = 'v8' | 'v7' | 'v6' | 'legacy' | 'import';
+
+function sanitizeV8(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords, source: RecordsSource): ChallengeRecords {
   const byDriver: Record<string, number> = {};
   if (parsed.bestFlightsByDriver && typeof parsed.bestFlightsByDriver === 'object') {
     for (const [key, value] of Object.entries(parsed.bestFlightsByDriver)) {
@@ -271,26 +279,37 @@ function sanitizeV7(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
   const validStatuses = new Set(['dormant', 'active', 'disabled', 'complete', 'expert']);
   const mastery = coachSource?.mastery as Partial<DrivingCoachProgress['mastery']> | undefined;
   const knowledge = coachSource?.knowledge as Partial<DrivingCoachProgress['knowledge']> | undefined;
-  const validCurrentCoach = currentSchema && coachSource && typeof coachSource === 'object' &&
-    validStatuses.has(String(coachSource.status)) && typeof coachSource.automaticEligible === 'boolean' &&
+  const completeCoachBits = coachSource && typeof coachSource === 'object' &&
+    validStatuses.has(String(coachSource.status)) &&
     mastery !== null && typeof mastery === 'object' &&
     knowledge !== null && typeof knowledge === 'object' &&
     ['steered', 'bankedCharge', 'launched', 'passedRoute', 'airBrakedInTurn', 'extendedFlight']
       .every((key) => typeof mastery[key as keyof typeof mastery] === 'boolean') &&
     ['bankRule', 'inventory', 'flightGauge', 'extension']
       .every((key) => typeof knowledge[key as keyof typeof knowledge] === 'boolean');
-  // A complete v7 coach object preserves explicit false mastery bits. Missing
-  // or malformed v7 coach data is returning/corrupt, never a fresh install.
-  const coach = sanitizeCoachProgress(parsed.coach, bestFlights, ordinaryUnlocked, Boolean(validCurrentCoach));
-  if (currentSchema && !validCurrentCoach) coach.automaticEligible = false;
-  if (!currentSchema) {
+  const validModernCoach = Boolean(completeCoachBits && typeof coachSource?.automaticEligible === 'boolean');
+  const validV6Coach = Boolean(completeCoachBits);
+  // Only a complete current object gets fresh-save defaults. Missing or
+  // malformed state can never forge an automatic guide invitation.
+  const coach = sanitizeCoachProgress(parsed.coach, bestFlights, ordinaryUnlocked, source === 'v8' && validModernCoach);
+  const noviceDormant = coach.status === 'dormant' && bestFlights < 3 && !ordinaryUnlocked;
+  if (source === 'v8') {
+    if (!validModernCoach) coach.automaticEligible = false;
+  } else if (source === 'v7') {
+    // v7 accidentally disarmed every migrated novice. Repair that release
+    // once, still waiting for the next real failure before anything appears.
+    coach.automaticEligible = Boolean(validModernCoach && noviceDormant);
+  } else if (source === 'v6') {
+    if (coach.status === 'active' && validV6Coach) {
+      coach.status = bestFlights >= 3 || ordinaryUnlocked ? 'expert' : 'dormant';
+    }
+    coach.automaticEligible = Boolean(validV6Coach && coach.status === 'dormant' && bestFlights < 3 && !ordinaryUnlocked);
+  } else {
     coach.automaticEligible = false;
-    // v6's active state came from the retired automatic coach. A returning
-    // player must not be surprised by a replacement tour after migration.
-    if (coach.status === 'active') coach.status = bestFlights >= 3 || ordinaryUnlocked ? 'expert' : 'dormant';
   }
+  if (source === 'import') coach.automaticEligible = false;
   return {
-    version: 7,
+    version: 8,
     runs: finiteNonNegative(parsed.runs, 0),
     ordinaryUnlocked,
     manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),

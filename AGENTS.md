@@ -45,10 +45,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
 - First-run onboarding is intentionally absent. Only a brand-new save's first
   real failure may invite the immediately skippable, action-observed spotlight
-  guide; progress, eligibility, and disable state persist in record schema v7.
-- Countdown `3/2/1` uses lights and ticks only. `GO` gets exactly one local
-  announcer, alternating male/female by fresh run; resume countdowns keep the
-  current run's voice and never stack both.
+  guide; schema v8 also repairs only dormant novices disarmed by the rejected
+  v7 rollout. Progress, eligibility, and disable state persist in schema v8.
+- Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use ticks
+  only. `GO` gets exactly one prefetched Ogg/MP3 local announcer, alternating
+  male/female by fresh run; resume countdowns keep the current run's voice.
 - Final presentation uses a world-first frozen celebration: the live finish
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG

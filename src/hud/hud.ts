@@ -751,9 +751,10 @@ export class HUD {
 
     // ---- countdown -------------------------------------------------------------------
     const cv = race.countdownValue;
-    if (cv !== this.lastCountdown) {
+    const countdownActive = race.phase === 'countdown' || race.phase === 'resume-countdown';
+    if (cv !== this.lastCountdown || (countdownActive && !this.cdVisible)) {
       this.lastCountdown = cv;
-      if (race.phase === 'countdown' || race.phase === 'resume-countdown' || cv === 0) this.showCountdown(cv);
+      if (countdownActive || cv === 0) this.showCountdown(cv);
     }
     if (this.goTimer > 0) {
       this.goTimer -= dt;
@@ -1032,6 +1033,8 @@ export class HUD {
     this.activeCoach = presentation;
     this.coachEl.dataset.tone = presentation.tone;
     this.coachEl.dataset.step = presentation.id;
+    this.coachEl.setAttribute('role', 'dialog');
+    this.coachEl.setAttribute('aria-label', `驾驶提示：${presentation.title}`);
     this.root.dataset.coachStep = presentation.id;
     this.root.dataset.coachFocus = presentation.focus;
     this.coachStage.textContent = presentation.stage;
@@ -1070,8 +1073,8 @@ export class HUD {
     this.coachSpotlight.style.height = `${Math.max(24, height)}px`;
 
     const compact = innerWidth <= 900 || innerHeight <= 520;
-    const cardWidth = compact ? Math.min(300, Math.max(220, bounds.width - 190)) : Math.min(390, bounds.width - 32);
-    const cardHeight = compact ? 116 : 142;
+    const cardWidth = compact ? Math.min(320, Math.max(236, bounds.width - 172)) : Math.min(390, bounds.width - 32);
+    const cardHeight = compact ? 124 : 142;
     const safe = compact ? 12 : 20;
     const targetCx = left + width * 0.5;
     const targetCy = top + height * 0.5;
@@ -1088,6 +1091,9 @@ export class HUD {
       }, 0);
       const candidate = occupiedLeft + safe;
       if (candidate + cardWidth <= bounds.width - safe) cardLeft = candidate;
+      // The compact top-center lane stays clear of both the near-boat meter
+      // and fixed thumb zones; the connector carries the eye to the target.
+      cardTop = safe;
     }
     cardLeft = Math.max(safe, Math.min(cardLeft, bounds.width - cardWidth - safe));
     cardTop = Math.max(safe, Math.min(cardTop, bounds.height - cardHeight - safe));
@@ -1359,10 +1365,12 @@ export class HUD {
     el.classList.remove('pop', 'go');
     void el.offsetWidth; // restart the CSS pop animation
     this.countdownLabel.textContent = v > 0 ? String(v) : 'GO!';
-    const lit = v > 0 ? 4 - v : 3;
+    // The rail is a remaining-count indicator: three lamps at 3, then one
+    // goes dark on every tick. GO is the release, so every lamp is off.
+    const lit = v > 0 ? v : 0;
     for (let i = 0; i < this.countdownLights.length; i++) {
       this.countdownLights[i].classList.toggle('on', i < lit);
-      this.countdownLights[i].classList.toggle('go', v === 0);
+      this.countdownLights[i].classList.remove('go');
     }
     el.classList.add('pop');
     if (v === 0) {

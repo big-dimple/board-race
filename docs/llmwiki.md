@@ -1,6 +1,6 @@
 # Board Race AI 运行手册
 
-状态：`current / schema-v7`
+状态：`current / schema-v8`
 
 这份文档给接手代码的 AI 使用，记录容易因上下文压缩而丢失、但又不能靠猜的
 稳定事实。面向玩家的操作与行为合同仍在 `README.md`；项目级硬约束在
@@ -13,7 +13,7 @@
   水面漂移 / 空中空刹，以及主动起飞 / 空中续航。
 - 核心循环是 `漂移 -> 松开入库 -> 在青色分支前起飞 -> 穿门`。三次独立飞行
   获得男人勋章，拿到第一升级为优秀男人；七飞后开放 Final Station。
-- 首次 READY 与首局不出现新手教程，让熟练玩家直接冲勋章。仅全新 v7 存档的
+- 首次 READY 与首局不出现新手教程，让熟练玩家直接冲勋章。仅全新 v8 存档的
   第一次真实失败会出现一次邀请；接受后才在下一局启动聚光式逐步标注。
 - `BoatInput` 和 60 Hz fixed-step 是稳定合同。教学只观察状态和成功动作，绝不
   注入输入、改物理、放宽路线判定或创建教程专用比赛规则。
@@ -77,8 +77,9 @@
 - 第一次真实失败完成成绩、勋章和失败快照结算后，展示聚焦本次错误的复盘，给出
   `带标注再冲 / 不用引导`。两个选择从第一帧可用，结束只回 READY，不会直接开局
   或缓冲 Space；超时默认接受并回 READY。
-- 只有 `automaticEligible=true` 的全新存档可自动从 `dormant` 进入 `active`，该资格
-  一经失败、主动启用、关闭、完成或 expert 就永久消费。v2-v6 和 import 都是回访。
+- 只有 `automaticEligible=true` 的存档可自动从 `dormant` 进入 `active`，该资格
+  一经失败、主动启用、关闭、完成或 expert 就永久消费。旧档和 import 默认是回访；
+  唯一例外是下面记录的 v7/v6 rollout repair。
 - 下一局只显示一个当前可执行提示，并把聚光框落在真实控件或船边仪表：桌面第一步
   必须明确框住 `SHIFT` 键帽；按下后框住左条，再按成功状态边沿推进到库存和起飞。
 - 危险警告、碰撞冲击、勋章和 Final 表现优先，guide 暂停而非叠层。可见
@@ -121,12 +122,15 @@ DriverSelect / READY
 
 ## 存档合同
 
-- 当前 key 是 `board-race:challenge:v7`，模型在 `src/game/records.ts`。
-- v7 持久化 guide 的 `status`、`automaticEligible`、逐项 `mastery` 和机制
+- 当前 key 是 `board-race:challenge:v8`，模型在 `src/game/records.ts`。
+- v8 持久化 guide 的 `status`、`automaticEligible`、逐项 `mastery` 和机制
   `knowledge`，并参与 JSON 导入 / 导出和恶意值清洗。
-- v2-v6 迁移不能用 `runs` 猜历史失败，因为它只表示按过 GO。旧档若
+- v2-v5 迁移不能用 `runs` 猜历史失败，因为它只表示按过 GO。旧档若
   `bestFlights >= 3` 或已经解锁勋章，迁为 `expert`；其他旧档保持 `dormant`，但
-  `automaticEligible=false`，只能由玩家从 READY `?` 主动启用。import 同样不自动。
+  `automaticEligible=false`，只能由玩家从 READY `?` 主动启用。v8 对错误发布的 v7
+  做一次定向修复：只把结构完整、仍为 `dormant`、未三飞且未主动关闭的玩家重新
+  设为 eligible，仍要等下一次真实失败才出现。v6 的完整 novice coach 也沿同一修复
+  迁移；`disabled / complete / expert`、坏数据和 import 永不自动。
 - `bestFlights >= 1` 可以证明玩家做过入库、起飞和过门，但不能证明理解固定飞行
   时长、空刹、两格策略或续航；不要把这些知识位一并猜成完成。
 - localStorage 写入失败不能阻塞当前游戏。导入时必须保持 live coach 引用同步，
@@ -165,17 +169,21 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 - 关闭后刷新不复活，READY `?` 可重开，三飞后变 expert。
 - 漂移掌握以真实入库为准；launch、route、air-brake、extension 也使用成功状态边沿。
 - 键盘、移动、标准 / 自定义 / 多手柄及运行中换设备显示正确 glyph。
-- 手机 coach 与船边仪表、固定右拇指区不重叠；portrait / background 冻结安全。
-- v2-v6 迁移、坏存档清洗与 JSON import 后的 live guide 一致且不会自动打扰。
+- 手机 coach 卡片与船边仪表、固定右拇指区不重叠，聚光框必须圈住真实按钮；
+  portrait / background 冻结安全。
+- v2-v8 迁移、v7 rollout repair、坏存档清洗与 JSON import 后的 live guide 一致。
 
 确定性浏览器入口是 `?harness=1`；`harness/screenshot.mjs` 负责玩法、输入、移动端
 和视觉几何，`harness/systems.mjs` 负责记录迁移与长跑合同。
 
 ## 倒计时播报合同
 
-- `3/2/1` 只使用三格起步灯、数字和短促 tick，不播数字人声。
-- `GO` 正常路径只播放一个本地人声，再叠加开赛 horn；男声用于奇数 fresh run，
+- `3/2/1` 只使用三格递减起步灯、数字和短促 tick：`3灯 -> 2灯 -> 1灯 -> GO全灭`，
+  不播数字人声。
+- `GO` 正常路径只播放一个本地人声，号角延后 `0.22s` 避免盖住人声；男声用于奇数 fresh run，
   女声用于偶数 fresh run。两段人声绝不同时连接，语音解码失败才退回电子 GO。
+- 人声在页面加载时预取，首个手势创建 AudioContext 后解码；浏览器能力探测选择
+  Ogg 或 MP3，Vorbis 解码仍失败时再试 MP3。手机合同必须强制覆盖 MP3 路径。
 - medal、Final 和 interruption 的 resume countdown 属于同一 run，保持当前播报者，
   不额外翻转男女；harness 以 `countdownVoiceEvents` 锁定 GO 前 0、GO 后恰好 +1。
 

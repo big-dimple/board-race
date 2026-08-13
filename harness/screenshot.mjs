@@ -118,6 +118,10 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'countdown', 'Space must start the same full countdown as Enter');
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'countdown');
+  await page.evaluate(() => window.__harness.advance(1 / 60));
+  assert.equal(await page.locator('.hud-countdown-light.on').count(), 3,
+    'the countdown must begin with all three remaining lights on');
+  assert.equal(await page.locator('.hud-countdown-label').textContent(), '3');
   await page.evaluate(() => window.__harness.advance(4.3));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'racing');
@@ -132,6 +136,14 @@ async function verifyFlightContract(page) {
   assert.equal(await page.locator('.hud-countdown-light.on').count(), 2,
     'the visual start rail must mirror the mid-countdown number without spoken numerals');
   assert.equal(await page.locator('.hud-countdown-label').textContent(), '2');
+  await page.evaluate(() => window.__harness.advance(1.4));
+  assert.equal(await page.locator('.hud-countdown-light.on').count(), 1,
+    'one red lamp must remain at 1');
+  assert.equal(await page.locator('.hud-countdown-label').textContent(), '1');
+  await page.evaluate(() => window.__harness.advance(1.15));
+  assert.equal(await page.locator('.hud-countdown-light.on').count(), 0,
+    'GO releases the start with every red lamp dark');
+  assert.equal(await page.locator('.hud-countdown-label').textContent(), 'GO!');
 
   await page.evaluate(() => window.__harness.scenario('start'));
   await page.evaluate(() => {
@@ -257,7 +269,9 @@ async function verifyFlightContract(page) {
   assert.equal(state.coachStatus, 'disabled');
   assert.equal(state.coachVisible, false);
   await page.evaluate(() => window.__harness.setCoachEnabled(true));
-  await page.evaluate(() => window.__harness.advance(0.8));
+  await page.evaluate(() => {
+    for (let i = 0; i < 20 && !window.__harness.playerState().coachVisible; i++) window.__harness.advance(0.15);
+  });
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.coachStatus, 'active');
   assert.notEqual(state.coachStep, 'none', 'READY help can re-enable the remaining spotlight curriculum');
@@ -909,6 +923,14 @@ async function verifyGamepadContract(page) {
 async function verifyMobileControls(page) {
   const start = page.locator('.mobile-start');
   const contractGo = page.locator('.driver-select-go');
+  const repairedCoach = await page.evaluate(() => ({
+    records:window.__harness.recordsState(),
+    coach:window.__harness.coachState(),
+  }));
+  assert.equal(repairedCoach.records.version, 8);
+  assert.equal(repairedCoach.coach.status, 'dormant');
+  assert.equal(repairedCoach.coach.automaticEligible, true,
+    'the shipped v7 novice must be repaired before its next real failure');
   assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
   assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
   await assertDriverSelectComposition(page, 'mobile-844x390');
@@ -1139,6 +1161,54 @@ async function verifyMobileControls(page) {
     assert.ok(touchActions.controls[action].faceCenterX < touchActions.width * 0.44,
       `${action} must remain in the left-thumb steering zone: ${JSON.stringify(touchActions.controls[action])}`);
   }
+
+  // Exercise the production path that failed in the shipped v7 build:
+  // migrated novice -> first failure -> immediate continue -> real GO ->
+  // contextual mobile spotlight. No visual fixture or forced coach state.
+  await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
+  await page.evaluate(() => window.__harness.advance(0.6));
+  let firstFailure = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(firstFailure.retryLessonActive, true);
+  assert.equal(firstFailure.retryLessonMinRead, 0, 'the first-failure offer must be skippable immediately');
+  assert.equal(firstFailure.coachStatus, 'active');
+  assert.equal(await page.locator('.hud-lesson-continue').textContent(), '带标注再冲');
+  await page.locator('.hud-lesson-continue').click();
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'ready');
+  await page.locator('.driver-select-go').click();
+  await page.evaluate(() => window.__harness.advance(4.35));
+  await page.evaluate(() => {
+    for (let i = 0; i < 30 && !window.__harness.playerState().coachVisible; i++) window.__harness.advance(0.15);
+  });
+  const liveMobileCoach = await page.evaluate(() => {
+    const rect = (selector) => {
+      const value = document.querySelector(selector)?.getBoundingClientRect();
+      return value && { left:value.left, right:value.right, top:value.top, bottom:value.bottom };
+    };
+    return {
+      coach:window.__harness.coachState(),
+      card:rect('.hud-coach.on'),
+      spotlight:rect('.hud-coach-spotlight.on'),
+      drift:rect('[data-mobile-action="drift"] span'),
+      title:document.querySelector('.hud-coach-title')?.textContent ?? '',
+      dim:getComputedStyle(document.querySelector('.hud-coach-spotlight')).getPropertyValue('--coach-dim').trim(),
+    };
+  });
+  assert.equal(liveMobileCoach.coach.activeStep, 'drift');
+  assert.equal(liveMobileCoach.coach.device, 'mobile');
+  assert.match(liveMobileCoach.title, /右下「漂」/,
+    'the first mobile step must name the actual fixed drift control');
+  assert.equal(liveMobileCoach.dim, '.5', 'the phone spotlight must visibly dim everything outside the live control');
+  assert.ok(liveMobileCoach.card && liveMobileCoach.spotlight && liveMobileCoach.drift &&
+    liveMobileCoach.spotlight.left <= liveMobileCoach.drift.left &&
+    liveMobileCoach.spotlight.right >= liveMobileCoach.drift.right &&
+    liveMobileCoach.spotlight.top <= liveMobileCoach.drift.top &&
+    liveMobileCoach.spotlight.bottom >= liveMobileCoach.drift.bottom,
+  `the real post-failure path must frame the live drift thumb control: ${JSON.stringify(liveMobileCoach)}`);
+  await page.locator('.hud-coach-close').click();
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  firstFailure = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(firstFailure.coachStatus, 'disabled');
+  assert.equal(firstFailure.coachVisible, false, 'mobile must be able to close the guide from its first visible step');
 
   // The post-medal countdown exposes direction/drift for preloading, but keeps
   // flight disabled. Active pointers must survive preparing -> racing.
@@ -1798,7 +1868,28 @@ async function main() {
       await verifyFlightContract(page);
       await verifyGamepadContract(page);
     }
-    if (verifyMobile) await verifyMobileControls(page);
+    if (verifyMobile) {
+      // Reproduce the exact browser state created by the rejected v7 release:
+      // a complete dormant novice record whose automatic eligibility was false.
+      await page.evaluate(() => {
+        localStorage.clear();
+        localStorage.setItem('board-race:challenge:v7', JSON.stringify({
+          version:7, runs:2, ordinaryUnlocked:false, manMedalsTotal:0, excellentCount:0,
+          bestQualificationTime:null, bestExcellentTime:null, bestFlights:0,
+          bestRouteProgress:0, closestMissM:null, bestFlightsByDriver:{},
+          farSeaDossierUnlocked:false, rivalWins:0, finaleCompletions:0,
+          expansionSeenMask:0, finaleScreenshotCount:0,
+          coach:{
+            status:'dormant', automaticEligible:false,
+            mastery:{ steered:false, bankedCharge:false, launched:false, passedRoute:false, airBrakedInTurn:false, extendedFlight:false },
+            knowledge:{ bankRule:false, inventory:false, flightGauge:false, extension:false },
+          },
+        }));
+      });
+      await page.reload({ waitUntil: 'load', timeout: 60000 });
+      await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
+      await verifyMobileControls(page);
+    }
     if (verifyPerformance) await verifyPerformanceContract(page);
     if (mobile && selected.length) {
       await activateMobileForScreenshots(page, touchFallback);

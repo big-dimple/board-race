@@ -28,7 +28,7 @@ export interface CoachKnowledge {
 
 export interface DrivingCoachProgress {
   status: CoachStatus;
-  /** Only a brand-new save may automatically arm the guide after one failure. */
+  /** Fresh saves and a narrowly repaired dormant rollout may arm once after failure. */
   automaticEligible: boolean;
   mastery: CoachMastery;
   knowledge: CoachKnowledge;

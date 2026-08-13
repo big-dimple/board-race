@@ -17,14 +17,17 @@
 
 ## Countdown GO Announcers
 
-- Files: `countdown-go-male.ogg`, `countdown-go-female.ogg`
+- Files: `countdown-go-male.{ogg,mp3}`, `countdown-go-female.{ogg,mp3}`
 - Source: locally synthesized for this project with the operating system's
   installed Kangkang and Huihui voices; the clips contain only the word `Go`.
 - Integrated: 2026-08-13
-- Modifications: silence-trimmed, high-pass filtered, peak-limited, and encoded
-  as mono Ogg Vorbis at 48kHz. No third-party recording or game audio was used.
-- SHA-256: male `97b1b0134825d31e25b6cfd36a44b57d1fb7bfb39411b994ab7c75bd09bead53`;
-  female `8d1596731424825e1a8d1dfea0252588064ed08975fd41a097b5fb5fea71539e`.
+- Modifications: silence-trimmed, high-pass filtered, phone-normalized, lightly
+  echoed, peak-limited, and encoded as mono 48kHz Vorbis plus MP3 fallback. No
+  third-party recording or game audio was used.
+- SHA-256: male Ogg `fde9f748ed42fb0c338db1783d9505364fdc51034fe295ec2c32502193a914ac`,
+  male MP3 `66b5147e8dfaf6f6fabe98c839797f82d890701faf33ada06d84bd8b71855514`,
+  female Ogg `415e7997c83293bfcfca1397ba8445965fc327df79979b2861db8d84375965bd`,
+  female MP3 `8d15a9852d52e3e8068078d56285b5fc652f672dfb0910064ef46e6d9a8a6e74`.
 - Playback: `3/2/1` remains visual plus synthesized ticks. Exactly one clip is
   selected at each fresh run's `GO` (male on odd runs, female on even runs),
   and the existing synthesized GO hit remains the decode-failure fallback.
