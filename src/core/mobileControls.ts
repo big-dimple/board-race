@@ -117,9 +117,8 @@ export class MobileControls {
       this.requestGo();
     });
     this.modeButton?.addEventListener('click', () => {
-      this.onFirstGesture();
+      this.requestImmersiveFromGesture();
       if (this.mode === 'touch') {
-        this.enterImmersiveMode();
         void this.activateTilt();
       }
       else this.useTouch();
@@ -147,11 +146,7 @@ export class MobileControls {
     });
     window.addEventListener('pointerdown', () => {
       this.anyPressQueued = true;
-      this.onFirstGesture();
-      if (!this.firstImmersiveGestureHandled) {
-        this.firstImmersiveGestureHandled = true;
-        this.enterImmersiveMode();
-      }
+      this.requestImmersiveFromGesture();
     }, { passive: true });
   }
 
@@ -215,9 +210,9 @@ export class MobileControls {
 
   /** Shared start gate used by the driver contract screen and fallback GO. */
   requestGo(): void {
-    this.onFirstGesture();
     // Fullscreen must be requested synchronously from the GO click. Waiting
     // for the sensor permission promise loses browser user activation.
+    this.onFirstGesture();
     this.enterImmersiveMode();
     if (this.activation === 'ready') {
       this.goQueued = true;
@@ -225,6 +220,14 @@ export class MobileControls {
     }
     this.pendingGoAfterActivation = true;
     void this.activateTilt();
+  }
+
+  /** Try immersive mode from any first pre-game touch, before async work. */
+  requestImmersiveFromGesture(): void {
+    this.onFirstGesture();
+    if (this.firstImmersiveGestureHandled) return;
+    this.firstImmersiveGestureHandled = true;
+    this.enterImmersiveMode();
   }
 
   setGoPrompt(show: boolean, label = '开始游戏'): void {
@@ -454,7 +457,7 @@ export class MobileControls {
   }
 
   private pointerDown(event: PointerEvent, action: PointerAction): void {
-    this.onFirstGesture();
+    this.requestImmersiveFromGesture();
     this.anyPressQueued = true;
     if (this.controlPhase === 'inactive' || this.activation !== 'ready') return;
     if (this.controlPhase === 'preparing' && action === 'flight') return;

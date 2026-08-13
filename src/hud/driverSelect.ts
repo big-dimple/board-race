@@ -38,11 +38,13 @@ export class DriverSelect {
     initialId: string,
     private readonly onSelect: (profile: DriverProfile, index: number, direction: -1 | 1) => void,
     onStart: () => void,
+    private readonly onFirstInteraction?: () => void,
   ) {
     this.selectedProfile = driverProfile(initialId);
     this.parent = parent;
     this.root = element('div', 'driver-select', parent);
     this.root.setAttribute('aria-label', '选择成年竞速选手');
+    this.root.addEventListener('pointerdown', () => this.onFirstInteraction?.(), { capture: true, passive: true });
 
     this.mobileBackdrop = document.createElement('img');
     this.mobileBackdrop.className = 'driver-mobile-backdrop';

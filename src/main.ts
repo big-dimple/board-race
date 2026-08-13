@@ -121,6 +121,7 @@ app.appendChild(hudLayer);
 const capture = new CaptureService(stage.renderer.domElement);
 let medalCapture: Blob | null = null;
 let finaleCapture: Blob | null = null;
+const mobileInput = new MobileControls(app, () => audio.resume(), params.has('mobile'));
 const hud = new HUD(
   hudLayer,
   course,
@@ -142,6 +143,7 @@ const driverSelect = new DriverSelect(
     applySelectedDriver(profile.id);
   },
   requestFreshStart,
+  () => mobileInput.requestImmersiveFromGesture(),
 );
 const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, saveFinaleCapture);
 const expansionGallery = new ExpansionGallery(
@@ -152,7 +154,6 @@ const expansionGallery = new ExpansionGallery(
 
 const input = new Input();
 const gamepadInput = new GamepadInput();
-const mobileInput = new MobileControls(app, () => audio.resume(), params.has('mobile'));
 const haptics = new Haptics(gamepadInput, () => mobileInput.enabled);
 mixer.attachHaptics(() => haptics.enabled, (enabled) => haptics.setEnabled(enabled));
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
