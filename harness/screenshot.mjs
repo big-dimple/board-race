@@ -11,8 +11,8 @@
  *   node harness/screenshot.mjs hairpin water   # subset
  *   node harness/screenshot.mjs --stats         # also print perf stats
  *   node harness/screenshot.mjs --responsive ready # desktop + compact selection layouts
- *   node harness/screenshot.mjs --mobile start       # default tilt controls
- *   node harness/screenshot.mjs --mobile --touch-fallback start
+ *   node harness/screenshot.mjs --mobile start       # default touch controls
+ *   node harness/screenshot.mjs --mobile --tilt start
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -1342,15 +1342,31 @@ async function verifyMobileControls(page) {
     `stable frames must restore mobile clarity: ${reducedRatio} -> ${renderStats.pixelRatio}`);
   let status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.activation, 'idle');
+  assert.equal(status.mode, 'touch', 'mobile must expose touch steering before the first GO');
+  assert.equal(await page.locator('.mobile-mode').textContent(), '转向 · 触控');
   assert.ok(Number(status.fullscreenRequests) >= 1,
     `the first touch on the driver selector must request fullscreen: ${JSON.stringify(status)}`);
   await contractGo.click();
   status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.ok(Number(status.fullscreenRequests) >= 1,
     `the first GO gesture must immediately request fullscreen: ${JSON.stringify(status)}`);
+  assert.equal(status.activation, 'ready', 'default touch steering must not wait for sensor calibration');
+  assert.equal(status.mode, 'touch');
 
-  // Headless Chrome may expose no orientation source. In that case the same
-  // timeout used on real unsupported devices must land in touch mode.
+  const mode = page.locator('.mobile-mode');
+  const touchActions = await readMobileControlGeometry(page);
+  const topControlsOverlap = await page.evaluate(() => {
+    const modeRect = document.querySelector('.mobile-mode')?.getBoundingClientRect();
+    const soundRect = document.querySelector('.audio-mixer-toggle')?.getBoundingClientRect();
+    if (!modeRect || !soundRect) return false;
+    return Math.min(modeRect.right, soundRect.right) > Math.max(modeRect.left, soundRect.left) &&
+      Math.min(modeRect.bottom, soundRect.bottom) > Math.max(modeRect.top, soundRect.top);
+  });
+  assert.equal(topControlsOverlap, false, 'SOUND may not cover the tilt/touch mode switch');
+
+  // Gravity steering remains an explicit opt-in. Only this mode-switch click
+  // may enter the permission/calibration path.
+  await mode.click();
   await page.waitForFunction(() => {
     const s = window.__harness.mobileStatus();
     return s.activation === 'calibrating' || s.activation === 'ready';
@@ -1370,22 +1386,9 @@ async function verifyMobileControls(page) {
     }
   }
   await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 2500 });
-
-  const mode = page.locator('.mobile-mode');
-  status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'tilt',
+    'the explicit mode switch must still enable calibrated gravity steering');
   const tiltActions = await readMobileControlGeometry(page);
-  assert.equal(status.mode, 'tilt', 'the sensor fixture must enter tilt mode before layout comparison');
-  const topControlsOverlap = await page.evaluate(() => {
-    const modeRect = document.querySelector('.mobile-mode')?.getBoundingClientRect();
-    const soundRect = document.querySelector('.audio-mixer-toggle')?.getBoundingClientRect();
-    if (!modeRect || !soundRect) return false;
-    return Math.min(modeRect.right, soundRect.right) > Math.max(modeRect.left, soundRect.left) &&
-      Math.min(modeRect.bottom, soundRect.bottom) > Math.max(modeRect.top, soundRect.top);
-  });
-  assert.equal(topControlsOverlap, false, 'SOUND may not cover the tilt/touch mode switch');
-  if (status.mode !== 'touch') await mode.click();
-  assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'touch');
-  const touchActions = await readMobileControlGeometry(page);
   for (const action of ['drift', 'flight']) {
     const before = tiltActions.controls[action];
     const after = touchActions.controls[action];
@@ -1396,6 +1399,10 @@ async function verifyMobileControls(page) {
     assert.ok(after.faceCenterX > touchActions.width * 0.58,
       `${action} must remain in the right-thumb skill zone: ${JSON.stringify(after)}`);
   }
+
+  await mode.click();
+  assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode, 'touch',
+    'the mode switch must return immediately to touch steering');
   assert.ok(touchActions.controls.drift.faceCenterX > touchActions.controls.flight.faceCenterX &&
     touchActions.controls.drift.faceCenterY > touchActions.controls.flight.faceCenterY,
   'drift must be the lower-right primary skill and flight its upper-left secondary skill');
@@ -1561,6 +1568,7 @@ async function verifyMobileControls(page) {
     };
     return {
       root:rect('.hud'),
+      rootScrollLeft:document.querySelector('.hud')?.scrollLeft ?? -1,
       coach:rect('.hud-coach.on'),
       spotlight:rect('.hud-coach-spotlight.on'),
       objective:rect('.hud-topleft'),
@@ -1593,6 +1601,8 @@ async function verifyMobileControls(page) {
   });
   assert.ok(coachLayout.coach && coachLayout.driverPower && coachLayout.flight && coachLayout.drift && coachLayout.driftDisc,
     `mobile spotlight guide must render with all fixed controls: ${JSON.stringify(coachLayout)}`);
+  assert.equal(coachLayout.rootScrollLeft, 0,
+    `the clipped HUD must never scroll while focus moves between mobile controls: ${JSON.stringify(coachLayout)}`);
   const overlaps = (a, b, gap = 6) => a && b &&
     a.left < b.right + gap && a.right > b.left - gap && a.top < b.bottom + gap && a.bottom > b.top - gap;
   assert.equal(overlaps(coachLayout.coach, coachLayout.driverPower), false,
@@ -1989,17 +1999,23 @@ async function assertMobileControlLayout(page, label, mode) {
   return geometry;
 }
 
-async function activateMobileForScreenshots(page, touchFallback) {
+async function activateMobileForScreenshots(page, tiltControls) {
   const contractGo = page.locator('.driver-select-go');
   const legacyStart = page.locator('.mobile-start');
   if (await contractGo.isVisible()) await contractGo.click();
   else if (await legacyStart.isVisible()) await legacyStart.click();
-  await page.waitForFunction(() => {
-    const s = window.__harness.mobileStatus();
-    return s.activation === 'calibrating' || s.activation === 'ready';
-  });
+  await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 3500 });
   let status = await page.evaluate(() => window.__harness.mobileStatus());
-  if (!touchFallback && status.activation === 'calibrating') {
+  const mode = page.locator('.mobile-mode');
+  if (tiltControls && status.mode !== 'tilt') {
+    await mode.click();
+    await page.waitForFunction(() => {
+      const s = window.__harness.mobileStatus();
+      return s.activation === 'calibrating' || s.activation === 'ready';
+    });
+    status = await page.evaluate(() => window.__harness.mobileStatus());
+  }
+  if (tiltControls && status.activation === 'calibrating') {
     for (let i = 0; i < 8; i++) {
       await page.evaluate(() => {
         const event = new Event('deviceorientation');
@@ -2013,11 +2029,8 @@ async function activateMobileForScreenshots(page, touchFallback) {
     }
   }
   await page.waitForFunction(() => window.__harness.mobileStatus().activation === 'ready', null, { timeout: 3500 });
-  status = await page.evaluate(() => window.__harness.mobileStatus());
-  const mode = page.locator('.mobile-mode');
-  if (touchFallback && status.mode !== 'touch') await mode.click();
   assert.equal((await page.evaluate(() => window.__harness.mobileStatus())).mode,
-    touchFallback ? 'touch' : 'tilt', `mobile screenshot must use the requested ${touchFallback ? 'touch' : 'tilt'} mode`);
+    tiltControls ? 'tilt' : 'touch', `mobile screenshot must use the requested ${tiltControls ? 'tilt' : 'touch'} mode`);
 }
 
 async function verifyPerformanceContract(page) {
@@ -2183,7 +2196,7 @@ async function main() {
   const verifyMobile = args.includes('--verify-mobile');
   const verifyPerformance = args.includes('--verify-performance');
   const mobile = args.includes('--mobile');
-  const touchFallback = args.includes('--touch-fallback');
+  const tiltControls = args.includes('--tilt');
   const names = args.filter((a) => !a.startsWith('--'));
   const selected = names.length ? names : (verifyFlight || verifyMobile || verifyPerformance) ? [] : Object.keys(SCENARIOS);
 
@@ -2341,22 +2354,50 @@ async function main() {
     }
     if (verifyPerformance) await verifyPerformanceContract(page);
     if (mobile && selected.length) {
-      await activateMobileForScreenshots(page, touchFallback);
+      await activateMobileForScreenshots(page, tiltControls);
       const mode = page.locator('.mobile-mode');
-      if (touchFallback) {
+      if (!tiltControls) {
         assert.equal(await page.locator('.mobile-controls').evaluate((el) => el.classList.contains('touch-steer')), true,
-          'touch fallback must expose the two steering zones');
-        assert.equal(await mode.textContent(), '转向 · 触控', 'touch fallback must identify the active steering mode');
+          'default touch steering must expose the two steering zones');
+        assert.equal(await mode.textContent(), '转向 · 触控', 'the mode switch must identify default touch steering');
       }
     }
 
-    const mobileSuffix = mobile ? (touchFallback ? '-mobile-touch' : '-mobile') : '';
+    const mobileSuffix = mobile ? (tiltControls ? '-mobile-tilt' : '-mobile') : '';
 
     for (const name of selected) {
       const def = SCENARIOS[name];
       if (!def) {
         console.error(`unknown scenario "${name}" — known: ${Object.keys(SCENARIOS).join(', ')}`);
         continue;
+      }
+      let releaseExpansionImage = null;
+      let expansionRoutePattern = null;
+      let expansionRouteHandler = null;
+      let expansionRequestListener = null;
+      const expansionImageRequests = [];
+      if (name === 'expansion-gallery') {
+        let releaseGate;
+        const loadGate = new Promise((resolve) => { releaseGate = resolve; });
+        let delayed = false;
+        releaseExpansionImage = () => releaseGate();
+        expansionRoutePattern = /\/desert(?:-[^/]*)?\.webp(?:\?.*)?$/;
+        expansionRouteHandler = async (route) => {
+          if (!delayed) {
+            delayed = true;
+            await loadGate;
+            await route.abort('failed');
+            return;
+          }
+          await route.continue();
+        };
+        expansionRequestListener = (request) => {
+          if (/\/assets\/expansions\/[^/?]+\.webp(?:\?.*)?$/.test(request.url())) {
+            expansionImageRequests.push(request.url());
+          }
+        };
+        page.on('request', expansionRequestListener);
+        await page.route(expansionRoutePattern, expansionRouteHandler);
       }
       console.log(`scenario: ${name} ...`);
       await page.evaluate((n) => window.__harness.scenario(n), def.scenario);
@@ -2368,10 +2409,47 @@ async function main() {
       }
       if (name === 'expansion-gallery') {
         const gallery = page.locator('.expansion-gallery');
+        const galleryImage = page.locator('.expansion-gallery-image');
+        const galleryLoader = page.locator('.expansion-gallery-loader');
+        const mobileControls = page.locator('.mobile-controls');
         const title = page.locator('.expansion-gallery-name');
         const tabs = page.locator('.expansion-gallery-dots button');
+        const waitForImage = () => page.waitForFunction(() => {
+          const root = document.querySelector('.expansion-gallery');
+          const image = document.querySelector('.expansion-gallery-image');
+          return root?.classList.contains('on') && !root.classList.contains('loading') &&
+            !root.classList.contains('load-error') && image?.classList.contains('ready');
+        }, null, { timeout: 10000 });
         assert.equal(await gallery.evaluate((element) => element.classList.contains('on')), true,
           'expansion gallery must open from the frozen finale');
+        await page.waitForFunction(() => document.querySelector('.expansion-gallery')?.classList.contains('loading'));
+        assert.equal(await gallery.getAttribute('aria-busy'), 'true', 'slow images must expose a busy loading state');
+        assert.equal(await galleryLoader.isVisible(), true, 'slow images must show a visible loading surface');
+        assert.equal(await galleryLoader.locator('strong').textContent(), '正在载入资料片');
+        assert.equal(await galleryLoader.locator('span').textContent(), '01 / 07');
+        assert.equal(await page.locator('.expansion-gallery-return').isVisible(), true,
+          'return to results must remain available during image loading');
+        await page.screenshot({ path: path.join(OUT, `expansion-gallery-loading${mobileSuffix}.png`) });
+        if (mobile) {
+          assert.equal(await mobileControls.evaluate((element) => element.classList.contains('overlay-hidden')), true,
+            'the mobile control layer must yield every game-control pixel to the dossier');
+          for (const selector of ['.mobile-start', '.mobile-mode', '.mobile-action-zones', '.mobile-steer-zones', '.mobile-tilt-meter']) {
+            assert.equal(await page.locator(selector).isVisible(), false,
+              `${selector} must stay hidden while the dossier is open`);
+          }
+        }
+        releaseExpansionImage();
+        await page.waitForFunction(() => document.querySelector('.expansion-gallery')?.classList.contains('load-error'));
+        assert.equal(await galleryLoader.locator('strong').textContent(), '图片载入失败');
+        assert.equal(await galleryLoader.locator('button').isVisible(), true,
+          'a failed image must offer an explicit retry instead of a blank screen');
+        await page.unroute(expansionRoutePattern, expansionRouteHandler);
+        await galleryLoader.locator('button').click();
+        await waitForImage();
+        assert.equal(await galleryLoader.isVisible(), false, 'the loading surface must leave after the image is decoded');
+        assert.equal(await galleryImage.evaluate((image) => image.naturalWidth > 0), true);
+        assert.deepEqual([...new Set(expansionImageRequests.map((url) => new URL(url).pathname.split('/').pop()))], ['desert.webp'],
+          'opening page one must not prefetch neighboring expansion images');
         assert.equal(await tabs.count(), 7, 'expansion gallery must list seven planned games');
         assert.deepEqual(await tabs.allTextContents(), [
           '沙漠：圣甲虫', '城市：磁轨轮滑手', '雪地：北极狐', '沼泽：树蛙',
@@ -2379,15 +2457,26 @@ async function main() {
         ]);
         assert.equal(await title.textContent(), '沙漠：圣甲虫');
         await page.keyboard.press('ArrowRight');
+        await waitForImage();
         assert.equal(await title.textContent(), '城市：磁轨轮滑手', 'right arrow must advance one page');
         await tabs.nth(6).click();
+        await waitForImage();
         assert.equal(await title.textContent(), '肠道：益生菌', 'Chinese game tab must jump directly to its page');
         assert.equal(await page.locator('.expansion-gallery-arrow.next').isDisabled(), true,
           'last page must not wrap to the first page');
         await page.keyboard.press('Escape');
         assert.equal(await gallery.evaluate((element) => element.classList.contains('on')), false,
           'Escape must return to the frozen finale');
+        if (mobile) {
+          assert.equal(await mobileControls.evaluate((element) => element.classList.contains('overlay-hidden')), false,
+            'returning to the finale must release the dossier control-layer override');
+        }
         await page.locator('[data-action="gallery"]').click();
+        if (mobile) {
+          assert.equal(await mobileControls.evaluate((element) => element.classList.contains('overlay-hidden')), true,
+            'reopening the dossier must hide mobile controls again');
+        }
+        await waitForImage();
         assert.equal(await title.textContent(), '沙漠：圣甲虫', 'reopening starts from the first dossier page');
         const galleryBox = await gallery.boundingBox();
         assert.ok(galleryBox, 'visible gallery must expose a swipe surface');
@@ -2395,8 +2484,11 @@ async function main() {
         await page.mouse.down();
         await page.mouse.move(galleryBox.x + galleryBox.width * 0.54, galleryBox.y + galleryBox.height * 0.6, { steps: 4 });
         await page.mouse.up();
+        await waitForImage();
         assert.equal(await title.textContent(), '城市：磁轨轮滑手', 'left swipe must advance one page');
         await tabs.nth(0).click();
+        await waitForImage();
+        if (expansionRequestListener) page.off('request', expansionRequestListener);
       }
       if (def.timeout) await page.waitForTimeout(0); // scenario itself blocks in evaluate
       if (def.settleMs) await page.waitForTimeout(def.settleMs);
@@ -2450,10 +2542,10 @@ async function main() {
 
       if (responsive) {
         const viewports = mobile ? [
-          { suffix: touchFallback ? 'touch-844x390' : 'tilt-844x390', width:844, height:390 },
-          { suffix: touchFallback ? 'touch-844x330' : 'tilt-844x330', width:844, height:330 },
-          { suffix: touchFallback ? 'touch-844x300' : 'tilt-844x300', width:844, height:300 },
-          { suffix: touchFallback ? 'touch-932x430' : 'tilt-932x430', width:932, height:430 },
+          { suffix: tiltControls ? 'tilt-844x390' : 'touch-844x390', width:844, height:390 },
+          { suffix: tiltControls ? 'tilt-844x330' : 'touch-844x330', width:844, height:330 },
+          { suffix: tiltControls ? 'tilt-844x300' : 'touch-844x300', width:844, height:300 },
+          { suffix: tiltControls ? 'tilt-932x430' : 'touch-932x430', width:932, height:430 },
         ] : name === 'ready' ? [
           { suffix:'844x390', width:844, height:390 },
           { suffix:'844x330', width:844, height:330 },
@@ -2468,7 +2560,7 @@ async function main() {
           await page.evaluate(() => window.__harness.render());
           await page.waitForTimeout(20);
           if (name === 'ready') await assertDriverSelectComposition(page, `${name}-${vp.suffix}`);
-          if (mobile) await assertMobileControlLayout(page, `${name}-${vp.suffix}`, touchFallback ? 'touch' : 'tilt');
+          if (mobile) await assertMobileControlLayout(page, `${name}-${vp.suffix}`, tiltControls ? 'tilt' : 'touch');
           await assertHudDoesNotOverlap(page, `${name}-${vp.suffix}`);
           await assertBattleLeavesDrivingRoiClear(page, `${name}-${vp.suffix}`);
           await assertCompactActionPromptLeavesDrivingRoiClear(page, `${name}-${vp.suffix}`);

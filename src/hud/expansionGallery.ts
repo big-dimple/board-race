@@ -32,6 +32,10 @@ export class ExpansionGallery {
   private readonly tag: HTMLDivElement;
   private readonly copy: HTMLDivElement;
   private readonly count: HTMLDivElement;
+  private readonly loader: HTMLDivElement;
+  private readonly loaderTitle: HTMLElement;
+  private readonly loaderDetail: HTMLElement;
+  private readonly retryButton: HTMLButtonElement;
   private readonly previousButton: HTMLButtonElement;
   private readonly nextButton: HTMLButtonElement;
   private readonly returnButton: HTMLButtonElement;
@@ -40,6 +44,9 @@ export class ExpansionGallery {
   private open = false;
   private startX: number | null = null;
   private pointerId: number | null = null;
+  private imageRequest = 0;
+  private loading = false;
+  private loadFailed = false;
 
   constructor(parent: HTMLElement, private readonly onSeen: (index: number) => void, private readonly onReturn: () => void) {
     const root = document.createElement('div');
@@ -49,7 +56,7 @@ export class ExpansionGallery {
     root.setAttribute('aria-label', '资料片档案');
     root.innerHTML = `
       <div class="expansion-gallery-stage">
-        <img class="expansion-gallery-image" alt="" draggable="false">
+        <img class="expansion-gallery-image" alt="" draggable="false" decoding="async">
         <div class="expansion-gallery-shade"></div>
         <div class="expansion-gallery-copy" aria-live="polite" aria-atomic="true">
           <div class="expansion-gallery-kicker">资料片档案 · 概念预告</div>
@@ -57,6 +64,12 @@ export class ExpansionGallery {
           <div class="expansion-gallery-name"></div>
           <div class="expansion-gallery-desc"></div>
           <div class="expansion-gallery-count"></div>
+        </div>
+        <div class="expansion-gallery-loader" role="status" aria-live="polite" aria-atomic="true">
+          <i aria-hidden="true"></i>
+          <strong>正在载入资料片</strong>
+          <span></span>
+          <button type="button">重试</button>
         </div>
         <div class="expansion-gallery-dots" role="tablist" aria-label="待开发游戏"></div>
         <button class="expansion-gallery-arrow prev" type="button" aria-label="上一页">‹</button>
@@ -70,6 +83,10 @@ export class ExpansionGallery {
     this.tag = root.querySelector('.expansion-gallery-tag')!;
     this.copy = root.querySelector('.expansion-gallery-desc')!;
     this.count = root.querySelector('.expansion-gallery-count')!;
+    this.loader = root.querySelector('.expansion-gallery-loader')!;
+    this.loaderTitle = this.loader.querySelector('strong')!;
+    this.loaderDetail = this.loader.querySelector('span')!;
+    this.retryButton = this.loader.querySelector('button')!;
     this.previousButton = root.querySelector('.prev')!;
     this.nextButton = root.querySelector('.next')!;
     this.returnButton = root.querySelector('.expansion-gallery-return')!;
@@ -87,6 +104,7 @@ export class ExpansionGallery {
     this.previousButton.addEventListener('click', () => this.move(-1));
     this.nextButton.addEventListener('click', () => this.move(1));
     this.returnButton.addEventListener('click', () => this.hide());
+    this.retryButton.addEventListener('click', () => this.loadImage());
     root.addEventListener('pointerdown', (event) => {
       if (event.button !== 0 || (event.target as Element).closest('button')) return;
       this.startX = event.clientX;
@@ -106,7 +124,6 @@ export class ExpansionGallery {
       else if (event.code === 'ArrowRight' || event.code === 'KeyD') this.move(1);
       else if (event.code === 'Escape') this.hide();
     });
-    PAGES.slice(0, 2).forEach((page) => { const preload = new Image(); preload.src = page.image; });
   }
 
   show(index = 0): void {
@@ -120,6 +137,7 @@ export class ExpansionGallery {
   hide(): void {
     if (!this.open) return;
     this.clearSwipe();
+    this.cancelImageLoad();
     this.open = false;
     this.root.classList.remove('on');
     trackGameEvent('expansion_return_game', { page: this.index });
@@ -129,20 +147,17 @@ export class ExpansionGallery {
   visible(): boolean { return this.open; }
 
   private move(direction: number): void {
+    if (this.loading || this.loadFailed) return;
     this.setIndex(this.index + direction);
   }
 
   private setIndex(index: number): void {
     this.index = Math.max(0, Math.min(PAGES.length - 1, index));
     const page = PAGES[this.index];
-    this.image.src = page.image;
-    this.image.alt = `${page.name}资料片概念图`;
     this.name.textContent = page.name;
     this.tag.textContent = page.tag;
     this.copy.textContent = page.copy;
     this.count.textContent = `${String(this.index + 1).padStart(2, '0')} / 07`;
-    this.previousButton.disabled = this.index === 0;
-    this.nextButton.disabled = this.index === PAGES.length - 1;
     this.dots.forEach((dot, i) => {
       const current = i === this.index;
       dot.classList.toggle('on', current);
@@ -152,11 +167,74 @@ export class ExpansionGallery {
     });
     this.onSeen(this.index);
     trackGameEvent('expansion_page_view', { page: this.index, expansion: page.tag });
-    for (const neighbor of [this.index - 1, this.index + 1]) {
-      if (!PAGES[neighbor]) continue;
-      const preload = new Image();
-      preload.src = PAGES[neighbor].image;
-    }
+    this.loadImage();
+  }
+
+  private loadImage(): void {
+    const request = ++this.imageRequest;
+    const page = PAGES[this.index];
+    this.loading = true;
+    this.loadFailed = false;
+    this.root.classList.add('loading');
+    this.root.classList.remove('load-error');
+    this.root.setAttribute('aria-busy', 'true');
+    this.image.classList.remove('ready');
+    this.loaderTitle.textContent = '正在载入资料片';
+    this.loaderDetail.textContent = `${String(this.index + 1).padStart(2, '0')} / 07`;
+    this.retryButton.hidden = true;
+    this.updateNavigation();
+
+    const complete = (): void => {
+      if (request !== this.imageRequest || !this.loading) return;
+      this.loading = false;
+      this.root.classList.remove('loading');
+      this.root.removeAttribute('aria-busy');
+      this.image.classList.add('ready');
+      this.updateNavigation();
+    };
+    const fail = (): void => {
+      if (request !== this.imageRequest || !this.loading) return;
+      this.loading = false;
+      this.loadFailed = true;
+      this.root.classList.remove('loading');
+      this.root.classList.add('load-error');
+      this.root.removeAttribute('aria-busy');
+      this.loaderTitle.textContent = '图片载入失败';
+      this.loaderDetail.textContent = '检查网络后重试';
+      this.retryButton.hidden = false;
+      this.updateNavigation();
+    };
+
+    this.image.alt = `${page.name}资料片概念图`;
+    this.image.fetchPriority = 'high';
+    this.image.onload = null;
+    this.image.onerror = null;
+    this.image.removeAttribute('src');
+    this.image.onload = complete;
+    this.image.onerror = fail;
+    this.image.src = page.image;
+    if (this.image.complete && this.image.naturalWidth > 0) queueMicrotask(complete);
+  }
+
+  private cancelImageLoad(): void {
+    this.imageRequest++;
+    this.loading = false;
+    this.loadFailed = false;
+    this.image.onload = null;
+    this.image.onerror = null;
+    this.image.removeAttribute('src');
+    this.image.classList.remove('ready');
+    this.root.classList.remove('loading', 'load-error');
+    this.root.removeAttribute('aria-busy');
+    this.retryButton.hidden = true;
+    this.updateNavigation();
+  }
+
+  private updateNavigation(): void {
+    const blocked = this.loading || this.loadFailed;
+    this.previousButton.disabled = blocked || this.index === 0;
+    this.nextButton.disabled = blocked || this.index === PAGES.length - 1;
+    this.dots.forEach((dot) => { dot.disabled = blocked; });
   }
 
   private clearSwipe(): void {

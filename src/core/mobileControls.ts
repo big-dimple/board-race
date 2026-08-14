@@ -20,7 +20,7 @@ const CALIBRATION_MS = 300;
 const SENSOR_TIMEOUT_MS = 1500;
 const MIN_CALIBRATION_SAMPLES = 6;
 
-/** Landscape mobile controls with a permission-gated, stable tilt calibration. */
+/** Landscape mobile controls with touch steering and opt-in tilt calibration. */
 export class MobileControls {
   readonly enabled: boolean;
 
@@ -36,7 +36,7 @@ export class MobileControls {
   private readonly activePointers = new Map<number, PointerAction>();
   private readonly buttons = new Map<PointerAction, HTMLButtonElement>();
 
-  private mode: ControlMode = 'tilt';
+  private mode: ControlMode = 'touch';
   private activation: ActivationState = 'idle';
   private controlPhase: ControlPhase = 'inactive';
   private permissionPending = false;
@@ -98,7 +98,7 @@ export class MobileControls {
     }
 
     const root = document.createElement('div');
-    root.className = 'mobile-controls';
+    root.className = 'mobile-controls touch-steer';
     root.dataset.activation = 'idle';
     root.innerHTML = `
       <div class="mobile-orientation" role="alert" aria-live="assertive">
@@ -107,7 +107,7 @@ export class MobileControls {
         <span>本游戏仅支持横屏</span>
       </div>
       <button class="mobile-start" type="button">开始游戏</button>
-      <button class="mobile-mode" type="button" aria-label="切换转向方式">转向 · 重力</button>
+      <button class="mobile-mode" type="button" aria-label="当前触控转向，点击切换重力">转向 · 触控</button>
       <div class="mobile-tilt-meter" aria-hidden="true"><i></i></div>
       <div class="mobile-steer-zones" aria-label="触控转向">
         <button type="button" data-mobile-action="left" aria-label="左转"><span><b>‹</b><small>LEFT</small></span></button>
@@ -248,7 +248,8 @@ export class MobileControls {
       return;
     }
     this.pendingGoAfterActivation = true;
-    void this.activateTilt();
+    if (this.mode === 'touch') this.useTouch();
+    else void this.activateTilt();
   }
 
   /** Try immersive mode from any first pre-game touch, before async work. */
@@ -263,6 +264,17 @@ export class MobileControls {
     this.showGo = show;
     this.goLabel = label;
     this.syncStartButton();
+  }
+
+  /** Hide game controls behind a full-screen viewer while preserving the portrait blocker. */
+  setOverlayHidden(hidden: boolean): void {
+    this.root?.classList.toggle('overlay-hidden', hidden);
+    if (hidden) {
+      this.releaseAll();
+      this.flightQueued = false;
+      this.anyPressQueued = false;
+      this.goQueued = false;
+    }
   }
 
   setActionState(state: AbilityHudState, turnWarning = false): void {

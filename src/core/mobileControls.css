@@ -73,6 +73,16 @@
   pointer-events: auto;
 }
 
+/* Full-screen viewers own every game-control pixel. Keep the orientation
+   blocker available so portrait never becomes a supported play layout. */
+.mobile-controls.overlay-hidden .mobile-start,
+.mobile-controls.overlay-hidden .mobile-mode,
+.mobile-controls.overlay-hidden .mobile-action-zones,
+.mobile-controls.overlay-hidden .mobile-steer-zones,
+.mobile-controls.overlay-hidden .mobile-tilt-meter {
+  display: none !important;
+}
+
 .mobile-action-zones,
 .mobile-steer-zones {
   position: absolute;

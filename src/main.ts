@@ -179,7 +179,10 @@ const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGal
 const expansionGallery = new ExpansionGallery(
   hudLayer,
   (index) => records.markExpansionSeen(index),
-  () => finale.focusContinue(),
+  () => {
+    mobileInput.setOverlayHidden(false);
+    finale.focusContinue();
+  },
 );
 
 const input = new Input();
@@ -472,6 +475,7 @@ function continueAfterFinale(): void {
 
 function openExpansionGallery(): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S) return;
+  mobileInput.setOverlayHidden(true);
   expansionGallery.show(0);
 }
 

@@ -6,7 +6,9 @@ The dossier is a frozen, full-screen, one-game-per-page viewer for seven planned
 games: `沙漠：圣甲虫`, `城市：磁轨轮滑手`, `雪地：北极狐`, `沼泽：树蛙`,
 `丛林：长臂猿`, `外星：浮空鳐形生命`, and `肠道：益生菌`. It supports the
 arrow buttons, `←` / `→`, `A` / `D`, touch swipes, clickable Chinese page tabs,
-and `Esc` / `返回结算`. The images are concept art; the seven playable games
+and `Esc` / `返回结算`. Each image loads only when its page is opened, with an
+explicit loading/retry state; neighboring pages are not prefetched. Mobile game
+controls yield the full screen while the dossier is open. The images are concept art; the seven playable games
 remain tracked in [`docs/expansion-gallery-handoff.md`](docs/expansion-gallery-handoff.md).
 
 **Play online:** [https://big-dimple.github.io/board-race/](https://big-dimple.github.io/board-race/)
@@ -38,7 +40,7 @@ Backgrounding or minimizing the page immediately freezes simulation and hard-mut
 
 Keyboard steering remains active in touch-capable Chrome sessions, including `←` / `→`. Standard-mapped controllers are also supported: left stick or D-pad steers, `A / Cross` flies and confirms, and `X / Square`, `LB`, or `RB` holds drift/air-brake. Connected pads are scanned together and the pad producing deliberate input becomes active; an idle first-listed device cannot block the controller in hand. Unknown browser mappings enter a four-step READY calibration and persist by device signature. Controller rumble and short phone vibration share an independent, default-on `体感反馈` setting and the same no-buffer countdown rule as keyboard input.
 
-On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape; `GO` retries inside its own user gesture, requests motion permission, and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
+On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape, and `GO` retries inside its own user gesture. Touch steering is the default and starts immediately; choosing `转向 · 重力` from the mode switch is the only path that requests motion permission and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors remain in touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
 A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. Passing completes the flight but does not erase the boat's horizontal momentum: the cyan approach changes into a soft green recovery funnel with water-following arrows, overlaps the main green line, and hands route ownership back only after the landing path reaches its authored exit. Legal recovery momentum cannot preload an off-course or wrong-way warning; those two surface mistakes also use distinct messages. Before the seventh pass, surface progress remains ordered: crossing open water onto a later, spatially nearby piece of the green ribbon cannot adopt that segment or emit its checkpoints. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. Steering and drift/air-brake may be held before or during the medal and remain held through its frozen presentation and resume countdown; a flight press is still edge-triggered and never buffered. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit. The seventh pass atomically retires surface off-course and wrong-way failures, fades the green route to a weak reference, and makes the visible golden `FINAL STATION` the sole scored destination. After the authored descent and landing, the player may approach from any route or direction; crossing between the two gold columns finishes, while passing outside them simply leaves the gate available for another attempt. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Before Final is armed, missing a portal, failing to launch, landing early, or leaving the corridor still ends the run immediately. Failure review keeps those causes separate: route-level failures do not invent a gate number, while portal-side misses preserve the actual side and distance evidence.
 
@@ -61,7 +63,7 @@ src/
                     + adaptive pixel ratio), loop.ts (fixed 60Hz sim), input.ts,
                     gamepadInput.ts (multi-pad arbitration, calibration, rumble), haptics.ts,
                     mobileControls.ts
-                    (tilt steering, touch fallback, fullscreen, multi-touch actions),
+                    (default touch steering, opt-in tilt, fullscreen, multi-touch actions),
                     abilityTelemetry.ts (shared drift/flight HUD state), capture.ts
                     (WebGL plus authored-card PNG capture),
                     prePass.ts (MRT normal/depth prepass for edge detection + foam masks)
@@ -177,9 +179,9 @@ npm run verify:audio                      # formal track, mixer, ducking, hidden
 npm run verify:systems                    # records, portraits, rivals, 14-flight endurance
 npm run verify:release                    # all release gates in sequence
 node harness/screenshot.mjs --responsive flight-cruise # desktop + compact landscape
-node harness/screenshot.mjs --mobile --touch-fallback --responsive flight-recovery-air flight-recovery-surface
-node harness/screenshot.mjs --mobile start              # landscape tilt-control capture
-node harness/screenshot.mjs --mobile --touch-fallback start
+node harness/screenshot.mjs --mobile --responsive flight-recovery-air flight-recovery-surface
+node harness/screenshot.mjs --mobile start              # landscape touch-control capture (default)
+node harness/screenshot.mjs --mobile --tilt start       # explicit tilt-control capture
 ```
 
 `?harness=1` runs the game deterministically (seeded, fixed-step) and exposes `window.__harness` for scenario driving and free-camera placement.
