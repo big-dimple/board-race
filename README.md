@@ -40,7 +40,7 @@ Keyboard steering remains active in touch-capable Chrome sessions, including `�
 
 On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape; `GO` retries inside its own user gesture, requests motion permission, and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
-A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit; after the seventh route, two golden energy columns charge at the existing finish gantry and wait for a real water-surface crossing. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
+A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. Passing completes the flight but does not erase the boat's horizontal momentum: the cyan approach changes into a soft green recovery funnel with water-following arrows, overlaps the main green line, and hands route ownership back only after the landing path reaches its authored exit. Legal recovery momentum cannot preload an off-course or wrong-way warning; those two surface mistakes also use distinct messages. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit; after the seventh route, two golden energy columns charge at the existing finish gantry and wait for a real water-surface crossing. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately.
 
 The first run deliberately contains no onboarding: experienced players can attack the `男人勋章` immediately. Only an eligible novice's first real failure offers `带标注再冲 / 不用引导`; the focused review is actionable from its first frame, returns only to READY, and never buffers a race input. If accepted, the next run dims the surrounding HUD and spotlights one actual control or near-boat instrument at a time. On PC the first unmastered core action explicitly frames `SHIFT` and says `按住 SHIFT 漂移`; on mobile it circles the fixed lower-right `漂` thumb control. Once held, the focus moves to the left rail and yellow line, then to the stored diamond, `SPACE`/`飞`, and the flight timer as those actions become relevant. A drift is mastered only after crossing the yellow `BANK` mark and releasing into a stored diamond, not merely by pressing Shift. Every step can be permanently skipped by its visible `跳过引导`, keyboard `Esc`, or controller `View / Back`; READY `?` can re-enable remaining lessons on demand. Players who prove three flights before a failure are treated as experts. Schema v8 includes a one-time repair for novices accidentally disarmed by the rejected v7 rollout; it still waits for their next real failure and preserves every explicit skip or expert state.
 
@@ -48,7 +48,7 @@ The near-boat left rail is contextual: drift charge on water, remaining surface 
 
 Runs, medals, excellent finishes, per-driver PB flights, final completions, expansion pages seen, screenshot counts, closest misses, rival wins, and driving-guide mastery/preferences are saved in versioned browser `localStorage` with v2-v7 migration into schema v8. Schema v8 records the one-time automatic-invitation eligibility explicitly and repairs only complete, dormant novice v7/v6 coach records; explicit skips, completed/expert states, older saves, malformed data, and imports are never re-armed automatically. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; the versioned data contract remains suitable for a future authenticated server sync. Archive controls stay out of the selection screen so the first decision remains focused.
 
-Audio uses the complete owner-selected 127-second instrumental rock track plus Web Audio engine, restrained water/air pressure, air-brake, gate, collision, battle, failure, and medal layers. Countdown lights visibly count down `3 lit -> 2 -> 1 -> GO dark`, with short ticks and no spoken numbers. Only `GO` gets one local voice, alternating male then female by fresh run and never playing both together; Ogg and MP3 versions are prefetched, phone-normalized, and the horn starts slightly later so it cannot bury the word. The first explicit GO starts the song from its opening and brings it in progressively; later runs, loading, medals, and READY preserve the same browser-session timeline. Only the natural end loops back to the song opening. `SOUND` exposes separate master, music, effects, ambience, visible percentages, audition feedback, and mute. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately until explicit GO resumes it.
+Audio uses the complete owner-selected 127-second instrumental rock track plus Web Audio engine, restrained water/air pressure, air-brake, gate, collision, battle, failure, and medal layers. Countdown lights visibly count down `3 lit -> 2 -> 1 -> GO dark`, with short ticks and no spoken numbers. Only `GO` gets one local voice, alternating male then female by fresh run and never playing both together. Both Ogg and MP3 variants are prefetched independently, the selected voice decodes first after the user gesture, and the horn starts slightly later so it cannot bury the word. If that voice or the browser audio context is not ready at the exact GO frame, one electronic GO hit plays instead; speech is never inserted late. The first explicit GO starts the song from its opening and brings it in progressively; later runs, loading, medals, and READY preserve the same browser-session timeline. Only the natural end loops back to the song opening. `SOUND` exposes separate master, music, effects, ambience, visible percentages, audition feedback, and mute. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately until explicit GO resumes it.
 
 ## Architecture
 
@@ -98,9 +98,9 @@ src/
                     Animated from BoatState: lean ∝ lateral G, weight shift ∝ long G,
                     drift hip twist, throttle wrist, landing crouch spring, airborne
                     "whee" pose, idle breathing, celebration pump
-    course.ts       CatmullRom circuit plus seven 3D flight branches, a single player-owned
-                    active guide, locally masked water line, gates/buoys with foam collars,
-                    cold-load-safe START/finish gantry and armed golden final station
+    course.ts       CatmullRom circuit plus seven 3D flight branches, single-guide ownership,
+                    post-gate recovery handoff, locally masked water line, gates/buoys with
+                    foam collars, cold-load-safe START/finish gantry and golden final station
     ai.ts           Spline-following AI with lookahead, six-racer pace profiles,
                     readable drift, elite consistency, and bounded traffic avoidance
     collision.ts    Swept capsule CCD, bounded arcade impulses, pileup separation,
@@ -110,8 +110,8 @@ src/
     records.ts      v8 local records, guide eligibility/mastery, per-driver PBs,
                     final/gallery state, JSON export/import, and v2-v7 migration
     drivingCoach.ts Pure contextual curriculum and successful-action mastery observer
-    race.ts         Explicit READY, fresh/resume countdowns, seven-flight final station,
-                    medal freeze, hard flight failure, laps, and battle events
+    race.ts         Explicit READY, fresh/resume countdowns, route-transition rebasing,
+                    distinct course warnings, medal/final lifecycle, laps, and battle events
     eventLog.ts     Capped local-only gameplay event log; no network analytics transport
     chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
                     reduced-motion support, cinematic orbit for countdown/results
@@ -134,9 +134,10 @@ harness/
                     (two-charge storage, seven-route timing, qualification, adaptive loading,
                     keyboard/dual-gamepad/custom-map/mobile controls, haptics, cold START,
                     radar restore, fullscreen request,
-                    route guidance, performance, and battle events)
+                    route guidance and continuous post-gate recovery, performance, and battles)
     collision.mjs   15-pair CCD, pileup, cooldown, rule isolation, route-4 boundary tests
-    audio.mjs       Media playback, mixer, progressive score, ducking, background lifecycle
+    audio.mjs       Media playback, mixer, ducking, background lifecycle, real mobile GO click,
+                    selected-voice priority, cold-load fallback, and no-late-speech contracts
     systems.mjs     Save migration/import, portraits, rivals, and two-lap/14-flight endurance
 ```
 
@@ -172,6 +173,7 @@ npm run verify:audio                      # formal track, mixer, ducking, hidden
 npm run verify:systems                    # records, portraits, rivals, 14-flight endurance
 npm run verify:release                    # all release gates in sequence
 node harness/screenshot.mjs --responsive flight-cruise # desktop + compact landscape
+node harness/screenshot.mjs --mobile --touch-fallback --responsive flight-recovery-air flight-recovery-surface
 node harness/screenshot.mjs --mobile start              # landscape tilt-control capture
 node harness/screenshot.mjs --mobile --touch-fallback start
 ```

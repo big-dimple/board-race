@@ -18,6 +18,7 @@ import type {
   ChallengeResult,
   FlightFailureSnapshot,
   FlightRouteFailReason,
+  CourseWarning,
 } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
@@ -234,7 +235,7 @@ export class HUD {
   private lastDriftTier = 0;
   private hudTime = 0;
   private flightAlertTimer = 0;
-  private lastWrongWay = false;
+  private lastCourseWarning: CourseWarning = 'none';
   private lastCountdown = -1;
   private cdVisible = false;
   private goTimer = 0;
@@ -396,7 +397,7 @@ export class HUD {
     const turnCopy = h('div', 'hud-turn-warning-copy', this.turnWarning);
     h('div', 'hud-turn-warning-title hud-inked', turnCopy, '急弯逼近');
     this.turnWarningDetail = h('div', 'hud-turn-warning-detail', turnCopy, '按住 SHIFT 空刹 · A / D 转向');
-    this.wrongWayEl = h('div', 'hud-wrongway', this.root, 'WRONG WAY!');
+    this.wrongWayEl = h('div', 'hud-wrongway', this.root, '方向反了 · 掉头');
     this.brandEl = h('div', 'hud-brand', this.root);
     h('div', 'hud-brand-lead hud-inked', this.brandEl, '是男人就飞三次');
     const brandAction = h('div', 'hud-brand-action hud-inked', this.brandEl);
@@ -576,9 +577,12 @@ export class HUD {
           : (me.place === 1 ? '优秀资格' : '优秀资格丢失');
       this.finalLapEl.classList.toggle('qualified', excellent || me.place === 1);
       this.finalLapEl.classList.toggle('lost', !excellent && me.place !== 1);
-      if (me.wrongWay !== this.lastWrongWay) {
-        this.lastWrongWay = me.wrongWay;
-        this.wrongWayEl.classList.toggle('on', me.wrongWay);
+      if (me.courseWarning !== this.lastCourseWarning) {
+        this.lastCourseWarning = me.courseWarning;
+        this.wrongWayEl.textContent = me.courseWarning === 'off_course'
+          ? '偏离航线 · 回到绿色引导'
+          : '方向反了 · 掉头';
+        this.wrongWayEl.classList.toggle('on', me.courseWarning !== 'none');
       }
     }
     if (this.finalLapTimer > 0) this.finalLapTimer = Math.max(0, this.finalLapTimer - dt);
@@ -735,8 +739,13 @@ export class HUD {
       this.powerPanel.classList.remove('flight-alert');
     }
 
-    if (race.phase === 'racing' && this.course.flightTurnWarning(player.id)) this.turnWarningTimer = 1.45;
-    else this.turnWarningTimer = Math.max(0, this.turnWarningTimer - dt);
+    if (race.phase === 'racing' && st.flightRouteState === 'active' && this.course.flightTurnWarning(player.id)) {
+      this.turnWarningTimer = 1.45;
+    } else if (st.flightRouteState !== 'active' || st.flightPhase === 'surface') {
+      this.turnWarningTimer = 0;
+    } else {
+      this.turnWarningTimer = Math.max(0, this.turnWarningTimer - dt);
+    }
     const turn = race.phase === 'racing' && this.turnWarningTimer > 0;
     this.turnWarning.classList.toggle('on', turn);
     this.turnWarning.classList.toggle('braking', turn && st.flightAirBrake > 0.35);

@@ -30,6 +30,8 @@ import type {
   FlightFailureSnapshot,
   ChallengeTier,
   RacerDefinition,
+  CourseRouteId,
+  CourseWarning,
 } from '../contracts';
 import { CHECKPOINT_US } from './course';
 import { RACER_DEFS } from './racers';
@@ -40,7 +42,7 @@ export interface RaceEvents {
   lapDone(r: RacerState): void;
   checkpoint(r: RacerState, splitDelta: number): void; // split vs leader, seconds
   finish(r: RacerState): void;
-  wrongWay(r: RacerState, on: boolean): void;
+  courseWarning(r: RacerState, warning: CourseWarning): void;
   battle(event: RaceBattleEvent): void;
 }
 
@@ -50,7 +52,6 @@ const TICK_S = 1.4;
 const JUMP_U = 0.02;
 /** Must be this close to the spline (m) for a gate / the line to count. */
 const GATE_CREDIT_DIST = 15;
-const WRONG_WAY_DOT = -0.3;
 const WRONG_WAY_SPEED = 3; // m/s
 const WRONG_WAY_HOLD = 0.7; // s sustained before the flag sets
 /** Surface warnings begin here; abandoning the circuit beyond the hard edge ends the run. */
@@ -72,6 +73,7 @@ const _sample: CourseSample = {
   tangent: new THREE.Vector3(),
   routeId: 'surface',
 };
+const _velocity = new THREE.Vector2();
 
 export class Race implements RaceView {
   readonly racers: RacerState[] = [];
@@ -97,6 +99,7 @@ export class Race implements RaceView {
   // per-racer tracking, indexed by boat.id
   private inited: boolean[] = [];
   private prevU: number[] = [];
+  private prevRoute: CourseRouteId[] = [];
   private contU: number[] = []; // unwrapped continuous u
   private prevContU: number[] = [];
   private nextCp: number[] = []; // next unconsumed checkpoint index this lap window
@@ -106,7 +109,6 @@ export class Race implements RaceView {
   private lapStart: number[] = [];
   private wrongT: number[] = [];
   private offCourseT: number[] = [];
-  private surfaceWarning: boolean[] = [];
   private cpLeaderTimes = new Map<number, number>(); // earliest crossing time per (window, gate)
   private order: RacerState[] = []; // preallocated place-sort scratch
   private battleRelation: number[] = [];
@@ -139,7 +141,7 @@ export class Race implements RaceView {
         finished: false,
         eliminated: false,
         finishTime: -1,
-        wrongWay: false,
+        courseWarning: 'none',
       };
     }
     this.reset();
@@ -185,11 +187,12 @@ export class Race implements RaceView {
       r.finished = false;
       r.eliminated = false;
       r.finishTime = -1;
-      r.wrongWay = false;
+      r.courseWarning = 'none';
     }
     const n = this.boats.length;
     this.inited = new Array(n).fill(false);
     this.prevU = new Array(n).fill(0);
+    this.prevRoute = new Array(n).fill('surface');
     this.contU = new Array(n).fill(0);
     this.prevContU = new Array(n).fill(0);
     this.nextCp = new Array(n).fill(0);
@@ -199,7 +202,6 @@ export class Race implements RaceView {
     this.lapStart = new Array(n).fill(0);
     this.wrongT = new Array(n).fill(0);
     this.offCourseT = new Array(n).fill(0);
-    this.surfaceWarning = new Array(n).fill(false);
     this.cpLeaderTimes.clear();
     this.order = this.racers.slice();
     this.battleRelation = new Array(n).fill(0);
@@ -390,33 +392,26 @@ export class Race implements RaceView {
       this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
       const u = _sample.u;
       const crossedFinishPlane = this.prevU[id] > 0.92 && u < 0.08;
-      if (!resyncOnly && id === this.boats[0].id && this.phase === 'racing' &&
-          boat.state.flightPhase === 'surface' && this.course.routeForBoat(id) === 'surface') {
-        const outside = _sample.distance >= OFF_COURSE_FAIL_M;
-        this.offCourseT[id] = outside ? this.offCourseT[id] + dt : Math.max(0, this.offCourseT[id] - dt * 2.5);
-        if (_sample.distance >= OFF_COURSE_WARN_M && !r.wrongWay) {
-          this.surfaceWarning[id] = true;
-          r.wrongWay = true;
-          this.events.wrongWay(r, true);
-        }
-        if (this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
-          this.defeatSurface('off_course', _sample.distance);
-          return;
-        }
-      } else if (id < this.offCourseT.length) {
-        this.offCourseT[id] = 0;
-        if (this.surfaceWarning[id] && r.wrongWay) {
-          this.surfaceWarning[id] = false;
-          r.wrongWay = false;
-          this.events.wrongWay(r, false);
-        }
-      }
       if (!this.inited[id]) {
         // grid sits just behind the line (u ~ 0.996): unwrap to slightly negative
         this.contU[id] = u > 0.5 ? u - 1 : u;
         this.prevU[id] = u;
+        this.prevRoute[id] = _sample.routeId;
         this.prevContU[id] = this.contU[id];
         this.inited[id] = true;
+        r.progress = this.windowedProgress(id);
+        continue;
+      }
+      if (this.prevRoute[id] !== _sample.routeId) {
+        // Flight and surface share canonical u, but their nearest projections
+        // are not identical at the merge. Rebase one frame without changing
+        // banked progress; the next physical frame resumes continuous motion.
+        this.prevRoute[id] = _sample.routeId;
+        this.prevU[id] = u;
+        this.prevContU[id] = this.contU[id];
+        this.wrongT[id] = 0;
+        this.offCourseT[id] = 0;
+        this.setCourseWarning(r, 'none');
         r.progress = this.windowedProgress(id);
         continue;
       }
@@ -459,11 +454,50 @@ export class Race implements RaceView {
       this.contU[id] += du;
       const cu = this.contU[id];
       if (resyncOnly) {
+        this.wrongT[id] = 0;
+        this.offCourseT[id] = 0;
+        this.setCourseWarning(r, 'none');
         this.prevContU[id] = cu;
         continue;
       }
       if (!r.finished && !r.eliminated) {
         r.progress = this.windowedProgress(id);
+
+        const validatesSurface = boat.state.flightPhase === 'surface' && _sample.routeId === 'surface';
+        if (!validatesSurface) {
+          // Airborne and authored merge-recovery motion is legitimate by
+          // construction. Neither warning timer may preload before handoff.
+          this.wrongT[id] = 0;
+          this.offCourseT[id] = 0;
+          this.setCourseWarning(r, 'none');
+        } else {
+          const offCourse = _sample.distance >= OFF_COURSE_WARN_M;
+          const outside = _sample.distance >= OFF_COURSE_FAIL_M;
+          this.offCourseT[id] = outside
+            ? this.offCourseT[id] + dt
+            : Math.max(0, this.offCourseT[id] - dt * 2.5);
+          if (id === this.boats[0].id && offCourse) this.setCourseWarning(r, 'off_course');
+          else if (r.courseWarning === 'off_course') this.setCourseWarning(r, 'none');
+
+          boat.collisionVelocity(_velocity);
+          const along = _velocity.x * _sample.tangent.x + _velocity.y * _sample.tangent.z;
+          const reversing = !offCourse && along < -WRONG_WAY_SPEED && du < 0;
+          if (reversing) {
+            this.wrongT[id] += dt;
+            if (this.wrongT[id] >= WRONG_WAY_HOLD) this.setCourseWarning(r, 'wrong_way');
+          } else {
+            this.wrongT[id] = 0;
+            if (!offCourse || id !== this.boats[0].id) this.setCourseWarning(r, 'none');
+          }
+          if (id === this.boats[0].id && this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
+            this.defeatSurface('off_course', _sample.distance);
+            return;
+          }
+          if (id === this.boats[0].id && this.wrongT[id] >= WRONG_WAY_FAIL_HOLD_S) {
+            this.defeatSurface('wrong_way', _sample.distance);
+            return;
+          }
+        }
 
         // checkpoint gates: rising edge, in order, near the spline
         let guard = 0;
@@ -487,32 +521,15 @@ export class Race implements RaceView {
         }
         r.lap = this.legitLaps[id] + 1;
 
-        // wrong-way: fast and facing against the spline for a sustained spell.
-        // boat forward = (sin h, cos h); dot with the spline tangent.
-        const h = boat.state.heading;
-        const dot = Math.sin(h) * _sample.tangent.x + Math.cos(h) * _sample.tangent.z;
-        if (boat.state.speed > WRONG_WAY_SPEED && dot < WRONG_WAY_DOT) {
-          this.wrongT[id] += dt;
-          if (!r.wrongWay && this.wrongT[id] >= WRONG_WAY_HOLD) {
-            this.surfaceWarning[id] = false;
-            r.wrongWay = true;
-            this.events.wrongWay(r, true);
-          }
-          if (id === this.boats[0].id && this.wrongT[id] >= WRONG_WAY_FAIL_HOLD_S) {
-            this.defeatSurface('wrong_way', _sample.distance);
-            return;
-          }
-        } else {
-          this.wrongT[id] = 0;
-          if (r.wrongWay && (this.surfaceWarning[id] ? _sample.distance < OFF_COURSE_WARN_M : true)) {
-            this.surfaceWarning[id] = false;
-            r.wrongWay = false;
-            this.events.wrongWay(r, false);
-          }
-        }
       }
       this.prevContU[id] = cu;
     }
+  }
+
+  private setCourseWarning(racer: RacerState, warning: CourseWarning): void {
+    if (racer.courseWarning === warning) return;
+    racer.courseWarning = warning;
+    this.events.courseWarning(racer, warning);
   }
 
   /** Race distance: banked legit laps + current-window segment. Void laps bank nothing. */

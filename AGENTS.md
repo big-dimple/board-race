@@ -28,6 +28,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   air-brake and flight fixed in the same right-thumb positions.
 - Preserve the unified `BoatInput` contract and fixed-step simulation.
 - Keep flight guidance player-owned: at most one active branch may be visible.
+- End-to-end flight-route tests must run gate crossing through descent, landing,
+  and route handoff without teleporting or resetting the boat; gate-only helpers
+  are not recovery coverage.
 - Gamepad changes must cover first-edge activation, multiple connected pads,
   unknown mappings, disconnect cleanup, and bounded actuator feedback.
 - Changes to physics, lifecycle, audio, records, or rendering need the matching
@@ -48,8 +51,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
   guide; schema v8 also repairs only dormant novices disarmed by the rejected
   v7 rollout. Progress, eligibility, and disable state persist in schema v8.
 - Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use ticks
-  only. `GO` gets exactly one prefetched Ogg/MP3 local announcer, alternating
-  male/female by fresh run; resume countdowns keep the current run's voice.
+  only. `GO` gets exactly one local announcer, alternating male/female by fresh
+  run. Both formats prefetch independently and the selected voice decodes first;
+  an exact-time electronic hit replaces an unready voice, which never plays late.
+- A passed flight keeps its authored branch through descent and landing until
+  recovery handoff. That transition may rebase route sampling, but it must never
+  snap the boat, clear horizontal momentum, or preload a surface warning.
 - Final presentation uses a world-first frozen celebration: the live finish
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG

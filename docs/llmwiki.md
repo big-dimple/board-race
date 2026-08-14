@@ -48,6 +48,28 @@
 - 两颗菱形才是飞行库存；青色高亮数量必须与 `flightCharges` 一致。
 - 空刹不会消耗库存或读条。它降低目标速度，并提高空中转向与回正权限。
 
+### 穿门后的惯性与路线交接
+
+- 穿门只完成计分并进入下降，不会清除 `x/z` 位置、水平速度、船头或 yaw。现行物理
+  保留真实惯性；禁止用 teleport、snap、重置速度或隐藏的自动驾驶把船拉回主线。
+- `flightRouteState='passed'` 不等于路线所有权已经回到 surface。当前 flight branch
+  必须继续负责下降、触水和门后的 authored recovery tail；落水本身也不是交接点。
+- 交接条件是船已回到水面，并越过该分支的 exit 平面、处于出口横向 `24m` 内、真实
+  水平速度没有逆着出口切线。按门到出口距离与路线目标速度计算的 `2.5-4s` 上限只
+  是防逃线兜底；它不能改变船体运动。
+- `Course.sample()` 收到显式 flight route hint 时必须把该分支视为权威，不能因为离
+  分支较远就偷偷回退到全局最近的 surface 段。branch -> surface 交接时 `Race` 只
+  重建采样基线并保留连续比赛进度，不能把投影差误当倒退。
+- recovery 期间不累计 surface off-course / wrong-way timer。交接后，偏离路线按离
+  surface 线的距离判断；真逆行要求船在引导附近、真实水平速度和连续进度都反向。
+  HUD 必须分别显示“偏离航线”和“方向反了”，不能共用含糊的 `WRONG WAY!`。
+- 视觉语法固定为 `青色门前轨道 -> 绿色软回收漏斗/间断箭头 -> 绿色水面主线`。
+  门后提前露出主线并保持 `16m` 交叠；世界中仍然最多一个 active branch。回收提示
+  只是可视导航，不是碰撞墙，也不改变判定范围。
+
+权威状态在 `src/game/course.ts`，连续进度和 surface 警告在 `src/game/race.ts`。
+任何调整必须覆盖第 4-7 飞完整的 gate -> descent -> water -> handoff，不得只测门口。
+
 ### 选手雷达
 
 雷达不是装饰。四项分别真实修正水面加速、水面转向、漂移蓄力速度和空中转向
@@ -162,6 +184,17 @@ npm run verify:release
 systems、endurance 和 performance。物理、生命周期、音频、记录或渲染有改动时，
 必须更新对应 harness 合同，不能为了通过而放宽阈值。
 
+飞行回收的最低回归集：
+
+- `flightRecoveryCase(routeCursor)` 只允许在起飞前 staging 一次；穿门后逐帧跑到
+  route handoff，再继续至少 `2.5s`，中间不得 reset、teleport 或调用下一飞 helper。
+- 第 4-7 飞必须分别证明 pass 只增加一次、fail 为零、全程最多一条分支、没有警告
+  预累计、没有位置跳跃或水平速度归零，且连续进度不会因路线投影切换明显倒退。
+- `flight-recovery-air` 与 `flight-recovery-surface` 覆盖桌面和紧凑横屏视觉；落水
+  前后始终要有一条指向出口的导航，绿色箭头不得遮挡右拇指固定技能区。
+- 旧的 `passFlight()` 会在每飞前 staging，适合门判定和计数等局部合同，不得把它
+  当作冲门后惯性或 route handoff 的端到端证据。
+
 教学相关的最低回归集：
 
 - 全新存档首局 guide 为 dormant、`automaticEligible=true` 且无提示。
@@ -181,11 +214,17 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 - `3/2/1` 只使用三格递减起步灯、数字和短促 tick：`3灯 -> 2灯 -> 1灯 -> GO全灭`，
   不播数字人声。
 - `GO` 正常路径只播放一个本地人声，号角延后 `0.22s` 避免盖住人声；男声用于奇数 fresh run，
-  女声用于偶数 fresh run。两段人声绝不同时连接，语音解码失败才退回电子 GO。
-- 人声在页面加载时预取，首个手势创建 AudioContext 后解码；浏览器能力探测选择
-  Ogg 或 MP3，Vorbis 解码仍失败时再试 MP3。手机合同必须强制覆盖 MP3 路径。
+  女声用于偶数 fresh run。两段人声绝不同时连接。
+- 男/女与 Ogg/MP3 四份小文件在页面加载时独立预取；首个手势创建或恢复
+  AudioContext 后，优先解码本局选中的 voice，再后台准备另一位。一个性别或格式
+  失败不能阻塞另一个；瞬时 fetch/decode 失败允许下次 fresh GO 重试。
+- GO 只在 `buffer ready && context running && 未静音` 时宣称已播人声。否则必须在
+  同一 GO 帧播放一次电子 hit 并记录 `not_ready / decode_failed /
+  context_suspended / muted`；资源后来就绪也绝不迟播人声。
 - medal、Final 和 interruption 的 resume countdown 属于同一 run，保持当前播报者，
-  不额外翻转男女；harness 以 `countdownVoiceEvents` 锁定 GO 前 0、GO 后恰好 +1。
+  不额外翻转男女。手机 harness 必须从真实 `.driver-select-go` 点击开始、不预等
+  voice ready，覆盖 MP3、未使用性别延迟、全部 voice 慢于倒计时、exactly-one
+  fallback 和 no-late-speech；只数 synthetic 事件不算冷启动证据。
 
 ## 开发、端口与收尾纪律
 

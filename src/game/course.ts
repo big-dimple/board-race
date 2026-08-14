@@ -359,6 +359,8 @@ interface FlightRouteRuntime {
   ty: Float32Array;
   tz: Float32Array;
   u: Float32Array;
+  gateFraction: number;
+  gateToExitDistance: number;
   near: { u: number; x: number; y: number; z: number; tx: number; ty: number; tz: number; distance: number };
 }
 
@@ -386,6 +388,8 @@ function buildFlightRuntime(def: FlightRouteDefinition): FlightRouteRuntime {
     ty: new Float32Array(tableN),
     tz: new Float32Array(tableN),
     u: new Float32Array(tableN),
+    gateFraction: 0,
+    gateToExitDistance: 0,
     near: { u: def.entryU, x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: 1, distance: Infinity },
   };
   for (let i = 0; i < tableN; i++) {
@@ -399,6 +403,12 @@ function buildFlightRuntime(def: FlightRouteDefinition): FlightRouteRuntime {
     runtime.ty[i] = t.y;
     runtime.tz[i] = t.z;
     runtime.u[i] = def.entryU + (def.exitU - def.entryU) * f;
+  }
+  const lastGateU = def.gateUs[def.gateUs.length - 1];
+  runtime.gateFraction = flightCurveT(def, lastGateU);
+  const gateIndex = Math.max(0, Math.min(tableN - 1, Math.round(runtime.gateFraction * (tableN - 1))));
+  for (let i = gateIndex + 1; i < tableN; i++) {
+    runtime.gateToExitDistance += Math.hypot(runtime.x[i] - runtime.x[i - 1], runtime.z[i] - runtime.z[i - 1]);
   }
   return runtime;
 }
@@ -509,6 +519,8 @@ const _routeSample: CourseSample = {
   tangent: new THREE.Vector3(),
   routeId: 'surface',
 };
+const _recoveryVelocity = new THREE.Vector2();
+const _hiddenRecoveryArrow = new THREE.Matrix4().makeScale(0, 0, 0);
 
 /** Central-difference span for tangents (~0.6m of arc). */
 const TAN_DU = 0.6 / LAP_LENGTH;
@@ -761,7 +773,10 @@ function makeStripeToon(map: THREE.Texture, shadowFloor = 0.52): THREE.ShaderMat
 // ---------------------------------------------------------------- ribbon ----
 
 const RIBBON_SEGS = 1400;
-const RIBBON_HALF_W = 1.7; // 3.4m wide — slim painted line, not a paved lane
+// Eight-meter soft navigation field. The shader keeps the authored 3.4m
+// directional spine bright; the outer width is translucent context, never a
+// collision lane or a change to route validation.
+const RIBBON_HALF_W = 4;
 
 /**
  * Painted racing line: normal-blended (NOT additive — the old additive core
@@ -822,22 +837,22 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        // hard dash band flowing along the ribbon (~14m period)
+        // hard dash band flowing along the 3.4m directional spine (~14m period)
         float dash = step(fract(vS * 0.07 - uTime * 0.6), 0.62);
         float a = abs(vSide);
-        // zones across the width (hard steps, except the halo: smooth radial
-        // falloff to zero at the ribbon edge — no ghost polygon flank)
+        // The inner 42% is the original 3.4m line. Outside it, a faint field
+        // makes distant bends legible without pretending to be a hard road.
         float core = 1.0 - step(0.42, a);
-        float rail = step(0.42, a) * (1.0 - step(0.58, a));
-        // slim ink rails — fat dark borders read as "mostly-black rails" close up
-        float edge = step(0.64, a) * (1.0 - step(0.78, a));
-        float halo = step(0.78, a) * (1.0 - smoothstep(0.78, 1.0, a));
-        // 2-step banded distance fade
-        float localFade = ahead <= 135.0 ? 1.0 : 1.0 - smoothstep(135.0, 170.0, ahead);
+        float rail = step(0.42, a) * (1.0 - step(0.5, a));
+        float edge = step(0.5, a) * (1.0 - step(0.59, a));
+        float halo = step(0.59, a) * (1.0 - smoothstep(0.59, 1.0, a));
+        // Preserve a stable locator spine through the full 170m navigation
+        // horizon instead of fading the exact turn-away point to nothing.
+        float localFade = 1.0 - smoothstep(125.0, 170.0, ahead) * 0.28;
         float fade = (vDist < 220.0 ? 1.0 : 0.62) * max(localFade, step(0.001, behind) * step(behind, 12.0));
-        vec3 col = uColor * (core * (0.55 + 0.75 * dash) + rail * 0.85 + halo * 0.6)
+        vec3 col = uColor * (core * (0.68 + 0.72 * dash) + rail * 0.9 + halo * 0.42)
                  + uInk * edge;
-        float alpha = (core * dash + rail * 0.9 + edge * 0.95 + halo * 0.22) * fade;
+        float alpha = (core * (0.34 + dash * 0.66) + rail * 0.9 + edge * 0.92 + halo * 0.12) * fade;
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -876,12 +891,19 @@ interface FlightGate {
 interface FlightRouteVisual {
   runtime: FlightRouteRuntime;
   group: THREE.Group;
+  ribbonMesh: THREE.Mesh;
   ribbon: THREE.ShaderMaterial;
   rail: THREE.MeshBasicMaterial;
   ring: THREE.MeshBasicMaterial;
+  recoveryArrows: THREE.InstancedMesh;
+  recoveryArrowMaterial: THREE.MeshBasicMaterial;
+  recoveryArrowFractions: number[];
+  recoveryArrowMatrices: THREE.Matrix4[];
   gates: FlightGate[];
   deployActive: boolean;
   deployTime: number;
+  recoveryFade: number;
+  recoveryProgress: number;
 }
 
 /**
@@ -940,6 +962,8 @@ export class Course implements ICourse {
   private readonly flightLatched: number[] = [];
   private readonly flightOffCorridorT: number[] = [];
   private readonly flightOffCorridorD: number[] = [];
+  private readonly flightRecoveryT: number[] = [];
+  private readonly flightRecoveryLimit: number[] = [];
   private readonly flightDebug: string[] = [];
   private readonly flightTurnWarn: boolean[] = [];
   private flightWarn = 0;
@@ -953,6 +977,9 @@ export class Course implements ICourse {
   private playerTargetGateDistance = -1;
   private playerTargetAnchorScale = 1;
   private activeGuideRoute = -1;
+  private playerRecoveryRoute = -1;
+  private playerRecoveryElapsed = 0;
+  private playerRecoveryLimit = 0;
   private startGantry: THREE.Group | null = null;
   private finalStation: THREE.Group | null = null;
   private finalStationBlend = 0;
@@ -1061,14 +1088,15 @@ export class Course implements ICourse {
       const runtime = flightRuntime(routeHint);
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
-      if (near.distance <= 32) {
-        out.u = near.u;
-        out.point.set(near.x, near.y, near.z);
-        const il = 1 / (Math.hypot(near.tx, near.tz) || 1);
-        out.tangent.set(near.tx * il, 0, near.tz * il);
-        out.distance = near.distance;
-        out.routeId = routeHint;
-      }
+      // An explicit route hint is ownership, not a suggestion. Falling back
+      // to the globally nearest surface segment during a fast merge can jump
+      // progress to an unrelated bend and manufacture a wrong-way warning.
+      out.u = near.u;
+      out.point.set(near.x, near.y, near.z);
+      const il = 1 / (Math.hypot(near.tx, near.tz) || 1);
+      out.tangent.set(near.tx * il, 0, near.tz * il);
+      out.distance = near.distance;
+      out.routeId = routeHint;
     }
     return out;
   }
@@ -1088,6 +1116,8 @@ export class Course implements ICourse {
     this.flightLatched.length = 0;
     this.flightOffCorridorT.length = 0;
     this.flightOffCorridorD.length = 0;
+    this.flightRecoveryT.length = 0;
+    this.flightRecoveryLimit.length = 0;
     this.flightDebug.length = 0;
     this.flightTurnWarn.length = 0;
     this.flightWarn = 0;
@@ -1100,6 +1130,9 @@ export class Course implements ICourse {
     this.playerTargetGateDistance = -1;
     this.playerTargetAnchorScale = 1;
     this.activeGuideRoute = -1;
+    this.playerRecoveryRoute = -1;
+    this.playerRecoveryElapsed = 0;
+    this.playerRecoveryLimit = 0;
     this.finalArmed = false;
     this.finalCelebrating = false;
     this.finalCelebrationTime = 0;
@@ -1110,6 +1143,8 @@ export class Course implements ICourse {
       visual.group.visible = false;
       visual.deployActive = false;
       visual.deployTime = 0;
+      visual.recoveryFade = 0;
+      visual.recoveryProgress = visual.runtime.gateFraction;
       for (const gate of visual.gates) {
         gate.deploy = 0;
         gate.pulse = 0;
@@ -1153,14 +1188,31 @@ export class Course implements ICourse {
     activeRouteIndex: number;
     visibleRouteCount: number;
     surfaceMaskRouteIndex: number;
+    recoveryRouteIndex: number;
+    recoveryActive: number;
+    recoveryElapsed: number;
+    recoveryLimit: number;
+    recoveryArrowCount: number;
+    recoveryGuideOpacity: number;
+    handoffOverlapMeters: number;
     playerSurfaceU: number;
     targetGateDistance: number;
     targetAnchorScale: number;
   } {
+    const recoveryVisual = this.playerRecoveryRoute >= 0 ? this.flightVisuals[this.playerRecoveryRoute] : undefined;
     return {
       activeRouteIndex: this.activeGuideRoute,
       visibleRouteCount: this.flightVisuals.reduce((sum, visual) => sum + (visual.group.visible ? 1 : 0), 0),
       surfaceMaskRouteIndex: this.activeGuideRoute,
+      recoveryRouteIndex: this.playerRecoveryRoute,
+      recoveryActive: this.playerRecoveryRoute >= 0 ? 1 : 0,
+      recoveryElapsed: this.playerRecoveryElapsed,
+      recoveryLimit: this.playerRecoveryLimit,
+      recoveryArrowCount: recoveryVisual
+        ? recoveryVisual.recoveryArrowFractions.filter((f) => f >= recoveryVisual.recoveryProgress - 0.018).length
+        : 0,
+      recoveryGuideOpacity: recoveryVisual ? 1 : 0,
+      handoffOverlapMeters: 16,
       playerSurfaceU: this.playerSurfaceU,
       targetGateDistance: this.playerTargetGateDistance,
       targetAnchorScale: this.playerTargetAnchorScale,
@@ -1224,6 +1276,8 @@ export class Course implements ICourse {
         this.flightLatched[id] = -1;
         this.flightOffCorridorT[id] = 0;
         this.flightOffCorridorD[id] = 0;
+        this.flightRecoveryT[id] = 0;
+        this.flightRecoveryLimit[id] = 0;
         continue;
       }
 
@@ -1259,7 +1313,7 @@ export class Course implements ICourse {
 
       if (jump) {
         if (st.flightRouteState === 'active') this.failFlight(boat, visual, 'teleport', surfaceU, null);
-        this.flightLatched[id] = -1;
+        if (st.flightRouteState !== 'passed') this.flightLatched[id] = -1;
         this.flightOffCorridorT[id] = 0;
         this.flightOffCorridorD[id] = 0;
         prev.copy(pos);
@@ -1267,9 +1321,48 @@ export class Course implements ICourse {
         continue;
       }
 
-      if (st.flightRouteState === 'passed' && !flightActive) {
-        boat.settleFlightRoute();
-        this.flightLatched[id] = -1;
+      if (st.flightRouteState === 'passed') {
+        this.flightLatched[id] = routeIndex;
+        const elapsed = (this.flightRecoveryT[id] ?? 0) + dt;
+        const limit = this.flightRecoveryLimit[id] > 0
+          ? this.flightRecoveryLimit[id]
+          : Math.max(2.5, Math.min(4, runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
+        this.flightRecoveryT[id] = elapsed;
+        this.flightRecoveryLimit[id] = limit;
+        if (id === 0) {
+          this.playerRecoveryRoute = routeIndex;
+          this.playerRecoveryElapsed = elapsed;
+          this.playerRecoveryLimit = limit;
+          visual.recoveryProgress = flightCurveT(def, near.u);
+        }
+        const end = runtime.tableN - 1;
+        const tx = runtime.tx[end];
+        const tz = runtime.tz[end];
+        const il = 1 / (Math.hypot(tx, tz) || 1);
+        const nx = tx * il;
+        const nz = tz * il;
+        const dx = pos.x - runtime.x[end];
+        const dz = pos.z - runtime.z[end];
+        const forwardOfExit = dx * nx + dz * nz >= 0;
+        const lateralToExit = Math.abs(dx * nz - dz * nx);
+        boat.collisionVelocity(_recoveryVelocity);
+        const forwardVelocity = _recoveryVelocity.x * nx + _recoveryVelocity.y * nz;
+        const certifiedHandoff = !flightActive && forwardOfExit && lateralToExit <= 24 && forwardVelocity >= 0;
+        const timedOut = !flightActive && elapsed >= limit;
+        this.flightDebug[id] = `recovery:${near.u.toFixed(4)}:${elapsed.toFixed(2)}/${limit.toFixed(2)}`;
+        if (certifiedHandoff || timedOut) {
+          boat.settleFlightRoute();
+          this.flightLatched[id] = -1;
+          this.flightRecoveryT[id] = 0;
+          this.flightRecoveryLimit[id] = 0;
+          this.flightDebug[id] = certifiedHandoff ? 'handoff:exit' : 'handoff:timeout';
+          if (id === 0) {
+            visual.recoveryFade = 0.3;
+            this.playerRecoveryRoute = -1;
+            this.playerRecoveryElapsed = 0;
+            this.playerRecoveryLimit = 0;
+          }
+        }
         this.flightOffCorridorT[id] = 0;
         this.flightOffCorridorD[id] = 0;
         prev.copy(pos);
@@ -1326,21 +1419,35 @@ export class Course implements ICourse {
               }
               if (gateIndex + 1 >= visual.gates.length) {
                 boat.completeFlightRoute(routeIndex, st.flightRouteCursor);
+                this.flightRecoveryT[id] = 0;
+                this.flightRecoveryLimit[id] = Math.max(
+                  2.5,
+                  Math.min(4, runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5),
+                );
+                if (id === 0) {
+                  this.playerRecoveryRoute = routeIndex;
+                  this.playerRecoveryElapsed = 0;
+                  this.playerRecoveryLimit = this.flightRecoveryLimit[id];
+                }
                 this.flightDebug[id] = 'passed';
               }
             } else {
               const reason = lateral < 0 ? 'gate_left' : 'gate_right';
               this.flightDebug[id] = `gate${gateIndex + 1}:lat${lateral.toFixed(2)}:limit${lateralLimit.toFixed(2)}`;
               this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, lateral, lateralLimit);
-              this.flightWarn = 0.8;
-              this.flightWarnRoute = routeIndex;
+              if (id === 0) {
+                this.flightWarn = 0.8;
+                this.flightWarnRoute = routeIndex;
+              }
             }
           }
           if (st.flightRouteState === 'active' && near.u > gate.u + FLIGHT_GATE_BYPASS_U) {
             this.flightDebug[id] = `bypass${gateIndex + 1}:u${near.u.toFixed(4)}`;
             this.failFlight(boat, visual, 'gate', near.u, gateIndex + 1);
-            this.flightWarn = 0.8;
-            this.flightWarnRoute = routeIndex;
+            if (id === 0) {
+              this.flightWarn = 0.8;
+              this.flightWarnRoute = routeIndex;
+            }
           }
         }
       }
@@ -1361,13 +1468,17 @@ export class Course implements ICourse {
           this.flightOffCorridorD[id] = offD;
           if (offT >= FLIGHT_CORRIDOR_GRACE) {
             this.flightDebug[id] = `corridor:${near.distance.toFixed(2)}:f${routeIndex + 1}`;
-            this.flightWarn = Math.max(this.flightWarn, 0.25);
-            this.flightWarnRoute = routeIndex;
+            if (id === 0) {
+              this.flightWarn = Math.max(this.flightWarn, 0.25);
+              this.flightWarnRoute = routeIndex;
+            }
           }
           if (offT >= FLIGHT_CORRIDOR_FAIL || offD >= FLIGHT_CORRIDOR_FAIL_DISTANCE) {
             this.failFlight(boat, visual, 'corridor', near.u, null, null, null, near.distance);
-            this.flightWarn = 0.8;
-            this.flightWarnRoute = routeIndex;
+            if (id === 0) {
+              this.flightWarn = 0.8;
+              this.flightWarnRoute = routeIndex;
+            }
           }
         }
       }
@@ -1375,15 +1486,20 @@ export class Course implements ICourse {
       if (st.flightRouteState === 'active' && surfaceU > def.exitU + 0.006) {
         this.flightDebug[id] = `exit:g${st.flightGateProgress}`;
         this.failFlight(boat, visual, 'exit', surfaceU, null);
+        if (id === 0) {
+          this.flightWarn = 0.8;
+          this.flightWarnRoute = routeIndex;
+        }
+      }
+
+      if (id === 0 && st.flightRouteMiss) {
         this.flightWarn = 0.8;
         this.flightWarnRoute = routeIndex;
       }
 
-      if (st.flightRouteMiss) this.flightWarn = 0.8;
-
       if (st.flightRouteState !== 'active' &&
           (!flightActive || surfaceU < def.entryU - 0.03 || surfaceU > def.exitU + 0.006)) {
-        if (st.flightRouteState !== 'passed') this.flightLatched[id] = -1;
+        this.flightLatched[id] = -1;
         this.flightOffCorridorT[id] = 0;
         this.flightOffCorridorD[id] = 0;
       }
@@ -1407,11 +1523,16 @@ export class Course implements ICourse {
     let next = -1;
     if (player) {
       const st = player.state;
-      const slot = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length
-        ? -1
-        : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
+      const recoverySlot = this.playerRecoveryRoute >= 0
+        ? this.playerRecoveryRoute
+        : this.flightVisuals.findIndex((visual) => visual.recoveryFade > 0);
+      const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length && recoverySlot < 0;
+      const slot = recoverySlot >= 0
+        ? recoverySlot
+        : finalApproach ? -1
+          : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
       const def = FLIGHT_ROUTES[slot];
-      if (def && (st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
+      if (def && (recoverySlot >= 0 || st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
           (this.playerSurfaceU >= def.qualifyFromU && this.playerSurfaceU <= def.exitU + 0.01))) {
         next = slot;
       }
@@ -1435,9 +1556,12 @@ export class Course implements ICourse {
       this.activeGuideRoute = next;
     }
     const active = next >= 0 ? FLIGHT_ROUTES[next] : null;
+    const recovering = next >= 0 && (this.playerRecoveryRoute === next || this.flightVisuals[next].recoveryFade > 0);
     this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
     this.ribbonMat.uniforms.uMaskStart.value = active ? Math.max(0, active.entryU * LAP_LENGTH - 4) : 0;
-    this.ribbonMat.uniforms.uMaskEnd.value = active ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + 8) : 0;
+    this.ribbonMat.uniforms.uMaskEnd.value = active
+      ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
+      : 0;
     for (const floater of this.floaters) {
       floater.obj.visible = !active || floater.routeU === undefined ||
         floater.routeU <= active.entryU + 0.002 || floater.routeU > active.exitU;
@@ -1476,6 +1600,7 @@ export class Course implements ICourse {
     const readyStep = this.playerFlightReady && Math.floor(t * 4) % 2 === 0 ? 1 : 0;
     for (let routeIndex = 0; routeIndex < this.flightVisuals.length; routeIndex++) {
       const visual = this.flightVisuals[routeIndex];
+      visual.recoveryFade = Math.max(0, visual.recoveryFade - dt);
       if (visual.deployActive) visual.deployTime += dt;
       const warn = this.flightWarnRoute === routeIndex ? Math.min(1, this.flightWarn * 4) : 0;
       const upcoming = routeIndex === this.playerFlightIndex;
@@ -1483,9 +1608,29 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uWarn.value = warn;
       visual.ribbon.uniforms.uReady.value = upcoming && this.playerFlightReady ? 1 : 0;
       visual.ribbon.uniforms.uTurn.value = upcoming && this.flightTurnWarn[0] ? 1 : 0;
-      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
-      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
-      visual.rail.opacity = warn > 0.5 ? 1 : 0.76 + (upcoming ? readyStep * 0.18 : 0);
+      const recovery = this.playerRecoveryRoute === routeIndex ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
+      visual.ribbon.uniforms.uRecovery.value = recovery;
+      visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
+      if (recovery > 0) visual.ribbonMesh.layers.disable(LAYER_ENERGY);
+      else visual.ribbonMesh.layers.enable(LAYER_ENERGY);
+      visual.recoveryArrows.visible = recovery > 0.04;
+      visual.recoveryArrowMaterial.opacity = 0.68 * recovery;
+      if (recovery > 0) {
+        for (let i = 0; i < visual.recoveryArrowFractions.length; i++) {
+          const matrix = visual.recoveryArrowMatrices[i];
+          matrix.elements[13] = waterHeight(matrix.elements[12], matrix.elements[14], t) + 0.28;
+          visual.recoveryArrows.setMatrixAt(
+            i,
+            visual.recoveryArrowFractions[i] >= visual.recoveryProgress - 0.018
+              ? matrix
+              : _hiddenRecoveryArrow,
+          );
+        }
+        visual.recoveryArrows.instanceMatrix.needsUpdate = true;
+      }
+      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
+      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
+      visual.rail.opacity = recovery > 0 ? 0 : warn > 0.5 ? 1 : 0.76 + (upcoming ? readyStep * 0.18 : 0);
       visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + (upcoming ? readyStep * 0.2 : 0);
       for (let i = 0; i < visual.gates.length; i++) {
         const gate = visual.gates[i];
@@ -1576,15 +1721,27 @@ export class Course implements ICourse {
         uWarn: { value: 0 },
         uReady: { value: 0 },
         uTurn: { value: 0 },
+        uRecovery: { value: 0 },
+        uRecoveryProgress: { value: runtime.gateFraction },
+        uGateF: { value: runtime.gateFraction },
         uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
+        uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
+        uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
         uMystic: { value: new THREE.Color().setHex(0x9b7cff, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
       },
       vertexShader: /* glsl */ `
+        uniform float uTime;
+        uniform float uRecovery;
+        uniform float uGateF;
         varying vec2 vUv;
+        ${WAVES_GLSL}
         void main() {
           vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vec3 p = position;
+          float recoveryTail = uRecovery * step(uGateF - 0.003, uv.y);
+          p.y = mix(p.y, waveHeight(p.xz, uTime) + 0.22, recoveryTail);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
       `,
       fragmentShader: /* glsl */ `
@@ -1592,7 +1749,12 @@ export class Course implements ICourse {
         uniform float uWarn;
         uniform float uReady;
         uniform float uTurn;
+        uniform float uRecovery;
+        uniform float uRecoveryProgress;
+        uniform float uGateF;
         uniform vec3 uFlight;
+        uniform vec3 uRecoveryColor;
+        uniform vec3 uInk;
         uniform vec3 uMystic;
         uniform vec3 uWarnColor;
         varying vec2 vUv;
@@ -1609,6 +1771,17 @@ export class Course implements ICourse {
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
           float alpha = edge * 0.1 + flow * (0.28 + ready * 0.1);
+          float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
+          float recoverySide = abs(vUv.x - 0.5);
+          float recoveryHalf = mix(0.48, 0.14, recoveryT);
+          float recoveryCore = 1.0 - smoothstep(recoveryHalf * 0.18, recoveryHalf * 0.5, recoverySide);
+          float recoveryEdge = 1.0 - smoothstep(0.025, 0.055, abs(recoverySide - recoveryHalf));
+          float recoveryDash = step(0.46, fract(vUv.y * 18.0 - uTime * 1.8));
+          float recoveryAlpha = recoveryCore * 0.2 + recoveryEdge * recoveryDash * 0.72;
+          float recoveryVisible = step(max(uGateF - 0.003, uRecoveryProgress - 0.035), vUv.y);
+          vec3 recoveryColor = mix(uInk, uRecoveryColor, 0.82 + recoveryCore * 0.18);
+          color = mix(color, recoveryColor, uRecovery * recoveryVisible);
+          alpha = mix(alpha, recoveryAlpha * recoveryVisible * uRecovery, uRecovery);
           gl_FragColor = vec4(color, alpha);
         }
       `,
@@ -1622,6 +1795,47 @@ export class Course implements ICourse {
     ribbon.renderOrder = 3;
     ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);
+
+    // Directional handoff markers appear only after the scoring portal. They
+    // sit on the same authored curve as validation and remain separated so
+    // the recovery funnel cannot be mistaken for a wall or a second road.
+    const arrowGeo = new THREE.BufferGeometry();
+    arrowGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.5, 0, -0.78,  0.5, 0, -0.78,  0.5, 0, -0.08,
+      -0.5, 0, -0.78,  0.5, 0, -0.08, -0.5, 0, -0.08,
+      -0.92, 0, -0.08,  0.92, 0, -0.08,  0, 0, 1.08,
+    ], 3));
+    arrowGeo.computeVertexNormals();
+    const recoveryArrowMaterial = new THREE.MeshBasicMaterial({
+      color: PALETTE.racingLine,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const recoveryArrows = new THREE.InstancedMesh(arrowGeo, recoveryArrowMaterial, 7);
+    recoveryArrows.name = `${def.id}-recovery-arrows`;
+    recoveryArrows.visible = false;
+    recoveryArrows.renderOrder = 5;
+    const arrowTransform = new THREE.Object3D();
+    const recoveryArrowFractions: number[] = [];
+    const recoveryArrowMatrices: THREE.Matrix4[] = [];
+    for (let i = 0; i < 7; i++) {
+      const f = runtime.gateFraction + (1 - runtime.gateFraction) * ((i + 0.7) / 7.7);
+      recoveryArrowFractions.push(f);
+      runtime.curve.getPoint(f, p);
+      runtime.curve.getTangent(f, t);
+      arrowTransform.position.set(p.x, 0.28, p.z);
+      arrowTransform.rotation.set(0, Math.atan2(t.x, t.z), 0);
+      const taper = 0.96 - i * 0.025;
+      arrowTransform.scale.setScalar(taper);
+      arrowTransform.updateMatrix();
+      recoveryArrowMatrices.push(arrowTransform.matrix.clone());
+      recoveryArrows.setMatrixAt(i, arrowTransform.matrix);
+    }
+    recoveryArrows.instanceMatrix.needsUpdate = true;
+    routeGroup.add(recoveryArrows);
 
     const railMat = new THREE.MeshBasicMaterial({
       color: PALETTE.flight,
@@ -1640,7 +1854,7 @@ export class Course implements ICourse {
         railPoints.push(new THREE.Vector3(p.x + t.z * HALF_W * side, p.y + 0.12, p.z - t.x * HALF_W * side));
       }
       const railCurve = new THREE.CatmullRomCurve3(railPoints, false, 'centripetal');
-      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.065, 5, false), railMat);
+      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.13, 5, false), railMat);
       rail.name = `${def.id}-rail-${side > 0 ? 'r' : 'l'}`;
       rail.renderOrder = 4;
       rail.layers.enable(LAYER_ENERGY);
@@ -1777,18 +1991,25 @@ export class Course implements ICourse {
     return {
       runtime,
       group: routeGroup,
+      ribbonMesh: ribbon,
       ribbon: ribbonMat,
       rail: railMat,
       ring: ringMat,
+      recoveryArrows,
+      recoveryArrowMaterial,
+      recoveryArrowFractions,
+      recoveryArrowMatrices,
       gates,
       deployActive: false,
       deployTime: 0,
+      recoveryFade: 0,
+      recoveryProgress: runtime.gateFraction,
     };
   }
 
   // ------------------------------------------------------------- ribbon ----
 
-  /** ~3.4m wide mitre-joined ribbon hugging the spline; one draw call; OFF LAYER_INK. */
+  /** 8m soft field with a 3.4m bright spine; one draw call; OFF LAYER_INK. */
   private buildRibbon(): THREE.ShaderMaterial {
     const rows = RIBBON_SEGS + 1;
     const pos = new Float32Array(rows * 2 * 3);

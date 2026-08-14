@@ -34,6 +34,7 @@ export type FlightCourseRouteId =
   | 'flight-7';
 export type CourseRouteId = 'surface' | FlightCourseRouteId;
 export type FlightRouteState = 'idle' | 'active' | 'passed' | 'failed';
+export type CourseWarning = 'none' | 'off_course' | 'wrong_way';
 export type FlightRouteFailReason =
   | 'none'
   | 'off_course'
@@ -271,6 +272,14 @@ export interface CourseGuidanceStatus {
   activeRouteIndex: number;
   visibleRouteCount: number;
   surfaceMaskRouteIndex: number;
+  /** Passed flight still owns navigation until its authored surface handoff completes. */
+  recoveryRouteIndex: number;
+  recoveryActive: number;
+  recoveryElapsed: number;
+  recoveryLimit: number;
+  recoveryArrowCount: number;
+  recoveryGuideOpacity: number;
+  handoffOverlapMeters: number;
   playerSurfaceU: number;
   /** Meters to the current scoring portal, or -1 while no portal is active. */
   targetGateDistance: number;
@@ -367,7 +376,7 @@ export interface RacerState {
   finished: boolean;
   eliminated: boolean;
   finishTime: number;
-  wrongWay: boolean;
+  courseWarning: CourseWarning;
 }
 
 export type RaceBattleKind = 'overtake' | 'lost';

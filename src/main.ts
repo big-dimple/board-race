@@ -241,7 +241,7 @@ const race = new Race(course, boats, {
   },
   go: (_resuming) => {
     audio.setScene('racing');
-    const announced = audio.countdownGoVoice();
+    const announced = audio.countdownGoVoice() === 'played';
     if (!announced) audio.countdownBeep(true);
     // Let the short word lead instead of burying it under the horn transient.
     audio.horn(announced ? 0.22 : 0);
@@ -255,8 +255,8 @@ const race = new Race(course, boats, {
   finish: (r) => {
     if (r.isPlayer) audio.finishSting();
   },
-  wrongWay: (r, on) => {
-    if (r.isPlayer && on) haptics.cue('warning');
+  courseWarning: (r, warning) => {
+    if (r.isPlayer && warning !== 'none') haptics.cue('warning');
   },
   battle: (event) => {
     if (HARNESS) {
@@ -602,11 +602,15 @@ function resetRace(): void {
   finale.hide();
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
+    boats[i].object.visible = true;
     boats[i].teleport(s.x, s.z, s.heading);
     wakes[i].clear();
   }
   race.reset();
   currentRun = records.data.runs + 1;
+  // Select the pending run's announcer before the first READY gesture creates
+  // AudioContext, so returning players warm the correct voice first as well.
+  audio.prepareCountdownAnnouncer(currentRun);
   prevFlightCharges = boats[0].state.flightCharges;
   prevDriftReleaseReady = boats[0].state.driftReleaseReady;
   prevFlightGateProgress = boats[0].state.flightGateProgress;
@@ -1167,6 +1171,7 @@ interface Harness {
   tapFlight(): void;
   passFlight(routeCursor: number, initialCharges?: number, forceAirBrake?: boolean): void;
   passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
+  flightRecoveryCase(routeCursor: number): Record<string, number | string | boolean>;
   flightBudgetCase(): Record<string, unknown>;
   retry(): void;
   setCoachEnabled(enabled: boolean): void;
@@ -1329,6 +1334,123 @@ function passHarnessExtendedFlight(routeCursor: number, forceAirBrake = false): 
         `${course.flightDebugStatus(0)}; speed=${st.speed.toFixed(2)}; clearance=${st.flightClearance.toFixed(2)}`);
     }
     loop.advance(0.05);
+  } finally {
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+  }
+}
+
+function harnessFlightRecoveryCase(routeCursor: number): Record<string, number | string | boolean> {
+  beginHarnessRouteFlight(routeCursor, 1);
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+  let frames = 0;
+  let recoveryFrames = 0;
+  let surfaceFrames = 0;
+  let maxStep = 0;
+  let minPlanarSpeed = Infinity;
+  let warningFrames = 0;
+  let maxVisibleRoutes = 0;
+  let maxRecoveryArrows = 0;
+  let sawRecoveryGuide = false;
+  let minProgressDelta = Infinity;
+  let previousProgress = race.racers[0].progress;
+  let previousX = boats[0].state.position.x;
+  let previousZ = boats[0].state.position.z;
+  let sawPassed = false;
+  let sawSurfaceRecovery = false;
+  let handoffCount = 0;
+  let lastRecoveryActive = false;
+  const velocity = new THREE.Vector2();
+  try {
+    while (frames < 60 * 18 && race.phase === 'racing') {
+      loop.advance(1 / 60);
+      frames++;
+      const state = boats[0].state;
+      const guidance = course.guidanceStatus();
+      const stepDistance = Math.hypot(state.position.x - previousX, state.position.z - previousZ);
+      maxStep = Math.max(maxStep, stepDistance);
+      previousX = state.position.x;
+      previousZ = state.position.z;
+      minProgressDelta = Math.min(minProgressDelta, race.racers[0].progress - previousProgress);
+      previousProgress = race.racers[0].progress;
+      maxVisibleRoutes = Math.max(maxVisibleRoutes, guidance.visibleRouteCount);
+      maxRecoveryArrows = Math.max(maxRecoveryArrows, guidance.recoveryArrowCount);
+      sawRecoveryGuide ||= guidance.recoveryGuideOpacity > 0;
+      if (race.racers[0].courseWarning !== 'none') warningFrames++;
+      if (state.flightRouteState === 'passed') {
+        sawPassed = true;
+        recoveryFrames++;
+        if (state.flightPhase === 'surface') sawSurfaceRecovery = true;
+        boats[0].collisionVelocity(velocity);
+        minPlanarSpeed = Math.min(minPlanarSpeed, velocity.length());
+      }
+      const recoveryActive = guidance.recoveryActive > 0;
+      if (lastRecoveryActive && !recoveryActive) handoffCount++;
+      lastRecoveryActive = recoveryActive;
+      if (sawPassed && state.flightRouteState === 'idle') break;
+    }
+    for (let i = 0; i < 150 && race.phase === 'racing'; i++) {
+      loop.advance(1 / 60);
+      surfaceFrames++;
+      if (race.racers[0].courseWarning !== 'none') warningFrames++;
+      maxVisibleRoutes = Math.max(maxVisibleRoutes, course.guidanceStatus().visibleRouteCount);
+    }
+    const state = boats[0].state;
+    return {
+      route: routeCursor + 1,
+      phase: race.phase,
+      routeState: state.flightRouteState,
+      sawPassed,
+      sawSurfaceRecovery,
+      recoveryFrames,
+      surfaceFrames,
+      handoffCount,
+      handoffDebug: course.flightDebugStatus(0),
+      warningFrames,
+      maxVisibleRoutes,
+      maxRecoveryArrows,
+      sawRecoveryGuide,
+      maxStep,
+      minPlanarSpeed: Number.isFinite(minPlanarSpeed) ? minPlanarSpeed : -1,
+      minProgressDelta,
+      flightsCleared: state.flightsCleared,
+      routePasses: harnessRoutePasses[0],
+      routeFails: harnessRouteFails[0],
+    };
+  } finally {
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+  }
+}
+
+function stageHarnessFlightRecovery(routeCursor: number, beat: 'air' | 'surface'): void {
+  beginHarnessRouteFlight(routeCursor, 1);
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+  try {
+    let guard = 0;
+    while (boats[0].state.flightRouteState !== 'passed' && race.phase === 'racing' && guard++ < 60 * 16) {
+      loop.advance(1 / 60);
+    }
+    if (boats[0].state.flightRouteState !== 'passed') {
+      throw new Error(`could not stage recovery for flight ${routeCursor + 1}: ${course.flightDebugStatus(0)}`);
+    }
+    if (beat === 'air') {
+      loop.advance(0.4);
+    } else {
+      guard = 0;
+      while (boats[0].state.flightPhase !== 'surface' && boats[0].state.flightRouteState === 'passed' && guard++ < 180) {
+        loop.advance(1 / 60);
+      }
+      if (boats[0].state.flightPhase !== 'surface' || boats[0].state.flightRouteState !== 'passed') {
+        throw new Error(`flight ${routeCursor + 1} skipped its surface recovery beat`);
+      }
+      loop.advance(0.08);
+    }
+    // Recovery screenshots inspect the navigation handoff itself. Keep the
+    // deterministic pack from parking a full hull across that visual target.
+    for (let i = 1; i < boats.length; i++) boats[i].object.visible = false;
   } finally {
     harnessForceAirBrake = false;
     harnessSuppressAirborneFlightTrigger = false;
@@ -2071,6 +2193,14 @@ function scenario(name: string): void {
       advanceUntil(() => boats[0].state.flightRouteState === 'passed' || boats[0].state.flightRouteState === 'failed', 12);
       loop.advance(0.08);
       break;
+    case 'flight-recovery-air':
+      advanceUntil(() => race.phase === 'racing', 8);
+      stageHarnessFlightRecovery(5, 'air');
+      break;
+    case 'flight-recovery-surface':
+      advanceUntil(() => race.phase === 'racing', 8);
+      stageHarnessFlightRecovery(5, 'surface');
+      break;
     case 'flight-spent-charge':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
@@ -2202,6 +2332,7 @@ if (HARNESS) {
     tapFlight: tapHarnessFlight,
     passFlight: passHarnessFlight,
     passExtendedFlight: passHarnessExtendedFlight,
+    flightRecoveryCase: harnessFlightRecoveryCase,
     flightBudgetCase,
     retry: requestRetry,
     setCoachEnabled: (enabled) => {
@@ -2255,7 +2386,8 @@ if (HARNESS) {
         flightPressure: s.flightPressure,
         flightPenaltyRemaining: s.flightPenaltyRemaining,
         place: race.racers[0].place,
-        wrongWay: race.racers[0].wrongWay,
+        courseWarning: race.racers[0].courseWarning,
+        wrongWay: race.racers[0].courseWarning === 'wrong_way',
         totalRacers: race.racers.length,
         battleEvents: harnessBattleEvents,
         battleOvertakes: harnessOvertakes,
@@ -2347,7 +2479,8 @@ if (HARNESS) {
       retryLessonActive: String(retryLessonActive),
       retryLessonTimer,
       racers: race.racers
-        .map((r) => `${r.name}:L${r.lap} p${Math.round(r.progress)}${r.finished ? ' FIN' : ''}${r.wrongWay ? ' WW' : ''}`)
+        .map((r) => `${r.name}:L${r.lap} p${Math.round(r.progress)}${r.finished ? ' FIN' : ''}` +
+          `${r.courseWarning === 'wrong_way' ? ' WW' : r.courseWarning === 'off_course' ? ' OFF' : ''}`)
         .join(' | '),
     }),
     guidance: () => course.guidanceStatus(),

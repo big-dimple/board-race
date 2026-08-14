@@ -31,6 +31,16 @@ async function waitForServer() {
   throw new Error(`audio Vite server was not ready on ${port}: ${serverError}`);
 }
 
+async function advanceWithWallClock(page, seconds, step = 0.1) {
+  let elapsed = 0;
+  while (elapsed < seconds) {
+    const dt = Math.min(step, seconds - elapsed);
+    await page.evaluate((amount) => window.__harness.advance(amount), dt);
+    await page.waitForTimeout(dt * 1000);
+    elapsed += dt;
+  }
+}
+
 try {
   await waitForServer();
   const browser = await chromium.launch({
@@ -198,7 +208,8 @@ try {
   );
 
   // Safari/iOS commonly declines Vorbis. Force the capability probe down the
-  // MP3 path in a touch/mobile context and still require one real GO event.
+  // MP3 path and delay the unused female file: a cold Android-style first GO
+  // must prioritize the selected male voice instead of waiting for the pair.
   const mobileContext = await browser.newContext({ viewport:{ width:844, height:390 }, hasTouch:true, isMobile:true });
   await mobileContext.addInitScript(() => {
     const original = HTMLMediaElement.prototype.canPlayType;
@@ -208,22 +219,64 @@ try {
     };
   });
   const mobilePage = await mobileContext.newPage();
+  await mobilePage.route(/countdown-go-female/, async (route) => {
+    if (route.request().resourceType() !== 'fetch') return route.continue();
+    await new Promise((resolve) => setTimeout(resolve, 8000));
+    await route.continue().catch(() => undefined);
+  });
   await mobilePage.goto(`http://127.0.0.1:${port}/?harness=1&mobile=1&quality=performance`, { waitUntil:'load', timeout:60000 });
   await mobilePage.waitForFunction(() => window.__harness?.ready, null, { timeout:60000 });
-  await mobilePage.locator('.driver-select-go').click();
-  await mobilePage.waitForFunction(() => window.__harness.audioState().contextState === 'running');
-  await mobilePage.waitForFunction(() => window.__harness.audioState().countdownVoiceReady === true ||
-    window.__harness.audioState().countdownVoiceFailed === true, null, { timeout:5000 });
   let mobileAudio = await mobilePage.evaluate(() => window.__harness.audioState());
-  assert.equal(mobileAudio.countdownVoiceFormat, 'mp3');
-  assert.equal(mobileAudio.countdownVoiceReady, true, 'mobile MP3 announcers must decode before GO');
   const mobileVoiceEvents = Number(mobileAudio.countdownVoiceEvents);
-  await mobilePage.evaluate(() => window.__harness.scenario('countdown'));
-  await mobilePage.evaluate(() => window.__harness.advance(2.7));
+  await mobilePage.locator('.driver-select-go').click();
+  await advanceWithWallClock(mobilePage, 6.2);
   mobileAudio = await mobilePage.evaluate(() => window.__harness.audioState());
+  assert.equal((await mobilePage.evaluate(() => window.__harness.playerState())).phase, 'racing');
+  assert.equal(mobileAudio.countdownVoiceFormat, 'mp3');
+  assert.equal(mobileAudio.countdownSelectedVoiceReady, true, 'the selected mobile MP3 announcer must decode independently');
+  assert.equal(mobileAudio.contextStateAtGo, 'running', 'the real mobile GO gesture must leave Web Audio running at GO');
+  assert.equal(mobileAudio.lastGoDisposition, 'played');
+  assert.equal(Number(mobileAudio.resumeFailures), 0);
   assert.equal(Number(mobileAudio.countdownVoiceEvents), mobileVoiceEvents + 1,
-    'the MP3 compatibility path must emit exactly one GO announcer');
+    'the actual cold mobile countdown must emit exactly one selected GO announcer');
   await mobileContext.close();
+
+  // If every voice asset misses the deadline, emit the electronic GO exactly
+  // on time and never play a detached word after racing has already started.
+  const delayedContext = await browser.newContext({ viewport:{ width:844, height:390 }, hasTouch:true, isMobile:true });
+  await delayedContext.addInitScript(() => {
+    const original = HTMLMediaElement.prototype.canPlayType;
+    HTMLMediaElement.prototype.canPlayType = function(type) {
+      if (String(type).includes('ogg')) return '';
+      return original.call(this, type);
+    };
+  });
+  let releaseVoices;
+  const heldVoices = new Promise((resolve) => { releaseVoices = resolve; });
+  const delayedPage = await delayedContext.newPage();
+  await delayedPage.route(/countdown-go-/, async (route) => {
+    if (route.request().resourceType() !== 'fetch') return route.continue();
+    await heldVoices;
+    await route.continue().catch(() => undefined);
+  });
+  await delayedPage.goto(`http://127.0.0.1:${port}/?harness=1&mobile=1&quality=performance`, { waitUntil:'load', timeout:60000 });
+  await delayedPage.waitForFunction(() => window.__harness?.ready, null, { timeout:60000 });
+  const delayedBefore = await delayedPage.evaluate(() => window.__harness.audioState());
+  await delayedPage.locator('.driver-select-go').click();
+  await advanceWithWallClock(delayedPage, 6.2);
+  let delayedAudio = await delayedPage.evaluate(() => window.__harness.audioState());
+  assert.equal((await delayedPage.evaluate(() => window.__harness.playerState())).phase, 'racing');
+  assert.equal(delayedAudio.lastGoDisposition, 'not_ready');
+  assert.equal(Number(delayedAudio.countdownVoiceEvents), Number(delayedBefore.countdownVoiceEvents));
+  assert.equal(Number(delayedAudio.countdownFallbackEvents), Number(delayedBefore.countdownFallbackEvents) + 1,
+    'a cold decode miss must fall back to one exact-time electronic GO');
+  releaseVoices();
+  await delayedPage.waitForFunction(() => window.__harness.audioState().countdownSelectedVoiceReady === true, null, { timeout:5000 });
+  await delayedPage.waitForTimeout(350);
+  delayedAudio = await delayedPage.evaluate(() => window.__harness.audioState());
+  assert.equal(Number(delayedAudio.countdownVoiceEvents), Number(delayedBefore.countdownVoiceEvents),
+    'a voice that becomes ready after GO must never play late');
+  await delayedContext.close();
   console.log('audio contract: OK');
   await browser.close();
 } finally {

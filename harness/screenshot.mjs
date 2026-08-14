@@ -57,6 +57,8 @@ const SCENARIOS = {
   'retry-lesson': { scenario: 'retry-lesson', settleMs: 380 },
   'first-failure-offer': { scenario: 'first-failure-offer', settleMs: 180 },
   'flight-route': { scenario: 'flight-route' },
+  'flight-recovery-air': { scenario: 'flight-recovery-air' },
+  'flight-recovery-surface': { scenario: 'flight-recovery-surface' },
   'flight-spent-charge': { scenario: 'flight-spent-charge' },
   'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
   'medal-ceremony': { scenario: 'medal-ceremony', timeout: 180000, settleMs: 180 },
@@ -282,7 +284,7 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.scenario('surface-off-course-grace'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'racing', 'a sub-0.8s course-edge excursion must remain recoverable');
-  assert.equal(state.wrongWay, false, 'returning to the circuit must clear the course warning');
+  assert.equal(state.courseWarning, 'none', 'returning to the circuit must clear the course warning');
 
   await page.evaluate(() => window.__harness.scenario('surface-off-course'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -484,6 +486,27 @@ async function verifyFlightContract(page) {
       `route ${route.index + 1} must pass before descent at sustained air-brake speed: ${JSON.stringify(route)}`);
     assert.ok(route.gateToExit >= 30,
       `route ${route.index + 1} must leave enough authored landing distance: ${JSON.stringify(route)}`);
+  }
+  // The old helper stopped three frames after the portal and teleported into
+  // the next setup. These cases stage once, then preserve the real velocity
+  // through descent, water contact, authored recovery and surface handoff.
+  for (let route = 3; route < 7; route++) {
+    await page.evaluate(() => window.__harness.scenario('start'));
+    const recovery = await page.evaluate((index) => window.__harness.flightRecoveryCase(index), route);
+    assert.equal(recovery.phase, 'racing', `flight ${route + 1} recovery must not defeat a valid line: ${JSON.stringify(recovery)}`);
+    assert.equal(recovery.routeState, 'idle', `flight ${route + 1} must hand back to the surface route: ${JSON.stringify(recovery)}`);
+    assert.equal(recovery.sawPassed, true);
+    assert.equal(recovery.sawSurfaceRecovery, true, `flight ${route + 1} must retain ownership after water contact`);
+    assert.equal(recovery.handoffCount, 1, `flight ${route + 1} route ownership must switch exactly once`);
+    assert.equal(recovery.warningFrames, 0, `flight ${route + 1} inertia must not pre-arm a course warning`);
+    assert.equal(recovery.routePasses, 1);
+    assert.equal(recovery.routeFails, 0);
+    assert.ok(recovery.maxVisibleRoutes <= 1, `only one player-owned guide may render: ${JSON.stringify(recovery)}`);
+    assert.equal(recovery.sawRecoveryGuide, true, `flight ${route + 1} must switch to the recovery visual grammar`);
+    assert.ok(recovery.maxRecoveryArrows >= 2, `flight ${route + 1} must expose directional recovery markers: ${JSON.stringify(recovery)}`);
+    assert.ok(recovery.maxStep < 1.5, `flight ${route + 1} must never teleport during recovery: ${JSON.stringify(recovery)}`);
+    assert.ok(recovery.minPlanarSpeed > 3, `flight ${route + 1} must preserve planar inertia: ${JSON.stringify(recovery)}`);
+    assert.ok(recovery.minProgressDelta > -2, `flight ${route + 1} merge must not jump progress backwards: ${JSON.stringify(recovery)}`);
   }
   for (let route = 0; route < 7; route++) {
     await page.evaluate((index) => window.__harness.passFlight(index, 1, true), route);

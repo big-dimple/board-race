@@ -23,6 +23,10 @@ import goMaleMp3 from '../assets/audio/countdown-go-male.mp3?url';
 import goFemaleOgg from '../assets/audio/countdown-go-female.ogg?url';
 import goFemaleMp3 from '../assets/audio/countdown-go-female.mp3?url';
 
+type CountdownVoice = 'male' | 'female';
+type CountdownVoiceFormat = 'ogg' | 'mp3';
+export type CountdownGoDisposition = 'played' | 'not_ready' | 'decode_failed' | 'context_suspended' | 'muted';
+
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
 const SAFETY_HIGHPASS_HZ = 48;
@@ -88,17 +92,27 @@ export class GameAudio {
   private ambiencePreviewToken = 0;
   private ambiencePreview = false;
   private countdownStageValue = 3;
-  private countdownVoice: 'male' | 'female' = 'male';
-  private countdownVoiceBuffers: Partial<Record<'male' | 'female', AudioBuffer>> = {};
-  private countdownVoiceData: Promise<Partial<Record<'male' | 'female', ArrayBuffer>>>;
-  private countdownVoiceFormat: 'ogg' | 'mp3';
-  private countdownVoiceFailed = false;
+  private countdownVoice: CountdownVoice = 'male';
+  private countdownVoiceBuffers: Partial<Record<CountdownVoice, AudioBuffer>> = {};
+  private countdownVoiceData: Record<CountdownVoiceFormat, Record<CountdownVoice, Promise<ArrayBuffer | null>>>;
+  private countdownVoiceLoads: Partial<Record<CountdownVoice, Promise<boolean>>> = {};
+  private countdownVoiceFormats: Partial<Record<CountdownVoice, CountdownVoiceFormat>> = {};
+  private countdownVoiceFailures: Record<CountdownVoice, boolean> = { male: false, female: false };
+  private countdownVoiceFormat: CountdownVoiceFormat;
   private countdownVoiceEvents = 0;
+  private countdownFallbackEvents = 0;
+  private lastGoDisposition: CountdownGoDisposition = 'not_ready';
+  private contextStateAtGo = 'unavailable';
+  private resumeAttempts = 0;
+  private resumeFailures = 0;
+  private resumePending: Promise<void> | null = null;
   private raceScoreElapsed = 0;
   private lastFlowStep = -1;
   private lastDriftTier = 0;
   private musicDuckUntil = 0;
   private musicDuckMultiplier = 1;
+  private vehicleDuckUntil = 0;
+  private vehicleDuckMultiplier = 1;
   private noiseBuf: AudioBuffer | null = null;
   private settings: AudioSettings = loadAudioSettings();
   private scene: GameAudioScene = 'ready';
@@ -157,12 +171,18 @@ export class GameAudio {
   constructor() {
     const probe = document.createElement('audio');
     this.countdownVoiceFormat = probe.canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3';
-    const urls = this.countdownVoiceFormat === 'ogg'
-      ? { male: goMaleOgg, female: goFemaleOgg }
-      : { male: goMaleMp3, female: goFemaleMp3 };
-    // Fetch before the first gesture. Mobile browsers only allow AudioContext
-    // creation from that gesture, but the local bytes can already be warm.
-    this.countdownVoiceData = this.preloadCountdownVoiceData(urls);
+    // All four local files total less than 30KB. Warming both formats avoids a
+    // serial Ogg-to-MP3 fallback after the user's first GO on mobile Chrome.
+    this.countdownVoiceData = {
+      ogg: {
+        male: this.fetchCountdownVoice(goMaleOgg),
+        female: this.fetchCountdownVoice(goFemaleOgg),
+      },
+      mp3: {
+        male: this.fetchCountdownVoice(goMaleMp3),
+        female: this.fetchCountdownVoice(goFemaleMp3),
+      },
+    };
   }
 
   /** Call on first user gesture. Safe to call repeatedly. */
@@ -178,9 +198,15 @@ export class GameAudio {
     const c = this.ctx;
     if (c && !document.hidden) {
       if (c.state === 'suspended') {
-        void c.resume().then(() => {
+        if (this.resumePending) return;
+        this.resumeAttempts++;
+        this.resumePending = c.resume().then(() => {
           this.applyMix(0.28);
           if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
+        }).catch(() => {
+          this.resumeFailures++;
+        }).finally(() => {
+          this.resumePending = null;
         });
       } else if (c.state === 'running') {
         // A very short app switch can restore visibility before the delayed
@@ -194,6 +220,10 @@ export class GameAudio {
   update(dt: number): void {
     if (this.ctx && this.musicDuckMultiplier < 1 && this.ctx.currentTime >= this.musicDuckUntil) {
       this.musicDuckMultiplier = 1;
+      this.applyMix(0.06);
+    }
+    if (this.ctx && this.vehicleDuckMultiplier < 1 && this.ctx.currentTime >= this.vehicleDuckUntil) {
+      this.vehicleDuckMultiplier = 1;
       this.applyMix(0.06);
     }
     if (!this.scoreArmed || (this.scene !== 'racing' && this.scene !== 'flight')) return;
@@ -271,6 +301,7 @@ export class GameAudio {
   /** Alternate one announcer per countdown. The two voices never stack. */
   prepareCountdownAnnouncer(run: number): void {
     this.countdownVoice = Math.max(1, Math.floor(run)) % 2 === 0 ? 'female' : 'male';
+    if (this.ctx) void this.loadCountdownVoice(this.countdownVoice);
   }
 
   /** Open the score one layer at a time behind the 3/2/1 count. */
@@ -280,29 +311,56 @@ export class GameAudio {
   }
 
   /** A single semantic callout at GO; 3/2/1 stay clean ticks and lights. */
-  countdownGoVoice(): boolean {
+  countdownGoVoice(): CountdownGoDisposition {
     const c = this.ctx;
     const bus = this.eventBus;
+    this.contextStateAtGo = c?.state ?? 'unavailable';
+    if (this.settings.muted || this.settings.master <= 0 || this.settings.sfx <= 0) {
+      return this.lastGoDisposition = 'muted';
+    }
+    if (!c || c.state !== 'running') {
+      this.resume();
+      return this.lastGoDisposition = 'context_suspended';
+    }
     const buffer = this.countdownVoiceBuffers[this.countdownVoice];
-    if (!c || !bus || !buffer) return false;
+    if (!bus || !buffer) {
+      void this.loadCountdownVoice(this.countdownVoice);
+      return this.lastGoDisposition = this.countdownVoiceFailures[this.countdownVoice]
+        ? 'decode_failed'
+        : 'not_ready';
+    }
     const source = c.createBufferSource();
     source.buffer = buffer;
     const hp = c.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 90;
+    hp.frequency.value = 105;
+    const presence = c.createBiquadFilter();
+    presence.type = 'peaking';
+    presence.frequency.value = 1900;
+    presence.Q.value = 0.8;
+    presence.gain.value = 4.5;
+    const compressor = c.createDynamicsCompressor();
+    compressor.threshold.value = -25;
+    compressor.knee.value = 8;
+    compressor.ratio.value = 3.5;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.12;
     const gain = c.createGain();
     const t = c.currentTime;
     gain.gain.setValueAtTime(0.001, t);
-    gain.gain.linearRampToValueAtTime(0.58, t + 0.012);
-    gain.gain.setValueAtTime(0.58, Math.max(t + 0.02, t + buffer.duration - 0.09));
+    gain.gain.linearRampToValueAtTime(1.18, t + 0.012);
+    gain.gain.setValueAtTime(1.18, Math.max(t + 0.02, t + buffer.duration - 0.09));
     gain.gain.exponentialRampToValueAtTime(0.001, t + buffer.duration);
     source.connect(hp);
-    hp.connect(gain);
+    hp.connect(presence);
+    presence.connect(compressor);
+    compressor.connect(gain);
     gain.connect(bus);
     this.countdownVoiceEvents++;
-    this.duckMusic(0.58, Math.max(0.3, buffer.duration));
-    this.trackOneShot(source, [hp, gain], t, t + buffer.duration + 0.01);
-    return true;
+    this.duckMusic(0.36, Math.max(0.35, buffer.duration + 0.08));
+    this.duckVehicle(0.32, Math.max(0.35, buffer.duration + 0.08));
+    this.trackOneShot(source, [hp, presence, compressor, gain], t, t + buffer.duration + 0.01);
+    return this.lastGoDisposition = 'played';
   }
 
   debugState(): Record<string, number | string | boolean> {
@@ -334,13 +392,23 @@ export class GameAudio {
       musicPreview: this.musicPreview,
       countdownStage: this.countdownStageValue,
       countdownVoice: this.countdownVoice,
-      countdownVoiceFormat: this.countdownVoiceFormat,
+      countdownVoiceFormat: this.countdownVoiceFormats[this.countdownVoice] ?? this.countdownVoiceFormat,
       countdownVoiceReady: Boolean(this.countdownVoiceBuffers.male && this.countdownVoiceBuffers.female),
-      countdownVoiceFailed: this.countdownVoiceFailed,
+      countdownSelectedVoiceReady: Boolean(this.countdownVoiceBuffers[this.countdownVoice]),
+      countdownMaleReady: Boolean(this.countdownVoiceBuffers.male),
+      countdownFemaleReady: Boolean(this.countdownVoiceBuffers.female),
+      countdownVoiceFailed: this.countdownVoiceFailures.male && this.countdownVoiceFailures.female,
+      countdownSelectedVoiceFailed: this.countdownVoiceFailures[this.countdownVoice],
       countdownVoiceEvents: this.countdownVoiceEvents,
+      countdownFallbackEvents: this.countdownFallbackEvents,
+      lastGoDisposition: this.lastGoDisposition,
+      contextStateAtGo: this.contextStateAtGo,
+      resumeAttempts: this.resumeAttempts,
+      resumeFailures: this.resumeFailures,
       scoreElapsed: this.raceScoreElapsed,
       driftTier: this.lastDriftTier,
       musicDuck: this.musicDuckMultiplier,
+      vehicleDuck: this.vehicleDuckMultiplier,
       scorePreroll: 0,
       safetyHighpassHz: SAFETY_HIGHPASS_HZ,
       limiterThresholdDb: LIMITER_THRESHOLD_DB,
@@ -783,6 +851,7 @@ export class GameAudio {
   countdownBeep(isGo: boolean): void {
     const c = this.ctx;
     if (!c) return;
+    if (isGo) this.countdownFallbackEvents++;
     this.blip(isGo ? 1320 : 880, c.currentTime, isGo ? 0.4 : 0.12, 0.22, 'square');
   }
 
@@ -862,7 +931,8 @@ export class GameAudio {
     this.musicBus.gain.setTargetAtTime(musicBase * duck, t, timeConstant);
     if (duck < 1) this.musicBus.gain.setTargetAtTime(musicBase, this.musicDuckUntil, 0.08);
     this.ambienceBus.gain.setTargetAtTime(gainCurve(this.settings.ambience) * sceneAmbience, t, timeConstant);
-    this.vehicleBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * sceneVehicle, t, timeConstant);
+    const vehicleDuck = t < this.vehicleDuckUntil ? this.vehicleDuckMultiplier : 1;
+    this.vehicleBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * sceneVehicle * vehicleDuck, t, timeConstant);
     this.eventBus.gain.setTargetAtTime(gainCurve(this.settings.sfx), t, timeConstant);
     this.musicFilter.frequency.setTargetAtTime(
       this.scene === 'lesson' || this.scene === 'defeat' ? 1500
@@ -905,6 +975,24 @@ export class GameAudio {
     bus.gain.setTargetAtTime(base, this.musicDuckUntil, 0.08);
   }
 
+  private duckVehicle(multiplier: number, duration: number): void {
+    const c = this.ctx;
+    const bus = this.vehicleBus;
+    if (!c || !bus) return;
+    const t = c.currentTime;
+    const active = t < this.vehicleDuckUntil;
+    this.vehicleDuckMultiplier = active ? Math.min(this.vehicleDuckMultiplier, multiplier) : multiplier;
+    this.vehicleDuckUntil = Math.max(active ? this.vehicleDuckUntil : 0, t + duration);
+    const sceneVehicle = this.scene === 'medal' ? 0.25
+      : this.scene === 'lesson' || this.scene === 'defeat' || this.scene === 'ready' ? 0
+        : this.scene === 'countdown' ? 0.18
+          : 1;
+    const base = gainCurve(this.settings.sfx) * sceneVehicle;
+    bus.gain.cancelScheduledValues(t);
+    bus.gain.setTargetAtTime(base * this.vehicleDuckMultiplier, t, 0.018);
+    bus.gain.setTargetAtTime(base, this.vehicleDuckUntil, 0.08);
+  }
+
   private firework(time: number, index: number): void {
     const c = this.ctx;
     const bus = this.eventBus;
@@ -935,62 +1023,65 @@ export class GameAudio {
     };
   }
 
-  private async preloadCountdownVoiceData(
-    urls: Record<'male' | 'female', string>,
-  ): Promise<Partial<Record<'male' | 'female', ArrayBuffer>>> {
+  private async fetchCountdownVoice(url: string): Promise<ArrayBuffer | null> {
     try {
-      const [male, female] = await Promise.all((['male', 'female'] as const).map(async (voice) => {
-        const response = await fetch(urls[voice]);
-        if (!response.ok) throw new Error(`${voice} countdown voice ${response.status}`);
-        return response.arrayBuffer();
-      }));
-      return { male, female };
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      return response.arrayBuffer();
     } catch {
-      return {};
+      return null;
     }
   }
 
-  private async loadCountdownVoices(): Promise<void> {
+  private countdownVoiceUrl(format: CountdownVoiceFormat, voice: CountdownVoice): string {
+    if (format === 'ogg') return voice === 'male' ? goMaleOgg : goFemaleOgg;
+    return voice === 'male' ? goMaleMp3 : goFemaleMp3;
+  }
+
+  private async countdownVoiceBytes(
+    format: CountdownVoiceFormat,
+    voice: CountdownVoice,
+  ): Promise<ArrayBuffer | null> {
+    let data = await this.countdownVoiceData[format][voice];
+    if (data) return data;
+    // A failed eager fetch is not permanent. The next explicit preparation
+    // retries that one file without invalidating the other announcer.
+    const retry = this.fetchCountdownVoice(this.countdownVoiceUrl(format, voice));
+    this.countdownVoiceData[format][voice] = retry;
+    data = await retry;
+    return data;
+  }
+
+  private loadCountdownVoice(voice: CountdownVoice): Promise<boolean> {
     const c = this.ctx;
-    if (!c || this.countdownVoiceBuffers.male || this.countdownVoiceFailed) return;
-    try {
-      let data = await this.countdownVoiceData;
-      let maleData = data.male;
-      let femaleData = data.female;
-      if ((!maleData || !femaleData) && this.countdownVoiceFormat === 'ogg') {
-        this.countdownVoiceFormat = 'mp3';
-        data = await this.preloadCountdownVoiceData({ male: goMaleMp3, female: goFemaleMp3 });
-        maleData = data.male;
-        femaleData = data.female;
+    if (!c) return Promise.resolve(false);
+    if (this.countdownVoiceBuffers[voice]) return Promise.resolve(true);
+    const existing = this.countdownVoiceLoads[voice];
+    if (existing) return existing;
+    const task = (async (): Promise<boolean> => {
+      const fallback: CountdownVoiceFormat = this.countdownVoiceFormat === 'ogg' ? 'mp3' : 'ogg';
+      for (const format of [this.countdownVoiceFormat, fallback]) {
+        const data = await this.countdownVoiceBytes(format, voice);
+        if (!data) continue;
+        try {
+          const buffer = await c.decodeAudioData(data.slice(0));
+          this.countdownVoiceBuffers[voice] = buffer;
+          this.countdownVoiceFormats[voice] = format;
+          this.countdownVoiceFailures[voice] = false;
+          return true;
+        } catch {
+          // canPlayType is advisory; the independently prefetched alternate
+          // format is attempted immediately for this voice only.
+        }
       }
-      if (!maleData || !femaleData) throw new Error('countdown voice preload failed');
-      let male: AudioBuffer;
-      let female: AudioBuffer;
-      try {
-        [male, female] = await Promise.all([
-          c.decodeAudioData(maleData.slice(0)),
-          c.decodeAudioData(femaleData.slice(0)),
-        ]);
-      } catch {
-        // canPlayType is advisory. If a browser overstates Vorbis support,
-        // retry the universally-supported MP3 pair before falling back to a beep.
-        if (this.countdownVoiceFormat !== 'ogg') throw new Error('MP3 countdown voice decode failed');
-        this.countdownVoiceFormat = 'mp3';
-        data = await this.preloadCountdownVoiceData({ male: goMaleMp3, female: goFemaleMp3 });
-        maleData = data.male;
-        femaleData = data.female;
-        if (!maleData || !femaleData) throw new Error('MP3 countdown voice preload failed');
-        [male, female] = await Promise.all([
-          c.decodeAudioData(maleData.slice(0)),
-          c.decodeAudioData(femaleData.slice(0)),
-        ]);
-      }
-      this.countdownVoiceBuffers.male = male;
-      this.countdownVoiceBuffers.female = female;
-    } catch {
-      // The existing GO hit and horn remain a complete fallback.
-      this.countdownVoiceFailed = true;
-    }
+      this.countdownVoiceFailures[voice] = true;
+      return false;
+    })();
+    this.countdownVoiceLoads[voice] = task;
+    void task.finally(() => {
+      if (this.countdownVoiceLoads[voice] === task) delete this.countdownVoiceLoads[voice];
+    });
+    return task;
   }
 
   private applyRush(): void {
@@ -1177,7 +1268,12 @@ export class GameAudio {
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = buf;
-    void this.loadCountdownVoices();
+    // Decode the announcer selected for the pending run first. The alternate
+    // voice is warmed in the background and can never block this one.
+    void this.loadCountdownVoice(this.countdownVoice).finally(() => {
+      const alternate: CountdownVoice = this.countdownVoice === 'male' ? 'female' : 'male';
+      void this.loadCountdownVoice(alternate);
+    });
 
     // ---- engine: 2 detuned saws + sub sine → shaper → lowpass → level --------
     const shaper = ctx.createWaveShaper();
