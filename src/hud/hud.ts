@@ -1279,7 +1279,7 @@ export class HUD {
       case 'wrong_way':
         return {
           title: '方向反了',
-          copy: mobile ? '下一次：看到逆行警告立刻掉头回主航线' : '下一次：看到 WRONG WAY 立刻掉头回主航线',
+          copy: mobile ? '下一次：看到逆行警告立刻掉头回主航线' : '下一次：看到“方向反了”立刻掉头回主航线',
           metric: '',
         };
       case 'no_launch':
