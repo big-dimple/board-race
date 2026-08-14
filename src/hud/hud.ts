@@ -1151,7 +1151,7 @@ export class HUD {
     this.coachSpotlight.style.height = `${Math.max(24, height)}px`;
 
     const compact = innerWidth <= 900 || innerHeight <= 520;
-    const cardWidth = compact ? Math.min(320, Math.max(236, bounds.width - 172)) : Math.min(390, bounds.width - 32);
+    let cardWidth = compact ? Math.min(320, Math.max(236, bounds.width - 172)) : Math.min(390, bounds.width - 32);
     const cardHeight = compact ? 124 : 142;
     const safe = compact ? 12 : 20;
     const targetCx = left + width * 0.5;
@@ -1166,8 +1166,18 @@ export class HUD {
         if (!element) return right;
         const occupied = element.getBoundingClientRect();
         return Math.max(right, occupied.right - bounds.left);
-      }, 0);
+      }, Math.min(176, bounds.width * 0.24));
       const candidate = occupiedLeft + safe;
+      const thumbZoneLeft = [
+        document.querySelector('[data-mobile-action="flight"]'),
+        document.querySelector('[data-mobile-action="drift"]'),
+      ].reduce((leftEdge, element) => {
+        if (!element) return leftEdge;
+        const occupied = element.getBoundingClientRect();
+        return Math.min(leftEdge, occupied.left - bounds.left);
+      }, bounds.width);
+      const availableWidth = thumbZoneLeft - safe - candidate;
+      if (availableWidth >= 236) cardWidth = Math.min(cardWidth, availableWidth);
       if (candidate + cardWidth <= bounds.width - safe) cardLeft = candidate;
       // The compact top-center lane stays clear of both the near-boat meter
       // and fixed thumb zones; the connector carries the eye to the target.

@@ -53,10 +53,13 @@ const JUMP_U = 0.02;
 /** Must be this close to the spline (m) for a gate / the line to count. */
 const GATE_CREDIT_DIST = 15;
 const WRONG_WAY_SPEED = 3; // m/s
+const WRONG_WAY_HEADING_DOT = -0.3;
 const WRONG_WAY_HOLD = 0.7; // s sustained before the flag sets
 /** Surface warnings begin here; abandoning the circuit beyond the hard edge ends the run. */
 const OFF_COURSE_WARN_M = 24;
 const OFF_COURSE_FAIL_HOLD_S = 0.8;
+/** Fixed-step surface motion above this is an explicit staging cut, not a route-projection jump. */
+const SURFACE_CONTINUITY_MAX_STEP_M = 4;
 /** A wrong-way banner is corrective; ignoring it for this long is terminal. */
 const WRONG_WAY_FAIL_HOLD_S = 2.4;
 const BATTLE_ARM_M = 0.75;
@@ -73,6 +76,7 @@ const _sample: CourseSample = {
   routeId: 'surface',
 };
 const _velocity = new THREE.Vector2();
+const _expectedSurfacePoint = new THREE.Vector3();
 
 export class Race implements RaceView {
   readonly racers: RacerState[] = [];
@@ -403,9 +407,11 @@ export class Race implements RaceView {
       const r = this.racers[id];
       this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
       const u = _sample.u;
+      const previousPosition = this.previousWorld[id];
+      const worldStep = previousPosition.distanceTo(boat.state.position);
       const crossedFinalStation = !resyncOnly && id === this.boats[0].id && this.finalStationArmed &&
-        this.course.crossFinalStation(this.previousWorld[id], boat.state.position);
-      this.previousWorld[id].copy(boat.state.position);
+        this.course.crossFinalStation(previousPosition, boat.state.position);
+      previousPosition.copy(boat.state.position);
       if (!this.inited[id]) {
         // grid sits just behind the line (u ~ 0.996): unwrap to slightly negative
         this.contU[id] = u > 0.5 ? u - 1 : u;
@@ -444,6 +450,30 @@ export class Race implements RaceView {
       let du = u - this.prevU[id];
       if (du < -0.5) du += 1;
       else if (du > 0.5) du -= 1;
+
+      const validatesSurface = boat.state.flightPhase === 'surface' && _sample.routeId === 'surface';
+      const continuousSurfaceCut = !resyncOnly && id === this.boats[0].id && validatesSurface &&
+        worldStep <= SURFACE_CONTINUITY_MAX_STEP_M && Math.abs(du) > JUMP_U;
+      if (continuousSurfaceCut) {
+        // The surface spline folds back near itself around the second flight.
+        // A global-nearest projection can therefore jump to a later section
+        // while the boat crosses open water in perfectly small physical steps.
+        // Keep the last accepted route owner so the shortcut cannot clear its
+        // warning merely by reaching a different piece of the same ribbon.
+        this.course.pointAt(this.prevU[id], _expectedSurfacePoint);
+        const expectedDistance = _expectedSurfacePoint.distanceTo(boat.state.position);
+        this.offCourseT[id] += dt;
+        this.wrongT[id] = 0;
+        this.setCourseWarning(r, 'off_course');
+        r.progress = this.windowedProgress(id);
+        this.prevContU[id] = this.contU[id];
+        if (this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
+          this.defeatSurface('off_course', Math.max(_sample.distance, expectedDistance));
+          return;
+        }
+        continue;
+      }
+
       this.prevU[id] = u;
 
       if (Math.abs(du) > JUMP_U) {
@@ -479,7 +509,6 @@ export class Race implements RaceView {
       if (!r.finished && !r.eliminated) {
         r.progress = this.windowedProgress(id);
 
-        const validatesSurface = boat.state.flightPhase === 'surface' && _sample.routeId === 'surface';
         if (!validatesSurface) {
           // Airborne and authored merge-recovery motion is legitimate by
           // construction. Neither warning timer may preload before handoff.
@@ -497,7 +526,12 @@ export class Race implements RaceView {
 
           boat.collisionVelocity(_velocity);
           const along = _velocity.x * _sample.tangent.x + _velocity.y * _sample.tangent.z;
-          const reversing = !offCourse && along < -WRONG_WAY_SPEED && du < 0;
+          const headingDot = Math.sin(boat.state.heading) * _sample.tangent.x +
+            Math.cos(boat.state.heading) * _sample.tangent.z;
+          const facingWrongWay = _velocity.length() > WRONG_WAY_SPEED &&
+            headingDot < WRONG_WAY_HEADING_DOT;
+          const movingWrongWay = along < -WRONG_WAY_SPEED && du < 0;
+          const reversing = !offCourse && (facingWrongWay || movingWrongWay);
           if (reversing) {
             this.wrongT[id] += dt;
             if (this.wrongT[id] >= WRONG_WAY_HOLD) this.setCourseWarning(r, 'wrong_way');

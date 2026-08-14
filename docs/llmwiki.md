@@ -62,8 +62,10 @@
 - `Course.sample()` 收到显式 flight route hint 时必须把该分支视为权威，不能因为离
   分支较远就偷偷回退到全局最近的 surface 段。branch -> surface 交接时 `Race` 只
   重建采样基线并保留连续比赛进度，不能把投影差误当倒退。
-- recovery 期间不累计 surface off-course / wrong-way timer。普通飞行交接后，偏离路线按离
-  surface 线的距离判断；真逆行要求船在引导附近、真实水平速度和连续进度都反向。
+- recovery 期间不累计 surface off-course / wrong-way timer。普通飞行交接后，surface
+  投影必须沿上一帧连续推进；小步物理运动却跳到非相邻 `u` 时锁住原路线所有权，按
+  off-course 窗口纠正 / 判负，不能把空间上邻近的后半圈绿线认成合法捷径。逆行同时
+  观察船头方向和真实水平速度，避免惯性仍向前时反向船体只偶发提示。
   唯一例外是第七飞已经 arm Final：此时两种 timer 和 warning 永久清零直到冲线。
   HUD 必须分别显示“偏离航线”和“方向反了”，不能共用含糊的 `WRONG WAY!`。
 - 视觉语法固定为 `青色门前轨道 -> 绿色软回收漏斗/间断箭头 -> 绿色水面主线`。

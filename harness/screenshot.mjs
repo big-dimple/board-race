@@ -407,6 +407,28 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightFailureCorridorDistanceM, null,
     'reverse evidence must not be mislabeled as a corridor distance');
 
+  const surfaceEnforcement = await page.evaluate(() => window.__harness.surfaceRouteEnforcementCase());
+  assert.equal(surfaceEnforcement.cut.finalStationArmed, false,
+    `surface route enforcement must run before Final is armed: ${JSON.stringify(surfaceEnforcement)}`);
+  assert.equal(surfaceEnforcement.cut.flightRouteState, 'idle',
+    'the second-flight shortcut fixture must remain a surface-route case');
+  assert.equal(surfaceEnforcement.cut.phase, 'defeated',
+    `crossing continuously from flight two to a non-adjacent green segment must be terminal: ${JSON.stringify(surfaceEnforcement)}`);
+  assert.equal(surfaceEnforcement.cut.reason, 'off_course');
+  assert.ok(surfaceEnforcement.cut.warningFrames > 0,
+    `a cross-course cut must present a stable correction before defeat: ${JSON.stringify(surfaceEnforcement)}`);
+  assert.ok(surfaceEnforcement.cut.travelled < surfaceEnforcement.cut.distance,
+    `the route cut must fail before reaching and adopting the later segment: ${JSON.stringify(surfaceEnforcement)}`);
+  assert.equal(surfaceEnforcement.cut.checkpointDelta, 0,
+    'an illegal projection switch must not emit checkpoint events');
+  assert.equal(surfaceEnforcement.facing.finalStationArmed, false);
+  assert.equal(surfaceEnforcement.facing.phase, 'racing',
+    'the wrong-way banner must appear before its longer terminal window');
+  assert.equal(surfaceEnforcement.facing.warning, 'wrong_way',
+    `a visibly reversed hull must stay warned while inertia still slides forward: ${JSON.stringify(surfaceEnforcement)}`);
+  assert.ok(surfaceEnforcement.facing.warningFrame >= 40 && surfaceEnforcement.facing.warningFrame <= 46,
+    `wrong-way onset must remain near the authored 0.7s hold: ${JSON.stringify(surfaceEnforcement)}`);
+
   await page.evaluate(() => window.__harness.scenario('surface-flight-off-course'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'defeated');
@@ -1538,9 +1560,25 @@ async function verifyMobileControls(page) {
       return value && { left:value.left, right:value.right, top:value.top, bottom:value.bottom };
     };
     return {
+      root:rect('.hud'),
       coach:rect('.hud-coach.on'),
       spotlight:rect('.hud-coach-spotlight.on'),
       objective:rect('.hud-topleft'),
+      objectiveStyle:(() => {
+        const element = document.querySelector('.hud-topleft');
+        if (!element) return null;
+        const style = getComputedStyle(element);
+        const parent = element.offsetParent?.getBoundingClientRect();
+        return {
+          left:style.left,
+          transform:style.transform,
+          translate:style.translate,
+          animation:style.animationName,
+          offsetLeft:element.offsetLeft,
+          scrollX,
+          parent:parent && { left:parent.left, right:parent.right },
+        };
+      })(),
       tower:rect('.race-tower.on'),
       driverPower:rect('.hud-driver-power'),
       flight:rect('[data-mobile-action="flight"]'),

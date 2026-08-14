@@ -913,8 +913,13 @@ function step(dt: number, _t: number): void {
   if (!waitingForMobile && race.phase === 'racing') race.update(dt);
   if (racing && race.phase === 'racing') {
     const hits = collisions.resolve(boats);
-    course.syncFlightTrackingAfterCollisions(boats);
-    race.syncCollisionCorrections();
+    // Preserve route-projection continuity on untouched frames. Re-basing
+    // every frame lets a continuous cross-course shortcut become the new
+    // legal segment; only an actual contact correction needs absorption.
+    if (collisions.debugState().maxCorrection > 0) {
+      course.syncFlightTrackingAfterCollisions(boats);
+      race.syncCollisionCorrections();
+    }
     presentPlayerCollisions(hits);
   }
   let enteredMedal = false;
@@ -1036,10 +1041,6 @@ function step(dt: number, _t: number): void {
       }
     : null;
   hud.showPcControlPrimer(coachPrimerPresentation ?? pcPrimerPresentation, pcPrimerPresentation !== null);
-  // The authored hazard callout owns the slot unless it is itself carrying
-  // the air-brake lesson. Generic flight acquisition is already represented
-  // by the launch/extension coach steps and must not stack over them.
-  hud.showCoach(coachPresentation);
 
   // Landing feedback: camera shake + thud on slams, splash on soft landings.
   for (let i = 0; i < boats.length; i++) {
@@ -1070,9 +1071,13 @@ function step(dt: number, _t: number): void {
   const ps = boats[0].state;
   tower.update(dt, race, ps.flightPhase !== 'surface');
   hud.update(dt, race, boats[0], boats);
+  mobileInput.setActionState(deriveAbilityHudState(ps, course.finalStationArmed()), course.flightTurnWarning(boats[0].id));
+  // Position the education slot only after the objective block, race tower,
+  // near-boat meter, and contextual thumb controls have their final geometry
+  // for this frame. Measuring earlier leaves the card one layout frame stale.
+  hud.showCoach(coachPresentation);
 
   audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
-  mobileInput.setActionState(deriveAbilityHudState(ps, course.finalStationArmed()), course.flightTurnWarning(boats[0].id));
   audio.setEngine(ps.rpm, ps.throttle, ps.boosting);
   audio.setWaterRush(Math.min(1, Math.abs(ps.speed) / 34));
   audio.setAirborne(ps.airborne);
@@ -1244,6 +1249,7 @@ interface Harness {
   passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
   flightRecoveryCase(routeCursor: number): Record<string, number | string | boolean>;
   finalApproachCase(): Record<string, unknown>;
+  surfaceRouteEnforcementCase(): Record<string, unknown>;
   flightBudgetCase(): Record<string, unknown>;
   retry(): void;
   setCoachEnabled(enabled: boolean): void;
@@ -1684,6 +1690,121 @@ function harnessFinalApproachCase(): Record<string, unknown> {
   } finally {
     harnessForceAirBrake = false;
     harnessSuppressAirborneFlightTrigger = false;
+    setHarnessInput(null);
+    harnessEndlessMode = previousEndlessMode;
+  }
+}
+
+function harnessSurfaceRouteEnforcementCase(): Record<string, unknown> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = false;
+  const dt = 1 / 60;
+  try {
+    resetRace();
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+
+    // These are the closest non-adjacent surface sections: flight two's
+    // entry and the later hairpin approach are only about 67m apart. Moving
+    // between them in sub-metre fixed steps used to switch the global-nearest
+    // projection and silently legalise a cross-course shortcut.
+    const cutFrom = course.pointAt(0.238, new THREE.Vector3());
+    const cutTo = course.pointAt(0.604, new THREE.Vector3());
+    const cutVector = cutTo.clone().sub(cutFrom);
+    const cutDistance = cutVector.length();
+    const cutDirection = cutVector.clone().multiplyScalar(1 / cutDistance);
+    const cutHeading = Math.atan2(cutDirection.x, cutDirection.z);
+    const player = boats[0];
+    player.state.flightsCleared = 1;
+    player.state.flightRouteCursor = 1;
+    player.state.flightRouteIndex = -1;
+    player.state.flightRouteState = 'idle';
+    player.setCollisionTestMotion(
+      cutFrom.x,
+      cutFrom.z,
+      cutHeading,
+      cutDirection.x * 33,
+      cutDirection.z * 33,
+    );
+    course.resetFlightChallenge();
+    course.updateFlightRoute(0, boats);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+
+    const checkpointBefore = harnessCheckpointEvents;
+    let cutTravelled = 0;
+    let cutWarningFrames = 0;
+    for (let frame = 1; frame <= 60 * 4 && race.phase === 'racing'; frame++) {
+      cutTravelled = frame * 0.55;
+      player.setCollisionTestMotion(
+        cutFrom.x + cutDirection.x * cutTravelled,
+        cutFrom.z + cutDirection.z * cutTravelled,
+        cutHeading,
+        cutDirection.x * 33,
+        cutDirection.z * 33,
+      );
+      course.updateFlightRoute(dt, boats);
+      race.update(dt);
+      if (race.racers[0].courseWarning !== 'none') cutWarningFrames++;
+    }
+    const cutResult = {
+      phase: race.phase,
+      reason: race.challengeResult?.reason ?? 'none',
+      warning: race.racers[0].courseWarning,
+      warningFrames: cutWarningFrames,
+      travelled: cutTravelled,
+      distance: cutDistance,
+      checkpointDelta: harnessCheckpointEvents - checkpointBefore,
+      finalStationArmed: course.finalStationArmed(),
+      flightRouteState: player.state.flightRouteState,
+    };
+
+    // A boat visibly pointing backwards must get a stable warning even while
+    // its old momentum is still carrying it forward. Legitimate post-gate
+    // inertia remains excluded by flight-route ownership before this branch.
+    resetRace();
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    const reverseStart = course.pointAt(0.14, new THREE.Vector3());
+    const reverseTangent = course.tangentAt(0.14, new THREE.Vector3()).normalize();
+    const reverseHeading = Math.atan2(reverseTangent.x, reverseTangent.z) + Math.PI;
+    boats[0].setCollisionTestMotion(
+      reverseStart.x,
+      reverseStart.z,
+      reverseHeading,
+      reverseTangent.x * 12,
+      reverseTangent.z * 12,
+    );
+    course.updateFlightRoute(0, boats);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    let facingWarningFrame = -1;
+    for (let frame = 1; frame <= 54 && race.phase === 'racing'; frame++) {
+      const forwardSlide = frame * 0.18;
+      boats[0].setCollisionTestMotion(
+        reverseStart.x + reverseTangent.x * forwardSlide,
+        reverseStart.z + reverseTangent.z * forwardSlide,
+        reverseHeading,
+        reverseTangent.x * 12,
+        reverseTangent.z * 12,
+      );
+      course.updateFlightRoute(dt, boats);
+      race.update(dt);
+      if (facingWarningFrame < 0 && race.racers[0].courseWarning === 'wrong_way') {
+        facingWarningFrame = frame;
+      }
+    }
+
+    return {
+      cut: cutResult,
+      facing: {
+        phase: race.phase,
+        warning: race.racers[0].courseWarning,
+        warningFrame: facingWarningFrame,
+        finalStationArmed: course.finalStationArmed(),
+      },
+    };
+  } finally {
     setHarnessInput(null);
     harnessEndlessMode = previousEndlessMode;
   }
@@ -2644,6 +2765,7 @@ if (HARNESS) {
     passExtendedFlight: passHarnessExtendedFlight,
     flightRecoveryCase: harnessFlightRecoveryCase,
     finalApproachCase: harnessFinalApproachCase,
+    surfaceRouteEnforcementCase: harnessSurfaceRouteEnforcementCase,
     flightBudgetCase,
     retry: requestRetry,
     setCoachEnabled: (enabled) => {
