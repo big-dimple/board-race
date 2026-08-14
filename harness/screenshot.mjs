@@ -33,6 +33,7 @@ const SCENARIOS = {
   ready: { scenario: 'ready' },
   countdown: { scenario: 'countdown' },
   start: { scenario: 'start' },
+  'pc-primer': { scenario: 'pc-primer', settleMs: 260 },
   sweeper: { scenario: 'sweeper' },
   chicane: { scenario: 'chicane' },
   hairpin: { scenario: 'hairpin' },
@@ -137,6 +138,77 @@ async function verifyFlightContract(page) {
   assert.equal(state.phase, 'racing');
   assert.equal(state.flightPhase, 'surface', 'held Space may confirm READY but must never buffer a launch');
   await page.keyboard.up('Space');
+  await page.evaluate(() => window.__harness.advance(0.22));
+  await page.locator('.hud-pc-primer').evaluate((element) => {
+    getComputedStyle(element).opacity;
+    for (const animation of element.getAnimations({ subtree:true })) animation.finish();
+  });
+  const primer = await page.evaluate(() => {
+    const element = document.querySelector('.hud-pc-primer');
+    const rect = element.getBoundingClientRect();
+    return {
+      state:window.__harness.pcPrimerState(),
+      role:element.getAttribute('role'),
+      label:element.getAttribute('aria-label'),
+      key:element.querySelector('.hud-pc-primer-key')?.textContent,
+      title:element.querySelector('.hud-pc-primer-title')?.textContent,
+      pointerEvents:getComputedStyle(element).pointerEvents,
+      className:element.className,
+      transform:getComputedStyle(element).transform,
+      opacity:getComputedStyle(element).opacity,
+      visibility:getComputedStyle(element).visibility,
+      rect:{ left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom },
+    };
+  });
+  assert.equal(primer.state.presentationStep, 'drift', 'the first fresh PC run must begin with drift, not flight inventory');
+  assert.equal(primer.state.visible, true);
+  assert.equal(primer.role, 'note');
+  assert.equal(primer.key, 'SHIFT');
+  assert.match(`${primer.title} ${primer.label}`, /SHIFT.*漂移/,
+    'the first keyboard hint must make Shift drift explicit');
+  assert.equal(primer.pointerEvents, 'none', 'the primer body must never intercept driving input');
+  assert.ok(primer.rect.left >= 0 && primer.rect.right < 430 && primer.rect.bottom <= 900,
+    `the keyboard primer must stay in the quiet lower-left lane: ${JSON.stringify(primer)}`);
+  assert.equal(await page.locator('.hud-coach.on').count(), 0,
+    'the first-run primer must remain non-modal and must not arm the failure coach');
+  for (const viewport of [
+    { width:1366, height:768 },
+    { width:1920, height:1080 },
+    { width:2560, height:1440 },
+    { width:3440, height:1440 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const layout = await page.evaluate(() => {
+      const rect = (selector) => {
+        const value = document.querySelector(selector)?.getBoundingClientRect();
+        return value && { left:value.left, right:value.right, top:value.top, bottom:value.bottom };
+      };
+      return { primer:rect('.hud-pc-primer'), power:rect('.hud-power') };
+    });
+    assert.ok(layout.primer.left >= 0 && layout.primer.bottom <= viewport.height,
+      `primer must remain inside ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
+    assert.ok(layout.primer.right + 24 < layout.power.left,
+      `primer must stay clear of the bottom power HUD at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
+  }
+  await page.setViewportSize({ width:1440, height:900 });
+  await page.emulateMedia({ reducedMotion:'reduce' });
+  const reducedPrimer = await page.locator('.hud-pc-primer').evaluate((element) => ({
+    transform:getComputedStyle(element).transform,
+    transition:getComputedStyle(element).transitionDuration,
+  }));
+  assert.equal(reducedPrimer.transform, 'none', 'reduced motion must remove primer movement');
+  assert.match(reducedPrimer.transition, /(^|, )0s/, 'reduced motion must remove primer transitions');
+  await page.emulateMedia({ reducedMotion:'no-preference' });
+  const primerSequence = await page.evaluate(() => window.__harness.pcPrimerCase());
+  assert.deepEqual(primerSequence.steps,
+    ['drift', 'charging', 'release', 'banked', 'waiting-launch', 'launch', 'success', 'off'],
+    `primer progress must follow accepted bank and launch state edges: ${JSON.stringify(primerSequence)}`);
+  assert.equal(primerSequence.active, false);
+  await page.locator('.hud-pc-primer-close').click();
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  const dismissedPrimer = await page.evaluate(() => window.__harness.pcPrimerState());
+  assert.equal(dismissedPrimer.step, 'dismissed', 'the first-run hint must be dismissible immediately');
+  assert.equal(dismissedPrimer.visible, false);
 
   await page.evaluate(() => window.__harness.scenario('countdown'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -211,7 +283,7 @@ async function verifyFlightContract(page) {
   const freshCoach = await page.evaluate(() => window.__harness.coachState());
   assert.equal(freshCoach.status, 'dormant');
   assert.equal(freshCoach.automaticEligible, true);
-  assert.equal(await page.locator('.hud-coach.on').count(), 0, 'the first run must add no tutorial');
+  assert.equal(await page.locator('.hud-coach.on').count(), 0, 'the first run must add no modal spotlight tutorial');
   await page.evaluate(() => window.__harness.scenario('flight-no-launch'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'defeated');
@@ -242,6 +314,11 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => {
     for (let i = 0; i < 20 && !window.__harness.playerState().coachVisible; i++) window.__harness.advance(0.15);
   });
+  await page.locator('.hud-pc-primer').evaluate((element) => {
+    getComputedStyle(element).opacity;
+    for (const animation of element.getAnimations({ subtree:true })) animation.finish();
+  });
+  await page.evaluate(() => window.__harness.advance(1 / 60));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).coachVisible, true);
   const coachSpotlight = await page.evaluate(() => {
     const rect = (selector) => {
@@ -252,14 +329,20 @@ async function verifyFlightContract(page) {
       coach:window.__harness.coachState(),
       title:document.querySelector('.hud-coach-title')?.textContent,
       control:document.querySelector('.hud-coach-control')?.textContent,
+      internalControlHidden:document.querySelector('.hud-coach-control')?.hidden,
       spotlight:rect('.hud-coach-spotlight.on'),
-      controlRect:rect('.hud-coach-control'),
+      controlRect:rect('.hud-pc-primer-key'),
+      anchorTitle:document.querySelector('.hud-pc-primer-title')?.textContent,
     };
   });
   assert.equal(coachSpotlight.coach.activeStep, 'drift', 'the first missing core action must teach PC drift');
   assert.equal(coachSpotlight.coach.focus, 'drift-control');
   assert.match(`${coachSpotlight.title} ${coachSpotlight.control}`, /SHIFT/,
     'desktop drift onboarding must make the Shift control unmistakable');
+  assert.equal(coachSpotlight.internalControlHidden, true,
+    'desktop drift coaching must not duplicate a fake keycap inside its annotation card');
+  assert.match(coachSpotlight.anchorTitle ?? '', /SHIFT/,
+    'the lower-left live anchor must carry the coached Shift action');
   assert.ok(coachSpotlight.spotlight && coachSpotlight.controlRect &&
     coachSpotlight.spotlight.left <= coachSpotlight.controlRect.left &&
     coachSpotlight.spotlight.right >= coachSpotlight.controlRect.right,
@@ -1068,6 +1151,8 @@ async function verifyMobileControls(page) {
     'the shipped v7 novice must be repaired before its next real failure');
   assert.equal(await contractGo.isVisible(), true, 'mobile must start behind the explicit driver-contract GO');
   assert.equal(await start.isVisible(), false, 'the legacy activation button must not compete with driver selection');
+  assert.equal(await page.locator('.hud-pc-primer:visible').count(), 0,
+    'mobile must never render the desktop keyboard primer');
   await assertDriverSelectComposition(page, 'mobile-844x390');
   const coldStart = await page.evaluate(() => window.__harness.startGantryStatus());
   assert.equal(coldStart.canvasTextures, 0,

@@ -46,10 +46,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
 ## Current State
 
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
-- First-run onboarding is intentionally absent. Only a brand-new save's first
-  real failure may invite the immediately skippable, action-observed spotlight
-  guide; schema v8 also repairs only dormant novices disarmed by the rejected
-  v7 rollout. Progress, eligibility, and disable state persist in schema v8.
+- First-run onboarding remains non-modal. A brand-new desktop keyboard run gets
+  one dismissible lower-left `Shift -> bank -> Space` primer driven only by
+  accepted boat-state edges; mobile never renders it. Only the first real
+  failure may invite the persistent spotlight guide. Schema v8 still owns that
+  full guide's eligibility, progress, and disable state.
 - Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use restrained
   ticks only. `GO` uses exactly one deterministic non-verbal synthesized start
   signal; voice assets, speech fetches, and announcement buses are removed. If

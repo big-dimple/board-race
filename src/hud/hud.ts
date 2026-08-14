@@ -26,6 +26,7 @@ import { MedalCeremonyCanvas } from './medalCeremony';
 import { deriveAbilityHudState } from '../core/abilityTelemetry';
 import type { CoachFocus, CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
 import type { CoachMastery } from '../game/drivingCoach';
+import type { PcControlPrimerPresentation } from '../game/pcControlPrimer';
 import './hud.css';
 
 const MAP_SIZE = 190;
@@ -123,6 +124,13 @@ export class HUD {
   private controlLabels = { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
   private flightPromptHitTimer = 0;
   private lastFlightExtensionReady = false;
+  private readonly pcPrimerEl: HTMLDivElement;
+  private readonly pcPrimerKey: HTMLDivElement;
+  private readonly pcPrimerKicker: HTMLDivElement;
+  private readonly pcPrimerTitle: HTMLDivElement;
+  private readonly pcPrimerDetail: HTMLDivElement;
+  private readonly pcPrimerClose: HTMLButtonElement;
+  private primerOwnsFlight = false;
 
   // full-screen, event-driven impact layer
   private readonly driftFx: HTMLDivElement;
@@ -257,6 +265,7 @@ export class HUD {
     camera?: THREE.PerspectiveCamera,
     onMedalSave: () => void = () => {},
     onCoachDisable: () => void = () => {},
+    onPcPrimerDismiss: () => void = () => {},
   ) {
     this.course = course;
     this.camera = camera ?? new THREE.PerspectiveCamera();
@@ -399,6 +408,22 @@ export class HUD {
     this.flightPromptEn = h('div', 'hud-flight-prompt-en', promptCopy, 'FLIGHT READY');
     this.flightPromptCn = h('div', 'hud-flight-prompt-cn', promptCopy, '按 SPACE 起飞');
     this.flightPromptRule = h('div', 'hud-flight-prompt-rule', promptCopy, '下一飞已就绪');
+    this.pcPrimerEl = h('div', 'hud-pc-primer', this.root);
+    this.pcPrimerEl.setAttribute('role', 'note');
+    this.pcPrimerKey = h('div', 'hud-pc-primer-key', this.pcPrimerEl, 'SHIFT');
+    this.pcPrimerKey.setAttribute('aria-hidden', 'true');
+    const primerCopy = h('div', 'hud-pc-primer-copy', this.pcPrimerEl);
+    this.pcPrimerKicker = h('div', 'hud-pc-primer-kicker', primerCopy, 'PC 漂移');
+    this.pcPrimerTitle = h('div', 'hud-pc-primer-title', primerCopy, '按住 SHIFT 漂移');
+    this.pcPrimerDetail = h('div', 'hud-pc-primer-detail', primerCopy, '漂过黄线再松开 · 存入飞行库存 ◇');
+    this.pcPrimerClose = document.createElement('button');
+    this.pcPrimerClose.className = 'hud-pc-primer-close';
+    this.pcPrimerClose.type = 'button';
+    this.pcPrimerClose.textContent = '×';
+    this.pcPrimerClose.title = '跳过操作提示';
+    this.pcPrimerClose.setAttribute('aria-label', '跳过操作提示');
+    this.pcPrimerClose.addEventListener('click', onPcPrimerDismiss);
+    this.pcPrimerEl.appendChild(this.pcPrimerClose);
     this.turnWarning = h('div', 'hud-turn-warning', this.root);
     h('div', 'hud-turn-warning-mark hud-inked', this.turnWarning, '!');
     const turnCopy = h('div', 'hud-turn-warning-copy', this.turnWarning);
@@ -675,7 +700,9 @@ export class HUD {
     const availablePrompt: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
       ? 'extend'
       : !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
-    const promptMode: 'hidden' | 'launch' | 'extend' = this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
+    const promptMode: 'hidden' | 'launch' | 'extend' = this.primerOwnsFlight
+      ? 'hidden'
+      : this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
     const promptDevice = this.controlDevice;
     if (promptMode !== this.flightPromptMode || promptDevice !== this.flightPromptDevice) {
       this.flightPromptMode = promptMode;
@@ -1068,7 +1095,9 @@ export class HUD {
     this.root.dataset.coachFocus = presentation.focus;
     this.coachStage.textContent = presentation.stage;
     this.coachControl.textContent = presentation.control;
-    this.coachControl.hidden = presentation.control.length === 0;
+    const externalDriftControl = this.controlDevice === 'keyboard' && presentation.focus === 'drift-control' &&
+      this.pcPrimerEl.classList.contains('on');
+    this.coachControl.hidden = presentation.control.length === 0 || externalDriftControl;
     this.coachKicker.textContent = presentation.kicker;
     this.coachTitle.textContent = presentation.title;
     this.coachDetail.textContent = presentation.detail;
@@ -1080,6 +1109,26 @@ export class HUD {
 
   coachPresentationBlocked(): boolean {
     return this.battleTimer > 0 || this.impactTimer > 0;
+  }
+
+  showPcControlPrimer(presentation: PcControlPrimerPresentation | null, dismissible = false): void {
+    if (!presentation) {
+      this.primerOwnsFlight = false;
+      this.pcPrimerEl.classList.remove('on');
+      this.pcPrimerEl.removeAttribute('data-step');
+      this.pcPrimerEl.removeAttribute('data-tone');
+      return;
+    }
+    this.pcPrimerEl.dataset.step = presentation.step;
+    this.pcPrimerEl.dataset.tone = presentation.tone;
+    this.pcPrimerKey.textContent = presentation.key;
+    this.pcPrimerKicker.textContent = presentation.kicker;
+    this.pcPrimerTitle.textContent = presentation.title;
+    this.pcPrimerDetail.textContent = presentation.detail;
+    this.pcPrimerEl.setAttribute('aria-label', `键盘操作：${presentation.title}。${presentation.detail}`);
+    this.pcPrimerClose.hidden = !dismissible;
+    this.primerOwnsFlight = presentation.key === 'SPACE';
+    this.pcPrimerEl.classList.add('on');
   }
 
   private positionCoach(focus: CoachFocus): void {
@@ -1165,9 +1214,9 @@ export class HUD {
 
   private coachTarget(focus: CoachFocus): Element | null {
     if (focus === 'drift-control') {
-      return this.controlDevice === 'mobile'
-        ? document.querySelector('[data-mobile-action="drift"] span')
-        : this.coachControl;
+      if (this.controlDevice === 'mobile') return document.querySelector('[data-mobile-action="drift"] span');
+      if (this.controlDevice === 'keyboard' && this.pcPrimerEl.classList.contains('on')) return this.pcPrimerKey;
+      return this.coachControl;
     }
     if (focus === 'drift-meter') return this.driverLeftRail;
     if (focus === 'flight-stock') return this.driverStocks;

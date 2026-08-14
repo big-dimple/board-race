@@ -2723,3 +2723,108 @@
   .hud-lesson-metric { margin-top: 7px; font-size: 11px; }
   .hud-lesson-progress { margin-top: 12px; }
 }
+
+/* First-run keyboard legend and the desktop coach's real Shift anchor. */
+.hud-pc-primer { display: none; }
+
+@media (pointer: fine) and (min-width: 1366px) and (min-height: 768px) {
+  .hud-pc-primer {
+    --primer-color: var(--boost);
+    position: absolute;
+    z-index: 6;
+    left: max(20px, env(safe-area-inset-left));
+    bottom: max(22px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 11px;
+    width: 318px;
+    min-height: 70px;
+    padding: 9px 30px 9px 10px;
+    overflow: hidden;
+    border-left: 5px solid var(--primer-color);
+    border-radius: 4px;
+    color: var(--text);
+    background: rgba(7, 12, 35, .88);
+    box-shadow: 0 2px 0 rgba(244, 254, 255, .08), 5px 5px 0 rgba(4, 7, 20, .72);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(calc(-100% - 28px));
+    transition: opacity 130ms linear, transform 210ms cubic-bezier(.2,.8,.2,1), visibility 0s 210ms;
+    pointer-events: none;
+  }
+  .hud-pc-primer.on {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(0);
+    transition-delay: 0s;
+  }
+  .hud-pc-primer[data-tone='flight'] { --primer-color: var(--flight); }
+  .hud-pc-primer[data-tone='success'] { --primer-color: var(--accent); }
+  .hud-pc-primer[data-tone='warning'] { --primer-color: var(--warn); }
+  .hud-pc-primer-key {
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 34px;
+    border: 2px solid var(--primer-color);
+    border-radius: 3px;
+    color: var(--primer-color);
+    background: rgba(4, 7, 20, .9);
+    box-shadow: 2px 2px 0 var(--ink);
+    font: 950 12px/1 system-ui, sans-serif;
+  }
+  .hud-pc-primer-copy { min-width: 0; }
+  .hud-pc-primer-kicker {
+    overflow: hidden;
+    color: var(--primer-color);
+    font: 900 9px/1 system-ui, sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hud-pc-primer-title {
+    margin-top: 4px;
+    overflow: hidden;
+    font: 900 16px/1.05 system-ui, sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hud-pc-primer-detail {
+    margin-top: 4px;
+    overflow: hidden;
+    color: rgba(244, 254, 255, .68);
+    font: 750 10px/1.15 system-ui, sans-serif;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hud-pc-primer-close {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    color: rgba(244, 254, 255, .62);
+    background: transparent;
+    font: 500 20px/1 system-ui, sans-serif;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .hud-pc-primer-close:hover,
+  .hud-pc-primer-close:focus-visible { color: var(--text); }
+  .hud-pc-primer-close:focus-visible { outline: 2px solid var(--primer-color); outline-offset: 1px; }
+  .hud.lesson-on .hud-pc-primer,
+  .hud.results-on .hud-pc-primer,
+  .hud.medal-on .hud-pc-primer,
+  .hud.interrupted .hud-pc-primer { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-pc-primer,
+  .hud-pc-primer.on {
+    transition: none;
+    transform: none;
+  }
+  .hud-coach-spotlight.on { animation: none; }
+}

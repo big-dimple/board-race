@@ -42,6 +42,10 @@ import {
   type CoachControls,
   type CoachPresentation,
 } from './game/drivingCoach';
+import {
+  PcControlPrimer,
+  type PcControlPrimerPresentation,
+} from './game/pcControlPrimer';
 import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
@@ -56,7 +60,7 @@ import { FinaleOverlay } from './hud/finaleOverlay';
 import { ExpansionGallery } from './hud/expansionGallery';
 import { CaptureService } from './core/capture';
 import { trackGameEvent } from './game/eventLog';
-import type { BoatInput, ChallengeTier, CourseGuidanceStatus, CourseSample, FlightRouteState } from './contracts';
+import type { BoatInput, BoatState, ChallengeTier, CourseGuidanceStatus, CourseSample, FlightRouteState } from './contracts';
 import { deriveAbilityHudState } from './core/abilityTelemetry';
 
 const params = new URLSearchParams(location.search);
@@ -91,6 +95,7 @@ const course = new Course();
 stage.scene.add(course.object);
 const records = new RecordsStore();
 const drivingCoach = new DrivingCoach(records.data.coach, (progress) => records.saveCoach(progress));
+const pcControlPrimer = new PcControlPrimer();
 let selectedDriverId = loadSelectedDriver();
 let roster = buildRaceRoster(selectedDriverId);
 
@@ -148,6 +153,7 @@ const hud = new HUD(
   stage.camera,
   saveMedalCapture,
   disableDrivingCoach,
+  dismissPcControlPrimer,
 );
 const mixer = new MixerControls(app, audio);
 const tower = new RaceTower(hudLayer);
@@ -184,6 +190,7 @@ let lastKeyboardActivity = input.activitySerial;
 let lastGamepadActivity = gamepadInput.activitySerial;
 let lastMobileActivity = mobileInput.activitySerial;
 let coachPresentation: CoachPresentation | null = null;
+let pcPrimerPresentation: PcControlPrimerPresentation | null = null;
 mixer.attachHaptics(() => haptics.enabled, (enabled) => haptics.setEnabled(enabled));
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
 stage.onResize((w, h, pr) => {
@@ -327,8 +334,19 @@ function requestFreshStart(): void {
 
 function toggleDrivingCoach(): void {
   if (drivingCoach.progress.status === 'active') drivingCoach.disable();
-  else drivingCoach.enable();
+  else {
+    pcControlPrimer.stop();
+    pcPrimerPresentation = null;
+    hud.showPcControlPrimer(null);
+    drivingCoach.enable();
+  }
   syncDrivingCoachUi();
+}
+
+function dismissPcControlPrimer(): void {
+  pcControlPrimer.dismiss();
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null);
 }
 
 function disableDrivingCoach(): void {
@@ -398,6 +416,13 @@ function resumeInterruption(): void {
 
 function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
+  pcControlPrimer.arm(
+    records.data.runs === 0 && DESKTOP_DRIVER_STAGE.matches && !mobileInput.enabled &&
+      activeInputDevice === 'keyboard' && drivingCoach.progress.status === 'dormant',
+    boats[0].state,
+  );
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null);
   currentRun = records.beginRun();
   input.reset();
   gamepadInput.reset();
@@ -423,6 +448,8 @@ function startResumeCountdown(): void {
   audio.setScene('countdown');
   coachPresentation = null;
   hud.showCoach(null);
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null);
 }
 
 function continueAfterFinale(): void {
@@ -525,6 +552,9 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   haptics.cue('medal');
   coachPresentation = null;
   hud.showCoach(null);
+  pcControlPrimer.stop();
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null);
 }
 
 function startRetryLesson(): void {
@@ -555,6 +585,9 @@ function startRetryLesson(): void {
   syncDrivingCoachUi();
   coachPresentation = null;
   hud.showCoach(null);
+  pcControlPrimer.stop();
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null);
 }
 
 function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentation = false): void {
@@ -607,6 +640,9 @@ function resetRace(): void {
   hud.hideMedalCeremony();
   coachPresentation = null;
   hud.showCoach(null);
+  pcControlPrimer.stop();
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null);
   finale.hide();
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
@@ -689,7 +725,8 @@ function step(dt: number, _t: number): void {
   const gamepadConfirm = gamepadInput.consumeConfirm();
   const coachDismissed = input.consumePress('Escape') || gamepadInput.consumeDismiss();
 
-  if (coachDismissed && drivingCoach.progress.status === 'active') disableDrivingCoach();
+  if (coachDismissed && pcControlPrimer.active && pcPrimerPresentation) dismissPcControlPrimer();
+  else if (coachDismissed && drivingCoach.progress.status === 'active') disableDrivingCoach();
 
   if (race.phase === 'medal') {
     mobileInput.consumeAnyPress();
@@ -979,6 +1016,26 @@ function step(dt: number, _t: number): void {
     presentationBlocked: hud.coachPresentationBlocked() || turnWarning,
   }, controls);
   if (turnWarning && coachPresentation?.id !== 'air-brake') coachPresentation = null;
+  pcPrimerPresentation = pcControlPrimer.update(dt, {
+    state: playerState,
+    racing: race.phase === 'racing',
+    guideActive: course.guidanceStatus().activeRouteIndex >= 0,
+    keyboardActive: activeInputDevice === 'keyboard',
+    presentationBlocked: hud.coachPresentationBlocked() || turnWarning || coachPresentation !== null,
+  });
+  const coachPrimerPresentation = coachPresentation && activeInputDevice === 'keyboard' &&
+      (coachPresentation.focus === 'drift-control' || coachPresentation.focus === 'drift-meter')
+    ? {
+        step: coachPresentation.id === 'release' ? 'release' as const :
+          coachPresentation.id === 'bank' ? 'charging' as const : 'drift' as const,
+        key: controls.drift,
+        kicker: coachPresentation.kicker,
+        title: coachPresentation.title,
+        detail: coachPresentation.detail,
+        tone: coachPresentation.tone === 'warning' ? 'warning' as const : 'drift' as const,
+      }
+    : null;
+  hud.showPcControlPrimer(coachPrimerPresentation ?? pcPrimerPresentation, pcPrimerPresentation !== null);
   // The authored hazard callout owns the slot unless it is itself carrying
   // the air-brake lesson. Generic flight acquisition is already represented
   // by the launch/extension coach steps and must not stack over them.
@@ -1057,6 +1114,9 @@ function step(dt: number, _t: number): void {
       haptics.cue('defeat');
       coachPresentation = null;
       hud.showCoach(null);
+      pcControlPrimer.stop();
+      pcPrimerPresentation = null;
+      hud.showPcControlPrimer(null);
     } else {
       cameraRig.finishKick();
       pipeline.pulse('finish', 1.35);
@@ -1188,6 +1248,8 @@ interface Harness {
   retry(): void;
   setCoachEnabled(enabled: boolean): void;
   coachState(): Record<string, unknown>;
+  pcPrimerState(): Record<string, unknown>;
+  pcPrimerCase(): Record<string, unknown>;
   playerState(): Record<string, number | string | boolean | null>;
   stats(): Record<string, number | string>;
   guidance(): CourseGuidanceStatus;
@@ -1268,6 +1330,41 @@ function setHarnessInput(input: Partial<BoatInput> | null): void {
     flightTrigger: input.flightTrigger ?? false,
     airBrake: input.airBrake ?? false,
   } : null;
+}
+
+function harnessPcPrimerCase(): Record<string, unknown> {
+  const primer = new PcControlPrimer();
+  const base = boats[0].state;
+  const state = (overrides: Partial<BoatState> = {}): BoatState => ({
+    ...base,
+    drifting: false,
+    driftReleaseReady: false,
+    flightCharges: 0,
+    flightPhase: 'surface',
+    ...overrides,
+  });
+  const steps: string[] = [];
+  const run = (dt: number, current: BoatState, guideActive = false): void => {
+    const presentation = primer.update(dt, {
+      state: current,
+      racing: true,
+      guideActive,
+      keyboardActive: true,
+      presentationBlocked: false,
+    });
+    steps.push(presentation?.step ?? primer.step);
+  };
+  const initial = state();
+  primer.arm(true, initial);
+  run(0.26, initial);
+  run(1 / 60, state({ drifting: true }));
+  run(1 / 60, state({ drifting: true, driftReleaseReady: true }));
+  run(1 / 60, state({ flightCharges: 1 }));
+  run(0.7, state({ flightCharges: 1 }));
+  run(1 / 60, state({ flightCharges: 1 }), true);
+  run(1 / 60, state({ flightCharges: 0, flightPhase: 'spool' }), true);
+  run(0.5, state({ flightCharges: 0, flightPhase: 'spool' }), true);
+  return { steps, finalStep: primer.step, active: primer.active };
 }
 
 function tapHarnessFlight(throttle = 1): void {
@@ -2193,6 +2290,12 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === 'racing', 8);
       loop.advance(2.2);
       break;
+    case 'pc-primer':
+      advanceUntil(() => race.phase === 'racing', 8);
+      harnessUsePlayerInput = true;
+      setHarnessInput({ throttle: 1 });
+      loop.advance(0.35);
+      break;
     case 'sweeper':
     case 'chicane':
     case 'hairpin':
@@ -2558,6 +2661,15 @@ if (HARNESS) {
       device: activeInputDevice,
       visible: Boolean(coachPresentation),
     }),
+    pcPrimerState: () => ({
+      step: pcControlPrimer.step,
+      active: pcControlPrimer.active,
+      visible: Boolean(pcPrimerPresentation),
+      presentationStep: pcPrimerPresentation?.step ?? 'none',
+      key: pcPrimerPresentation?.key ?? '',
+      activeInputDevice,
+    }),
+    pcPrimerCase: harnessPcPrimerCase,
     playerState: () => {
       const s = boats[0].state;
       const handling = boats[0].debugDriverHandling();
