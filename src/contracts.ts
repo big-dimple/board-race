@@ -63,9 +63,11 @@ export interface FlightFailureSnapshot {
   /** Next required gate inside the segment, or null for a route-level failure. */
   targetGate: number | null;
   routeU: number;
-  /** Signed offset from the gate centre; negative is left. */
+  /** Signed offset from the gate centre; negative is left. Null for surface failures. */
   lateralOffsetM: number | null;
+  /** Portal pass limit; surface failures use corridorDistanceM instead. */
   lateralLimitM: number | null;
+  /** Distance from the authored flight/surface guide, depending on reason. */
   corridorDistanceM: number | null;
   clearanceM: number;
 }

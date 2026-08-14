@@ -118,8 +118,14 @@ const collisions = new BoatCollisionSystem();
 
 const cameraRig = new CameraRig(stage.camera);
 const audio = new GameAudio();
-window.addEventListener('keydown', () => audio.resume());
-window.addEventListener('pointerdown', () => audio.resume(), { passive: true });
+window.addEventListener('keydown', () => {
+  audio.resume();
+  audio.startReadyMusic();
+});
+window.addEventListener('pointerdown', () => {
+  audio.resume();
+  audio.startReadyMusic();
+}, { passive: true });
 
 const hudLayer = document.createElement('div');
 hudLayer.id = 'hud-layer';
@@ -128,7 +134,10 @@ app.appendChild(hudLayer);
 const capture = new CaptureService(stage.renderer.domElement);
 let medalCapture: Blob | null = null;
 let finaleCapture: Blob | null = null;
-const mobileInput = new MobileControls(app, () => audio.resume(), params.has('mobile'));
+const mobileInput = new MobileControls(app, () => {
+  audio.resume();
+  audio.startReadyMusic();
+}, params.has('mobile'));
 const hud = new HUD(
   hudLayer,
   course,
@@ -147,11 +156,16 @@ const driverSelect = new DriverSelect(
   selectedDriverId,
   (profile, index, direction) => {
     audio.resume();
+    audio.startReadyMusic();
     audio.driverSelected(index, direction);
     applySelectedDriver(profile.id);
   },
   requestFreshStart,
-  () => mobileInput.requestImmersiveFromGesture(true),
+  () => {
+    audio.resume();
+    audio.startReadyMusic();
+    mobileInput.requestImmersiveFromGesture(true);
+  },
   toggleDrivingCoach,
 );
 const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, saveFinaleCapture);
@@ -243,8 +257,9 @@ const race = new Race(course, boats, {
     audio.setScene('racing');
     const announced = audio.countdownGoVoice() === 'played';
     if (!announced) audio.countdownBeep(true);
-    // Let the short word lead instead of burying it under the horn transient.
-    audio.horn(announced ? 0.22 : 0);
+    // The audio layer computes a clip-safe delay; fallback GO gets the impact
+    // immediately because there is no spoken tail to protect.
+    audio.horn(announced ? audio.countdownImpactDelay() : 0);
     cameraRig.mode = 'chase';
     tower.announceGo(roster[0].name);
   },
@@ -406,7 +421,7 @@ function startResumeCountdown(): void {
   if (!race.startResumeCountdown()) return;
   input.clearTransient();
   gamepadInput.clearTransient();
-  mobileInput.reset();
+  mobileInput.resumeFromPresentation();
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
   audio.prepareCountdownAnnouncer(currentRun);
@@ -501,8 +516,7 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   retryLessonFrozenT = worldTime;
   input.clearTransient();
   gamepadInput.clearTransient();
-  mobileInput.reset();
-  mobileInput.setControlPhase('inactive');
+  mobileInput.suspendForPresentation();
   hud.showQualification(tier, medals, best);
   hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, false);
   medalCapture = null;
@@ -1176,7 +1190,7 @@ interface Harness {
   retry(): void;
   setCoachEnabled(enabled: boolean): void;
   coachState(): Record<string, unknown>;
-  playerState(): Record<string, number | string | boolean>;
+  playerState(): Record<string, number | string | boolean | null>;
   stats(): Record<string, number | string>;
   guidance(): Record<string, number>;
   startGantryStatus(): Record<string, number>;
@@ -2143,6 +2157,32 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === 'defeated', 8);
       setHarnessInput(null);
       break;
+    case 'flight-landing-failure':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight();
+      advanceUntil(() => boats[0].state.flightRouteState === 'active', 3);
+      // Hold the planar test fixture before the portal while the real flight
+      // envelope expires. This reaches descending through Boat physics; Course
+      // still owns the landing-vs-corridor precedence.
+      {
+        const anchorX = boats[0].state.position.x;
+        const anchorZ = boats[0].state.position.z;
+        let guard = 0;
+        while (race.phase === 'racing' && guard++ < 60 * 9) {
+          loop.advance(1 / 60);
+          boats[0].state.position.x = anchorX;
+          boats[0].state.position.z = anchorZ;
+        }
+      }
+      setHarnessInput(null);
+      break;
+    case 'surface-flight-off-course':
+      advanceUntil(() => race.phase === 'racing', 8);
+      placeHarnessBoat(0, course.flightRoutes[0].gateUs[0], 55);
+      setHarnessInput({ throttle: 0 });
+      advanceUntil(() => race.phase === 'defeated', 3);
+      setHarnessInput(null);
+      break;
     case 'surface-off-course':
       advanceUntil(() => race.phase === 'racing', 8);
       placeHarnessBoat(0, 0.14, 55);
@@ -2403,9 +2443,13 @@ if (HARNESS) {
         challengeGate: race.challengeResult?.gate ?? 0,
         challengeReason: race.challengeResult?.reason ?? 'none',
         flightFailureTargetGate: failure?.targetGate ?? 0,
+        flightFailureTargetGateRaw: failure?.targetGate ?? null,
         flightFailureNumber: failure?.flightNumber ?? 0,
         flightFailureGatesPassed: failure?.gatesPassed ?? 0,
         flightFailureClearance: failure?.clearanceM ?? -1,
+        flightFailureLateralOffsetM: failure?.lateralOffsetM ?? null,
+        flightFailureLateralLimitM: failure?.lateralLimitM ?? null,
+        flightFailureCorridorDistanceM: failure?.corridorDistanceM ?? null,
         flightRouteCursor: s.flightRouteCursor,
         manMedalEarned: race.challengeResult?.manMedalEarned ?? medalEarnedThisRun,
         manMedalsTotal: race.challengeResult?.manMedalsTotal ?? records.data.manMedalsTotal,

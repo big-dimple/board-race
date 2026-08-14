@@ -139,6 +139,19 @@
   filter: grayscale(0.8);
 }
 
+.mobile-controls.presentation [data-mobile-action] {
+  opacity: 0.24;
+}
+
+.mobile-controls.presentation [data-mobile-action="flight"],
+.mobile-controls.presentation [data-mobile-action="flight"] * {
+  pointer-events: none !important;
+}
+
+.mobile-controls.presentation [data-mobile-action="flight"] {
+  filter: grayscale(0.8);
+}
+
 .mobile-action-zones span,
 .mobile-steer-zones span {
   position: absolute;

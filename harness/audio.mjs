@@ -59,8 +59,9 @@ try {
   let state = await page.evaluate(() => window.__harness.audioState());
   assert.equal(state.scene, 'ready');
   assert.equal(state.scoreArmed, false, 'READY gestures must not arm the race score');
-  assert.equal(state.musicPlaying, false, 'character select must remain musically silent');
-  assert.ok(Number(state.musicBusGain) < 0.008, `READY music bus must be closed: ${state.musicBusGain}`);
+  assert.equal(state.readyMusicActive, true, 'the first READY gesture must arm the selection score');
+  assert.equal(state.musicPlaying, true, 'character select must carry the score after the gesture');
+  assert.ok(Number(state.musicBusGain) > 0.01, `READY music bus must open after the gesture: ${state.musicBusGain}`);
   assert.ok(Number(state.ambience) <= 0.12, `phone-safe ambience default must stay restrained: ${state.ambience}`);
   assert.ok(Number(state.sfx) <= 0.7, `phone-safe SFX default must leave limiter headroom: ${state.sfx}`);
   assert.ok(Number(state.safetyHighpassHz) >= 48, `sub-bass protection must stay enabled: ${state.safetyHighpassHz}`);
@@ -71,8 +72,8 @@ try {
   assert.ok(['ogg', 'mp3'].includes(String(state.countdownVoiceFormat)),
     `GO announcers need a browser-selected local compatibility format: ${state.countdownVoiceFormat}`);
 
-  // The mixer is still honest: dragging the music row gives a short, explicit
-  // preview and then returns READY to silence.
+  // The mixer controls the same persistent READY score; it must not turn the
+  // selection screen back into a one-shot audition.
   const musicSlider = page.getByLabel('摇滚');
   await musicSlider.fill('72');
   await musicSlider.dispatchEvent('input');
@@ -82,11 +83,11 @@ try {
   state = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(state.musicTime) > t0 + 0.15, `formal score must advance: ${t0} -> ${state.musicTime}`);
   assert.equal(state.musicFailed, false);
-  assert.equal(state.musicPreview, true);
+  assert.equal(state.readyMusicActive, true);
   await page.waitForTimeout(1250);
   state = await page.evaluate(() => window.__harness.audioState());
-  assert.equal(state.musicPlaying, false, 'READY music audition must stop automatically');
-  assert.ok(Number(state.musicBusGain) < 0.008, 'audition must close the READY music bus');
+  assert.equal(state.musicPlaying, true, 'READY score must stay present while choosing a driver');
+  assert.ok(Number(state.musicBusGain) > 0.01, 'READY score must keep its bus open');
 
   const sliders = {
     master: ['总音量', 'outputGain'],
@@ -127,7 +128,7 @@ try {
   const firstAnnouncer = state.countdownVoice;
   const voiceEventsBeforeGo = Number(state.countdownVoiceEvents);
   assert.equal(voiceEventsBeforeGo, 0, '3/2/1 must remain visual lights and ticks, without speech');
-  assert.equal(Number(state.scorePreroll), 0, 'the first GO must start the complete song from its opening');
+  assert.ok(Number(state.musicTime) >= t0, 'GO must continue the same media timeline from READY');
   assert.equal(state.musicLoop, true, 'the media element must loop only after the complete song');
   assert.ok(Number(state.musicDuration) > 120, `the complete selected song must be loaded: ${state.musicDuration}`);
   assert.ok(Number(state.musicFilterHz) < 3000, `countdown must keep the score filtered: ${state.musicFilterHz}`);
@@ -139,6 +140,12 @@ try {
   assert.equal(state.scene, 'racing');
   assert.equal(Number(state.countdownVoiceEvents), voiceEventsBeforeGo + 1,
     'GO must play exactly one announcer, never a stacked male/female call');
+  assert.ok(Number(state.announcementBusGain) > Number(state.eventBusGain),
+    `GO speech must own dedicated headroom above generic events: ${JSON.stringify(state)}`);
+  assert.ok(Number(state.goImpactDelay) >= 0.28 && Number(state.goImpactDelay) <= 0.46,
+    `the impact must follow the decoded clip tail, not a fixed early timer: ${state.goImpactDelay}`);
+  assert.ok(Number(state.musicDuck) <= 0.25,
+    `the score must clear space while the GO word is active: ${state.musicDuck}`);
   assert.ok(Number(state.musicFilterHz) > 4200, `GO must start opening the score: ${state.musicFilterHz}`);
   await page.waitForTimeout(650);
   state = await page.evaluate(() => window.__harness.audioState());

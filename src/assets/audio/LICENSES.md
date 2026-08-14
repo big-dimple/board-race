@@ -12,8 +12,12 @@
 - Runtime safety: the complete game mix passes through a 48Hz high-pass and
   16:1 dynamics limiter before reaching the output device.
 - Delivered formats: Ogg Vorbis and MP3 compatibility fallback.
-- Playback: the first GO starts at the song opening; later runs preserve the
-  same media position, and looping occurs only after the complete song ends.
+- Measured delivery level: approximately `-15.9 LUFS` integrated with a
+  `-6.6 dBTP` true peak. That leaves headroom for vehicle and event layers;
+  broadband denoising is intentionally not baked in without an audible defect.
+- Playback: the first browser-authorized READY gesture starts the song. The
+  same media position continues through GO and later runs, and looping occurs
+  only after the complete song ends.
 
 ## Countdown GO Announcers
 

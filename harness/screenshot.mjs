@@ -290,8 +290,16 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'defeated', 'sustained surface course abandonment must be terminal');
   assert.equal(state.challengeReason, 'off_course');
+  assert.equal(state.flightFailureTargetGateRaw, null,
+    'surface course abandonment must not invent a portal target');
+  assert.equal(state.challengeGate, 0,
+    'surface course abandonment is not a gate result');
+  assert.equal(state.flightFailureLateralOffsetM, null);
+  assert.equal(state.flightFailureLateralLimitM, null);
+  assert.ok((state.flightFailureCorridorDistanceM ?? 0) >= 42,
+    `surface abandonment must retain its route distance evidence: ${JSON.stringify(state)}`);
   await page.evaluate(() => window.__harness.advance(0.6));
-  assert.match(await page.locator('.hud-lesson-title').textContent() ?? '', /偏航太远/);
+  assert.match(await page.locator('.hud-lesson-title').textContent() ?? '', /偏离绿色主线/);
   assert.equal(await page.locator('.hud-lesson-disable:visible').textContent(), '不用引导',
     'every failure while the guide is active must retain a direct opt-out');
 
@@ -299,6 +307,22 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'defeated', 'sustained reverse driving must be terminal');
   assert.equal(state.challengeReason, 'wrong_way');
+  assert.equal(state.flightFailureTargetGateRaw, null,
+    'surface reverse must not invent a portal target');
+  assert.equal(state.challengeGate, 0,
+    'surface reverse is not a gate result');
+  assert.equal(state.flightFailureLateralOffsetM, null);
+  assert.equal(state.flightFailureLateralLimitM, null);
+  assert.equal(state.flightFailureCorridorDistanceM, null,
+    'reverse evidence must not be mislabeled as a corridor distance');
+
+  await page.evaluate(() => window.__harness.scenario('surface-flight-off-course'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'defeated');
+  assert.equal(state.challengeReason, 'off_course',
+    'being beyond the green-route hard edge must not be mislabeled as a missed launch');
+  assert.equal(state.flightFailureTargetGateRaw, null);
+  assert.equal(state.challengeGate, 0);
 
   await page.evaluate(() => window.__harness.scenario('flight-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -572,8 +596,32 @@ async function verifyFlightContract(page) {
   assert.ok(['corridor', 'gate', 'gate_left', 'gate_right'].includes(state.flightRouteFailReason),
     `expected a gate miss, got ${state.flightRouteFailReason}`);
   assert.equal(state.flightFailureNumber, 1, 'failure evidence must identify the flight segment');
-  assert.equal(state.flightFailureTargetGate, 1, `failure must identify the scoring portal: ${JSON.stringify(state)}`);
+  const routeLevelReasons = ['no_launch', 'corridor', 'landing', 'exit', 'teleport'];
+  if (routeLevelReasons.includes(state.flightRouteFailReason)) {
+    assert.equal(state.flightFailureTargetGateRaw, null, 'a route-level miss has no fake portal target');
+    assert.equal(state.challengeGate, 0, 'a route-level miss is not a gate result');
+  } else {
+    assert.equal(state.flightFailureTargetGateRaw, 1, `portal misses must identify the scoring gate: ${JSON.stringify(state)}`);
+    assert.equal(state.challengeGate, 1);
+  }
   assert.equal(state.routeFails, 1, 'a failed attempt must resolve exactly once');
+  if (state.flightRouteFailReason === 'corridor') {
+    await page.evaluate(() => window.__harness.advance(0.6));
+    assert.match(await page.locator('.hud-lesson-metric').textContent() ?? '', /悬空通道偏离/,
+      'aerial corridor review must identify the cyan flight channel');
+  }
+
+  await page.evaluate(() => window.__harness.scenario('flight-landing-failure'));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.phase, 'defeated');
+  assert.equal(state.flightRouteFailReason, 'landing',
+    'descent on an uncleared route must be classified as early landing before corridor drift');
+  assert.equal(state.flightFailureTargetGateRaw, null);
+  assert.equal(state.challengeGate, 0);
+  await page.evaluate(() => window.__harness.advance(0.6));
+  assert.match(await page.locator('.hud-lesson-title').textContent() ?? '', /提前落水/);
+  assert.match(await page.locator('.hud-lesson-metric').textContent() ?? '', /当前高度/,
+    'landing review must expose landing evidence instead of corridor copy');
 
   await page.evaluate(() => window.__harness.scenario('flight-airbrake'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -990,14 +1038,14 @@ async function verifyMobileControls(page) {
     const style = getComputedStyle(el);
     return { name:style.animationName, duration:parseFloat(style.animationDuration) };
   });
-  assert.equal(backdropAnimation.name, 'driver-mobile-backdrop-lock',
+  assert.equal(backdropAnimation.name, 'driver-mobile-backdrop-soft',
     `the standing portrait must run the authored lock-in animation: ${JSON.stringify(backdropAnimation)}`);
   assert.ok(backdropAnimation.duration >= 0.4 && backdropAnimation.duration <= 0.6,
     `the standing portrait lock-in must stay finite and readable: ${JSON.stringify(backdropAnimation)}`);
   const selectAudio = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(selectAudio.driverSelectEvents) >= 1, `driver selection must emit its own event: ${JSON.stringify(selectAudio)}`);
   assert.equal(selectAudio.scoreArmed, false, 'selection SFX must never start the background score');
-  assert.equal(selectAudio.musicPlaying, false, 'selection SFX must keep READY musically silent');
+  assert.equal(selectAudio.musicPlaying, true, 'selection SFX must sit over the persistent READY score');
   assert.deepEqual(await page.locator('.driver-featured').boundingBox(), featuredBefore,
     'the selection lock may not reflow the featured contract grid');
   const beforeSwipe = await page.locator('.driver-card.selected').getAttribute('data-driver');
@@ -1233,14 +1281,39 @@ async function verifyMobileControls(page) {
   assert.equal(firstFailure.coachStatus, 'disabled');
   assert.equal(firstFailure.coachVisible, false, 'mobile must be able to close the guide from its first visible step');
 
-  // The post-medal countdown exposes direction/drift for preloading, but keeps
-  // flight disabled. Active pointers must survive preparing -> racing.
+  // The medal presentation and resume countdown expose direction/drift for
+  // preloading, but keep flight disabled. A touch that begins after the medal
+  // appears must survive presentation -> preparing -> racing.
   await page.evaluate(() => {
-    window.__harness.scenario('endless-two');
+    window.__harness.scenario('start');
+    window.__harness.passFlight(0);
+    window.__harness.passFlight(1);
     window.__harness.passFlight(2);
     window.__harness.usePlayerInput(true);
-    window.__harness.advance(4.6);
   });
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.controlPhase, 'presentation', 'third flight must enter the mobile medal presentation');
+  const presentationHitTargets = await page.evaluate(() => {
+    const hit = (action) => {
+      const el = document.querySelector(`[data-mobile-action="${action}"]`);
+      const rect = el?.getBoundingClientRect();
+      if (!rect) return null;
+      return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        ?.closest('[data-mobile-action]')?.getAttribute('data-mobile-action') ?? null;
+    };
+    return { left:hit('left'), drift:hit('drift'), flight:hit('flight') };
+  });
+  assert.equal(presentationHitTargets.left, 'left',
+    `medal overlay must not swallow the visible steering zone: ${JSON.stringify(presentationHitTargets)}`);
+  assert.equal(presentationHitTargets.drift, 'drift',
+    `medal overlay must not swallow the visible drift zone: ${JSON.stringify(presentationHitTargets)}`);
+  assert.notEqual(presentationHitTargets.flight, 'flight',
+    'the medal presentation must keep the edge-triggered flight control disabled');
+  await page.locator('[data-mobile-action="left"]').dispatchEvent('pointerdown', { pointerId: 31, pointerType: 'touch', isPrimary: true });
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', { pointerId: 32, pointerType: 'touch', isPrimary: true });
+  assert.deepEqual(await page.locator('.held').evaluateAll((els) => els.map((el) => el.dataset.mobileAction).sort()),
+    ['drift', 'left'], 'pointers pressed on the medal must remain owned by the controls');
+  await page.evaluate(() => window.__harness.advance(4.6));
   status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.controlPhase, 'preparing');
   const preparingCharge = (await page.evaluate(() => window.__harness.playerState())).flightCharges;
@@ -1265,6 +1338,8 @@ async function verifyMobileControls(page) {
   assert.equal(resumedState.flightCharges, preparingCharge,
     'a rejected preparing flight tap must not alter the legitimately preserved spare cell');
   await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', { pointerId: 22, pointerType: 'touch' });
+  await page.locator('[data-mobile-action="left"]').dispatchEvent('pointerup', { pointerId: 31, pointerType: 'touch' });
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', { pointerId: 32, pointerType: 'touch' });
   await page.evaluate(() => window.__harness.advance(1 / 30));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).flightCharges, Math.min(2, preparingCharge + 1),
     'releasing the held drift after GO must add exactly one cell');
@@ -1412,6 +1487,7 @@ async function assertDriverSelectComposition(page, label) {
         const portrait = document.querySelector('.driver-portrait-frame > .driver-portrait:not(.driver-portrait-echo)');
         if (!backdrop || !portrait) return null;
         const style = getComputedStyle(backdrop);
+        const portraitStyle = getComputedStyle(portrait);
         return {
           display:style.display,
           opacity:Number(style.opacity),
@@ -1419,6 +1495,8 @@ async function assertDriverSelectComposition(page, label) {
           backdropSrc:backdrop.currentSrc,
           portraitSrc:portrait.currentSrc,
           portraitDisplay:getComputedStyle(portrait).display,
+          portraitOpacity:Number(portraitStyle.opacity),
+          portraitBlend:portraitStyle.mixBlendMode,
           naturalWidth:backdrop.naturalWidth,
           naturalHeight:backdrop.naturalHeight,
           coarse:matchMedia('(pointer:coarse)').matches,
@@ -1449,8 +1527,8 @@ async function assertDriverSelectComposition(page, label) {
     assert.ok(geometry.backdrop, `${label} needs a standing mobile portrait`);
     assert.equal(geometry.mobileBackdropStyle.display, 'block', `${label} standing portrait must be visible`);
     assert.equal(geometry.mobileBackdropStyle.objectFit, 'contain', `${label} standing portrait must never be cropped`);
-    assert.ok(geometry.mobileBackdropStyle.opacity >= 0.35 && geometry.mobileBackdropStyle.opacity <= 0.52,
-      `${label} standing portrait must remain a legible background layer: ${JSON.stringify(geometry.mobileBackdropStyle)}`);
+    assert.ok(geometry.mobileBackdropStyle.opacity >= 0.06 && geometry.mobileBackdropStyle.opacity <= 0.18,
+      `${label} standing portrait must remain a restrained background echo: ${JSON.stringify(geometry.mobileBackdropStyle)}`);
     assert.equal(geometry.mobileBackdropStyle.backdropSrc, geometry.mobileBackdropStyle.portraitSrc,
       `${label} background and selected driver must stay in sync`);
     assert.deepEqual(
@@ -1460,7 +1538,11 @@ async function assertDriverSelectComposition(page, label) {
     );
     assert.ok(Math.abs(geometry.backdrop.width / geometry.backdrop.height - 2 / 3) < 0.02,
       `${label} standing portrait element lost its vertical aspect: ${JSON.stringify(geometry.backdrop)}`);
-    assert.equal(geometry.mobileBackdropStyle.portraitDisplay, 'none', `${label} must not retain the cropped foreground duplicate`);
+    assert.notEqual(geometry.mobileBackdropStyle.portraitDisplay, 'none', `${label} must retain a solid foreground portrait`);
+    assert.ok(geometry.mobileBackdropStyle.portraitOpacity >= 0.9,
+      `${label} foreground portrait must be solid enough to inspect: ${JSON.stringify(geometry.mobileBackdropStyle)}`);
+    assert.equal(geometry.mobileBackdropStyle.portraitBlend, 'normal',
+      `${label} foreground portrait must not inherit screen blending: ${JSON.stringify(geometry.mobileBackdropStyle)}`);
     assert.ok(radar.left - portrait.right >= 4 && radar.left - portrait.right <= 18,
       `${label} mobile decision column must sit beside, not over, the driver: ${JSON.stringify(geometry)}`);
     assert.ok(Math.abs(identity.left - radar.left) <= 2 && Math.abs(identity.right - radar.right) <= 2,

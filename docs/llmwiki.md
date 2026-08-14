@@ -70,6 +70,20 @@
 权威状态在 `src/game/course.ts`，连续进度和 surface 警告在 `src/game/race.ts`。
 任何调整必须覆盖第 4-7 飞完整的 gate -> descent -> water -> handoff，不得只测门口。
 
+### 失败快照语义
+
+- `no_launch / corridor / landing / exit / teleport` 是路线级失败，`targetGate=null`；
+  `ChallengeResult.gate=0`。不能为了结果页方便伪造“第 1 门”。
+- `gate / gate_left / gate_right / late` 才是门级失败，保留真实 `targetGate`；左右擦门
+  还要保留横向偏差与门心限制，结果页据此说清从哪侧超了多少。
+- `off_course / wrong_way` 是水面域。前者保留离绿色主线距离，后者只表示连续逆行；
+  两者都没有门号、门心偏差或飞行通道数据。教学必须先按 reason 分域再读字段。
+- 水面已经离主线达到 `SURFACE_ROUTE_FAIL_DISTANCE_M` 时，即使 U 投影越过飞行门也
+  不能报 `no_launch`；active flight 已进入 descending 时则报 `landing`，不能被同帧
+  通道偏差覆盖。两条优先级都有确定性 harness，修改顺序时必须同步。
+- 一帧内出现多个条件时由 `Course` 的固定优先级给出唯一不可变快照。失败复盘和
+  教学只能消费 `ChallengeResult.failure`，不能稍后从已被 reset 的 live state 猜原因。
+
 ### 选手雷达
 
 雷达不是装饰。四项分别真实修正水面加速、水面转向、漂移蓄力速度和空中转向
@@ -138,6 +152,9 @@ DriverSelect / READY
   integration shell 上的表现状态，不能侵入竞速状态机。
 - `resetRace()` 必须清输入边沿、世界表现和当前局状态，再回 READY。失败复盘、
   coach close、后台恢复都不能把同一个按键边沿带入下一局。
+- 三飞勋章属于同一局内的 presentation freeze：物理上持续按住的转向和漂移 / 空刹
+  必须保留到 resume countdown 与 racing；手机在 presentation 期间仍可新按住左 / 右
+  和漂移，但飞行区不可命中。起飞始终是边沿动作，绝不能因预按或恢复自动触发。
 - 页面切后台、横竖屏阻断和 interruption gate 会冻结模拟。coach 的计时与提示
   同步暂停，恢复后续读。
 - 飞行引导始终归玩家所有，世界中最多一条 active branch；教学不能生成第二条路线。
@@ -211,10 +228,14 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 
 ## 倒计时播报合同
 
+- 浏览器禁止无手势自动播放，因此真正的冷打开仍静音；READY 上第一次键盘或指针
+  手势必须启动完整 BGM。之后 GO、比赛、勋章和重回 READY 只改变混音，不重启媒体
+  时间轴。整局始终只有一个 BGM media source，不按场景叠歌。
 - `3/2/1` 只使用三格递减起步灯、数字和短促 tick：`3灯 -> 2灯 -> 1灯 -> GO全灭`，
   不播数字人声。
-- `GO` 正常路径只播放一个本地人声，号角延后 `0.22s` 避免盖住人声；男声用于奇数 fresh run，
-  女声用于偶数 fresh run。两段人声绝不同时连接。
+- `GO` 正常路径只播放一个本地人声；男声用于奇数 fresh run，女声用于偶数 fresh
+  run。两段人声绝不同时连接。人声走独立 announcement bus，BGM 与载具声先 duck，
+  合成冲击按实际 clip 时长延后约 `0.28-0.46s`，不能再用固定延迟盖住尾音。
 - 男/女与 Ogg/MP3 四份小文件在页面加载时独立预取；首个手势创建或恢复
   AudioContext 后，优先解码本局选中的 voice，再后台准备另一位。一个性别或格式
   失败不能阻塞另一个；瞬时 fetch/decode 失败允许下次 fresh GO 重试。
@@ -225,6 +246,14 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
   不额外翻转男女。手机 harness 必须从真实 `.driver-select-go` 点击开始、不预等
   voice ready，覆盖 MP3、未使用性别延迟、全部 voice 慢于倒计时、exactly-one
   fallback 和 no-late-speech；只数 synthetic 事件不算冷启动证据。
+
+音频拓扑是一个循环 BGM media source 加 ambience / vehicle / event / announcement
+四类 Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是多首 BGM 互相
+抢占。当前 owner master 测得约 `-15.9 LUFS / -6.6 dBTP`，已有事件叠加余量；没有
+可听见的持续噪声证据时不要做破坏高频和瞬态的全曲降噪，先从总线 duck 与 EQ 解决。
+
+本轮音频、失败文案、输入 presentation 和选角立绘调整不改变 records 结构，不升
+schema，也不触发存档迁移。
 
 ## 开发、端口与收尾纪律
 

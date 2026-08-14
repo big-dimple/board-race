@@ -79,6 +79,9 @@ CURVE.arcLengthDivisions = 800;
 
 const LAP_LENGTH = CURVE.getLength();
 
+/** Surface distance at which the run is no longer a missed launch attempt. */
+export const SURFACE_ROUTE_FAIL_DISTANCE_M = 42;
+
 // ---------------------------------------------------- arc-length table ----
 
 const TABLE_N = 2048;
@@ -1235,6 +1238,8 @@ export class Course implements ICourse {
     corridorDistanceM: number | null = null,
   ): void {
     const gatesPassed = boat.state.flightGateProgress;
+    const routeLevelFailure = reason === 'no_launch' || reason === 'corridor' ||
+      reason === 'landing' || reason === 'exit' || reason === 'teleport';
     boat.applyFlightRouteMiss({
       reason,
       flightNumber: boat.state.flightRouteCursor + 1,
@@ -1242,7 +1247,10 @@ export class Course implements ICourse {
       flightsCleared: boat.state.flightsCleared,
       gatesPassed,
       gateCount: visual.gates.length,
-      targetGate: targetGate ?? Math.min(visual.gates.length, gatesPassed + 1),
+      // A route-level miss is not evidence of a specific portal. The HUD may
+      // derive the next suggested gate from gatesPassed, but the snapshot must
+      // keep the distinction between "missed the corridor" and "missed gate".
+      targetGate: routeLevelFailure ? null : targetGate,
       routeU,
       lateralOffsetM,
       lateralLimitM,
@@ -1385,6 +1393,7 @@ export class Course implements ICourse {
       }
 
       if (!flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
+          _routeSample.distance < SURFACE_ROUTE_FAIL_DISTANCE_M &&
           surfaceU >= def.gateUs[0] - FLIGHT_GATE_BYPASS_U) {
         boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed);
         this.flightDebug[id] = 'no-launch';

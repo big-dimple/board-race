@@ -33,7 +33,7 @@ import type {
   CourseRouteId,
   CourseWarning,
 } from '../contracts';
-import { CHECKPOINT_US } from './course';
+import { CHECKPOINT_US, SURFACE_ROUTE_FAIL_DISTANCE_M } from './course';
 import { RACER_DEFS } from './racers';
 
 export interface RaceEvents {
@@ -56,7 +56,6 @@ const WRONG_WAY_SPEED = 3; // m/s
 const WRONG_WAY_HOLD = 0.7; // s sustained before the flag sets
 /** Surface warnings begin here; abandoning the circuit beyond the hard edge ends the run. */
 const OFF_COURSE_WARN_M = 24;
-const OFF_COURSE_FAIL_M = 42;
 const OFF_COURSE_FAIL_HOLD_S = 0.8;
 /** A wrong-way banner is corrective; ignoring it for this long is terminal. */
 const WRONG_WAY_FAIL_HOLD_S = 2.4;
@@ -283,7 +282,7 @@ export class Race implements RaceView {
     this.challengeResult = {
       outcome: this.challengeTier === 'unqualified' ? 'defeated' : this.challengeTier,
       reason: failure.reason,
-      gate: failure.targetGate ?? Math.min(3, failure.gatesPassed + 1),
+      gate: failure.targetGate ?? 0,
       place: player.place,
       totalRacers: this.racers.length,
       raceTime: this.raceTime,
@@ -315,7 +314,9 @@ export class Race implements RaceView {
       targetGate: null,
       routeU: _sample.u,
       lateralOffsetM: null,
-      lateralLimitM: reason === 'off_course' ? OFF_COURSE_FAIL_M : null,
+      // Surface warnings use corridorDistanceM; lateralLimitM is reserved for
+      // portal centreline evidence and must not masquerade as a gate limit.
+      lateralLimitM: null,
       corridorDistanceM: reason === 'off_course' ? distanceM : null,
       clearanceM: boat.state.flightClearance,
     });
@@ -472,7 +473,7 @@ export class Race implements RaceView {
           this.setCourseWarning(r, 'none');
         } else {
           const offCourse = _sample.distance >= OFF_COURSE_WARN_M;
-          const outside = _sample.distance >= OFF_COURSE_FAIL_M;
+          const outside = _sample.distance >= SURFACE_ROUTE_FAIL_DISTANCE_M;
           this.offCourseT[id] = outside
             ? this.offCourseT[id] + dt
             : Math.max(0, this.offCourseT[id] - dt * 2.5);

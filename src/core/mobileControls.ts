@@ -4,7 +4,7 @@ import './mobileControls.css';
 
 type ControlMode = 'tilt' | 'touch';
 type ActivationState = 'idle' | 'requesting' | 'calibrating' | 'ready';
-type ControlPhase = 'inactive' | 'preparing' | 'racing';
+type ControlPhase = 'inactive' | 'presentation' | 'preparing' | 'racing';
 type PointerAction = 'left' | 'right' | 'drift' | 'flight';
 
 const ZERO: BoatInput = {
@@ -167,14 +167,23 @@ export class MobileControls {
 
   setControlPhase(phase: ControlPhase): void {
     if (phase === this.controlPhase) return;
-    const wasInteractive = this.controlPhase !== 'inactive';
+    const wasInteractive = this.controlPhase !== 'inactive' && this.controlPhase !== 'presentation';
     this.controlPhase = phase;
     this.root?.classList.toggle('controls-visible', phase !== 'inactive');
     this.root?.classList.toggle('preparing', phase === 'preparing');
+    this.root?.classList.toggle('presentation', phase === 'presentation');
     this.root?.classList.toggle('racing', phase === 'racing');
     if (phase === 'inactive') {
       this.releaseAll();
       this.flightQueued = false;
+      this.anyPressQueued = false;
+      this.goQueued = false;
+    } else if (phase === 'presentation') {
+      // Keep physical left/drift pointers alive across the frozen medal
+      // presentation, but never carry an edge-triggered flight or confirm.
+      this.flightQueued = false;
+      this.anyPressQueued = false;
+      this.goQueued = false;
     } else if (!wasInteractive || phase === 'preparing') {
       // Preparing accepts held steering/drift only. A flight edge must always
       // originate after GO, even if the player taps the disabled side early.
@@ -307,6 +316,19 @@ export class MobileControls {
     this.touchSteer = 0;
     this.filteredTilt = 0;
     this.previousTiltActivity = 0;
+  }
+
+  /** Freeze presentation without releasing controls already held by touch. */
+  suspendForPresentation(): void {
+    this.setControlPhase('presentation');
+  }
+
+  /** Re-enter the resume countdown while retaining held steering/actions. */
+  resumeFromPresentation(): void {
+    this.setControlPhase('preparing');
+    this.flightQueued = false;
+    this.anyPressQueued = false;
+    this.goQueued = false;
   }
 
   status(): {
@@ -486,7 +508,7 @@ export class MobileControls {
     this.anyPressQueued = true;
     this.activitySerialValue++;
     if (this.controlPhase === 'inactive' || this.activation !== 'ready') return;
-    if (this.controlPhase === 'preparing' && action === 'flight') return;
+    if ((this.controlPhase === 'presentation' || this.controlPhase === 'preparing') && action === 'flight') return;
     event.preventDefault();
     const button = event.currentTarget as HTMLButtonElement;
     this.activePointers.set(event.pointerId, action);

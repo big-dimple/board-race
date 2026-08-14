@@ -951,7 +951,7 @@ export class HUD {
     this.resultsPlace.classList.toggle('win', excellent);
     this.resultsPlace.classList.toggle('lose', defeated || ordinary);
     this.resultsReason.textContent = defeated
-      ? this.failureCopy(result)
+      ? `${this.failureCopy(result)}${this.failureEvidence(result)}`
       : excellent
         ? '三飞无误 · 第一名'
         : `三飞完成 · 慢第一 ${(result.leaderGapSeconds ?? 0).toFixed(2)} 秒`;
@@ -961,6 +961,7 @@ export class HUD {
         ? `优秀完成 × ${result.excellentTotal}`
         : result.ordinaryNew ? '普通男人里程碑已解锁' : '第一才算优秀';
     this.resultsRows.textContent = '';
+    if (result.failure) this.resultsEl.dataset.failureReason = result.failure.reason;
     this.resultStat('TIME', fmtTime(result.raceTime));
     this.resultStat('OVERTAKES', String(result.overtakes));
     this.resultStat('FLIGHTS', `${result.flightsCleared} / 3`);
@@ -975,6 +976,7 @@ export class HUD {
     this.root.classList.remove('results-on');
     this.resultsEl.classList.remove('on');
     this.resultsEl.removeAttribute('data-outcome');
+    this.resultsEl.removeAttribute('data-failure-reason');
     this.clearBattle();
     this.turnWarning.classList.remove('on', 'braking');
   }
@@ -993,7 +995,8 @@ export class HUD {
     this.hideResults();
     const flight = failure?.flightNumber ?? result.flightsCleared + 1;
     const encouragement = this.encouragementFor(result);
-    this.lessonAttempt.textContent = `RUN REVIEW // RUN ${String(attempt).padStart(2, '0')} · 第 ${flight} 飞`;
+    const runSegment = failure && this.isSurfaceFailure(failure.reason) ? '水面段' : `第 ${flight} 飞`;
+    this.lessonAttempt.textContent = `RUN REVIEW // RUN ${String(attempt).padStart(2, '0')} · ${runSegment}`;
     this.lessonEmotion.textContent = encouragement.title;
     this.lessonMedal.textContent = result.manMedalEarned
       ? `本局男人勋章 +1 · 累计 ${result.manMedalsTotal}`
@@ -1003,7 +1006,9 @@ export class HUD {
     this.lessonCopy.textContent = coachArmed
       ? `${lesson.copy}。下一局可用聚光标注边开边学，随时能跳过。`
       : lesson.copy;
-    this.lessonMetric.textContent = `本局 ${result.flightsCleared} 飞 · BEST ${result.bestFlights}${newBest ? ' · NEW BEST' : ''}`;
+    const evidence = this.failureEvidence(result).replace(/^\s*·\s*/, '');
+    this.lessonMetric.textContent = `${evidence || `本局 ${result.flightsCleared} 飞`} · BEST ${result.bestFlights}${newBest ? ' · NEW BEST' : ''}`;
+    if (failure) this.lessonEl.dataset.failureReason = failure.reason;
     this.lessonContinue.hidden = false;
     this.lessonDisable.hidden = !coachArmed;
     this.lessonContinue.textContent = coachArmed ? '带标注再冲' : '再冲一次';
@@ -1021,6 +1026,7 @@ export class HUD {
   hideRetryLesson(): void {
     this.root.classList.remove('lesson-on');
     this.lessonEl.classList.remove('on');
+    this.lessonEl.removeAttribute('data-failure-reason');
     this.lessonContinue.hidden = true;
     this.lessonDisable.hidden = true;
     for (const pip of this.lessonPips) pip.classList.remove('on');
@@ -1221,12 +1227,16 @@ export class HUD {
     const reason = result.failure?.reason ?? result.reason;
     const flight = result.failure?.flightNumber ?? Math.min(3, result.flightsCleared + 1);
     if (reason === 'no_launch') return `第 ${flight} 飞 · 未起飞`;
-    if (reason === 'off_course') return '偏离赛道 · 挑战结束';
-    if (reason === 'wrong_way') return '持续逆行 · 挑战结束';
+    if (reason === 'off_course') return '偏离绿色主线 · 挑战结束';
+    if (reason === 'wrong_way') return '水面方向反了 · 挑战结束';
     if (reason === 'corridor') return `第 ${flight} 飞 · 偏离航线`;
     if (reason === 'landing') return `第 ${flight} 飞 · 提前落水`;
-    if (reason === 'exit') return `第 ${flight} 飞 · 未完成`;
+    if (reason === 'exit') return `第 ${flight} 飞 · 飞行区出口漏门`;
     if (reason === 'teleport') return `第 ${flight} 飞 · 路线重置`;
+    if (reason === 'late') return `第 ${flight} 飞 · 高度/时机不足`;
+    if (reason === 'gate_left') return `第 ${flight} 飞 · 左侧擦门`;
+    if (reason === 'gate_right') return `第 ${flight} 飞 · 右侧擦门`;
+    if (reason === 'gate') return `第 ${flight} 飞 · 未穿过门心`;
     return `第 ${flight} 飞 · 漏门`;
   }
 
@@ -1254,6 +1264,39 @@ export class HUD {
     return why[reason];
   }
 
+  private isSurfaceFailure(reason: FlightRouteFailReason): boolean {
+    return reason === 'off_course' || reason === 'wrong_way';
+  }
+
+  private failureEvidence(result: ChallengeResult): string {
+    const f = result.failure;
+    if (!f) return '';
+    switch (f.reason) {
+      case 'off_course':
+        return f.corridorDistanceM !== null ? ` · 离绿色主线 ${f.corridorDistanceM.toFixed(1)}m` : '';
+      case 'wrong_way':
+        return ' · 水面逆行超过纠正窗口';
+      case 'corridor':
+        return f.corridorDistanceM !== null ? ` · 悬空通道偏离 ${f.corridorDistanceM.toFixed(1)}m` : '';
+      case 'landing':
+        return ` · 已过 ${f.gatesPassed}/${f.gateCount} 门 · 当前高度 ${f.clearanceM.toFixed(1)}m`;
+      case 'late':
+        return f.clearanceM < 2.8 ? ` · 穿门高度 ${f.clearanceM.toFixed(1)}m / 需要 2.8m` : ' · 穿门时机已晚';
+      case 'gate_left':
+      case 'gate_right':
+        if (f.lateralOffsetM !== null && f.lateralLimitM !== null) {
+          return ` · 超出门心 ${(Math.max(0, Math.abs(f.lateralOffsetM) - f.lateralLimitM)).toFixed(1)}m`;
+        }
+        return '';
+      case 'no_launch':
+        return ` · 目标门前未进入飞行 · 已过 ${f.gatesPassed}/${f.gateCount} 门`;
+      case 'exit':
+        return ' · 离开飞行区时未完成门序';
+      default:
+        return '';
+    }
+  }
+
   private lessonFor(
     failure: FlightFailureSnapshot | null,
     device: CoachInputDevice,
@@ -1272,7 +1315,7 @@ export class HUD {
     switch (failure.reason) {
       case 'off_course':
         return {
-          title: `偏航太远 · ${failure.corridorDistanceM?.toFixed(0) ?? '?'}m`,
+          title: `偏离绿色主线 · ${failure.corridorDistanceM?.toFixed(0) ?? '?'}m`,
           copy: `下一次：警告出现就松开方向，${steer}回主航线`,
           metric: '',
         };
@@ -1293,8 +1336,8 @@ export class HUD {
       case 'late': {
         const short = Math.max(0, 2.8 - failure.clearanceM);
         return {
-          title: `高度差 ${short.toFixed(1)}m`,
-          copy: `下一次：更早按 ${flight}`,
+          title: failure.clearanceM < 2.8 ? `高度不足 · 差 ${short.toFixed(1)}m` : '起飞时机太晚',
+          copy: failure.clearanceM < 2.8 ? `下一次：更早按 ${flight}，先升到门高` : `下一次：更早按 ${flight}`,
           metric: '',
         };
       }

@@ -429,6 +429,37 @@
   .driver-select-go { min-height:35px; }
 }
 
+/* The standing image is a supporting echo only. The selected driver remains
+   an opaque, inspectable subject on touch screens; screen-blending the only
+   portrait made dark suits disappear into the water background. */
+@media (pointer:coarse) and (orientation:landscape) {
+  .driver-mobile-backdrop {
+    opacity:.12;
+    mix-blend-mode:screen;
+    filter:saturate(.9) contrast(1.04);
+  }
+  .driver-portrait-frame {
+    overflow:hidden;
+    border:2px solid var(--driver-color);
+    background:rgba(12,18,48,.88);
+    box-shadow:0 0 0 1px rgba(244,254,255,.14),0 12px 30px rgba(0,0,0,.28);
+  }
+  .driver-portrait-frame > .driver-portrait:not(.driver-portrait-echo) {
+    display:block;
+    opacity:.96;
+    mix-blend-mode:normal;
+    filter:saturate(1.08) contrast(1.06);
+  }
+  .driver-select.switching .driver-mobile-backdrop {
+    animation:driver-mobile-backdrop-soft .42s cubic-bezier(.18,.75,.2,1) both;
+  }
+}
+
+@keyframes driver-mobile-backdrop-soft {
+  0% { opacity:.03; transform:translateX(calc(-50% + var(--switch-enter))) scale(1.02); }
+  100% { opacity:.12; transform:translateX(-50%); }
+}
+
 @media (prefers-reduced-motion:reduce) {
   .driver-select.switching .driver-contract-card { display:none; }
   .driver-select.switching .driver-portrait-echo { animation:none; }

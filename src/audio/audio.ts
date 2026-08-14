@@ -9,7 +9,7 @@
  *            saw(+1oct)─► boostGain ──────────────────────────────────────────┤
  *   score:   HTMLAudioElement ─► media source ─► music bus ───────────────────┤
  *   rush:    noise loop ─► bandpass ─► rushGain ──────────────────────────────┤
- *   music / ambience / vehicle / event buses ─► master ─► limiter ─► destination
+ *   music / ambience / vehicle / event / announcement buses ─► master ─► limiter ─► destination
  *
  * All continuous params move via setTargetAtTime (no zipper noise), and the
  * set* hot paths allocate nothing — every node there is built once in build().
@@ -81,14 +81,13 @@ export class GameAudio {
   private ambienceBus: GainNode | null = null;
   private vehicleBus: GainNode | null = null;
   private eventBus: GainNode | null = null;
+  private announcementBus: GainNode | null = null;
   private musicElement: HTMLAudioElement | null = null;
   private musicSource: MediaElementAudioSourceNode | null = null;
   private musicReady = false;
   private musicFailed = false;
   private scoreArmed = false;
-  private musicPreview = false;
-  private musicPreviewToken = 0;
-  private musicPreviewStopTimer = 0;
+  private readyMusicActive = false;
   private ambiencePreviewToken = 0;
   private ambiencePreview = false;
   private countdownStageValue = 3;
@@ -102,6 +101,7 @@ export class GameAudio {
   private countdownVoiceEvents = 0;
   private countdownFallbackEvents = 0;
   private lastGoDisposition: CountdownGoDisposition = 'not_ready';
+  private goImpactDelayValue = 0;
   private contextStateAtGo = 'unavailable';
   private resumeAttempts = 0;
   private resumeFailures = 0;
@@ -202,7 +202,7 @@ export class GameAudio {
         this.resumeAttempts++;
         this.resumePending = c.resume().then(() => {
           this.applyMix(0.28);
-          if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
+          if (this.scoreArmed || this.readyMusicActive) this.ensureMusicPlaying();
         }).catch(() => {
           this.resumeFailures++;
         }).finally(() => {
@@ -212,7 +212,7 @@ export class GameAudio {
         // A very short app switch can restore visibility before the delayed
         // suspend runs. The next explicit gesture must still restore the mix.
         this.applyMix(0.28);
-        if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
+        if (this.scoreArmed || this.readyMusicActive) this.ensureMusicPlaying();
       }
     }
   }
@@ -260,29 +260,42 @@ export class GameAudio {
     if (scene === this.scene) return;
     this.scene = scene;
     if (scene === 'ready') {
-      this.musicPreview = false;
-      this.musicPreviewToken++;
-      // Before the first GO, READY is silent. Once a session has started, the
-      // full song keeps its media position through results and later runs.
-      if (!this.scoreArmed) this.musicElement?.pause();
-      if (!this.scoreArmed && this.ctx && this.musicBus) {
+      // READY may carry the same score after the first explicit gesture. A
+      // genuinely untouched page remains silent because browser autoplay
+      // policy has not granted an audio gesture yet.
+      if (!this.scoreArmed && !this.readyMusicActive) this.musicElement?.pause();
+      if (!this.scoreArmed && !this.readyMusicActive && this.ctx && this.musicBus) {
         this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
         this.musicBus.gain.value = 0;
       }
     }
     this.applyMix(scene === 'defeat' || scene === 'lesson' ? 0.08 : 0.14);
-    if (scene !== 'hidden' && (this.scoreArmed || this.musicPreview)) this.ensureMusicPlaying();
+    if (scene !== 'hidden' && (this.scoreArmed || this.readyMusicActive)) this.ensureMusicPlaying();
   }
 
-  /** Arm the formal score from an explicit GO. READY gestures only unlock Web Audio. */
+  /** Start the score behind the driver contract after a real user gesture. */
+  startReadyMusic(): void {
+    if (this.scoreArmed) {
+      this.resume();
+      return;
+    }
+    this.readyMusicActive = true;
+    this.resume();
+    if (this.ctx?.state === 'running') {
+      this.applyMix(0.18);
+      this.ensureMusicPlaying();
+    }
+  }
+
+  /** Arm the formal score from an explicit GO without restarting READY music. */
   startRaceScore(fresh: boolean): void {
+    const continuedReadyMusic = this.readyMusicActive && !this.scoreArmed;
     this.resume();
     const firstStart = !this.scoreArmed;
     this.scoreArmed = true;
-    this.musicPreview = false;
-    this.musicPreviewToken++;
+    this.readyMusicActive = false;
     this.countdownStageValue = 3;
-    if (fresh && firstStart) {
+    if (fresh && firstStart && !continuedReadyMusic) {
       this.raceScoreElapsed = 0;
       this.lastFlowStep = -1;
       if (this.musicElement) {
@@ -313,8 +326,9 @@ export class GameAudio {
   /** A single semantic callout at GO; 3/2/1 stay clean ticks and lights. */
   countdownGoVoice(): CountdownGoDisposition {
     const c = this.ctx;
-    const bus = this.eventBus;
+    const bus = this.announcementBus;
     this.contextStateAtGo = c?.state ?? 'unavailable';
+    this.goImpactDelayValue = 0;
     if (this.settings.muted || this.settings.master <= 0 || this.settings.sfx <= 0) {
       return this.lastGoDisposition = 'muted';
     }
@@ -348,8 +362,10 @@ export class GameAudio {
     const gain = c.createGain();
     const t = c.currentTime;
     gain.gain.setValueAtTime(0.001, t);
-    gain.gain.linearRampToValueAtTime(1.18, t + 0.012);
-    gain.gain.setValueAtTime(1.18, Math.max(t + 0.02, t + buffer.duration - 0.09));
+    // The source files are intentionally conservative phone-normalized clips;
+    // this dedicated bus restores presence without raising the whole SFX mix.
+    gain.gain.linearRampToValueAtTime(1.62, t + 0.012);
+    gain.gain.setValueAtTime(1.62, Math.max(t + 0.02, t + buffer.duration - 0.09));
     gain.gain.exponentialRampToValueAtTime(0.001, t + buffer.duration);
     source.connect(hp);
     hp.connect(presence);
@@ -357,10 +373,15 @@ export class GameAudio {
     compressor.connect(gain);
     gain.connect(bus);
     this.countdownVoiceEvents++;
-    this.duckMusic(0.36, Math.max(0.35, buffer.duration + 0.08));
-    this.duckVehicle(0.32, Math.max(0.35, buffer.duration + 0.08));
+    this.goImpactDelayValue = Math.min(0.46, Math.max(0.28, buffer.duration + 0.04));
+    this.duckMusic(0.24, Math.max(0.5, buffer.duration + 0.12));
+    this.duckVehicle(0.22, Math.max(0.5, buffer.duration + 0.12));
     this.trackOneShot(source, [hp, presence, compressor, gain], t, t + buffer.duration + 0.01);
     return this.lastGoDisposition = 'played';
+  }
+
+  countdownImpactDelay(): number {
+    return this.goImpactDelayValue;
   }
 
   debugState(): Record<string, number | string | boolean> {
@@ -382,6 +403,7 @@ export class GameAudio {
       ambienceBusGain: this.ambienceBus?.gain.value ?? 0,
       vehicleBusGain: this.vehicleBus?.gain.value ?? 0,
       eventBusGain: this.eventBus?.gain.value ?? 0,
+      announcementBusGain: this.announcementBus?.gain.value ?? 0,
       musicReady: this.musicReady,
       musicFailed: this.musicFailed,
       musicPlaying: this.musicElement ? !this.musicElement.paused : false,
@@ -389,7 +411,7 @@ export class GameAudio {
       musicDuration: Number.isFinite(this.musicElement?.duration) ? this.musicElement?.duration ?? 0 : 0,
       musicLoop: this.musicElement?.loop ?? false,
       scoreArmed: this.scoreArmed,
-      musicPreview: this.musicPreview,
+      readyMusicActive: this.readyMusicActive,
       countdownStage: this.countdownStageValue,
       countdownVoice: this.countdownVoice,
       countdownVoiceFormat: this.countdownVoiceFormats[this.countdownVoice] ?? this.countdownVoiceFormat,
@@ -402,6 +424,7 @@ export class GameAudio {
       countdownVoiceEvents: this.countdownVoiceEvents,
       countdownFallbackEvents: this.countdownFallbackEvents,
       lastGoDisposition: this.lastGoDisposition,
+      goImpactDelay: this.goImpactDelayValue,
       contextStateAtGo: this.contextStateAtGo,
       resumeAttempts: this.resumeAttempts,
       resumeFailures: this.resumeFailures,
@@ -445,27 +468,14 @@ export class GameAudio {
   audition(kind: 'master' | 'music' | 'sfx' | 'ambience'): void {
     this.resume();
     if (kind === 'music') {
-      if (this.scoreArmed) {
-        this.musicPreview = false;
+      if (this.scoreArmed || this.readyMusicActive) {
         this.applyMix(0.06);
         this.ensureMusicPlaying();
         return;
       }
-      const token = ++this.musicPreviewToken;
-      this.musicPreview = true;
-      this.applyMix(0.06);
-      this.ensureMusicPlaying();
-      const startStopTimer = (): void => {
-        if (token !== this.musicPreviewToken || !this.musicPreview) return;
-        window.clearTimeout(this.musicPreviewStopTimer);
-        this.musicPreviewStopTimer = window.setTimeout(() => this.stopMusicPreview(token), 1400);
-      };
-      if (this.musicElement?.readyState && this.musicElement.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-        startStopTimer();
-      } else {
-        this.musicElement?.addEventListener('playing', startStopTimer, { once: true });
-        this.musicPreviewStopTimer = window.setTimeout(() => this.stopMusicPreview(token), 5000);
-      }
+      // An explicit music control is itself a valid gesture. Keep the READY
+      // score running instead of turning it into a one-shot audition.
+      this.startReadyMusic();
       return;
     }
     const c = this.ctx;
@@ -855,7 +865,7 @@ export class GameAudio {
     this.blip(isGo ? 1320 : 880, c.currentTime, isGo ? 0.4 : 0.12, 0.22, 'square');
   }
 
-  /** Race-start horn: stacked A-major triad (220/277/330 Hz) saws, 1.2s, punchy. */
+  /** Race-start impact: a short A-major triad after the word has cleared. */
   horn(delay = 0): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
@@ -863,9 +873,9 @@ export class GameAudio {
 
     const g = c.createGain();
     g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(0.3, t0 + 0.025);
-    g.gain.setValueAtTime(0.3, t0 + 0.85);
-    g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.2);
+    g.gain.linearRampToValueAtTime(0.38, t0 + 0.02);
+    g.gain.setValueAtTime(0.38, t0 + 0.52);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.82);
     const lp = c.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = 1600;
@@ -881,7 +891,7 @@ export class GameAudio {
       o.detune.value = (i - 1) * 5;
       o.connect(g);
       o.start(t0);
-      o.stop(t0 + 1.25);
+      o.stop(t0 + 0.87);
       o.onended = () => o.disconnect();
       last = o;
     }
@@ -910,7 +920,7 @@ export class GameAudio {
 
   private applyMix(timeConstant = 0.08): void {
     const c = this.ctx;
-    if (!c || !this.master || !this.musicBus || !this.musicFilter || !this.ambienceBus || !this.vehicleBus || !this.eventBus) return;
+    if (!c || !this.master || !this.musicBus || !this.musicFilter || !this.ambienceBus || !this.vehicleBus || !this.eventBus || !this.announcementBus) return;
     const t = c.currentTime;
     const muted = this.settings.muted || this.scene === 'hidden';
     const master = muted ? 0 : gainCurve(this.settings.master);
@@ -934,9 +944,12 @@ export class GameAudio {
     const vehicleDuck = t < this.vehicleDuckUntil ? this.vehicleDuckMultiplier : 1;
     this.vehicleBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * sceneVehicle * vehicleDuck, t, timeConstant);
     this.eventBus.gain.setTargetAtTime(gainCurve(this.settings.sfx), t, timeConstant);
+    // Announcement clips have their own headroom and are never buried by the
+    // shorter event/horn bus. The master limiter remains the final guard.
+    this.announcementBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * 1.12, t, timeConstant);
     this.musicFilter.frequency.setTargetAtTime(
       this.scene === 'lesson' || this.scene === 'defeat' ? 1500
-        : this.scene === 'ready' && this.musicPreview ? 6000
+        : this.scene === 'ready' ? 6500
           : this.scene === 'countdown' ? (this.countdownStageValue === 3 ? 850 : this.countdownStageValue === 2 ? 1800 : 4200)
             : 11000,
       t,
@@ -950,7 +963,7 @@ export class GameAudio {
         : 0.34;
     const flow = clamp01(this.raceScoreElapsed / 14);
     switch (this.scene) {
-      case 'ready': return this.scoreArmed ? 0.28 : this.musicPreview ? 0.42 : 0;
+      case 'ready': return this.scoreArmed ? 0.28 : this.readyMusicActive ? 0.4 : 0;
       case 'lesson': return 0.18;
       case 'defeat': return 0.22;
       case 'medal': return 0.38;
@@ -1114,21 +1127,10 @@ export class GameAudio {
 
   private ensureMusicPlaying(): void {
     const media = this.musicElement;
-    if (!media || (!this.scoreArmed && !this.musicPreview) || this.musicFailed || document.hidden || this.scene === 'hidden' || this.settings.muted) return;
+    if (!media || (!this.scoreArmed && !this.readyMusicActive) || this.musicFailed || document.hidden || this.scene === 'hidden' || this.settings.muted) return;
     void media.play().catch(() => {
       // Autoplay refusal is expected until the next explicit pointer/key gesture.
     });
-  }
-
-  private stopMusicPreview(token: number): void {
-    if (token !== this.musicPreviewToken || !this.musicPreview || this.scoreArmed || this.scene !== 'ready') return;
-    this.musicPreview = false;
-    this.musicElement?.pause();
-    if (this.ctx && this.musicBus) {
-      this.musicBus.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.musicBus.gain.value = 0;
-    }
-    this.applyMix(0.1);
   }
 
   private impactBurst(startHz: number, endHz: number, strength: number, duration: number): void {
@@ -1233,20 +1235,23 @@ export class GameAudio {
     const ambienceBus = ctx.createGain();
     const vehicleBus = ctx.createGain();
     const eventBus = ctx.createGain();
+    const announcementBus = ctx.createGain();
     ambienceBus.gain.value = 0;
     vehicleBus.gain.value = 0;
     eventBus.gain.value = 0;
+    announcementBus.gain.value = 0;
     ambienceBus.connect(master);
     vehicleBus.connect(master);
     eventBus.connect(master);
+    announcementBus.connect(master);
     this.ambienceBus = ambienceBus;
     this.vehicleBus = vehicleBus;
     this.eventBus = eventBus;
+    this.announcementBus = announcementBus;
 
     const music = new Audio();
-    // The track remains silent until GO, but decoding the local song ahead
-    // of time prevents the first mixer preview from reporting "playing" while
-    // the media clock is still waiting on data.
+    // Decode the local song ahead of time so the first READY gesture can fade
+    // it in without reporting "playing" while the media clock is still empty.
     music.preload = 'auto';
     // Loop only after the complete song ends. New runs never seek or restart it.
     music.loop = true;
@@ -1254,7 +1259,7 @@ export class GameAudio {
     music.src = music.canPlayType('audio/ogg; codecs="vorbis"') ? rockOgg : rockMp3;
     music.addEventListener('canplay', () => {
       this.musicReady = true;
-      if (this.scoreArmed || this.musicPreview) this.ensureMusicPlaying();
+      if (this.scoreArmed || this.readyMusicActive) this.ensureMusicPlaying();
     }, { once: true });
     music.addEventListener('error', () => { this.musicFailed = true; }, { once: true });
     const musicSource = ctx.createMediaElementSource(music);
