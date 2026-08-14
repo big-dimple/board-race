@@ -956,6 +956,23 @@ async function verifyGamepadContract(page) {
   assert.ok(Number(pulses[0].options.duration) <= 80, `controller feedback must remain short: ${JSON.stringify(pulses[0])}`);
   assert.ok(Number(pulses[0].options.strongMagnitude) <= 0.55,
     `controller feedback must remain conservative: ${JSON.stringify(pulses[0])}`);
+  // A skill pulse owns the right-hand feel. A collision received while drift
+  // is held queues behind it and cannot replace the first actuator effect.
+  await page.evaluate(() => {
+    window.__harness.setHapticsEnabled(false);
+    window.__harness.setHapticsEnabled(true);
+    window.__gamepadFixture.clearEffects();
+    window.__harness.hapticCue('air-brake');
+    window.__harness.hapticImpact('collision-heavy', 1, true);
+  });
+  await page.waitForTimeout(110);
+  await page.evaluate(() => window.__harness.advance(1 / 30));
+  effects = await page.evaluate(() => window.__gamepadFixture.effects(1));
+  const protectedPulses = effects.filter((entry) => entry.kind === 'play' && Number(entry.options?.duration) > 0);
+  assert.ok(protectedPulses.length >= 1 && protectedPulses.length <= 2,
+    `control/impact scheduler must stay single-slot: ${JSON.stringify(protectedPulses)}`);
+  const protectedHaptics = await page.evaluate(() => window.__harness.hapticStatus());
+  assert.ok(Number(protectedHaptics.queuedImpacts) >= 1, 'impact must be queued while the skill pulse is held');
   await page.locator('.audio-mixer-toggle').click();
   const hapticButton = page.locator('.audio-mixer-haptics');
   await hapticButton.click();

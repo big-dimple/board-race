@@ -226,31 +226,39 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 确定性浏览器入口是 `?harness=1`；`harness/screenshot.mjs` 负责玩法、输入、移动端
 和视觉几何，`harness/systems.mjs` 负责记录迁移与长跑合同。
 
-## 倒计时播报合同
+## 倒计时与声音合同
 
 - 浏览器禁止无手势自动播放，因此真正的冷打开仍静音；READY 上第一次键盘或指针
   手势必须启动完整 BGM。之后 GO、比赛、勋章和重回 READY 只改变混音，不重启媒体
   时间轴。整局始终只有一个 BGM media source，不按场景叠歌。
 - `3/2/1` 只使用三格递减起步灯、数字和短促 tick：`3灯 -> 2灯 -> 1灯 -> GO全灭`，
   不播数字人声。
-- `GO` 正常路径只播放一个本地人声；男声用于奇数 fresh run，女声用于偶数 fresh
-  run。两段人声绝不同时连接。人声走独立 announcement bus，BGM 与载具声先 duck，
-  合成冲击按实际 clip 时长延后约 `0.28-0.46s`，不能再用固定延迟盖住尾音。
-- 男/女与 Ogg/MP3 四份小文件在页面加载时独立预取；首个手势创建或恢复
-  AudioContext 后，优先解码本局选中的 voice，再后台准备另一位。一个性别或格式
-  失败不能阻塞另一个；瞬时 fetch/decode 失败允许下次 fresh GO 重试。
-- GO 只在 `buffer ready && context running && 未静音` 时宣称已播人声。否则必须在
-  同一 GO 帧播放一次电子 hit 并记录 `not_ready / decode_failed /
-  context_suspended / muted`；资源后来就绪也绝不迟播人声。
-- medal、Final 和 interruption 的 resume countdown 属于同一 run，保持当前播报者，
-  不额外翻转男女。手机 harness 必须从真实 `.driver-select-go` 点击开始、不预等
-  voice ready，覆盖 MP3、未使用性别延迟、全部 voice 慢于倒计时、exactly-one
-  fallback 和 no-late-speech；只数 synthetic 事件不算冷启动证据。
+- `GO` 永久不使用男声或女声。正常路径只触发一次 `GameAudio.startSignal()`：
+  低频起拍 + 两层上行三角音（最高 `1320Hz`，高于 `3/2/1` 的 `880Hz` tick），
+  峰值也高于倒计时 tick。全部由当前 `AudioContext` 即时合成，没有资源请求、解码
+  竞态或迟到播报。若 context 尚未 running，主循环只在同一帧发一次
+  `countdownBeep(true)` 作为电子 fallback；不得在比赛开始后补播。
+- 选角页第一次明确手势可以启动同一条 BGM media source；GO、比赛、勋章和回到 READY
+  只改变混音，不叠加第二首歌，也不重启媒体时间轴。
 
-音频拓扑是一个循环 BGM media source 加 ambience / vehicle / event / announcement
-四类 Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是多首 BGM 互相
-抢占。当前 owner master 测得约 `-15.9 LUFS / -6.6 dBTP`，已有事件叠加余量；没有
-可听见的持续噪声证据时不要做破坏高频和瞬态的全曲降噪，先从总线 duck 与 EQ 解决。
+音频拓扑是一个循环 BGM media source 加 ambience-events / vehicle / event 三类
+Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是多首 BGM 互相抢占。
+水面 rush 与空中 pressure 的共享白噪声循环已关闭；环境总线只接受经过审计的短事件。
+当前 owner master 测得约 `-15.9 LUFS / -6.6 dBTP`，已有事件叠加余量；没有可听见的
+持续噪声证据时不要擅自给 BGM 做全曲降噪，也不要新增海浪录音。
+
+### 碰撞、落水与触觉
+
+- 玩家碰撞同一 fixed-step 只呈现最大一次音效/镜头/触觉；物理层仍保留所有碰撞对。
+  音频有短 cooldown、active one-shot 上限和事件环形审计（`audioEventLog()`），
+  同一噪声 buffer 使用确定性偏移，避免相位重叠变成白噪墙。
+- 只有玩家落水播放 splash/thud；对手落水保持视觉反馈，直到有空间化环境样本并经
+  用户审核。环境事件不等于持续海浪。
+- 漂移 / 空刹 / 起飞等 control-lane 触觉拥有约几十毫秒保护窗。碰撞与 landing 进入
+  单槽队列并合并为最高强度，绝不打断右手 drift/air-brake 手感；手机和手柄只向
+  最近活动的设备输出，不能双震。`Haptics.update()` 在 fixed-step 中冲刷队列。
+- 触觉只使用短促分级脉冲，不做持续震动；任何调参必须同时覆盖移动端、标准/未知
+  手柄、多手柄、断连和控制中碰撞的 harness。
 
 本轮音频、失败文案、输入 presentation 和选角立绘调整不改变 records 结构，不升
 schema，也不触发存档迁移。

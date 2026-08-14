@@ -5,7 +5,7 @@ const ROWS: ReadonlyArray<{ key: keyof Pick<AudioSettings, 'master' | 'music' | 
   { key: 'master', label: '总音量' },
   { key: 'music', label: '摇滚' },
   { key: 'sfx', label: '音效' },
-  { key: 'ambience', label: '水 / 空气' },
+  { key: 'ambience', label: '环境事件' },
 ];
 
 export class MixerControls {

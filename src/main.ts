@@ -177,8 +177,8 @@ const expansionGallery = new ExpansionGallery(
 
 const input = new Input();
 const gamepadInput = new GamepadInput();
-const haptics = new Haptics(gamepadInput, () => mobileInput.enabled);
 let activeInputDevice: CoachInputDevice = mobileInput.enabled ? 'mobile' : 'keyboard';
+const haptics = new Haptics(gamepadInput, () => activeInputDevice);
 let lastKeyboardActivity = input.activitySerial;
 let lastGamepadActivity = gamepadInput.activitySerial;
 let lastMobileActivity = mobileInput.activitySerial;
@@ -255,11 +255,8 @@ const race = new Race(course, boats, {
   },
   go: (_resuming) => {
     audio.setScene('racing');
-    const announced = audio.countdownGoVoice() === 'played';
-    if (!announced) audio.countdownBeep(true);
-    // The audio layer computes a clip-safe delay; fallback GO gets the impact
-    // immediately because there is no spoken tail to protect.
-    audio.horn(announced ? audio.countdownImpactDelay() : 0);
+    const signaled = audio.startSignal() === 'played';
+    if (!signaled) audio.countdownBeep(true);
     cameraRig.mode = 'chase';
     tower.announceGo(roster[0].name);
   },
@@ -390,7 +387,6 @@ function resumeInterruption(): void {
   hud.hideInterruption();
   if (interruptionNeedsCountdown && race.restartAfterInterruption()) {
     audio.startRaceScore(false);
-    audio.prepareCountdownAnnouncer(currentRun);
     audio.setScene('countdown');
   } else {
     audio.resume();
@@ -410,7 +406,6 @@ function startFreshCountdown(): void {
   driverSelect.hide();
   mixer.setVisible(false);
   audio.startRaceScore(true);
-  audio.prepareCountdownAnnouncer(currentRun);
   audio.setScene('countdown');
   drivingCoach.resetRun(boats[0].state);
   coachPresentation = null;
@@ -424,7 +419,6 @@ function startResumeCountdown(): void {
   mobileInput.resumeFromPresentation();
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
-  audio.prepareCountdownAnnouncer(currentRun);
   audio.setScene('countdown');
   coachPresentation = null;
   hud.showCoach(null);
@@ -444,7 +438,6 @@ function continueAfterFinale(): void {
   mobileInput.setControlPhase('preparing');
   cameraRig.mode = 'chase';
   audio.startRaceScore(false);
-  audio.prepareCountdownAnnouncer(currentRun);
   audio.setScene('countdown');
   trackGameEvent('continue_game', { run: currentRun, flights: boats[0].state.flightsCleared });
 }
@@ -622,9 +615,6 @@ function resetRace(): void {
   }
   race.reset();
   currentRun = records.data.runs + 1;
-  // Select the pending run's announcer before the first READY gesture creates
-  // AudioContext, so returning players warm the correct voice first as well.
-  audio.prepareCountdownAnnouncer(currentRun);
   prevFlightCharges = boats[0].state.flightCharges;
   prevDriftReleaseReady = boats[0].state.driftReleaseReady;
   prevFlightGateProgress = boats[0].state.flightGateProgress;
@@ -675,6 +665,7 @@ let harnessFlightTriggerPulse = false;
 function step(dt: number, _t: number): void {
   gamepadInput.poll(race.phase === 'ready' && !interruptionActive);
   updateActiveInputDevice();
+  haptics.update();
   if (interruptionActive) {
     if (gamepadInput.consumeConfirm()) resumeInterruption();
     return;
@@ -997,9 +988,12 @@ function step(dt: number, _t: number): void {
       if (i === 0) {
         cameraRig.shake(Math.min(1, imp / 16));
         audio.thud(Math.min(1, imp / 14));
-        haptics.cue('landing', Math.min(1, imp / 14));
+        haptics.impact('landing', Math.min(1, imp / 14), boats[0].state.drifting || boats[0].state.flightAirBrake > 0.28);
+        // Opponent splashes remain visual-only until a spatial environment
+        // sample is explicitly approved; otherwise pile-ups sound like an
+        // unexplained noise wall at the player's position.
+        audio.splash(Math.min(1, imp / 12));
       }
-      audio.splash(Math.min(1, imp / 12));
     }
   }
 
@@ -1199,8 +1193,10 @@ interface Harness {
   gamepadStatus(): Record<string, number | string | boolean>;
   hapticStatus(): Record<string, number | string | boolean>;
   hapticCue(cue: HapticCue): boolean;
+  hapticImpact(cue: HapticCue, scale?: number, controlHeld?: boolean): boolean;
   setHapticsEnabled(enabled: boolean): void;
   audioState(): Record<string, number | string | boolean>;
+  audioEventLog(): ReadonlyArray<{ source: string; time: number; strength: number }>;
   opponentFx(): Record<string, number | string>;
   setVisibility(hidden: boolean): void;
   resumeInterruption(): void;
@@ -1583,16 +1579,21 @@ function stagePositionLoss(): void {
 }
 
 function presentPlayerCollisions(hits: readonly { a: number; b: number; strength: number }[]): void {
-  for (const hit of hits) {
-    if ((hit.a !== 0 && hit.b !== 0) || hit.strength < 0.8) continue;
-    const opponentId = hit.a === 0 ? hit.b : hit.a;
-    audio.collision(hit.strength);
-    cameraRig.collisionKick(hit.strength);
-    pipeline.pulse('collision', Math.min(1.1, 0.3 + hit.strength / 20));
-    haptics.cue(hit.strength > 10 ? 'collision-heavy' : 'collision-light', Math.min(1, 0.45 + hit.strength / 16));
-    rivalDirector.notifyPlayerImpact();
-    tower.announceCollision(race.racers[opponentId]?.name ?? '对手');
-  }
+  const playerHits = hits.filter((hit) => (hit.a === 0 || hit.b === 0) && hit.strength >= 0.8);
+  if (playerHits.length === 0) return;
+  const hit = playerHits.reduce((best, candidate) => candidate.strength > best.strength ? candidate : best);
+  const opponentId = hit.a === 0 ? hit.b : hit.a;
+  const strength = hit.strength;
+  audio.collision(strength);
+  cameraRig.collisionKick(strength);
+  pipeline.pulse('collision', Math.min(1.1, 0.3 + strength / 20));
+  haptics.impact(
+    strength > 10 ? 'collision-heavy' : 'collision-light',
+    Math.min(1, 0.45 + strength / 16),
+    boats[0].state.drifting || boats[0].state.flightAirBrake > 0.28,
+  );
+  rivalDirector.notifyPlayerImpact();
+  tower.announceCollision(race.racers[opponentId]?.name ?? '对手');
 }
 
 function runCollisionCase(name: string): Record<string, number | string | boolean> {
@@ -1873,12 +1874,20 @@ function runCollisionFeedbackCase(): Record<string, unknown> {
   const hits = [...collisions.resolve(boats)];
   course.syncFlightTrackingAfterCollisions(boats);
   race.syncCollisionCorrections();
-  presentPlayerCollisions(hits);
+  const beforeAudioEvents = audio.audioEventLog().length;
+  // Feed a same-frame duplicate to the presentation layer. The physical hit
+  // list remains untouched, while the player feedback contract must coalesce
+  // it to one maximum-strength event.
+  presentPlayerCollisions(hits.length > 0 ? [...hits, { ...hits[0], strength: hits[0].strength * 0.72 }] : hits);
   const radio = document.querySelector<HTMLElement>('.race-radio');
+  const afterAudioEvents = audio.audioEventLog();
   return {
     hits: hits.length,
     strength: hits[0]?.strength ?? 0,
     musicDuck: Number(audio.debugState().musicDuck),
+    collisionAudioEvents: afterAudioEvents.slice(beforeAudioEvents).filter((event) => event.source === 'collision').length,
+    hapticLane: haptics.status().lastLane,
+    hapticQueuedImpacts: haptics.status().queuedImpacts,
     radioVisible: radio?.classList.contains('on') ?? false,
     radioText: radio?.textContent?.trim() ?? '',
     finite: boats.every((boat) => [boat.state.position.x, boat.state.position.y, boat.state.position.z, boat.state.speed]
@@ -2539,8 +2548,13 @@ if (HARNESS) {
     gamepadStatus: () => gamepadInput.status(),
     hapticStatus: () => haptics.status(),
     hapticCue: (cue) => haptics.cue(cue),
+    hapticImpact: (cue, scale, controlHeld) => {
+      if (cue !== 'landing' && cue !== 'collision-light' && cue !== 'collision-heavy') return false;
+      return haptics.impact(cue, scale, controlHeld);
+    },
     setHapticsEnabled: (enabled) => haptics.setEnabled(enabled),
     audioState: () => audio.debugState(),
+    audioEventLog: () => audio.audioEventLog(),
     opponentFx: () => {
       const opponents = boats.slice(1);
       const fx = opponents.map((boat) => boat.debugDriftEffects());

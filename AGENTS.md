@@ -50,10 +50,15 @@ automatically; players steer, drift/air-brake, and trigger flight.
   real failure may invite the immediately skippable, action-observed spotlight
   guide; schema v8 also repairs only dormant novices disarmed by the rejected
   v7 rollout. Progress, eligibility, and disable state persist in schema v8.
-- Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use ticks
-  only. `GO` gets exactly one local announcer, alternating male/female by fresh
-  run. Both formats prefetch independently and the selected voice decodes first;
-  an exact-time electronic hit replaces an unready voice, which never plays late.
+- Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use restrained
+  ticks only. `GO` uses exactly one deterministic non-verbal synthesized start
+  signal; voice assets, speech fetches, and announcement buses are removed. If
+  the context is not running, one exact-time electronic fallback plays and no
+  late signal is inserted.
+- Continuous water/air white-noise loops are disabled pending owner approval of
+  an environment recording. Landing splash is a player-only, rate-limited
+  event. Collision and landing haptics queue behind drift/air-brake control
+  pulses and route only to the most recently active device.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. That transition may rebase route sampling, but it must never
   snap the boat, clear horizontal momentum, or preload a surface warning.

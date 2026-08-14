@@ -8,8 +8,7 @@
  *            sine(sub)─┤   ▲                                                  │
  *            saw(+1oct)─► boostGain ──────────────────────────────────────────┤
  *   score:   HTMLAudioElement ─► media source ─► music bus ───────────────────┤
- *   rush:    noise loop ─► bandpass ─► rushGain ──────────────────────────────┤
- *   music / ambience / vehicle / event / announcement buses ─► master ─► limiter ─► destination
+ *   music / ambience events / vehicle / event buses ─► master ─► limiter ─► destination
  *
  * All continuous params move via setTargetAtTime (no zipper noise), and the
  * set* hot paths allocate nothing — every node there is built once in build().
@@ -18,20 +17,18 @@
  */
 import rockOgg from '../assets/audio/board-race-rock.ogg?url';
 import rockMp3 from '../assets/audio/board-race-rock.mp3?url';
-import goMaleOgg from '../assets/audio/countdown-go-male.ogg?url';
-import goMaleMp3 from '../assets/audio/countdown-go-male.mp3?url';
-import goFemaleOgg from '../assets/audio/countdown-go-female.ogg?url';
-import goFemaleMp3 from '../assets/audio/countdown-go-female.mp3?url';
 
-type CountdownVoice = 'male' | 'female';
-type CountdownVoiceFormat = 'ogg' | 'mp3';
-export type CountdownGoDisposition = 'played' | 'not_ready' | 'decode_failed' | 'context_suspended' | 'muted';
+export type CountdownStartDisposition = 'played' | 'context_suspended' | 'muted' | 'unavailable';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const AUDIO_STORAGE_KEY = 'board-race.audio.v1';
 const SAFETY_HIGHPASS_HZ = 48;
 const LIMITER_THRESHOLD_DB = -14;
 const LIMITER_RATIO = 16;
+const COUNTDOWN_TICK_HZ = 880;
+const COUNTDOWN_TICK_PEAK = 0.15;
+const START_SIGNAL_TOP_HZ = 1320;
+const START_SIGNAL_PEAK = 0.28;
 
 export type GameAudioScene =
   | 'ready'
@@ -81,7 +78,6 @@ export class GameAudio {
   private ambienceBus: GainNode | null = null;
   private vehicleBus: GainNode | null = null;
   private eventBus: GainNode | null = null;
-  private announcementBus: GainNode | null = null;
   private musicElement: HTMLAudioElement | null = null;
   private musicSource: MediaElementAudioSourceNode | null = null;
   private musicReady = false;
@@ -91,17 +87,9 @@ export class GameAudio {
   private ambiencePreviewToken = 0;
   private ambiencePreview = false;
   private countdownStageValue = 3;
-  private countdownVoice: CountdownVoice = 'male';
-  private countdownVoiceBuffers: Partial<Record<CountdownVoice, AudioBuffer>> = {};
-  private countdownVoiceData: Record<CountdownVoiceFormat, Record<CountdownVoice, Promise<ArrayBuffer | null>>>;
-  private countdownVoiceLoads: Partial<Record<CountdownVoice, Promise<boolean>>> = {};
-  private countdownVoiceFormats: Partial<Record<CountdownVoice, CountdownVoiceFormat>> = {};
-  private countdownVoiceFailures: Record<CountdownVoice, boolean> = { male: false, female: false };
-  private countdownVoiceFormat: CountdownVoiceFormat;
-  private countdownVoiceEvents = 0;
+  private startSignalEvents = 0;
   private countdownFallbackEvents = 0;
-  private lastGoDisposition: CountdownGoDisposition = 'not_ready';
-  private goImpactDelayValue = 0;
+  private lastGoDisposition: CountdownStartDisposition = 'unavailable';
   private contextStateAtGo = 'unavailable';
   private resumeAttempts = 0;
   private resumeFailures = 0;
@@ -120,6 +108,15 @@ export class GameAudio {
   private retryVariation = 0;
   private lastFailureAt = -Infinity;
   private activeOneShots = 0;
+  private readonly maxOneShots = 24;
+  private noiseCursor = 0;
+  private lastCollisionAt = -Infinity;
+  private lastSplashAt = -Infinity;
+  private collisionEvents = 0;
+  private splashEvents = 0;
+  private coalescedCollisionEvents = 0;
+  private coalescedSplashEvents = 0;
+  private readonly eventTrace: Array<{ source: string; time: number; strength: number }> = [];
   private flightExtendEvents = 0;
   private lastDriverSelectAt = -Infinity;
   private driverSelectEvents = 0;
@@ -145,13 +142,6 @@ export class GameAudio {
   private driftGain: GainNode | null = null;
   private driftBp: BiquadFilterNode | null = null;
 
-  // water rush nodes
-  private rushBp: BiquadFilterNode | null = null;
-  private rushGain: GainNode | null = null;
-  private airRushBp: BiquadFilterNode | null = null;
-  private airRushGain: GainNode | null = null;
-  private airRushPan: StereoPannerNode | null = null;
-
   // continuous-state mirrors (also used to skip redundant param events)
   private speedNorm = 0;
   private airborne = false;
@@ -159,31 +149,12 @@ export class GameAudio {
   private lastRpm = -1;
   private lastThrottle = -1;
   private lastBoost = false;
-  private lastRushGain = -1;
-  private lastRushFreq = -1;
   private lastFlightThrust = -1;
   private lastFlightIndex = -1;
   private flightPressure = 0;
   private flightClearance = 0;
   private flightAirBrake = 0;
   private flightSteer = 0;
-
-  constructor() {
-    const probe = document.createElement('audio');
-    this.countdownVoiceFormat = probe.canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3';
-    // All four local files total less than 30KB. Warming both formats avoids a
-    // serial Ogg-to-MP3 fallback after the user's first GO on mobile Chrome.
-    this.countdownVoiceData = {
-      ogg: {
-        male: this.fetchCountdownVoice(goMaleOgg),
-        female: this.fetchCountdownVoice(goFemaleOgg),
-      },
-      mp3: {
-        male: this.fetchCountdownVoice(goMaleMp3),
-        female: this.fetchCountdownVoice(goFemaleMp3),
-      },
-    };
-  }
 
   /** Call on first user gesture. Safe to call repeatedly. */
   resume(): void {
@@ -311,24 +282,20 @@ export class GameAudio {
     this.ensureMusicPlaying();
   }
 
-  /** Alternate one announcer per countdown. The two voices never stack. */
-  prepareCountdownAnnouncer(run: number): void {
-    this.countdownVoice = Math.max(1, Math.floor(run)) % 2 === 0 ? 'female' : 'male';
-    if (this.ctx) void this.loadCountdownVoice(this.countdownVoice);
-  }
-
   /** Open the score one layer at a time behind the 3/2/1 count. */
   countdownStage(n: number): void {
     this.countdownStageValue = Math.max(1, Math.min(3, Math.round(n)));
     this.applyMix(0.075);
   }
 
-  /** A single semantic callout at GO; 3/2/1 stay clean ticks and lights. */
-  countdownGoVoice(): CountdownGoDisposition {
+  /**
+   * A single, non-verbal start signal at GO. 3/2/1 stay clean ticks and
+   * lights. Keeping this entirely synthesized avoids a late/uncanny voice on
+   * cold mobile audio contexts and gives the race a deterministic attack.
+   */
+  startSignal(): CountdownStartDisposition {
     const c = this.ctx;
-    const bus = this.announcementBus;
     this.contextStateAtGo = c?.state ?? 'unavailable';
-    this.goImpactDelayValue = 0;
     if (this.settings.muted || this.settings.master <= 0 || this.settings.sfx <= 0) {
       return this.lastGoDisposition = 'muted';
     }
@@ -336,52 +303,16 @@ export class GameAudio {
       this.resume();
       return this.lastGoDisposition = 'context_suspended';
     }
-    const buffer = this.countdownVoiceBuffers[this.countdownVoice];
-    if (!bus || !buffer) {
-      void this.loadCountdownVoice(this.countdownVoice);
-      return this.lastGoDisposition = this.countdownVoiceFailures[this.countdownVoice]
-        ? 'decode_failed'
-        : 'not_ready';
-    }
-    const source = c.createBufferSource();
-    source.buffer = buffer;
-    const hp = c.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 105;
-    const presence = c.createBiquadFilter();
-    presence.type = 'peaking';
-    presence.frequency.value = 1900;
-    presence.Q.value = 0.8;
-    presence.gain.value = 4.5;
-    const compressor = c.createDynamicsCompressor();
-    compressor.threshold.value = -25;
-    compressor.knee.value = 8;
-    compressor.ratio.value = 3.5;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.12;
-    const gain = c.createGain();
     const t = c.currentTime;
-    gain.gain.setValueAtTime(0.001, t);
-    // The source files are intentionally conservative phone-normalized clips;
-    // this dedicated bus restores presence without raising the whole SFX mix.
-    gain.gain.linearRampToValueAtTime(1.62, t + 0.012);
-    gain.gain.setValueAtTime(1.62, Math.max(t + 0.02, t + buffer.duration - 0.09));
-    gain.gain.exponentialRampToValueAtTime(0.001, t + buffer.duration);
-    source.connect(hp);
-    hp.connect(presence);
-    presence.connect(compressor);
-    compressor.connect(gain);
-    gain.connect(bus);
-    this.countdownVoiceEvents++;
-    this.goImpactDelayValue = Math.min(0.46, Math.max(0.28, buffer.duration + 0.04));
-    this.duckMusic(0.24, Math.max(0.5, buffer.duration + 0.12));
-    this.duckVehicle(0.22, Math.max(0.5, buffer.duration + 0.12));
-    this.trackOneShot(source, [hp, presence, compressor, gain], t, t + buffer.duration + 0.01);
+    // A short low punch plus a bright, rising confirmation is legible on both
+    // phone speakers and a controller headset without adding speech or noise.
+    this.blip(196, t, 0.16, 0.25, 'sine');
+    this.blip(1040, t + 0.025, 0.34, START_SIGNAL_PEAK, 'triangle');
+    this.blip(START_SIGNAL_TOP_HZ, t + 0.07, 0.42, 0.18, 'triangle');
+    this.startSignalEvents++;
+    this.duckMusic(0.48, 0.32);
+    this.duckVehicle(0.44, 0.32);
     return this.lastGoDisposition = 'played';
-  }
-
-  countdownImpactDelay(): number {
-    return this.goImpactDelayValue;
   }
 
   debugState(): Record<string, number | string | boolean> {
@@ -403,7 +334,6 @@ export class GameAudio {
       ambienceBusGain: this.ambienceBus?.gain.value ?? 0,
       vehicleBusGain: this.vehicleBus?.gain.value ?? 0,
       eventBusGain: this.eventBus?.gain.value ?? 0,
-      announcementBusGain: this.announcementBus?.gain.value ?? 0,
       musicReady: this.musicReady,
       musicFailed: this.musicFailed,
       musicPlaying: this.musicElement ? !this.musicElement.paused : false,
@@ -413,18 +343,13 @@ export class GameAudio {
       scoreArmed: this.scoreArmed,
       readyMusicActive: this.readyMusicActive,
       countdownStage: this.countdownStageValue,
-      countdownVoice: this.countdownVoice,
-      countdownVoiceFormat: this.countdownVoiceFormats[this.countdownVoice] ?? this.countdownVoiceFormat,
-      countdownVoiceReady: Boolean(this.countdownVoiceBuffers.male && this.countdownVoiceBuffers.female),
-      countdownSelectedVoiceReady: Boolean(this.countdownVoiceBuffers[this.countdownVoice]),
-      countdownMaleReady: Boolean(this.countdownVoiceBuffers.male),
-      countdownFemaleReady: Boolean(this.countdownVoiceBuffers.female),
-      countdownVoiceFailed: this.countdownVoiceFailures.male && this.countdownVoiceFailures.female,
-      countdownSelectedVoiceFailed: this.countdownVoiceFailures[this.countdownVoice],
-      countdownVoiceEvents: this.countdownVoiceEvents,
+      startSignalEvents: this.startSignalEvents,
       countdownFallbackEvents: this.countdownFallbackEvents,
       lastGoDisposition: this.lastGoDisposition,
-      goImpactDelay: this.goImpactDelayValue,
+      countdownTickHz: COUNTDOWN_TICK_HZ,
+      startSignalTopHz: START_SIGNAL_TOP_HZ,
+      countdownTickPeak: COUNTDOWN_TICK_PEAK,
+      startSignalPeak: START_SIGNAL_PEAK,
       contextStateAtGo: this.contextStateAtGo,
       resumeAttempts: this.resumeAttempts,
       resumeFailures: this.resumeFailures,
@@ -436,6 +361,12 @@ export class GameAudio {
       safetyHighpassHz: SAFETY_HIGHPASS_HZ,
       limiterThresholdDb: LIMITER_THRESHOLD_DB,
       limiterRatio: LIMITER_RATIO,
+      continuousAmbienceActive: false,
+      maxOneShots: this.maxOneShots,
+      collisionEvents: this.collisionEvents,
+      splashEvents: this.splashEvents,
+      coalescedCollisionEvents: this.coalescedCollisionEvents,
+      coalescedSplashEvents: this.coalescedSplashEvents,
     };
   }
 
@@ -479,27 +410,18 @@ export class GameAudio {
       return;
     }
     const c = this.ctx;
-    const target = kind === 'ambience' ? this.ambienceBus : kind === 'sfx' ? this.eventBus : this.eventBus;
+    const target = kind === 'ambience' ? this.ambienceBus : this.eventBus;
     if (!c || !target) return;
-    if (kind === 'ambience' && this.noiseBuf) {
+    if (kind === 'ambience') {
+      // Environment audio is intentionally audit-only for now. Opening the
+      // slider changes the bus and records the preview, but never invents a
+      // wave/noise sample that the owner has not approved.
       const token = ++this.ambiencePreviewToken;
       if (this.scene === 'ready') {
         this.ambiencePreview = true;
         this.ambienceBus?.gain.cancelScheduledValues(c.currentTime);
         this.ambienceBus?.gain.setValueAtTime(gainCurve(this.settings.ambience) * 0.35, c.currentTime);
       }
-      const source = c.createBufferSource();
-      source.buffer = this.noiseBuf;
-      const hp = c.createBiquadFilter();
-      hp.type = 'highpass';
-      hp.frequency.value = 900;
-      const gain = c.createGain();
-      gain.gain.setValueAtTime(0.045, c.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.32);
-      source.connect(hp);
-      hp.connect(gain);
-      gain.connect(target);
-      this.trackOneShot(source, [hp, gain], c.currentTime, c.currentTime + 0.35);
       window.setTimeout(() => {
         if (token !== this.ambiencePreviewToken) return;
         this.ambiencePreview = false;
@@ -513,6 +435,13 @@ export class GameAudio {
   collision(strength: number): void {
     const c = this.ctx;
     if (!c) return;
+    if (c.currentTime - this.lastCollisionAt < 0.12) {
+      this.coalescedCollisionEvents++;
+      return;
+    }
+    this.lastCollisionAt = c.currentTime;
+    this.collisionEvents++;
+    this.traceEvent('collision', strength);
     const n = clamp01(strength / 18);
     this.impactBurst(118 - n * 34, 44 - n * 12, 0.38 + n * 0.52, 0.13 + n * 0.14);
     this.blip(210 - n * 70, c.currentTime, 0.12, 0.08 + n * 0.08, 'square');
@@ -553,17 +482,18 @@ export class GameAudio {
     }
   }
 
-  /** 0..1 normalized boat speed → bandpass sweep 500→2400 Hz, gain 0→0.35. */
+  /**
+   * Kept as a lifecycle hook for the mixer contract. Continuous water-rush
+   * noise is deliberately disabled until an owner-approved sample exists.
+   */
   setWaterRush(speedNorm: number): void {
     this.speedNorm = clamp01(speedNorm);
-    this.applyRush();
   }
 
-  /** Airborne ducks the water rush by ~70%. */
+  /** Continuous air/water noise is disabled; tonal flight layers remain. */
   setAirborne(on: boolean): void {
     if (on === this.airborne) return;
     this.airborne = on;
-    this.applyRush();
   }
 
   /** Controlled flight crossfades water into directional pressure and lift layers. */
@@ -577,7 +507,7 @@ export class GameAudio {
     flightIndex = 0,
   ): void {
     const c = this.ctx;
-    if (!c || !this.flightOsc || !this.flightHarm || !this.flightGain || !this.flightNoiseGain || !this.flightNoiseBp) return;
+    if (!c || !this.flightOsc || !this.flightHarm || !this.flightGain) return;
     const t = c.currentTime;
     const n = clamp01(thrust);
     this.flightPressure = clamp01(pressure);
@@ -601,17 +531,14 @@ export class GameAudio {
       this.flightHarm.frequency.setTargetAtTime((276 + n * 190) * harmonic, t, 0.04);
       this.flightGain.gain.setTargetAtTime(active ? 0.055 + n * 0.17 : 0, t, active ? 0.025 : 0.16);
     }
-    this.flightNoiseGain.gain.setTargetAtTime(active ? 0.025 + n * 0.07 + this.flightPressure * 0.04 : 0, t, active ? 0.018 : 0.14);
-    this.flightNoiseBp.frequency.setTargetAtTime(
-      (620 + this.flightPressure * 900) * (1 - this.flightAirBrake * 0.16),
-      t,
-      0.08,
-    );
+    if (this.flightNoiseGain && this.flightNoiseBp) {
+      this.flightNoiseGain.gain.setTargetAtTime(0, t, 0.08);
+      this.flightNoiseBp.frequency.setTargetAtTime(620, t, 0.08);
+    }
     if (this.engineGain) {
       const engineLevel = (0.1 + 0.3 * Math.max(0, this.lastThrottle)) * (active ? 0.72 : 1);
       this.engineGain.gain.setTargetAtTime(engineLevel, t, 0.12);
     }
-    this.applyRush();
   }
 
   setDrift(intensity: number): void {
@@ -787,7 +714,9 @@ export class GameAudio {
     if (!c || !this.eventBus || !this.noiseBuf) return;
     const s = clamp01(strength);
     if (s <= 0.001) return;
+    if (this.activeOneShots + 2 >= this.maxOneShots) return;
     const t0 = c.currentTime;
+    this.traceEvent('landing-thud', s);
 
     const o = c.createOscillator();
     o.type = 'sine';
@@ -799,11 +728,13 @@ export class GameAudio {
     og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.28);
     o.connect(og);
     og.connect(this.eventBus);
+    this.activeOneShots++;
     o.start(t0);
     o.stop(t0 + 0.3);
     o.onended = () => {
       o.disconnect();
       og.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
 
     const n = c.createBufferSource();
@@ -817,22 +748,33 @@ export class GameAudio {
     n.connect(lp);
     lp.connect(ng);
     ng.connect(this.eventBus);
-    n.start(t0);
+    this.activeOneShots++;
+    n.start(t0, this.nextNoiseOffset(0.16));
     n.stop(t0 + 0.16);
     n.onended = () => {
       n.disconnect();
       lp.disconnect();
       ng.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
   }
 
-  /** Highpass noise burst, filter sweeping down over ~0.3s. */
+  /** Audited landing event; no continuous water loop is attached. */
   splash(strength: number): void {
     const c = this.ctx;
-    if (!c || !this.eventBus || !this.noiseBuf) return;
+    const bus = this.ambienceBus ?? this.eventBus;
+    if (!c || !bus || !this.noiseBuf) return;
     const s = clamp01(strength);
     if (s <= 0.001) return;
     const t0 = c.currentTime;
+    if (t0 - this.lastSplashAt < 0.12) {
+      this.coalescedSplashEvents++;
+      return;
+    }
+    if (this.activeOneShots >= this.maxOneShots) return;
+    this.lastSplashAt = t0;
+    this.splashEvents++;
+    this.traceEvent('landing-splash', s);
 
     const n = c.createBufferSource();
     n.buffer = this.noiseBuf;
@@ -847,25 +789,28 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.32);
     n.connect(hp);
     hp.connect(g);
-    g.connect(this.eventBus);
-    n.start(t0);
+    g.connect(bus);
+    this.activeOneShots++;
+    n.start(t0, this.nextNoiseOffset(0.35));
     n.stop(t0 + 0.35);
     n.onended = () => {
       n.disconnect();
       hp.disconnect();
       g.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
   }
 
-  /** Countdown tick: 880 Hz square, 0.12s. GO: 1320 Hz, 0.4s. */
+  /** Countdown tick stays restrained; GO fallback is deliberately one step louder. */
   countdownBeep(isGo: boolean): void {
     const c = this.ctx;
     if (!c) return;
     if (isGo) this.countdownFallbackEvents++;
-    this.blip(isGo ? 1320 : 880, c.currentTime, isGo ? 0.4 : 0.12, 0.22, 'square');
+    this.blip(isGo ? START_SIGNAL_TOP_HZ : COUNTDOWN_TICK_HZ, c.currentTime, isGo ? 0.4 : 0.12,
+      isGo ? 0.3 : COUNTDOWN_TICK_PEAK, 'square');
   }
 
-  /** Race-start impact: a short A-major triad after the word has cleared. */
+  /** Race-start confirmation: a short, non-verbal filtered triad. */
   horn(delay = 0): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
@@ -873,34 +818,36 @@ export class GameAudio {
 
     const g = c.createGain();
     g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(0.38, t0 + 0.02);
-    g.gain.setValueAtTime(0.38, t0 + 0.52);
-    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.82);
+    g.gain.linearRampToValueAtTime(0.3, t0 + 0.012);
+    g.gain.setValueAtTime(0.3, t0 + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.46);
     const lp = c.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 1600;
+    lp.frequency.value = 2200;
     g.connect(lp);
     lp.connect(this.eventBus);
 
-    const freqs = [220, 277, 330];
+    const freqs = [196, 294, 392];
     let last: OscillatorNode | null = null;
     for (let i = 0; i < freqs.length; i++) {
       const o = c.createOscillator();
-      o.type = 'sawtooth';
+      o.type = i === 0 ? 'sine' : 'triangle';
       o.frequency.value = freqs[i];
       o.detune.value = (i - 1) * 5;
       o.connect(g);
       o.start(t0);
-      o.stop(t0 + 0.87);
+      o.stop(t0 + 0.5);
       o.onended = () => o.disconnect();
       last = o;
     }
+    this.activeOneShots++;
     if (last) {
       const done = last;
       done.onended = () => {
         done.disconnect();
         g.disconnect();
         lp.disconnect();
+        this.activeOneShots = Math.max(0, this.activeOneShots - 1);
       };
     }
   }
@@ -920,7 +867,7 @@ export class GameAudio {
 
   private applyMix(timeConstant = 0.08): void {
     const c = this.ctx;
-    if (!c || !this.master || !this.musicBus || !this.musicFilter || !this.ambienceBus || !this.vehicleBus || !this.eventBus || !this.announcementBus) return;
+    if (!c || !this.master || !this.musicBus || !this.musicFilter || !this.ambienceBus || !this.vehicleBus || !this.eventBus) return;
     const t = c.currentTime;
     const muted = this.settings.muted || this.scene === 'hidden';
     const master = muted ? 0 : gainCurve(this.settings.master);
@@ -944,9 +891,6 @@ export class GameAudio {
     const vehicleDuck = t < this.vehicleDuckUntil ? this.vehicleDuckMultiplier : 1;
     this.vehicleBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * sceneVehicle * vehicleDuck, t, timeConstant);
     this.eventBus.gain.setTargetAtTime(gainCurve(this.settings.sfx), t, timeConstant);
-    // Announcement clips have their own headroom and are never buried by the
-    // shorter event/horn bus. The master limiter remains the final guard.
-    this.announcementBus.gain.setTargetAtTime(gainCurve(this.settings.sfx) * 1.12, t, timeConstant);
     this.musicFilter.frequency.setTargetAtTime(
       this.scene === 'lesson' || this.scene === 'defeat' ? 1500
         : this.scene === 'ready' ? 6500
@@ -1022,12 +966,24 @@ export class GameAudio {
     noise.connect(bp);
     bp.connect(gain);
     gain.connect(bus);
-    this.trackOneShot(noise, [bp, gain], time, time + 0.27);
+    this.trackOneShot(noise, [bp, gain], time, time + 0.27, this.nextNoiseOffset(0.27));
   }
 
-  private trackOneShot(source: AudioScheduledSourceNode, nodes: AudioNode[], start: number, stop: number): void {
+  private trackOneShot(
+    source: AudioScheduledSourceNode,
+    nodes: AudioNode[],
+    start: number,
+    stop: number,
+    offset?: number,
+  ): void {
+    if (this.activeOneShots >= this.maxOneShots) {
+      source.disconnect();
+      for (const node of nodes) node.disconnect();
+      return;
+    }
     this.activeOneShots++;
-    source.start(start);
+    if (offset === undefined) source.start(start);
+    else (source as AudioBufferSourceNode).start(start, offset);
     source.stop(stop);
     source.onended = () => {
       source.disconnect();
@@ -1036,93 +992,10 @@ export class GameAudio {
     };
   }
 
-  private async fetchCountdownVoice(url: string): Promise<ArrayBuffer | null> {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) return null;
-      return response.arrayBuffer();
-    } catch {
-      return null;
-    }
-  }
-
-  private countdownVoiceUrl(format: CountdownVoiceFormat, voice: CountdownVoice): string {
-    if (format === 'ogg') return voice === 'male' ? goMaleOgg : goFemaleOgg;
-    return voice === 'male' ? goMaleMp3 : goFemaleMp3;
-  }
-
-  private async countdownVoiceBytes(
-    format: CountdownVoiceFormat,
-    voice: CountdownVoice,
-  ): Promise<ArrayBuffer | null> {
-    let data = await this.countdownVoiceData[format][voice];
-    if (data) return data;
-    // A failed eager fetch is not permanent. The next explicit preparation
-    // retries that one file without invalidating the other announcer.
-    const retry = this.fetchCountdownVoice(this.countdownVoiceUrl(format, voice));
-    this.countdownVoiceData[format][voice] = retry;
-    data = await retry;
-    return data;
-  }
-
-  private loadCountdownVoice(voice: CountdownVoice): Promise<boolean> {
-    const c = this.ctx;
-    if (!c) return Promise.resolve(false);
-    if (this.countdownVoiceBuffers[voice]) return Promise.resolve(true);
-    const existing = this.countdownVoiceLoads[voice];
-    if (existing) return existing;
-    const task = (async (): Promise<boolean> => {
-      const fallback: CountdownVoiceFormat = this.countdownVoiceFormat === 'ogg' ? 'mp3' : 'ogg';
-      for (const format of [this.countdownVoiceFormat, fallback]) {
-        const data = await this.countdownVoiceBytes(format, voice);
-        if (!data) continue;
-        try {
-          const buffer = await c.decodeAudioData(data.slice(0));
-          this.countdownVoiceBuffers[voice] = buffer;
-          this.countdownVoiceFormats[voice] = format;
-          this.countdownVoiceFailures[voice] = false;
-          return true;
-        } catch {
-          // canPlayType is advisory; the independently prefetched alternate
-          // format is attempted immediately for this voice only.
-        }
-      }
-      this.countdownVoiceFailures[voice] = true;
-      return false;
-    })();
-    this.countdownVoiceLoads[voice] = task;
-    void task.finally(() => {
-      if (this.countdownVoiceLoads[voice] === task) delete this.countdownVoiceLoads[voice];
-    });
-    return task;
-  }
-
   private applyRush(): void {
-    const c = this.ctx;
-    if (!c || !this.rushGain || !this.rushBp) return;
-    const t = c.currentTime;
-    const airMix = this.flightActive ? this.flightClearance : this.airborne ? 0.7 : 0;
-    const modeGain = 1 - airMix * 0.84;
-    const boostGain = this.lastBoost ? 0.3 : 0;
-    const g = (0.11 + boostGain * 0.35) * this.speedNorm * modeGain;
-    const f = 760 + 2200 * this.speedNorm + (this.lastBoost ? 650 : 0);
-    if (Math.abs(g - this.lastRushGain) > 0.004) {
-      this.lastRushGain = g;
-      this.rushGain.gain.setTargetAtTime(g, t, 0.12);
-    }
-    if (Math.abs(f - this.lastRushFreq) > 8) {
-      this.lastRushFreq = f;
-      this.rushBp.frequency.setTargetAtTime(f, t, 0.15);
-    }
-    if (this.airRushGain && this.airRushBp && this.airRushPan) {
-      const pressureGain = this.flightActive
-        ? (0.035 + this.flightPressure * 0.12) * (0.4 + airMix * 0.6) * (1 + this.flightAirBrake * 0.35)
-        : 0;
-      const pressureFrequency = (760 + this.flightPressure * 2500) * (1 - this.flightAirBrake * 0.18);
-      this.airRushGain.gain.setTargetAtTime(pressureGain, t, this.flightActive ? 0.08 : 0.18);
-      this.airRushBp.frequency.setTargetAtTime(pressureFrequency, t, 0.1);
-      this.airRushPan.pan.setTargetAtTime(-this.flightSteer * this.flightAirBrake * 0.25, t, 0.06);
-    }
+    // Deliberately empty. The former shared white-noise rush/air loops were
+    // difficult to identify on small speakers and are disabled pending an
+    // explicitly reviewed environment recording.
   }
 
   private ensureMusicPlaying(): void {
@@ -1136,6 +1009,7 @@ export class GameAudio {
   private impactBurst(startHz: number, endHz: number, strength: number, duration: number): void {
     const c = this.ctx;
     if (!c || !this.eventBus || !this.noiseBuf) return;
+    if (this.activeOneShots + 2 >= this.maxOneShots) return;
     const s = clamp01(strength);
     const t0 = c.currentTime;
     const osc = c.createOscillator();
@@ -1147,11 +1021,13 @@ export class GameAudio {
     og.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
     osc.connect(og);
     og.connect(this.eventBus);
+    this.activeOneShots++;
     osc.start(t0);
     osc.stop(t0 + duration + 0.03);
     osc.onended = () => {
       osc.disconnect();
       og.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
 
     const noise = c.createBufferSource();
@@ -1167,12 +1043,14 @@ export class GameAudio {
     noise.connect(bp);
     bp.connect(ng);
     ng.connect(this.eventBus);
-    noise.start(t0);
+    this.activeOneShots++;
+    noise.start(t0, this.nextNoiseOffset(duration + 0.03));
     noise.stop(t0 + duration + 0.03);
     noise.onended = () => {
       noise.disconnect();
       bp.disconnect();
       ng.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
   }
 
@@ -1180,6 +1058,7 @@ export class GameAudio {
   private blip(freq: number, t0: number, dur: number, peak: number, type: OscillatorType): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
+    if (this.activeOneShots >= this.maxOneShots) return;
     const o = c.createOscillator();
     o.type = type;
     o.frequency.value = freq;
@@ -1189,14 +1068,25 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
     o.connect(g);
     g.connect(this.eventBus);
-    this.activeOneShots++;
-    o.start(t0);
-    o.stop(t0 + dur + 0.05);
-    o.onended = () => {
-      o.disconnect();
-      g.disconnect();
-      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
-    };
+    this.trackOneShot(o, [g], t0, t0 + dur + 0.05);
+  }
+
+  private nextNoiseOffset(duration: number): number {
+    // Deterministic phase rotation prevents simultaneous bursts from replaying
+    // the same white-noise attack while keeping harness runs reproducible.
+    const offset = this.noiseCursor;
+    this.noiseCursor = (this.noiseCursor + Math.max(0.11, duration) + 0.173) % 1.65;
+    return offset;
+  }
+
+  private traceEvent(source: string, strength: number): void {
+    const time = this.ctx?.currentTime ?? 0;
+    this.eventTrace.push({ source, time, strength: clamp01(strength) });
+    if (this.eventTrace.length > 32) this.eventTrace.shift();
+  }
+
+  audioEventLog(): ReadonlyArray<{ source: string; time: number; strength: number }> {
+    return this.eventTrace.map((entry) => ({ ...entry }));
   }
 
   /** Build the whole graph. Called once, from resume(). */
@@ -1235,19 +1125,15 @@ export class GameAudio {
     const ambienceBus = ctx.createGain();
     const vehicleBus = ctx.createGain();
     const eventBus = ctx.createGain();
-    const announcementBus = ctx.createGain();
     ambienceBus.gain.value = 0;
     vehicleBus.gain.value = 0;
     eventBus.gain.value = 0;
-    announcementBus.gain.value = 0;
     ambienceBus.connect(master);
     vehicleBus.connect(master);
     eventBus.connect(master);
-    announcementBus.connect(master);
     this.ambienceBus = ambienceBus;
     this.vehicleBus = vehicleBus;
     this.eventBus = eventBus;
-    this.announcementBus = announcementBus;
 
     const music = new Audio();
     // Decode the local song ahead of time so the first READY gesture can fade
@@ -1267,18 +1153,13 @@ export class GameAudio {
     this.musicElement = music;
     this.musicSource = musicSource;
 
-    // shared 2s white-noise buffer (rush loop + thud/splash bursts)
+    // Shared 2s buffer for short, audited event bursts only. It is never
+    // connected as a continuous environment loop.
     const len = ctx.sampleRate * 2;
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = buf;
-    // Decode the announcer selected for the pending run first. The alternate
-    // voice is warmed in the background and can never block this one.
-    void this.loadCountdownVoice(this.countdownVoice).finally(() => {
-      const alternate: CountdownVoice = this.countdownVoice === 'male' ? 'female' : 'male';
-      void this.loadCountdownVoice(alternate);
-    });
 
     // ---- engine: 2 detuned saws + sub sine → shaper → lowpass → level --------
     const shaper = ctx.createWaveShaper();
@@ -1348,21 +1229,10 @@ export class GameAudio {
     this.flightHarm = flightHarm;
     this.flightGain = fg;
 
-    const flightNoise = ctx.createBufferSource();
-    flightNoise.buffer = buf;
-    flightNoise.loop = true;
-    const flightNoiseBp = ctx.createBiquadFilter();
-    flightNoiseBp.type = 'bandpass';
-    flightNoiseBp.frequency.value = 620;
-    flightNoiseBp.Q.value = 0.65;
-    const flightNoiseGain = ctx.createGain();
-    flightNoiseGain.gain.value = 0;
-    flightNoise.connect(flightNoiseBp);
-    flightNoiseBp.connect(flightNoiseGain);
-    flightNoiseGain.connect(vehicleBus);
-    flightNoise.start();
-    this.flightNoiseGain = flightNoiseGain;
-    this.flightNoiseBp = flightNoiseBp;
+    // Continuous air pressure is intentionally absent. A future approved
+    // sample can be added behind this field without changing setFlight().
+    this.flightNoiseGain = null;
+    this.flightNoiseBp = null;
 
     const driftNoise = ctx.createBufferSource();
     driftNoise.buffer = buf;
@@ -1379,43 +1249,6 @@ export class GameAudio {
     driftNoise.start();
     this.driftBp = driftBp;
     this.driftGain = driftGain;
-
-    // ---- water rush: looping noise → bandpass → level -------------------------
-    const noise = ctx.createBufferSource();
-    noise.buffer = buf;
-    noise.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 500;
-    bp.Q.value = 0.7;
-    const rg = ctx.createGain();
-    rg.gain.value = 0;
-    noise.connect(bp);
-    bp.connect(rg);
-    rg.connect(ambienceBus);
-    noise.start();
-    this.rushBp = bp;
-    this.rushGain = rg;
-
-    // ---- in-air pressure: wider, brighter noise with directional air-brake ----
-    const airNoise = ctx.createBufferSource();
-    airNoise.buffer = buf;
-    airNoise.loop = true;
-    const airBp = ctx.createBiquadFilter();
-    airBp.type = 'bandpass';
-    airBp.frequency.value = 900;
-    airBp.Q.value = 0.55;
-    const airPan = ctx.createStereoPanner();
-    const airGain = ctx.createGain();
-    airGain.gain.value = 0;
-    airNoise.connect(airBp);
-    airBp.connect(airPan);
-    airPan.connect(airGain);
-    airGain.connect(ambienceBus);
-    airNoise.start();
-    this.airRushBp = airBp;
-    this.airRushPan = airPan;
-    this.airRushGain = airGain;
 
     this.applyMix(0.02);
   }

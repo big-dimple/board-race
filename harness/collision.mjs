@@ -57,6 +57,9 @@ try {
   assert.equal(feedback.hits, 1, 'the integrated collision path must receive the physical hit');
   assert.equal(feedback.finite, true);
   assert.ok(feedback.musicDuck <= 0.55, `collision impact must clear space in the mix: ${feedback.musicDuck}`);
+  assert.equal(feedback.collisionAudioEvents, 1, 'same-frame player hits must coalesce to one audio event');
+  assert.ok(['impact', ''].includes(String(feedback.hapticLane)),
+    `collision feedback must use the impact lane: ${feedback.hapticLane}`);
   assert.equal(feedback.radioVisible, true, 'a player collision must reach the race-radio UI');
   assert.match(feedback.radioText, /接触|碰撞/, 'radio copy must explain the physical event');
 
