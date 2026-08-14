@@ -1746,6 +1746,18 @@ async function verifyDesktopDriverTransition(page) {
   await page.emulateMedia({ reducedMotion:'no-preference' });
 }
 
+async function waitForDriverRadarBacking(page) {
+  await page.waitForFunction(() => {
+    const radar = document.querySelector('.driver-radar');
+    if (!(radar instanceof HTMLCanvasElement)) return false;
+    const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const expectedWidth = Math.max(1, Math.round(radar.clientWidth * dpr));
+    const expectedHeight = Math.max(1, Math.round(radar.clientHeight * dpr));
+    return Math.abs(radar.width - expectedWidth) <= 1 &&
+      Math.abs(radar.height - expectedHeight) <= 1;
+  }, undefined, { timeout:2_000 });
+}
+
 async function verifyDesktopDriverViewports(page) {
   for (const viewport of [
     { width:1366, height:768 },
@@ -1754,7 +1766,7 @@ async function verifyDesktopDriverViewports(page) {
     { width:3440, height:1440 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.waitForTimeout(60);
+    await waitForDriverRadarBacking(page);
     await assertDriverSelectComposition(page, `desktop-${viewport.width}x${viewport.height}`);
     const layout = await page.evaluate(() => {
       const selectors = ['.driver-select-header', '.driver-featured', '.driver-carousel', '.driver-select-footer'];
@@ -1779,7 +1791,7 @@ async function verifyDesktopDriverViewports(page) {
       `selected desktop card must not reflow the roster: ${JSON.stringify(layout.cards)}`);
   }
   await page.setViewportSize({ width:1440, height:900 });
-  await page.waitForTimeout(60);
+  await waitForDriverRadarBacking(page);
 }
 
 async function readMobileControlGeometry(page) {

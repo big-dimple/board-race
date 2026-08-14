@@ -749,8 +749,8 @@ function step(dt: number, _t: number): void {
     ocean.update(worldTime, stage.camera.position);
     sky.update(worldTime, stage.camera.position);
     course.update(0, worldTime);
-    hud.update(dt, race, boats[0], boats);
     tower.update(dt, race);
+    hud.update(dt, race, boats[0], boats);
     pipeline.update(dt, worldTime, boats[0].state, 'ready');
     audio.update(dt);
     if (enterPressed || spaceConfirmPressed || mobileGo || gamepadConfirm) startFreshCountdown();
@@ -770,8 +770,8 @@ function step(dt: number, _t: number): void {
       sky.update(worldTime, stage.camera.position);
       course.update(0, worldTime);
     }
-    hud.update(dt, race, boats[0], boats);
     tower.update(dt, race);
+    hud.update(dt, race, boats[0], boats);
     pipeline.update(dt, worldTime, boats[0].state, race.phase);
     audio.update(dt);
     return;
@@ -1011,8 +1011,8 @@ function step(dt: number, _t: number): void {
   jetTrail.update(dt);
 
   const ps = boats[0].state;
-  hud.update(dt, race, boats[0], boats);
   tower.update(dt, race, ps.flightPhase !== 'surface');
+  hud.update(dt, race, boats[0], boats);
 
   audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
   mobileInput.setActionState(deriveAbilityHudState(ps, course.finalStationArmed()), course.flightTurnWarning(boats[0].id));
