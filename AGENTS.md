@@ -62,6 +62,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. That transition may rebase route sampling, but it must never
   snap the boat, clear horizontal momentum, or preload a surface warning.
+- The seventh scored flight atomically retires route warnings and failures.
+  Its recovery still completes, then the player may approach the visible gold
+  Final portal from either direction; passing outside the columns is retryable.
+- Desktop READY uses a frozen three-column driver stage from 1366x768 upward,
+  six stable roster destinations, a cancellable clip reveal, and a DPR-backed
+  radar. The accepted coarse-pointer mobile portrait composition stays separate.
 - Final presentation uses a world-first frozen celebration: the live finish
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG

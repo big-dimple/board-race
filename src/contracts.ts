@@ -259,6 +259,8 @@ export interface ICourse {
   sample(pos: THREE.Vector3, out: CourseSample, routeHint?: CourseRouteId): CourseSample;
   routeForBoat(id: number): CourseRouteId;
   flightTurnWarning(id: number): boolean;
+  /** Swept, bidirectional crossing of the visible golden Final portal. */
+  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3): boolean;
   armFinalStation(): void;
   finalStationArmed(): boolean;
   triggerFinaleCelebration(): void;
@@ -287,6 +289,12 @@ export interface CourseGuidanceStatus {
   targetGateDistance: number;
   /** Visual-only locator-ring scale; never changes the scoring opening. */
   targetAnchorScale: number;
+  /** Final becomes the sole scored destination after all seven routes clear. */
+  finalActive: boolean;
+  /** Planar meters from the player to the visible Final portal. */
+  finalDistance: number;
+  /** Deterministic count of active Final targets (always zero or one). */
+  finalGuideCount: number;
 }
 
 /** What the HUD and camera are allowed to know about the race. */

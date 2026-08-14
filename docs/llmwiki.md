@@ -12,7 +12,8 @@
 - Board Race 是横屏优先的 Three.js 街机赛艇游戏，玩家自动前进，只控制转向、
   水面漂移 / 空中空刹，以及主动起飞 / 空中续航。
 - 核心循环是 `漂移 -> 松开入库 -> 在青色分支前起飞 -> 穿门`。三次独立飞行
-  获得男人勋章，拿到第一升级为优秀男人；七飞后开放 Final Station。
+  获得男人勋章，拿到第一升级为优秀男人；第七飞通过后解除航线约束，只需从任意
+  路线、任意方向在水面穿过可见金门。
 - 首次 READY 与首局不出现新手教程，让熟练玩家直接冲勋章。仅全新 v8 存档的
   第一次真实失败会出现一次邀请；接受后才在下一局启动聚光式逐步标注。
 - `BoatInput` 和 60 Hz fixed-step 是稳定合同。教学只观察状态和成功动作，绝不
@@ -60,8 +61,9 @@
 - `Course.sample()` 收到显式 flight route hint 时必须把该分支视为权威，不能因为离
   分支较远就偷偷回退到全局最近的 surface 段。branch -> surface 交接时 `Race` 只
   重建采样基线并保留连续比赛进度，不能把投影差误当倒退。
-- recovery 期间不累计 surface off-course / wrong-way timer。交接后，偏离路线按离
+- recovery 期间不累计 surface off-course / wrong-way timer。普通飞行交接后，偏离路线按离
   surface 线的距离判断；真逆行要求船在引导附近、真实水平速度和连续进度都反向。
+  唯一例外是第七飞已经 arm Final：此时两种 timer 和 warning 永久清零直到冲线。
   HUD 必须分别显示“偏离航线”和“方向反了”，不能共用含糊的 `WRONG WAY!`。
 - 视觉语法固定为 `青色门前轨道 -> 绿色软回收漏斗/间断箭头 -> 绿色水面主线`。
   门后提前露出主线并保持 `16m` 交叠；世界中仍然最多一个 active branch。回收提示
@@ -69,6 +71,20 @@
 
 权威状态在 `src/game/course.ts`，连续进度和 surface 警告在 `src/game/race.ts`。
 任何调整必须覆盖第 4-7 飞完整的 gate -> descent -> water -> handoff，不得只测门口。
+
+### 第七飞后的 Final 自由接近
+
+- 第七门被正式计分的同一 fixed-step 由 `Race.armFinale()` 与 `Course.armFinalStation()`
+  原子切换目标。切换前的 gate / corridor / late / landing 仍照常失败；切换后不再产生
+  flight 或 surface 路线失败，也不显示回绿色线 / 掉头提示。
+- 第七飞的 authored recovery 仍完整保留，不能因为 Final 已 arm 就提前撤掉下降与落水
+  导航。handoff 后 active flight branch 必须为零，水面绿线统一降到 `18%` 仅作参考，
+  金门成为唯一强目标；小地图和屏幕外边缘只允许一个金色 Final 标记。
+- 完成真相是 `Course.crossFinalStation(previous,current)`：真实逐帧扫掠穿过可见两根
+  金柱之间，正反方向都接受，单步超过 `4m` 视为 cut/teleport 而拒绝。柱外擦过既不
+  完成也不失败，玩家可绕回再试；必须处于 `surface + idle`，下降中穿门不偷完成。
+- Final approach 冻结玩家在第七飞认证时的竞速 progress，AI 仍继续排序；离开绿色
+  样条不能凭 nearest projection 虚增名次。碰撞、惯性、落水、后台恢复规则全部保留。
 
 ### 失败快照语义
 
@@ -184,6 +200,14 @@ DriverSelect / READY
   只解释逐步标注，黄线、左右条、备用格和雷达放在玩家主动展开的“进阶规则”。
 - 控制 glyph 必须跟随最近活动设备和自定义手柄映射，不能硬编码 Shift 给所有人。
 - 教学帮助不降低物理难度、不影响勋章资格，也不自动驾驶。
+- 桌面选角从 `1366x768` 起使用固定 `portrait / identity / radar` 三栏和六个等宽候选；
+  1920、2560/3440 与真 4K 走离散尺寸档，超宽只增加背景留白，不按 viewport 连续放大
+  字号。移动端 standing portrait 布局是独立合同，本桌面规则不得覆盖它。
+- 桌面 READY 相机和 presentation time 冻结，GO 后从同一 orbit phase 连续恢复。浏览
+  切换只允许 incoming 图在 `200ms` 内单向 clip reveal，旧图只做未揭示区域的底图；
+  禁止完整双图 crossfade、DRIVER CONTRACT 假卡或强制 layout reflow。连续输入以最后
+  一次为准，`260ms` 硬收敛；reduced motion 立即切换。雷达 backing store 必须覆盖
+  `CSS size * min(devicePixelRatio, 2)`。
 
 ## 验证与 harness
 
@@ -211,6 +235,9 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
   前后始终要有一条指向出口的导航，绿色箭头不得遮挡右拇指固定技能区。
 - 旧的 `passFlight()` 会在每飞前 staging，适合门判定和计数等局部合同，不得把它
   当作冲门后惯性或 route handoff 的端到端证据。
+- `finalApproachCase()` 必须从真实第七门继续下降、落水和 handoff，再驶出旧 `42m`
+  失败走廊至少 `2.5s`；全程 warning/fail 为零、progress 不漂移、没有 teleport。随后
+  覆盖金柱外擦过可重试、正反穿门、高速 sweep 和超 `4m` cut 拒绝。
 
 教学相关的最低回归集：
 
@@ -260,8 +287,7 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
 - 触觉只使用短促分级脉冲，不做持续震动；任何调参必须同时覆盖移动端、标准/未知
   手柄、多手柄、断连和控制中碰撞的 harness。
 
-本轮音频、失败文案、输入 presentation 和选角立绘调整不改变 records 结构，不升
-schema，也不触发存档迁移。
+Final 自由接近与桌面选角舞台不改变 records 结构，不升 schema，也不触发存档迁移。
 
 ## 开发、端口与收尾纪律
 

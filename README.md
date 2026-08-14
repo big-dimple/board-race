@@ -20,7 +20,7 @@ npm run dev
 
 Open the printed localhost URL. You start fourth in a six-racer challenge, with three rivals ahead and two behind.
 
-The grid is intentionally frozen at `READY`. On desktop, `Enter` or `Space` starts the full `3 · 2 · 1 · GO` countdown. On mobile, the first touch requests fullscreen at the earliest browser-authorized moment; the single `GO` button remains the reliable fullscreen, permission, and calibration gate.
+The grid is intentionally frozen at `READY`. Desktop uses a fixed portrait / identity / radar stage from 1366px upward: all six candidates remain visible, the race world is dimmed and camera-frozen, and browsing uses a short directional reveal rather than overlapping full portraits. On desktop, `Enter` or `Space` starts the full `3 · 2 · 1 · GO` countdown. Mobile keeps its separate standing-portrait layout; the first touch requests fullscreen at the earliest browser-authorized moment, and the single `GO` button remains the reliable fullscreen, permission, and calibration gate.
 
 Backgrounding or minimizing the page immediately freezes simulation and hard-mutes audio. Returning never resumes a live run by itself: the player must press `GO`, then a fresh frozen `3 · 2 · 1 · GO` countdown restores control. READY already acts as that explicit resume gate; medal and loading screens resume their unread remainder only after GO.
 
@@ -40,7 +40,7 @@ Keyboard steering remains active in touch-capable Chrome sessions, including `�
 
 On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. The first touch attempts fullscreen/landscape; `GO` retries inside its own user gesture, requests motion permission, and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors fall back to touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
 
-A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. Passing completes the flight but does not erase the boat's horizontal momentum: the cyan approach changes into a soft green recovery funnel with water-following arrows, overlaps the main green line, and hands route ownership back only after the landing path reaches its authored exit. Legal recovery momentum cannot preload an off-course or wrong-way warning; those two surface mistakes also use distinct messages. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. Steering and drift/air-brake may be held before or during the medal and remain held through its frozen presentation and resume countdown; a flight press is still edge-triggered and never buffered. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit; after the seventh route, two golden energy columns charge at the existing finish gantry and wait for a real water-surface crossing. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Missing a portal, failing to launch, landing early, or leaving the corridor ends the run immediately. Failure review keeps those causes separate: route-level failures do not invent a gate number, while portal-side misses preserve the actual side and distance evidence.
+A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. Passing completes the flight but does not erase the boat's horizontal momentum: the cyan approach changes into a soft green recovery funnel with water-following arrows, overlaps the main green line, and hands route ownership back only after the landing path reaches its authored exit. Legal recovery momentum cannot preload an off-course or wrong-way warning; those two surface mistakes also use distinct messages. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. Steering and drift/air-brake may be held before or during the medal and remain held through its frozen presentation and resume countdown; a flight press is still edge-triggered and never buffered. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in. The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit. The seventh pass atomically retires surface off-course and wrong-way failures, fades the green route to a weak reference, and makes the visible golden `FINAL STATION` the sole scored destination. After the authored descent and landing, the player may approach from any route or direction; crossing between the two gold columns finishes, while passing outside them simply leaves the gate available for another attempt. The frozen finale creates a PNG capture, reveals the seven expansion easter-egg tags, and offers `继续游戏` or the pageable dossier. Before Final is armed, missing a portal, failing to launch, landing early, or leaving the corridor still ends the run immediately. Failure review keeps those causes separate: route-level failures do not invent a gate number, while portal-side misses preserve the actual side and distance evidence.
 
 The first run deliberately contains no onboarding: experienced players can attack the `男人勋章` immediately. Only an eligible novice's first real failure offers `带标注再冲 / 不用引导`; the focused review is actionable from its first frame, returns only to READY, and never buffers a race input. If accepted, the next run dims the surrounding HUD and spotlights one actual control or near-boat instrument at a time. On PC the first unmastered core action explicitly frames `SHIFT` and says `按住 SHIFT 漂移`; on mobile it circles the fixed lower-right `漂` thumb control. Once held, the focus moves to the left rail and yellow line, then to the stored diamond, `SPACE`/`飞`, and the flight timer as those actions become relevant. A drift is mastered only after crossing the yellow `BANK` mark and releasing into a stored diamond, not merely by pressing Shift. Every step can be permanently skipped by its visible `跳过引导`, keyboard `Esc`, or controller `View / Back`; READY `?` can re-enable remaining lessons on demand. Players who prove three flights before a failure are treated as experts. Schema v8 includes a one-time repair for novices accidentally disarmed by the rejected v7 rollout; it still waits for their next real failure and preserves every explicit skip or expert state.
 
@@ -100,7 +100,7 @@ src/
                     "whee" pose, idle breathing, celebration pump
     course.ts       CatmullRom circuit plus seven 3D flight branches, single-guide ownership,
                     post-gate recovery handoff, locally masked water line, gates/buoys with
-                    foam collars, cold-load-safe START/finish gantry and golden final station
+                    foam collars, and swept bidirectional golden Final portal geometry
     ai.ts           Spline-following AI with lookahead, six-racer pace profiles,
                     readable drift, elite consistency, and bounded traffic avoidance
     collision.ts    Swept capsule CCD, bounded arcade impulses, pileup separation,
@@ -111,30 +111,31 @@ src/
                     final/gallery state, JSON export/import, and v2-v7 migration
     drivingCoach.ts Pure contextual curriculum and successful-action mastery observer
     race.ts         Explicit READY, fresh/resume countdowns, route-transition rebasing,
-                    distinct course warnings, medal/final lifecycle, laps, and battle events
+                    distinct course warnings, free Final approach, laps, and battle events
     eventLog.ts     Capped local-only gameplay event log; no network analytics transport
     chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
                     reduced-motion support, cinematic orbit for countdown/results
   hud/
     hud.ts/.css     Responsive goal HUD: flights, position, spotlight driving guide,
                     focused failure review, READY gate, and medal UI
-    driverSelect.ts/.css Character contract, centered desktop portrait/radar decision group,
-                    mobile standing portrait with a separate ability column, real handling
-                    modifiers (up to +/-6%), named roster paddles, and a desktop carousel
+    driverSelect.ts/.css Three-column desktop stage with cancellable clip reveal and DPR radar;
+                    separate mobile standing portrait, real handling modifiers (up to +/-6%),
+                    named roster paddles, and six stable desktop destinations
     raceTower.ts/.css Compact six-driver tower and transient team radio
     medalCeremony.ts Asset-backed champion medal plus one DPR-capped Canvas2D particle layer
     expansionGallery.ts Full-screen Chinese-name dossier viewer for planned games
     finaleOverlay.ts Frozen seven-flight result actions and dossier entry point
   audio/
-    audio.ts        Streamed local rock plus four-bus Web Audio engine, water/air,
-                    air-brake pressure, impacts, ducking, horn, and medal sting
+    audio.ts        Streamed local rock plus four-bus Web Audio engine, reviewed impacts,
+                    player splash, ducking, non-verbal GO signal, and medal sting
     mixerControls.ts/.css Persistent master/music/effects/ambience controls
 harness/
     screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
                     (two-charge storage, seven-route timing, qualification, adaptive loading,
                     keyboard/dual-gamepad/custom-map/mobile controls, haptics, cold START,
                     radar restore, fullscreen request,
-                    route guidance and continuous post-gate recovery, performance, and battles)
+                    route guidance, continuous post-gate recovery, free Final approach,
+                    desktop selection motion, performance, and battles)
     collision.mjs   15-pair CCD, pileup, cooldown, rule isolation, route-4 boundary tests
     audio.mjs       Media playback, mixer, ducking, background lifecycle, exact-time non-verbal
                     GO signal, environment-loop silence, and one-shot audit contracts

@@ -114,6 +114,8 @@ export class Race implements RaceView {
   private battlePrevDiff: number[] = [];
   private battleCooldown: number[] = [];
   private resynced: boolean[] = [];
+  private previousWorld: THREE.Vector3[] = [];
+  private finalApproachProgress: number | null = null;
   private battleDisplayPlace = RACER_DEFS[0].startPlace;
   private overtakeStreak = 0;
   private lastOvertakeAt = -Infinity;
@@ -176,6 +178,7 @@ export class Race implements RaceView {
     this.qualificationTime = null;
     this.finalStationArmed = false;
     this.finaleCompleted = false;
+    this.finalApproachProgress = null;
     for (const r of this.racers) {
       r.lap = 1;
       r.progress = 0;
@@ -207,6 +210,7 @@ export class Race implements RaceView {
     this.battlePrevDiff = new Array(n).fill(0);
     this.battleCooldown = new Array(n).fill(0);
     this.resynced = new Array(n).fill(false);
+    this.previousWorld = this.boats.map((boat) => boat.state.position.clone());
     this.battleDisplayPlace = this.definitions[0].startPlace;
     this.overtakeStreak = 0;
     this.lastOvertakeAt = -Infinity;
@@ -243,6 +247,11 @@ export class Race implements RaceView {
         this.player().eliminated || this.boats[0].state.flightsCleared < routeCount ||
         this.boats[0].state.flightsCleared % routeCount !== 0) return false;
     this.finalStationArmed = true;
+    const player = this.player();
+    this.finalApproachProgress = player.progress;
+    this.wrongT[player.id] = 0;
+    this.offCourseT[player.id] = 0;
+    this.setCourseWarning(player, 'none');
     return true;
   }
 
@@ -250,6 +259,7 @@ export class Race implements RaceView {
   startFinalContinueCountdown(): boolean {
     if (this.phase !== 'finished' || !this.finaleCompleted) return false;
     this.finalStationArmed = false;
+    this.finalApproachProgress = null;
     this.finaleCompleted = false;
     this.challengeResult = null;
     this.player().finished = false;
@@ -273,7 +283,7 @@ export class Race implements RaceView {
 
   /** End the player's run immediately. Idempotent so swept checks cannot double-fire. */
   defeatFlight(failure: FlightFailureSnapshot): void {
-    if (this.phase !== 'racing') return;
+    if (this.phase !== 'racing' || this.finalStationArmed) return;
     this.phase = 'defeated';
     const player = this.player();
     const leader = this.order[0] ?? player;
@@ -381,6 +391,7 @@ export class Race implements RaceView {
       if (!this.inited[id]) continue;
       this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
       this.prevU[id] = _sample.u;
+      this.previousWorld[id].copy(boat.state.position);
     }
   }
 
@@ -392,7 +403,9 @@ export class Race implements RaceView {
       const r = this.racers[id];
       this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
       const u = _sample.u;
-      const crossedFinishPlane = this.prevU[id] > 0.92 && u < 0.08;
+      const crossedFinalStation = !resyncOnly && id === this.boats[0].id && this.finalStationArmed &&
+        this.course.crossFinalStation(this.previousWorld[id], boat.state.position);
+      this.previousWorld[id].copy(boat.state.position);
       if (!this.inited[id]) {
         // grid sits just behind the line (u ~ 0.996): unwrap to slightly negative
         this.contU[id] = u > 0.5 ? u - 1 : u;
@@ -401,6 +414,18 @@ export class Race implements RaceView {
         this.prevContU[id] = this.contU[id];
         this.inited[id] = true;
         r.progress = this.windowedProgress(id);
+        continue;
+      }
+      if (id === this.boats[0].id && this.finalStationArmed) {
+        this.prevRoute[id] = _sample.routeId;
+        this.prevU[id] = u;
+        this.prevContU[id] = this.contU[id];
+        this.wrongT[id] = 0;
+        this.offCourseT[id] = 0;
+        this.setCourseWarning(r, 'none');
+        r.progress = this.finalApproachProgress ?? r.progress;
+        if (crossedFinalStation && boat.state.flightPhase === 'surface' &&
+            boat.state.flightRouteState === 'idle' && this.tryCompleteFinale(r, id, boat)) return;
         continue;
       }
       if (this.prevRoute[id] !== _sample.routeId) {
@@ -421,11 +446,6 @@ export class Race implements RaceView {
       else if (du > 0.5) du -= 1;
       this.prevU[id] = u;
 
-      if (!resyncOnly && id === this.boats[0].id && crossedFinishPlane &&
-          _sample.distance <= GATE_CREDIT_DIST &&
-          boat.state.flightPhase === 'surface' && boat.state.flightRouteState === 'idle' &&
-          this.tryCompleteFinale(r, id, boat)) return;
-
       if (Math.abs(du) > JUMP_U) {
         this.resynced[id] = true;
         // cut / teleport: resync tracking to the physical position and deny
@@ -441,12 +461,7 @@ export class Race implements RaceView {
         this.contU[id] = newCu;
         this.prevContU[id] = newCu;
         if (!resyncOnly && !r.finished) {
-          if (newCu >= this.lapWindow[id] + 1) {
-            if (id === this.boats[0].id && this.finalStationArmed &&
-                boat.state.flightPhase === 'surface' && boat.state.flightRouteState === 'idle' &&
-                this.tryCompleteFinale(r, id, boat)) return;
-            this.completeWindow(r, id);
-          }
+          if (newCu >= this.lapWindow[id] + 1) this.completeWindow(r, id);
           r.progress = this.windowedProgress(id);
         }
         continue;
@@ -517,7 +532,6 @@ export class Race implements RaceView {
 
         // start/finish line, with checkpoint sanity
         if (cu >= this.lapWindow[id] + 1 && _sample.distance <= GATE_CREDIT_DIST) {
-          if (this.tryCompleteFinale(r, id, boat)) return;
           this.completeWindow(r, id);
         }
         r.lap = this.legitLaps[id] + 1;
@@ -562,14 +576,10 @@ export class Race implements RaceView {
     for (const key of this.cpLeaderTimes.keys()) if (key < minKey) this.cpLeaderTimes.delete(key);
   }
 
-  /** Finish only after the seventh route has landed and the line is crossed. */
+  /** Finish only after the seventh route has landed and the visible gold portal is crossed. */
   private tryCompleteFinale(r: RacerState, id: number, boat = this.boats[id]): boolean {
     if (id !== this.boats[0].id || !this.finalStationArmed || this.finaleCompleted ||
-        boat.state.flightPhase !== 'surface' || boat.state.flightRouteState !== 'idle' ||
-        boat.state.speed <= 0) return false;
-    const forwardDot = Math.sin(boat.state.heading) * _sample.tangent.x +
-      Math.cos(boat.state.heading) * _sample.tangent.z;
-    if (forwardDot < 0.15 || _sample.distance > GATE_CREDIT_DIST) return false;
+        boat.state.flightPhase !== 'surface' || boat.state.flightRouteState !== 'idle') return false;
     const leader = this.order[0] ?? r;
     const gapM = Math.max(0, leader.progress - r.progress);
     const leaderSpeed = Math.max(1, Math.abs(this.boats[leader.id]?.state.speed ?? 0));

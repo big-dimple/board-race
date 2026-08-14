@@ -17,6 +17,7 @@
   --boost: #7cfc00;
   --flight: #55e7ff;
   --flight-deep: #258cff;
+  --sun: #ffd23f;
 
   position: absolute;
   inset: 0;
@@ -1073,6 +1074,52 @@
   animation: hud-wrongflash 0.55s steps(2, jump-none) infinite;
 }
 
+.hud-final-target {
+  --final-target-angle: 0rad;
+  position: absolute;
+  z-index: 32;
+  width: 116px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px 7px 8px;
+  color: #fff7c2;
+  background: rgba(6, 10, 20, 0.88);
+  border: 2px solid var(--sun);
+  box-shadow: 3px 3px 0 var(--ink), 0 0 18px rgba(255, 199, 58, 0.28);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -50%) scale(0.94);
+  transition: opacity 100ms linear, transform 100ms ease-out, visibility 100ms linear;
+}
+
+.hud-final-target.on {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.hud-final-target-arrow {
+  flex: 0 0 21px;
+  width: 21px;
+  height: 21px;
+  background: var(--sun);
+  clip-path: polygon(0 25%, 58% 25%, 58% 0, 100% 50%, 58% 100%, 58% 75%, 0 75%);
+  filter: drop-shadow(2px 2px 0 var(--ink));
+  transform: rotate(var(--final-target-angle));
+}
+
+.hud-final-target-copy {
+  min-width: 0;
+  display: grid;
+  line-height: 1;
+}
+
+.hud-final-target-copy strong { font-size: 13px; color: var(--sun); }
+.hud-final-target-copy span { margin-top: 3px; font-size: 11px; color: var(--text); }
+
 @keyframes hud-wrongflash {
   0% {
     opacity: 1;
@@ -1514,6 +1561,7 @@
 .hud.results-on .hud-power,
 .hud.results-on .hud-toasts,
 .hud.results-on .hud-wrongway,
+.hud.results-on .hud-final-target,
 .hud.results-on .hud-flight-prompt,
 .hud.results-on .hud-impact,
 .hud.results-on .hud-battle,

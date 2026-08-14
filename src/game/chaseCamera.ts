@@ -178,6 +178,33 @@ export class CameraRig {
     this.impactBack = Math.min(this.impactBack, -0.12 - n * 0.32);
   }
 
+  /** Freeze the desktop READY stage on one authored orbit pose. */
+  snapOrbit(boat: IBoat, t: number): void {
+    const st = boat.state;
+    boat.riderMount.getWorldPosition(this.helm);
+    const a = t * ORBIT_OMEGA + 0.8;
+    const bob = Math.sin(t * 0.8) * ORBIT_BOB;
+    this.mode = 'orbit';
+    this.activeMode = 'orbit';
+    this.initialized = true;
+    this.pos.set(
+      st.position.x + Math.cos(a) * ORBIT_RADIUS,
+      st.position.y + ORBIT_HEIGHT + bob,
+      st.position.z + Math.sin(a) * ORBIT_RADIUS,
+    );
+    this.look.copy(this.helm);
+    this.vel.set(0, 0, 0);
+    this.fov = BASE_FOV - 3;
+    this.roll = 0;
+    this.shakeAmp = 0;
+    this.blendT = 1;
+    this.camera.position.copy(this.pos);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(this.look);
+    this.camera.fov = this.fov;
+    this.camera.updateProjectionMatrix();
+  }
+
   update(dt: number, boat: IBoat, t: number): void {
     const st = boat.state;
     const bx = st.position.x;

@@ -56,11 +56,12 @@ import { FinaleOverlay } from './hud/finaleOverlay';
 import { ExpansionGallery } from './hud/expansionGallery';
 import { CaptureService } from './core/capture';
 import { trackGameEvent } from './game/eventLog';
-import type { BoatInput, ChallengeTier, FlightRouteState } from './contracts';
+import type { BoatInput, ChallengeTier, CourseGuidanceStatus, CourseSample, FlightRouteState } from './contracts';
 import { deriveAbilityHudState } from './core/abilityTelemetry';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
+const DESKTOP_DRIVER_STAGE = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
 // Existing deterministic endurance probes intentionally exercise the optional
 // post-finale continuation. Normal players always reach Final Station.
 let harnessEndlessMode = HARNESS && !params.has('finale');
@@ -314,7 +315,7 @@ function applySelectedDriver(id: string): void {
   race.setDefinitions(roster);
   tower.setRoster(roster);
   // Selection already happens on a frozen READY grid. Updating the six
-  // definitions in place keeps the contract-card animation and its audio
+  // definitions in place keeps the portrait reveal and its audio
   // transient alive; a full reset here would unnecessarily rebuild the
   // presentation state on every tap.
 }
@@ -640,6 +641,7 @@ function resetRace(): void {
     ais[i].reset();
   }
   cameraRig.mode = 'orbit';
+  if (DESKTOP_DRIVER_STAGE.matches) cameraRig.snapOrbit(boats[0], presentationTime);
   hud.hideReady();
   driverSelect.show();
   syncDrivingCoachUi();
@@ -677,7 +679,8 @@ function step(dt: number, _t: number): void {
     mobileInput.setControlPhase('inactive');
     return;
   }
-  presentationTime += dt;
+  const frozenDesktopReady = race.phase === 'ready' && DESKTOP_DRIVER_STAGE.matches;
+  if (!frozenDesktopReady) presentationTime += dt;
   // Consume retry edges in every phase. Otherwise a key pressed during the
   // race remains queued and can erase the defeat screen on the failure frame.
   const enterPressed = input.consumePress('Enter');
@@ -742,7 +745,7 @@ function step(dt: number, _t: number): void {
     mobileInput.setControlPhase('inactive');
     driverSelect.updateControllerStatus(gamepadInput.status());
     driverSelect.setCoachStatus(drivingCoach.progress.status);
-    cameraRig.update(dt, boats[0], presentationTime);
+    if (!frozenDesktopReady) cameraRig.update(dt, boats[0], presentationTime);
     ocean.update(worldTime, stage.camera.position);
     sky.update(worldTime, stage.camera.position);
     course.update(0, worldTime);
@@ -1180,13 +1183,14 @@ interface Harness {
   passFlight(routeCursor: number, initialCharges?: number, forceAirBrake?: boolean): void;
   passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
   flightRecoveryCase(routeCursor: number): Record<string, number | string | boolean>;
+  finalApproachCase(): Record<string, unknown>;
   flightBudgetCase(): Record<string, unknown>;
   retry(): void;
   setCoachEnabled(enabled: boolean): void;
   coachState(): Record<string, unknown>;
   playerState(): Record<string, number | string | boolean | null>;
   stats(): Record<string, number | string>;
-  guidance(): Record<string, number>;
+  guidance(): CourseGuidanceStatus;
   startGantryStatus(): Record<string, number>;
   finalStationStatus(): Record<string, number | string | boolean>;
   mobileStatus(): Record<string, number | string | boolean>;
@@ -1431,6 +1435,160 @@ function harnessFlightRecoveryCase(routeCursor: number): Record<string, number |
   } finally {
     harnessForceAirBrake = false;
     harnessSuppressAirborneFlightTrigger = false;
+  }
+}
+
+function finalPortalGeometryCase(): Record<string, boolean> {
+  const center = course.pointAt(0, new THREE.Vector3());
+  const forward = course.tangentAt(0, new THREE.Vector3());
+  const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+  const crossing = (lateral: number, direction: -1 | 1, span: number): boolean => {
+    const previous = center.clone()
+      .addScaledVector(right, lateral)
+      .addScaledVector(forward, -span * 0.5 * direction);
+    const current = center.clone()
+      .addScaledVector(right, lateral)
+      .addScaledVector(forward, span * 0.5 * direction);
+    return course.crossFinalStation(previous, current);
+  };
+  return {
+    centerForward: crossing(0, 1, 2),
+    centerReverse: crossing(0, -1, 2),
+    insideLeft: crossing(-7.1, 1, 2),
+    insideRight: crossing(7.1, 1, 2),
+    outsideLeft: crossing(-7.25, 1, 2),
+    outsideRight: crossing(7.25, 1, 2),
+    highSpeedSweep: crossing(0, 1, 3.9),
+    teleportRejected: crossing(0, 1, 4.1),
+  };
+}
+
+function harnessFinalApproachCase(): Record<string, unknown> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = false;
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  passHarnessFlight(course.flightRoutes.length - 1, 1, true);
+
+  const armedAtPass = course.finalStationArmed();
+  const progressAtPass = race.racers[0].progress;
+  const routeSample: CourseSample = {
+    u: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    distance: 0,
+    routeId: 'surface',
+  };
+  let maxRouteDistance = 0;
+  let maxStep = 0;
+  let warningFrames = 0;
+  let recoveryFrames = 0;
+  let sawSurfaceRecovery = false;
+  let sawHandoff = false;
+  let previousX = boats[0].state.position.x;
+  let previousZ = boats[0].state.position.z;
+  let framesAfterHandoff = 0;
+
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+  setHarnessInput({ throttle: 1, steer: -1, drift: true, airBrake: true });
+  try {
+    for (let frame = 0; frame < 60 * 10 && race.phase === 'racing'; frame++) {
+      loop.advance(1 / 60);
+      const state = boats[0].state;
+      const stepDistance = Math.hypot(state.position.x - previousX, state.position.z - previousZ);
+      maxStep = Math.max(maxStep, stepDistance);
+      previousX = state.position.x;
+      previousZ = state.position.z;
+      course.sample(state.position, routeSample, 'surface');
+      maxRouteDistance = Math.max(maxRouteDistance, routeSample.distance);
+      if (race.racers[0].courseWarning !== 'none') warningFrames++;
+      if (state.flightRouteState === 'passed') {
+        recoveryFrames++;
+        if (state.flightPhase === 'surface') sawSurfaceRecovery = true;
+      }
+      if (state.flightRouteState === 'idle' && state.flightPhase === 'surface') {
+        sawHandoff = true;
+        framesAfterHandoff++;
+      }
+      if (sawHandoff && framesAfterHandoff >= 150 && maxRouteDistance >= 48) break;
+    }
+
+    const stateAfterExcursion = boats[0].state;
+    const guidanceAfterExcursion = course.guidanceStatus();
+    const phaseAfterExcursion = race.phase;
+    const warningAfterExcursion = race.racers[0].courseWarning;
+    const progressAfterExcursion = race.racers[0].progress;
+    const routeStateAfterExcursion = stateAfterExcursion.flightRouteState;
+    const flightPhaseAfterExcursion = stateAfterExcursion.flightPhase;
+    if (phaseAfterExcursion !== 'racing' || routeStateAfterExcursion !== 'idle' ||
+        flightPhaseAfterExcursion !== 'surface') {
+      throw new Error(`final free approach did not settle: ${phaseAfterExcursion}/${routeStateAfterExcursion}/${flightPhaseAfterExcursion}`);
+    }
+
+    const center = course.pointAt(0, new THREE.Vector3());
+    const forward = course.tangentAt(0, new THREE.Vector3());
+    const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+    const setPortalPose = (plane: number, lateral: number, direction: -1 | 1): void => {
+      const position = center.clone().addScaledVector(forward, plane).addScaledVector(right, lateral);
+      const fx = forward.x * direction;
+      const fz = forward.z * direction;
+      boats[0].setCollisionTestMotion(
+        position.x,
+        position.z,
+        Math.atan2(fx, fz),
+        fx * 24,
+        fz * 24,
+      );
+    };
+
+    // A pass outside either gold column is simply a miss. It must not finish
+    // or revive the retired surface-route failure timers.
+    setPortalPose(-1, 7.25, 1);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    setPortalPose(1, 7.25, 1);
+    race.update(1 / 60);
+    const outsidePhase = race.phase;
+    const outsideWarning = race.racers[0].courseWarning;
+
+    // Re-approach from the reverse side to prove Final is the visible portal,
+    // not an invisible spline heading requirement.
+    setPortalPose(1, 0, -1);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    setPortalPose(-1, 0, -1);
+    race.update(1 / 60);
+
+    return {
+      armedAtPass,
+      phaseAfterExcursion,
+      routeStateAfterExcursion,
+      flightPhaseAfterExcursion,
+      warningAfterExcursion,
+      warningFrames,
+      recoveryFrames,
+      sawSurfaceRecovery,
+      sawHandoff,
+      maxRouteDistance,
+      maxStep,
+      progressDrift: Math.abs(progressAfterExcursion - progressAtPass),
+      routePasses: harnessRoutePasses[0],
+      routeFails: harnessRouteFails[0],
+      finalGuideCount: guidanceAfterExcursion.finalGuideCount,
+      visibleRouteCount: guidanceAfterExcursion.visibleRouteCount,
+      activeRouteIndex: guidanceAfterExcursion.activeRouteIndex,
+      outsidePhase,
+      outsideWarning,
+      finishedPhase: race.phase,
+      geometry: finalPortalGeometryCase(),
+    };
+  } finally {
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+    setHarnessInput(null);
+    harnessEndlessMode = previousEndlessMode;
   }
 }
 
@@ -2382,6 +2540,7 @@ if (HARNESS) {
     passFlight: passHarnessFlight,
     passExtendedFlight: passHarnessExtendedFlight,
     flightRecoveryCase: harnessFlightRecoveryCase,
+    finalApproachCase: harnessFinalApproachCase,
     flightBudgetCase,
     retry: requestRetry,
     setCoachEnabled: (enabled) => {
@@ -2520,6 +2679,9 @@ if (HARNESS) {
       playerFlights: boats[0].state.flightsCleared,
       flightPressure: boats[0].state.flightPressure,
       cameraFov: stage.camera.fov,
+      cameraX: stage.camera.position.x,
+      cameraY: stage.camera.position.y,
+      cameraZ: stage.camera.position.z,
       routeState: boats[0].state.flightRouteState,
       routeFailReason: boats[0].state.flightRouteFailReason,
       routeGate: boats[0].state.flightGateProgress,

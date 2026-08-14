@@ -96,6 +96,8 @@ async function verifyFlightContract(page) {
   // A fresh page waits forever. Enter is advertised, while Space is the quiet
   // one-hand alternative; R remains retry-only.
   await assertDriverSelectComposition(page, 'desktop-1440x900');
+  await verifyDesktopDriverTransition(page);
+  await verifyDesktopDriverViewports(page);
   const coldStart = await page.evaluate(() => window.__harness.startGantryStatus());
   assert.equal(coldStart.canvasTextures, 0,
     `START landmark must not depend on a first-load CanvasTexture upload: ${JSON.stringify(coldStart)}`);
@@ -106,7 +108,13 @@ async function verifyFlightContract(page) {
   let state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'ready');
   const readyPose = { x: state.playerX, z: state.playerZ, raceTime: state.raceTime, worldTime: state.worldTime };
+  const readyCamera = await page.evaluate(() => window.__harness.stats());
   await page.evaluate(() => window.__harness.advance(1));
+  const heldCamera = await page.evaluate(() => window.__harness.stats());
+  for (const axis of ['cameraX', 'cameraY', 'cameraZ', 'cameraFov']) {
+    assert.ok(Math.abs(Number(heldCamera[axis]) - Number(readyCamera[axis])) < 0.0001,
+      `desktop READY camera must remain frozen on ${axis}: ${JSON.stringify({ readyCamera, heldCamera })}`);
+  }
   await page.keyboard.press('KeyR');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -532,6 +540,45 @@ async function verifyFlightContract(page) {
     assert.ok(recovery.minPlanarSpeed > 3, `flight ${route + 1} must preserve planar inertia: ${JSON.stringify(recovery)}`);
     assert.ok(recovery.minProgressDelta > -2, `flight ${route + 1} merge must not jump progress backwards: ${JSON.stringify(recovery)}`);
   }
+
+  // Seventh-flight certification changes the objective atomically: the
+  // authored recovery still plays, then the green route becomes optional and
+  // only the visible gold portal can finish the run.
+  const finalApproach = await page.evaluate(() => window.__harness.finalApproachCase());
+  assert.equal(finalApproach.armedAtPass, true, `seventh pass must arm Final immediately: ${JSON.stringify(finalApproach)}`);
+  assert.equal(finalApproach.phaseAfterExcursion, 'racing', 'free Final approach must not be defeated off-route');
+  assert.equal(finalApproach.routeStateAfterExcursion, 'idle');
+  assert.equal(finalApproach.flightPhaseAfterExcursion, 'surface');
+  assert.equal(finalApproach.sawSurfaceRecovery, true, 'route seven must retain recovery ownership through water contact');
+  assert.equal(finalApproach.sawHandoff, true, 'route seven must hand off before free approach');
+  assert.ok(finalApproach.recoveryFrames > 0);
+  assert.ok(finalApproach.maxRouteDistance >= 48,
+    `the contract must actually leave the old 42m fail corridor: ${JSON.stringify(finalApproach)}`);
+  assert.equal(finalApproach.warningFrames, 0, 'Final approach must never emit route warnings');
+  assert.equal(finalApproach.warningAfterExcursion, 'none');
+  assert.ok(finalApproach.maxStep < 1.5, `the continuous gate-to-excursion path must not teleport: ${JSON.stringify(finalApproach)}`);
+  assert.ok(finalApproach.progressDrift < 0.001,
+    `off-route projection must not manufacture place progress: ${JSON.stringify(finalApproach)}`);
+  assert.equal(finalApproach.routePasses, 1);
+  assert.equal(finalApproach.routeFails, 0);
+  assert.equal(finalApproach.finalGuideCount, 1, 'Final must expose one authoritative target');
+  assert.equal(finalApproach.visibleRouteCount, 0, 'flight seven must not remain as a stale branch after handoff');
+  assert.equal(finalApproach.activeRouteIndex, -1);
+  assert.equal(finalApproach.outsidePhase, 'racing', 'passing outside a gold column is retryable, not terminal');
+  assert.equal(finalApproach.outsideWarning, 'none');
+  assert.equal(finalApproach.finishedPhase, 'finished', 'a reverse-side pass through the visible portal must finish');
+  assert.deepEqual(finalApproach.geometry, {
+    centerForward: true,
+    centerReverse: true,
+    insideLeft: true,
+    insideRight: true,
+    outsideLeft: false,
+    outsideRight: false,
+    highSpeedSweep: true,
+    teleportRejected: false,
+  });
+
+  await page.evaluate(() => window.__harness.scenario('start'));
   for (let route = 0; route < 7; route++) {
     await page.evaluate((index) => window.__harness.passFlight(index, 1, true), route);
     state = await page.evaluate(() => window.__harness.playerState());
@@ -1501,7 +1548,7 @@ async function assertDriverSelectComposition(page, label) {
       go:rect('.driver-select-go'),
       mobileBackdropStyle:(() => {
         const backdrop = document.querySelector('.driver-mobile-backdrop');
-        const portrait = document.querySelector('.driver-portrait-frame > .driver-portrait:not(.driver-portrait-echo)');
+        const portrait = document.querySelector('.driver-portrait-frame > .driver-portrait-primary');
         if (!backdrop || !portrait) return null;
         const style = getComputedStyle(backdrop);
         const portraitStyle = getComputedStyle(portrait);
@@ -1517,7 +1564,12 @@ async function assertDriverSelectComposition(page, label) {
           naturalWidth:backdrop.naturalWidth,
           naturalHeight:backdrop.naturalHeight,
           coarse:matchMedia('(pointer:coarse)').matches,
+          desktopStage:matchMedia('(pointer:fine) and (min-width:1366px) and (min-height:768px)').matches,
         };
+      })(),
+      radarBacking:(() => {
+        const canvas = document.querySelector('.driver-radar');
+        return canvas && { width:canvas.width, height:canvas.height, cssWidth:canvas.clientWidth, cssHeight:canvas.clientHeight, dpr:devicePixelRatio };
       })(),
       rosterIndex:document.querySelector('.driver-roster-index')?.textContent ?? '',
       switchControls:[...document.querySelectorAll('.driver-switch-control')].map((node) => rect(`.${node.classList.contains('driver-switch-previous') ? 'driver-switch-previous' : 'driver-switch-next'}`)),
@@ -1533,9 +1585,6 @@ async function assertDriverSelectComposition(page, label) {
   assert.ok(featured && portrait && identity && radar && go, `${label} driver composition is incomplete`);
   assert.ok(Math.abs(featured.centerX - geometry.width / 2) <= 1.5,
     `${label} featured stage is not centered: ${JSON.stringify(geometry)}`);
-  const decisionGap = radar.left - portrait.right;
-  assert.ok(decisionGap >= 2 && decisionGap <= 14,
-    `${label} portrait and ability analysis must sit tightly together: gap=${decisionGap}`);
   assert.ok(Math.abs(go.centerX - geometry.width / 2) <= 1.5,
     `${label} contract GO must sit on the center axis: ${JSON.stringify(go)}`);
   assert.match(geometry.rosterIndex, /^选手 \d{2} \/ 06$/, `${label} must expose the current place in the six-driver roster`);
@@ -1569,17 +1618,25 @@ async function assertDriverSelectComposition(page, label) {
   } else {
     assert.ok(Math.abs(identity.centerX - geometry.width / 2) <= 1.5,
       `${label} desktop identity must anchor the screen center: ${JSON.stringify(identity)}`);
-    assert.ok(Math.abs(portrait.width - radar.width) <= 2,
-      `${label} desktop portrait and radar need equal visual weight: ${portrait.width} vs ${radar.width}`);
+    assert.ok(portrait.right < identity.left && identity.right < radar.left,
+      `${label} desktop stage must read portrait / identity / radar: ${JSON.stringify(geometry)}`);
+    assert.ok(identity.left - portrait.right >= 20 && radar.left - identity.right >= 20,
+      `${label} desktop panels need stable breathing room: ${JSON.stringify(geometry)}`);
     assert.ok(Math.abs(portrait.centerY - radar.centerY) <= 2,
       `${label} desktop portrait and radar left their shared axis: ${portrait.centerY} vs ${radar.centerY}`);
-    assert.ok(Math.abs((portrait.centerX + radar.centerX) / 2 - geometry.width / 2) <= 1.5,
-      `${label} desktop portrait/radar pair is not centered: ${JSON.stringify(geometry)}`);
+    assert.ok(Math.abs(portrait.width / portrait.height - 2 / 3) < 0.01,
+      `${label} desktop portrait must preserve the 2:3 source frame: ${JSON.stringify(portrait)}`);
     assert.equal(geometry.mobileBackdropStyle?.display, 'none', `${label} desktop must retain the framed portrait composition`);
     assert.notEqual(geometry.mobileBackdropStyle?.portraitDisplay, 'none', `${label} desktop framed portrait disappeared`);
+    const requiredDpr = Math.min(2, Math.max(1, geometry.radarBacking.dpr));
+    assert.ok(geometry.radarBacking.width >= Math.floor(geometry.radarBacking.cssWidth * requiredDpr) - 1 &&
+      geometry.radarBacking.height >= Math.floor(geometry.radarBacking.cssHeight * requiredDpr) - 1,
+    `${label} radar backing store must cover CSS pixels at bounded DPR: ${JSON.stringify(geometry.radarBacking)}`);
   }
   assert.equal(geometry.cardCount, 6, `${label} must keep all six carousel destinations`);
-  assert.equal(geometry.visibleCardCount, geometry.mobileBackdropStyle?.coarse ? 0 : 3,
+  assert.equal(geometry.visibleCardCount, geometry.mobileBackdropStyle?.coarse
+    ? 0
+    : geometry.mobileBackdropStyle?.desktopStage ? 6 : 3,
     `${label} must use the viewport-appropriate roster presentation`);
   assert.equal(geometry.dotCount, 6, `${label} must expose six compact destination marks`);
   assert.equal(geometry.selectedDotCount, 1, `${label} must select one destination mark`);
@@ -1588,6 +1645,123 @@ async function assertDriverSelectComposition(page, label) {
     assert.ok(surface.left >= -1 && surface.right <= geometry.width + 1 && surface.top >= -1 && surface.bottom <= geometry.height + 1,
       `${label} ${name} clips outside the viewport: ${JSON.stringify(surface)}`);
   }
+}
+
+async function verifyDesktopDriverTransition(page) {
+  const before = await page.evaluate(() => {
+    const frame = document.querySelector('.driver-portrait-frame').getBoundingClientRect();
+    return {
+      selected:document.querySelector('.driver-card.selected')?.dataset.driver ?? '',
+      primary:document.querySelector('.driver-portrait-primary')?.currentSrc ?? '',
+      frame:{ left:frame.left, top:frame.top, width:frame.width, height:frame.height },
+    };
+  });
+  await page.locator('.driver-switch-next').click();
+  await page.waitForTimeout(90);
+  const during = await page.evaluate(() => {
+    const root = document.querySelector('.driver-select');
+    const incoming = document.querySelector('.driver-portrait-incoming');
+    const primary = document.querySelector('.driver-portrait-primary');
+    const frame = document.querySelector('.driver-portrait-frame').getBoundingClientRect();
+    const style = getComputedStyle(incoming);
+    return {
+      selected:document.querySelector('.driver-card.selected')?.dataset.driver ?? '',
+      switching:root.classList.contains('switching'),
+      mode:root.dataset.transitionMode ?? '',
+      primary:primary.currentSrc,
+      incoming:incoming.currentSrc,
+      incomingOpacity:Number(style.opacity),
+      incomingClip:style.clipPath,
+      contractCards:document.querySelectorAll('.driver-contract-card').length,
+      frame:{ left:frame.left, top:frame.top, width:frame.width, height:frame.height },
+    };
+  });
+  assert.notEqual(during.selected, before.selected, 'desktop next must change the logical selection immediately');
+  assert.equal(during.switching, true, `desktop reveal must be active at 90ms: ${JSON.stringify(during)}`);
+  assert.equal(during.mode, 'desktop');
+  assert.equal(during.primary, before.primary, 'the old portrait must remain the stable reveal backing');
+  assert.notEqual(during.incoming, during.primary, 'the incoming layer must contain only the destination portrait');
+  assert.ok(during.incomingOpacity >= 0.99);
+  assert.notEqual(during.incomingClip, 'inset(0px)',
+    `the intermediate frame must be directionally clipped, never a full-image double exposure: ${JSON.stringify(during)}`);
+  assert.equal(during.contractCards, 0, 'browse changes must not fabricate a DRIVER CONTRACT card');
+  assert.deepEqual(during.frame, before.frame, 'portrait reveal must not reflow the stage');
+  await page.waitForTimeout(170);
+  let settled = await page.evaluate(() => ({
+    switching:document.querySelector('.driver-select').classList.contains('switching'),
+    selected:document.querySelector('.driver-card.selected')?.dataset.driver ?? '',
+    selectedSrc:document.querySelector('.driver-card.selected img')?.currentSrc ?? '',
+    primary:document.querySelector('.driver-portrait-primary')?.currentSrc ?? '',
+    incomingOpacity:Number(getComputedStyle(document.querySelector('.driver-portrait-incoming')).opacity),
+  }));
+  assert.equal(settled.switching, false);
+  assert.equal(settled.primary, settled.selectedSrc, 'settled hero must match the final logical selection');
+  assert.equal(settled.incomingOpacity, 0);
+
+  for (let i = 0; i < 8; i++) await page.locator('.driver-switch-next').click();
+  const rapidTarget = await page.locator('.driver-card.selected').getAttribute('data-driver');
+  await page.waitForTimeout(300);
+  settled = await page.evaluate(() => ({
+    switching:document.querySelector('.driver-select').classList.contains('switching'),
+    selected:document.querySelector('.driver-card.selected')?.dataset.driver ?? '',
+    selectedSrc:document.querySelector('.driver-card.selected img')?.currentSrc ?? '',
+    primary:document.querySelector('.driver-portrait-primary')?.currentSrc ?? '',
+    incomingOpacity:Number(getComputedStyle(document.querySelector('.driver-portrait-incoming')).opacity),
+  }));
+  assert.equal(settled.selected, rapidTarget, 'rapid browsing must keep the latest requested driver');
+  assert.equal(settled.primary, settled.selectedSrc, 'rapid browsing must settle the hero on the latest driver');
+  assert.equal(settled.switching, false);
+  assert.equal(settled.incomingOpacity, 0);
+
+  await page.emulateMedia({ reducedMotion:'reduce' });
+  await page.locator('.driver-switch-next').click();
+  await page.waitForTimeout(20);
+  const reduced = await page.evaluate(() => ({
+    switching:document.querySelector('.driver-select').classList.contains('switching'),
+    selectedSrc:document.querySelector('.driver-card.selected img')?.currentSrc ?? '',
+    primary:document.querySelector('.driver-portrait-primary')?.currentSrc ?? '',
+    incomingOpacity:Number(getComputedStyle(document.querySelector('.driver-portrait-incoming')).opacity),
+  }));
+  assert.equal(reduced.switching, false, 'reduced motion must switch immediately');
+  assert.equal(reduced.primary, reduced.selectedSrc);
+  assert.equal(reduced.incomingOpacity, 0);
+  await page.emulateMedia({ reducedMotion:'no-preference' });
+}
+
+async function verifyDesktopDriverViewports(page) {
+  for (const viewport of [
+    { width:1366, height:768 },
+    { width:1920, height:1080 },
+    { width:2560, height:1440 },
+    { width:3440, height:1440 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(60);
+    await assertDriverSelectComposition(page, `desktop-${viewport.width}x${viewport.height}`);
+    const layout = await page.evaluate(() => {
+      const selectors = ['.driver-select-header', '.driver-featured', '.driver-carousel', '.driver-select-footer'];
+      const rects = selectors.map((selector) => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return { selector, left:rect.left, right:rect.right, top:rect.top, bottom:rect.bottom };
+      });
+      const cards = [...document.querySelectorAll('.driver-card')].map((card) => {
+        const rect = card.getBoundingClientRect();
+        return { id:card.dataset.driver, width:rect.width, height:rect.height };
+      });
+      return { rects, cards, scrollWidth:document.documentElement.scrollWidth, scrollHeight:document.documentElement.scrollHeight };
+    });
+    for (let i = 1; i < layout.rects.length; i++) {
+      assert.ok(layout.rects[i - 1].bottom <= layout.rects[i].top + 1,
+        `desktop bands must not overlap at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
+    }
+    assert.ok(layout.scrollWidth <= viewport.width && layout.scrollHeight <= viewport.height,
+      `desktop selection must not scroll at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
+    const widths = layout.cards.map((card) => card.width);
+    assert.ok(Math.max(...widths) - Math.min(...widths) <= 1,
+      `selected desktop card must not reflow the roster: ${JSON.stringify(layout.cards)}`);
+  }
+  await page.setViewportSize({ width:1440, height:900 });
+  await page.waitForTimeout(60);
 }
 
 async function readMobileControlGeometry(page) {

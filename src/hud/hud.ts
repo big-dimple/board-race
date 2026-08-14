@@ -163,6 +163,12 @@ export class HUD {
 
   // wrong way / countdown
   private readonly wrongWayEl: HTMLDivElement;
+  private readonly finalTargetEl: HTMLDivElement;
+  private readonly finalTargetDistance: HTMLSpanElement;
+  private readonly finalTargetWorld = new THREE.Vector3();
+  private readonly finalTargetProjected = new THREE.Vector3();
+  private readonly finalTargetCamera = new THREE.Vector3();
+  private finalTargetText = '';
   private readonly countdownEl: HTMLDivElement;
   private readonly countdownLights: HTMLDivElement[] = [];
   private readonly countdownLabel: HTMLDivElement;
@@ -268,6 +274,7 @@ export class HUD {
     rs.setProperty('--boost', css(PALETTE.boost));
     rs.setProperty('--flight', css(PALETTE.flight));
     rs.setProperty('--flight-deep', css(PALETTE.flightDeep));
+    rs.setProperty('--sun', css(PALETTE.sunFlare));
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -398,6 +405,12 @@ export class HUD {
     h('div', 'hud-turn-warning-title hud-inked', turnCopy, '急弯逼近');
     this.turnWarningDetail = h('div', 'hud-turn-warning-detail', turnCopy, '按住 SHIFT 空刹 · A / D 转向');
     this.wrongWayEl = h('div', 'hud-wrongway', this.root, '方向反了 · 掉头');
+    this.finalTargetEl = h('div', 'hud-final-target', this.root);
+    this.finalTargetEl.setAttribute('aria-hidden', 'true');
+    h('i', 'hud-final-target-arrow', this.finalTargetEl);
+    const finalTargetCopy = h('span', 'hud-final-target-copy', this.finalTargetEl);
+    h('strong', '', finalTargetCopy, 'FINAL');
+    this.finalTargetDistance = h('span', '', finalTargetCopy) as unknown as HTMLSpanElement;
     this.brandEl = h('div', 'hud-brand', this.root);
     h('div', 'hud-brand-lead hud-inked', this.brandEl, '是男人就飞三次');
     const brandAction = h('div', 'hud-brand-action hud-inked', this.brandEl);
@@ -527,6 +540,7 @@ export class HUD {
     const st = player.state;
     this.hudTime += dt;
     this.updateDriverPower(dt, race, player);
+    this.updateFinalTarget(race.phase === 'racing');
     if (this.activeCoach) this.positionCoach(this.activeCoach.focus);
 
     // player racer state (RaceView exposes no player() accessor)
@@ -886,7 +900,7 @@ export class HUD {
 
   showFinalReady(): void {
     this.enqueueImpact({
-      kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '冲向金色终点', detail: '落水后穿过 FINAL 终点站',
+      kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '七飞完成 · 航线解除', detail: '落水后穿过金色终点',
       color: PALETTE.sunFlare, duration: 2.1, priority: 96,
     });
   }
@@ -1670,15 +1684,79 @@ export class HUD {
     return MAP_SIZE / 2 + (x - this.mapCx) * this.mapScale;
   }
 
+  private updateFinalTarget(racing: boolean): void {
+    const guidance = this.course.guidanceStatus();
+    if (!racing || !guidance.finalActive) {
+      this.finalTargetEl.classList.remove('on');
+      return;
+    }
+    this.course.pointAt(0, this.finalTargetWorld);
+    this.finalTargetWorld.y = 6.2;
+    this.camera.updateMatrixWorld();
+    this.finalTargetCamera.copy(this.finalTargetWorld).applyMatrix4(this.camera.matrixWorldInverse);
+    this.finalTargetProjected.copy(this.finalTargetWorld).project(this.camera);
+    const inFront = this.finalTargetCamera.z < -0.1;
+    const onScreen = inFront && Math.abs(this.finalTargetProjected.x) <= 0.78 &&
+      Math.abs(this.finalTargetProjected.y) <= 0.68;
+    if (onScreen) {
+      this.finalTargetEl.classList.remove('on');
+      return;
+    }
+
+    let dx = this.finalTargetProjected.x;
+    let dy = -this.finalTargetProjected.y;
+    if (!inFront) {
+      dx = -dx;
+      dy = -dy;
+    }
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || Math.hypot(dx, dy) < 0.001) {
+      dx = 1;
+      dy = 0;
+    }
+    const width = this.root.clientWidth || window.innerWidth;
+    const height = this.root.clientHeight || window.innerHeight;
+    const halfWidth = Math.max(24, width * 0.5 - Math.min(92, width * 0.12));
+    const halfHeight = Math.max(24, height * 0.5 - Math.min(72, height * 0.15));
+    const scale = Math.min(
+      halfWidth / Math.max(0.001, Math.abs(dx)),
+      halfHeight / Math.max(0.001, Math.abs(dy)),
+    );
+    this.finalTargetEl.style.left = `${width * 0.5 + dx * scale}px`;
+    this.finalTargetEl.style.top = `${height * 0.5 + dy * scale}px`;
+    this.finalTargetEl.style.setProperty('--final-target-angle', `${Math.atan2(dy, dx)}rad`);
+    const distance = `${Math.max(0, Math.round(guidance.finalDistance))}m`;
+    if (distance !== this.finalTargetText) {
+      this.finalTargetText = distance;
+      this.finalTargetDistance.textContent = distance;
+    }
+    this.finalTargetEl.classList.add('on');
+  }
+
   private mapY(z: number): number {
     return MAP_SIZE / 2 + (z - this.mapCz) * this.mapScale;
   }
 
   private drawMinimap(player: IBoat, all: IBoat[]): void {
     const m = this.mctx;
+    const guidance = this.course.guidanceStatus();
     m.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
     m.drawImage(this.mapBase, 0, 0, MAP_SIZE, MAP_SIZE);
-    if (player.state.flightCharges > 0) {
+    if (guidance.finalActive) {
+      const v = this.mapTemp;
+      this.course.pointAt(0, v);
+      const x = this.mapX(v.x);
+      const y = this.mapY(v.z);
+      const pulse = 7 + Math.sin(this.hudTime * 7) * 1.5;
+      m.save();
+      m.translate(x, y);
+      m.rotate(Math.PI / 4);
+      m.fillStyle = css(PALETTE.sunFlare);
+      m.strokeStyle = PALETTE.inkCss;
+      m.lineWidth = 3;
+      m.fillRect(-pulse * 0.5, -pulse * 0.5, pulse, pulse);
+      m.strokeRect(-pulse * 0.5, -pulse * 0.5, pulse, pulse);
+      m.restore();
+    } else if (player.state.flightCharges > 0) {
       const v = this.mapTemp;
       const route = this.course.flightRoutes[Math.min(
         this.course.flightRoutes.length - 1,

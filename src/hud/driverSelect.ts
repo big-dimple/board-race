@@ -6,9 +6,8 @@ export class DriverSelect {
   readonly root: HTMLDivElement;
   private readonly mobileBackdrop: HTMLImageElement;
   private readonly portrait: HTMLImageElement;
-  private readonly portraitEcho: HTMLImageElement;
-  private readonly contractCard: HTMLDivElement;
-  private readonly contractPortrait: HTMLImageElement;
+  private readonly portraitIncoming: HTMLImageElement;
+  private readonly identity: HTMLDivElement;
   private readonly name: HTMLDivElement;
   private readonly meta: HTMLDivElement;
   private readonly mood: HTMLDivElement;
@@ -17,6 +16,8 @@ export class DriverSelect {
   private readonly weakness: HTMLDivElement;
   private readonly specialty: HTMLDivElement;
   private readonly radar: HTMLCanvasElement;
+  private readonly radarWrap: HTMLDivElement;
+  private readonly radarResizeObserver: ResizeObserver;
   private readonly rosterIndex: HTMLDivElement;
   private readonly controllerStatus: HTMLDivElement;
   private readonly coachButton: HTMLButtonElement;
@@ -35,6 +36,15 @@ export class DriverSelect {
   private suppressCarouselClick = false;
   private controllerStatusText = '';
   private controllerStatusTitle = '';
+  private readonly desktopStageMedia: MediaQueryList;
+  private readonly reducedMotionMedia: MediaQueryList;
+  private readonly portraitLoads = new Map<string, Promise<void>>();
+  private portraitAnimation: Animation | null = null;
+  private detailAnimations: Animation[] = [];
+  private transitionToken = 0;
+  private transitionTimer = 0;
+  private radarFrame = 0;
+  private radarDisplayValues: number[];
 
   constructor(
     parent: HTMLElement,
@@ -45,8 +55,13 @@ export class DriverSelect {
     private readonly onCoachToggle: () => void = () => {},
   ) {
     this.selectedProfile = driverProfile(initialId);
+    this.radarDisplayValues = handlingValues(this.selectedProfile);
     this.parent = parent;
+    this.desktopStageMedia = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
+    this.reducedMotionMedia = window.matchMedia('(prefers-reduced-motion: reduce)');
     this.root = element('div', 'driver-select', parent);
+    this.root.setAttribute('role', 'dialog');
+    this.root.setAttribute('aria-modal', 'true');
     this.root.setAttribute('aria-label', '选择成年竞速选手');
     // Mobile Chrome treats click as the reliable fullscreen user-activation
     // boundary. Pointerdown is still handled by the controls fallback, but
@@ -87,37 +102,43 @@ export class DriverSelect {
     this.rosterIndex.setAttribute('aria-atomic', 'true');
     const portraitFrame = element('div', 'driver-portrait-frame', featured);
     this.portrait = document.createElement('img');
-    this.portrait.className = 'driver-portrait';
+    this.portrait.className = 'driver-portrait driver-portrait-primary';
     this.portrait.alt = '';
+    this.portrait.draggable = false;
+    this.portrait.decoding = 'async';
     portraitFrame.appendChild(this.portrait);
-    this.portraitEcho = document.createElement('img');
-    this.portraitEcho.className = 'driver-portrait driver-portrait-echo';
-    this.portraitEcho.alt = '';
-    portraitFrame.appendChild(this.portraitEcho);
-    this.contractCard = element('div', 'driver-contract-card', portraitFrame);
-    this.contractPortrait = document.createElement('img');
-    this.contractPortrait.alt = '';
-    this.contractCard.appendChild(this.contractPortrait);
-    element('i', 'driver-contract-seal', this.contractCard);
+    this.portraitIncoming = document.createElement('img');
+    this.portraitIncoming.className = 'driver-portrait driver-portrait-incoming';
+    this.portraitIncoming.alt = '';
+    this.portraitIncoming.draggable = false;
+    this.portraitIncoming.decoding = 'async';
+    this.portraitIncoming.setAttribute('aria-hidden', 'true');
+    portraitFrame.appendChild(this.portraitIncoming);
     this.mood = element('div', 'driver-mood', portraitFrame);
 
-    const identity = element('div', 'driver-identity', featured);
-    this.specialty = element('div', 'driver-specialty', identity);
-    this.name = element('div', 'driver-name', identity);
-    this.meta = element('div', 'driver-meta', identity);
+    this.identity = element('div', 'driver-identity', featured);
+    this.specialty = element('div', 'driver-specialty', this.identity);
+    this.name = element('div', 'driver-name', this.identity);
+    this.meta = element('div', 'driver-meta', this.identity);
     this.quote = document.createElement('blockquote');
     this.quote.className = 'driver-quote';
-    identity.appendChild(this.quote);
-    this.strength = element('div', 'driver-pro driver-trait', identity);
-    this.weakness = element('div', 'driver-con driver-trait', identity);
+    this.identity.appendChild(this.quote);
+    this.strength = element('div', 'driver-pro driver-trait', this.identity);
+    this.weakness = element('div', 'driver-con driver-trait', this.identity);
 
-    const radarWrap = element('div', 'driver-radar-wrap', featured);
-    element('div', 'driver-radar-title', radarWrap, '实机性能修正 · 基准 0% · 单项最高 ±6%');
+    this.radarWrap = element('div', 'driver-radar-wrap', featured);
+    element('div', 'driver-radar-title', this.radarWrap, '实机性能修正 · 基准 0% · 单项最高 ±6%');
     this.radar = document.createElement('canvas');
     this.radar.className = 'driver-radar';
     this.radar.width = 320;
     this.radar.height = 260;
-    radarWrap.appendChild(this.radar);
+    this.radarWrap.appendChild(this.radar);
+    this.radarResizeObserver = new ResizeObserver(() => {
+      if (this.root.classList.contains('on')) this.drawRadar(this.selectedProfile, this.radarDisplayValues);
+    });
+    // Observe the stable layout container. Watching the canvas itself creates
+    // a feedback loop because drawRadar also changes its intrinsic dimensions.
+    this.radarResizeObserver.observe(this.radarWrap);
 
     const carousel = element('div', 'driver-carousel', this.root);
     const rail = element('div', 'driver-rail', carousel);
@@ -131,7 +152,10 @@ export class DriverSelect {
       img.src = profile.portraitUrl;
       img.alt = '';
       img.draggable = false;
+      img.decoding = 'async';
       img.style.objectPosition = profile.portraitPosition;
+      const decode = typeof img.decode === 'function' ? img.decode().catch(() => undefined) : Promise.resolve();
+      this.portraitLoads.set(profile.id, decode);
       button.appendChild(img);
       const copy = element('span', 'driver-card-copy', button);
       element('strong', '', copy, profile.name);
@@ -211,8 +235,9 @@ export class DriverSelect {
       this.coachPanel.classList.remove('on');
       this.coachButton.setAttribute('aria-expanded', 'false');
     });
-    this.name.addEventListener('animationend', (event) => {
-      if (event.animationName === 'driver-copy-lock') this.root.classList.remove('switching');
+    window.addEventListener('resize', () => {
+      if (!this.root.classList.contains('on')) return;
+      this.drawRadar(this.selectedProfile, this.radarDisplayValues);
     });
     this.render();
   }
@@ -261,8 +286,10 @@ export class DriverSelect {
   }
 
   show(): void {
+    this.clearTransition(true);
     this.parent.classList.add('driver-select-active');
     this.root.classList.add('on');
+    this.radarDisplayValues = handlingValues(this.selectedProfile);
     this.drawRadar(this.selectedProfile);
     requestAnimationFrame(() => {
       if (this.root.classList.contains('on')) this.drawRadar(this.selectedProfile);
@@ -270,6 +297,7 @@ export class DriverSelect {
   }
 
   hide(): void {
+    this.clearTransition(true);
     this.parent.classList.remove('driver-select-active');
     this.root.classList.remove('on');
   }
@@ -277,21 +305,22 @@ export class DriverSelect {
   select(id: string, notify = true, direction?: -1 | 1): void {
     const next = driverProfile(id);
     if (next.id === this.selectedProfile.id) return;
+    const previous = this.selectedProfile;
     const previousIndex = DRIVER_PROFILES.findIndex((profile) => profile.id === this.selectedProfile.id);
     const nextIndex = DRIVER_PROFILES.findIndex((profile) => profile.id === next.id);
     const forward = (nextIndex - previousIndex + DRIVER_PROFILES.length) % DRIVER_PROFILES.length;
     const switchDirection = direction ?? (forward > 0 && forward <= DRIVER_PROFILES.length / 2 ? 1 : -1);
-    this.portraitEcho.src = this.selectedProfile.portraitUrl;
-    this.portraitEcho.style.objectPosition = this.selectedProfile.portraitPosition;
-    this.contractPortrait.src = next.portraitUrl;
-    this.contractPortrait.style.objectPosition = next.portraitPosition;
+    this.clearTransition(true);
     this.selectedProfile = next;
-    this.render();
+    const desktopTransition = notify && this.desktopStageMedia.matches;
+    this.render(!desktopTransition, !desktopTransition);
     if (notify) {
       this.root.dataset.switchDirection = String(switchDirection);
-      this.root.classList.remove('switching');
-      void this.root.offsetWidth;
-      this.root.classList.add('switching');
+      if (desktopTransition) {
+        this.animateDesktopSelection(previous, next, switchDirection);
+      } else {
+        this.startSimpleTransition();
+      }
       this.onSelect(next, nextIndex, switchDirection);
     }
   }
@@ -302,14 +331,128 @@ export class DriverSelect {
     this.select(DRIVER_PROFILES[next].id, true, delta < 0 ? -1 : 1);
   }
 
-  private render(): void {
+  private clearTransition(commitSelected: boolean): void {
+    this.transitionToken++;
+    this.portraitAnimation?.cancel();
+    this.portraitAnimation = null;
+    for (const animation of this.detailAnimations) animation.cancel();
+    this.detailAnimations = [];
+    cancelAnimationFrame(this.radarFrame);
+    this.radarFrame = 0;
+    if (this.transitionTimer) window.clearTimeout(this.transitionTimer);
+    this.transitionTimer = 0;
+    if (commitSelected) this.applyPortrait(this.portrait, this.selectedProfile);
+    this.portraitIncoming.style.opacity = '0';
+    this.portraitIncoming.style.clipPath = '';
+    this.portraitIncoming.style.transform = '';
+    this.portraitIncoming.removeAttribute('data-driver');
+    this.root.classList.remove('switching');
+    delete this.root.dataset.transitionMode;
+  }
+
+  private startSimpleTransition(): void {
+    const token = ++this.transitionToken;
+    this.root.dataset.transitionMode = 'simple';
+    this.root.classList.add('switching');
+    this.transitionTimer = window.setTimeout(() => {
+      if (token !== this.transitionToken) return;
+      this.root.classList.remove('switching');
+      delete this.root.dataset.transitionMode;
+      this.transitionTimer = 0;
+    }, 460);
+  }
+
+  private animateDesktopSelection(previous: DriverProfile, next: DriverProfile, direction: -1 | 1): void {
+    const token = ++this.transitionToken;
+    this.root.dataset.transitionMode = 'desktop';
+    // Leave scheduling headroom so the public 260 ms convergence contract is
+    // still true while the browser is decoding images or presenting WebGL.
+    this.transitionTimer = window.setTimeout(() => this.finishDesktopSelection(token, next), 220);
+    if (this.reducedMotionMedia.matches) {
+      this.finishDesktopSelection(token, next);
+      return;
+    }
+    const ready = this.portraitLoads.get(next.id) ?? Promise.resolve();
+    void ready.then(() => {
+      if (token !== this.transitionToken || this.selectedProfile.id !== next.id || !this.root.classList.contains('on')) return;
+      this.applyPortrait(this.portrait, previous);
+      this.applyPortrait(this.portraitIncoming, next);
+      this.portraitIncoming.dataset.driver = next.id;
+      this.portraitIncoming.style.opacity = '1';
+      this.root.classList.add('switching');
+      const fromClip = direction > 0 ? 'inset(0 100% 0 0)' : 'inset(0 0 0 100%)';
+      const fromX = direction > 0 ? '6px' : '-6px';
+      const portraitAnimation = this.portraitIncoming.animate([
+        { clipPath: fromClip, transform: `translateX(${fromX})` },
+        { clipPath: 'inset(0 0 0 0)', transform: 'translateX(0)' },
+      ], {
+        duration: 200,
+        easing: 'cubic-bezier(.22,.72,.2,1)',
+        fill: 'forwards',
+      });
+      this.portraitAnimation = portraitAnimation;
+      const detailFrom = direction > 0 ? 4 : -4;
+      this.detailAnimations = [this.identity, this.radarWrap].map((element, index) => element.animate([
+        { opacity: 0.58, transform: `translateX(${detailFrom}px)` },
+        { opacity: 1, transform: 'translateX(0)' },
+      ], {
+        duration: index === 0 ? 140 : 180,
+        easing: 'ease-out',
+      }));
+      this.animateRadar(previous, next);
+      portraitAnimation.onfinish = () => this.finishDesktopSelection(token, next);
+    });
+  }
+
+  private finishDesktopSelection(token: number, profile: DriverProfile): void {
+    if (token !== this.transitionToken || this.selectedProfile.id !== profile.id) return;
+    if (this.transitionTimer) window.clearTimeout(this.transitionTimer);
+    this.transitionTimer = 0;
+    this.portraitAnimation?.cancel();
+    this.portraitAnimation = null;
+    for (const animation of this.detailAnimations) animation.cancel();
+    this.detailAnimations = [];
+    cancelAnimationFrame(this.radarFrame);
+    this.radarFrame = 0;
+    this.applyPortrait(this.portrait, profile);
+    this.portraitIncoming.style.opacity = '0';
+    this.portraitIncoming.style.clipPath = '';
+    this.portraitIncoming.style.transform = '';
+    this.portraitIncoming.removeAttribute('data-driver');
+    this.radarDisplayValues = handlingValues(profile);
+    this.drawRadar(profile);
+    this.root.classList.remove('switching');
+    delete this.root.dataset.transitionMode;
+  }
+
+  private animateRadar(previous: DriverProfile, next: DriverProfile): void {
+    cancelAnimationFrame(this.radarFrame);
+    const from = this.radarDisplayValues.length === 4 ? [...this.radarDisplayValues] : handlingValues(previous);
+    const to = handlingValues(next);
+    const started = performance.now();
+    const frame = (now: number): void => {
+      const t = Math.min(1, (now - started) / 180);
+      const eased = 1 - (1 - t) * (1 - t);
+      this.radarDisplayValues = to.map((value, index) => from[index] + (value - from[index]) * eased);
+      this.drawRadar(next, this.radarDisplayValues);
+      if (t < 1) this.radarFrame = requestAnimationFrame(frame);
+      else this.radarFrame = 0;
+    };
+    this.radarFrame = requestAnimationFrame(frame);
+  }
+
+  private applyPortrait(image: HTMLImageElement, profile: DriverProfile): void {
+    image.src = profile.portraitUrl;
+    image.style.objectPosition = profile.portraitPosition;
+    if (image === this.portrait) image.alt = `${profile.name}，${profile.age} 岁成年选手`;
+  }
+
+  private render(updatePortrait = true, updateRadar = true): void {
     const profile = this.selectedProfile;
     this.root.dataset.selectedDriver = profile.id;
     this.root.style.setProperty('--driver-color', hex(profile.color));
     this.mobileBackdrop.src = profile.portraitUrl;
-    this.portrait.src = profile.portraitUrl;
-    this.portrait.style.objectPosition = profile.portraitPosition;
-    this.portrait.alt = `${profile.name}，${profile.age} 岁成年选手`;
+    if (updatePortrait) this.applyPortrait(this.portrait, profile);
     this.name.textContent = profile.name;
     this.meta.textContent = `${profile.callsign} // ${profile.age} 岁 // ${profile.pronouns}`;
     this.mood.textContent = `${profile.moodIcon} ${profile.mood}`;
@@ -329,30 +472,44 @@ export class DriverSelect {
     this.previousButton.setAttribute('aria-label', `上一位选手，${previousProfile.name}`);
     this.nextButton.setAttribute('aria-label', `下一位选手，${nextProfile.name}`);
     for (const [id, card] of this.cards) {
-      card.classList.toggle('selected', id === profile.id);
+      const selected = id === profile.id;
+      card.classList.toggle('selected', selected);
+      card.setAttribute('aria-pressed', String(selected));
       card.classList.toggle('carousel-prev', id === previousId);
       card.classList.toggle('carousel-next', id === nextId);
       card.classList.toggle('carousel-visible', id === profile.id || id === previousId || id === nextId);
     }
-    for (const [id, dot] of this.dots) dot.classList.toggle('selected', id === profile.id);
-    this.drawRadar(profile);
+    for (const [id, dot] of this.dots) {
+      const selected = id === profile.id;
+      dot.classList.toggle('selected', selected);
+      dot.setAttribute('aria-pressed', String(selected));
+    }
+    if (updateRadar) {
+      this.radarDisplayValues = handlingValues(profile);
+      this.drawRadar(profile);
+    }
   }
 
-  private drawRadar(profile: DriverProfile): void {
+  private drawRadar(profile: DriverProfile, displayedValues = handlingValues(profile)): void {
     const ctx = this.radar.getContext('2d');
     if (!ctx) return;
-    const w = this.radar.width;
-    const h = this.radar.height;
+    const cssWidth = Math.max(1, Math.round(this.radar.clientWidth || 320));
+    const cssHeight = Math.max(1, Math.round(this.radar.clientHeight || 260));
+    const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const pixelWidth = Math.max(1, Math.round(cssWidth * dpr));
+    const pixelHeight = Math.max(1, Math.round(cssHeight * dpr));
+    if (this.radar.width !== pixelWidth || this.radar.height !== pixelHeight) {
+      this.radar.width = pixelWidth;
+      this.radar.height = pixelHeight;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = cssWidth;
+    const h = cssHeight;
     const cx = w * 0.5;
     const cy = h * 0.5 + 7;
     const radius = Math.min(w, h) * 0.35;
     const labels = ['加速', '转向', '漂移', '空控'];
-    const values = [
-      profile.handling.acceleration,
-      profile.handling.steering,
-      profile.handling.driftCharge,
-      profile.handling.airControl,
-    ];
+    const values = displayedValues;
     ctx.clearRect(0, 0, w, h);
     ctx.lineJoin = 'round';
     for (let ring = 1; ring <= 4; ring++) {
@@ -403,6 +560,15 @@ export class DriverSelect {
 function formatHandling(value: number): string {
   const percent = Math.round((value - 1) * 100);
   return percent > 0 ? `+${percent}%` : `${percent}%`;
+}
+
+function handlingValues(profile: DriverProfile): number[] {
+  return [
+    profile.handling.acceleration,
+    profile.handling.steering,
+    profile.handling.driftCharge,
+    profile.handling.airControl,
+  ];
 }
 
 function handlingSummary(profile: DriverProfile): string {

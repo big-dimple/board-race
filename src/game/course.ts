@@ -34,6 +34,7 @@ import {
   LAYER_ENERGY,
   LAYER_INK,
   type CourseRouteId,
+  type CourseGuidanceStatus,
   type CourseSample,
   type FlightCourseRouteId,
   type FlightRouteDefinition,
@@ -81,6 +82,8 @@ const LAP_LENGTH = CURVE.getLength();
 
 /** Surface distance at which the run is no longer a missed launch attempt. */
 export const SURFACE_ROUTE_FAIL_DISTANCE_M = 42;
+const FINAL_PORTAL_HALF_WIDTH_M = 7.15;
+const FINAL_PORTAL_MAX_STEP_M = 4;
 
 // ---------------------------------------------------- arc-length table ----
 
@@ -803,6 +806,7 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
       uMaskStart: { value: 0 },
       uMaskEnd: { value: 0 },
       uGuideActive: { value: 0 },
+      uFinalApproach: { value: 0 },
     },
     vertexShader: /* glsl */ `
       uniform float uTime;
@@ -832,6 +836,7 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
       uniform float uMaskStart;
       uniform float uMaskEnd;
       uniform float uGuideActive;
+      uniform float uFinalApproach;
       varying float vS;
       varying float vSide;
       varying float vDist;
@@ -856,6 +861,7 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
         vec3 col = uColor * (core * (0.68 + 0.72 * dash) + rail * 0.9 + halo * 0.42)
                  + uInk * edge;
         float alpha = (core * (0.34 + dash * 0.66) + rail * 0.9 + edge * 0.92 + halo * 0.12) * fade;
+        alpha *= mix(1.0, 0.18, uFinalApproach);
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -989,6 +995,9 @@ export class Course implements ICourse {
   private finalArmed = false;
   private finalCelebrating = false;
   private finalCelebrationTime = 0;
+  private readonly finalPortalCenter = new THREE.Vector3();
+  private readonly finalPortalForward = new THREE.Vector3();
+  private readonly finalPortalRight = new THREE.Vector3();
 
   constructor() {
     this.object = new THREE.Group();
@@ -997,6 +1006,9 @@ export class Course implements ICourse {
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
     this.buildGates();
+    this.pointAt(0, this.finalPortalCenter);
+    this.tangentAt(0, this.finalPortalForward);
+    this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
   }
 
   /** Cold-load contract for the START landmark. No browser canvas upload is allowed. */
@@ -1142,6 +1154,7 @@ export class Course implements ICourse {
     this.finalStationBlend = 0;
     if (this.finalStation) this.finalStation.visible = false;
     this.ribbonMat.uniforms.uGuideActive.value = 0;
+    this.ribbonMat.uniforms.uFinalApproach.value = 0;
     for (const visual of this.flightVisuals) {
       visual.group.visible = false;
       visual.deployActive = false;
@@ -1161,11 +1174,34 @@ export class Course implements ICourse {
 
   armFinalStation(): void {
     this.finalArmed = true;
+    this.ribbonMat.uniforms.uFinalApproach.value = 1;
     if (this.finalStation) this.finalStation.visible = true;
   }
 
   finalStationArmed(): boolean {
     return this.finalArmed;
+  }
+
+  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3): boolean {
+    const dx = current.x - previous.x;
+    const dz = current.z - previous.z;
+    const stepSq = dx * dx + dz * dz;
+    if (stepSq <= 1e-8 || stepSq > FINAL_PORTAL_MAX_STEP_M * FINAL_PORTAL_MAX_STEP_M) return false;
+    const px = previous.x - this.finalPortalCenter.x;
+    const pz = previous.z - this.finalPortalCenter.z;
+    const cx = current.x - this.finalPortalCenter.x;
+    const cz = current.z - this.finalPortalCenter.z;
+    const fromPlane = px * this.finalPortalForward.x + pz * this.finalPortalForward.z;
+    const toPlane = cx * this.finalPortalForward.x + cz * this.finalPortalForward.z;
+    if ((fromPlane < 0 && toPlane < 0) || (fromPlane > 0 && toPlane > 0)) return false;
+    const denominator = fromPlane - toPlane;
+    if (Math.abs(denominator) < 1e-6) return false;
+    const crossingT = fromPlane / denominator;
+    if (crossingT < 0 || crossingT > 1) return false;
+    const crossX = previous.x + dx * crossingT - this.finalPortalCenter.x;
+    const crossZ = previous.z + dz * crossingT - this.finalPortalCenter.z;
+    const lateral = crossX * this.finalPortalRight.x + crossZ * this.finalPortalRight.z;
+    return Math.abs(lateral) <= FINAL_PORTAL_HALF_WIDTH_M;
   }
 
   triggerFinaleCelebration(): void {
@@ -1183,25 +1219,12 @@ export class Course implements ICourse {
     this.finalCelebrating = false;
     this.finalCelebrationTime = 0;
     this.finalStationBlend = 0;
+    this.ribbonMat.uniforms.uFinalApproach.value = 0;
     if (this.finalStation) this.finalStation.visible = false;
   }
 
   /** Deterministic harness diagnostic for the single-guide contract. */
-  guidanceStatus(): {
-    activeRouteIndex: number;
-    visibleRouteCount: number;
-    surfaceMaskRouteIndex: number;
-    recoveryRouteIndex: number;
-    recoveryActive: number;
-    recoveryElapsed: number;
-    recoveryLimit: number;
-    recoveryArrowCount: number;
-    recoveryGuideOpacity: number;
-    handoffOverlapMeters: number;
-    playerSurfaceU: number;
-    targetGateDistance: number;
-    targetAnchorScale: number;
-  } {
+  guidanceStatus(): CourseGuidanceStatus {
     const recoveryVisual = this.playerRecoveryRoute >= 0 ? this.flightVisuals[this.playerRecoveryRoute] : undefined;
     return {
       activeRouteIndex: this.activeGuideRoute,
@@ -1219,6 +1242,12 @@ export class Course implements ICourse {
       playerSurfaceU: this.playerSurfaceU,
       targetGateDistance: this.playerTargetGateDistance,
       targetAnchorScale: this.playerTargetAnchorScale,
+      finalActive: this.finalArmed,
+      finalDistance: Math.hypot(
+        this.playerPosition.x - this.finalPortalCenter.x,
+        this.playerPosition.z - this.finalPortalCenter.z,
+      ),
+      finalGuideCount: this.finalArmed ? 1 : 0,
     };
   }
 
