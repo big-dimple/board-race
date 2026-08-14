@@ -1656,8 +1656,23 @@ async function verifyDesktopDriverTransition(page) {
       frame:{ left:frame.left, top:frame.top, width:frame.width, height:frame.height },
     };
   });
-  await page.locator('.driver-switch-next').click();
-  await page.waitForTimeout(90);
+  await page.evaluate(async () => {
+    const button = document.querySelector('.driver-switch-next');
+    const selected = document.querySelector('.driver-card.selected');
+    const cards = [...document.querySelectorAll('.driver-card')];
+    const index = cards.indexOf(selected);
+    const targetImage = cards[(index + 1) % cards.length]?.querySelector('img');
+    await targetImage?.decode?.().catch(() => undefined);
+    button.click();
+    // Let the already-decoded portrait promise create its WAAPI animation,
+    // then pin the intermediate frame before any wall-clock timer can fire.
+    await Promise.resolve();
+    await Promise.resolve();
+    const animation = document.querySelector('.driver-portrait-incoming').getAnimations()[0];
+    if (!animation) throw new Error('desktop portrait reveal animation did not start');
+    animation.pause();
+    animation.currentTime = 90;
+  });
   const during = await page.evaluate(() => {
     const root = document.querySelector('.driver-select');
     const incoming = document.querySelector('.driver-portrait-incoming');
@@ -1686,7 +1701,10 @@ async function verifyDesktopDriverTransition(page) {
     `the intermediate frame must be directionally clipped, never a full-image double exposure: ${JSON.stringify(during)}`);
   assert.equal(during.contractCards, 0, 'browse changes must not fabricate a DRIVER CONTRACT card');
   assert.deepEqual(during.frame, before.frame, 'portrait reveal must not reflow the stage');
-  await page.waitForTimeout(170);
+  await page.evaluate(() => {
+    document.querySelector('.driver-portrait-incoming').getAnimations()[0]?.finish();
+  });
+  await page.waitForFunction(() => !document.querySelector('.driver-select').classList.contains('switching'));
   let settled = await page.evaluate(() => ({
     switching:document.querySelector('.driver-select').classList.contains('switching'),
     selected:document.querySelector('.driver-card.selected')?.dataset.driver ?? '',
