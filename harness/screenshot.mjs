@@ -188,7 +188,8 @@ async function verifySurfaceGuideVisualContract(page) {
       postureMarkers,
     },
       `flight ${routeIndex + 1} must use the same authored launch-gate grammar`);
-    assert.ok(vectorPathLengthM >= 20 && vectorPathLengthM <= 26,
+    const vectorRange = routeIndex === 3 ? [32, 36] : [20, 26];
+    assert.ok(vectorPathLengthM >= vectorRange[0] && vectorPathLengthM <= vectorRange[1],
       `flight ${routeIndex + 1} must preview a readable launch vector: ${JSON.stringify(topology)}`);
   }
 
@@ -1142,10 +1143,24 @@ async function verifyFlightContract(page) {
   assert.equal(routeGuidance.actionDirection, 'left');
   assert.ok(routeGuidance.surfaceGuideLaunchTurnArrowCount >= 2,
     `flight four needs multiple water-bound posture beats before launch: ${JSON.stringify(routeGuidance)}`);
-  assert.ok(Math.abs(routeGuidance.surfaceGuideMaskStartU - 0.503) <= 1e-6,
+  assert.ok(Math.abs(routeGuidance.surfaceGuideMaskStartU - 0.493) <= 1e-6,
     `flight four surface ownership must end at launch, not entry: ${JSON.stringify(routeGuidance)}`);
   assert.equal(routeGuidance.surfaceGuideAfterLaunchMeters, 0,
     'the surface route must not reappear between the fourth launch aperture and flight corridor');
+  const routeFourLaunch = await page.evaluate(() => {
+    const group = window.__scene.getObjectByName('flight-4-launch-gate');
+    return {
+      cueU:group?.userData?.launchCueU ?? -1,
+      pathLengthM:group?.userData?.launchVectorPathLengthM ?? -1,
+      corridorVisible:Boolean(window.__scene.getObjectByName('flight-4-ribbon')?.visible),
+    };
+  });
+  assert.ok(Math.abs(routeFourLaunch.cueU - 0.493) <= 1e-6,
+    `flight four needs an earlier player cue without moving its scoring route: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(routeFourLaunch.pathLengthM >= 32 && routeFourLaunch.pathLengthM <= 36,
+    `flight four needs a longer turn-in vector than the standard launch beat: ${JSON.stringify(routeFourLaunch)}`);
+  assert.equal(routeFourLaunch.corridorVisible, true,
+    'the airborne route must already be visible while the early fourth-flight cue is actionable');
 
   await page.evaluate(() => window.__harness.scenario('flight-route4-approach'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -1448,6 +1463,22 @@ async function verifyFlightContract(page) {
   assert.match(await page.locator('.hud-lesson-copy').textContent() ?? '', /空刹/,
     'flight-course failures must teach the contextual air brake on first occurrence');
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'lesson');
+
+  // Keep this additional continuous run last: AI personalities deliberately
+  // retain RNG state across resets, so inserting a new run earlier would alter
+  // unrelated endurance/finale trajectories instead of testing this cue.
+  const routeFourCueLaunch = await page.evaluate(() => window.__harness.routeFourCueLaunchCase());
+  assert.equal(routeFourCueLaunch.phase, 'racing',
+    `the earlier fourth-flight cue must remain inside the live run: ${JSON.stringify(routeFourCueLaunch)}`);
+  assert.equal(routeFourCueLaunch.launchAccepted, true,
+    `the earlier fourth-flight world cue must launch through the unchanged input path: ${JSON.stringify(routeFourCueLaunch)}`);
+  assert.ok(routeFourCueLaunch.cueDistanceM >= 0 && routeFourCueLaunch.cueDistanceM <= 3,
+    `the continuous case must launch at the visible cue rather than a hidden fixture: ${JSON.stringify(routeFourCueLaunch)}`);
+  assert.equal(routeFourCueLaunch.routeState, 'passed');
+  assert.equal(routeFourCueLaunch.flightsCleared, 4);
+  assert.equal(routeFourCueLaunch.routePasses, 1);
+  assert.equal(routeFourCueLaunch.routeFails, 0);
+  assert.equal(routeFourCueLaunch.visibleRouteCount, 1);
 
   console.log('gameplay contract: OK');
 }
@@ -1869,11 +1900,13 @@ async function verifyMobileControls(page) {
   assert.equal(status.mode, 'touch', 'mobile must expose touch steering before the first GO');
   assert.equal(await page.locator('.mobile-mode').textContent(), '转向 · 触控');
   assert.ok(Number(status.fullscreenRequests) >= 1,
-    `the first touch on the driver selector must request fullscreen: ${JSON.stringify(status)}`);
+    `any real driver-selector click may request fullscreen: ${JSON.stringify(status)}`);
+  assert.equal(status.fullscreenRequestSource, 'control');
+  const goGesturesBefore = Number(status.fullscreenGoGestures);
   await contractGo.click();
   status = await page.evaluate(() => window.__harness.mobileStatus());
-  assert.ok(Number(status.fullscreenRequests) >= 1,
-    `the first GO gesture must immediately request fullscreen: ${JSON.stringify(status)}`);
+  assert.equal(Number(status.fullscreenGoGestures), goGesturesBefore + 1,
+    `GO must retain its own reliable fullscreen path even after selector interactions: ${JSON.stringify(status)}`);
   assert.equal(status.activation, 'ready', 'default touch steering must not wait for sensor calibration');
   assert.equal(status.mode, 'touch');
 

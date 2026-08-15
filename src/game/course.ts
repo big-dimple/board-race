@@ -279,6 +279,13 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     navigation: {
       turn: { fromU: 0.515, toU: 0.558, direction: 'left' },
       locatorU: 0.56,
+      // The medal resume leaves less usable turn-in time than the raw surface
+      // distance suggests. Preview the branch at handoff and recommend an
+      // earlier launch, while leaving AI timing, physics and scoring intact.
+      guideFromU: 0.465,
+      launchCueU: 0.493,
+      launchVectorLengthM: 34,
+      launchAlignM: 65,
     },
   },
   {
@@ -519,6 +526,14 @@ function nearestOnFlight(runtime: FlightRouteRuntime, x: number, z: number): voi
 
 function flightCurveT(def: FlightRouteDefinition, u: number): number {
   return Math.min(1, Math.max(0, (u - def.entryU) / (def.exitU - def.entryU)));
+}
+
+function flightGuideFromU(def: FlightRouteDefinition): number {
+  return def.navigation?.guideFromU ?? def.qualifyFromU;
+}
+
+function flightLaunchCueU(def: FlightRouteDefinition): number {
+  return def.navigation?.launchCueU ?? def.launchFromU;
 }
 
 // -------------------------------------------------------------- grid ----
@@ -1638,7 +1653,7 @@ export class Course implements ICourse {
         : -1,
       surfaceGuideAfterLaunchMeters: this.activeGuideRoute >= 0
         ? Math.max(0, this.ribbonMat.uniforms.uMaskStart.value -
-          FLIGHT_ROUTES[this.activeGuideRoute].launchFromU * LAP_LENGTH)
+          flightLaunchCueU(FLIGHT_ROUTES[this.activeGuideRoute]) * LAP_LENGTH)
         : 0,
     };
   }
@@ -1733,7 +1748,8 @@ export class Course implements ICourse {
           const launchRouteIndex = st.flightRouteCursor % FLIGHT_ROUTES.length;
           const launchRoute = FLIGHT_ROUTES[launchRouteIndex];
           const surfaceS = surfaceU * LAP_LENGTH;
-          const launchS = launchRoute.launchFromU * LAP_LENGTH;
+          const launchCueU = flightLaunchCueU(launchRoute);
+          const launchS = launchCueU * LAP_LENGTH;
           const launchDistance = (launchS - surfaceS + LAP_LENGTH) % LAP_LENGTH;
           if (launchDistance <= LAUNCH_GATE_PREVIEW_M) {
             const armed = st.flightCharges > 0;
@@ -1745,7 +1761,7 @@ export class Course implements ICourse {
               this.playerActionCue = armed ? 'launch' : 'bank';
               this.playerActionRouteIndex = launchRouteIndex;
               this.playerActionDirection = launchRoute.navigation?.turn?.direction ?? 'none';
-              this.playerActionTargetU = launchRoute.launchFromU;
+              this.playerActionTargetU = launchCueU;
               this.playerActionMarkerCount = 3;
             }
           }
@@ -1772,7 +1788,7 @@ export class Course implements ICourse {
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
       if (id === 0 && (flightActive || st.flightRouteState !== 'idle' ||
-          (surfaceU >= def.qualifyFromU && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
+          (surfaceU >= flightGuideFromU(def) && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
       if (id === 0 && !this.finalArmed && def.navigation?.turn &&
@@ -2020,7 +2036,7 @@ export class Course implements ICourse {
       const def = FLIGHT_ROUTES[slot];
       if (def && (recoverySlot >= 0 ||
           st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
-          (this.playerSurfaceU >= def.qualifyFromU && this.playerSurfaceU <= def.exitU + 0.01))) {
+          (this.playerSurfaceU >= flightGuideFromU(def) && this.playerSurfaceU <= def.exitU + 0.01))) {
         next = slot;
       }
     }
@@ -2049,13 +2065,13 @@ export class Course implements ICourse {
     // surface spine reaches it, it must never reappear underneath the active
     // flight branch; waves and camera pitch otherwise make the two routes look
     // probabilistically interchangeable.
-    this.ribbonMat.uniforms.uMaskStart.value = active ? active.launchFromU * LAP_LENGTH : 0;
+    this.ribbonMat.uniforms.uMaskStart.value = active ? flightLaunchCueU(active) * LAP_LENGTH : 0;
     this.ribbonMat.uniforms.uMaskEnd.value = active
       ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
       : 0;
     for (const floater of this.floaters) {
       floater.obj.visible = !active || floater.routeU === undefined ||
-        floater.routeU < active.launchFromU || floater.routeU > active.exitU;
+        floater.routeU < flightLaunchCueU(active) || floater.routeU > active.exitU;
     }
   }
 
@@ -2067,7 +2083,8 @@ export class Course implements ICourse {
     const launchRoute = this.activeGuideRoute >= 0 ? FLIGHT_ROUTES[this.activeGuideRoute] : undefined;
     const launchRuntime = this.activeGuideRoute >= 0 ? FLIGHT_RUNTIME[this.activeGuideRoute] : undefined;
     const launchTurn = launchRoute?.navigation?.turn;
-    const launchS = launchRoute ? launchRoute.launchFromU * LAP_LENGTH : -1;
+    const launchS = launchRoute ? flightLaunchCueU(launchRoute) * LAP_LENGTH : -1;
+    const launchAlignM = launchRoute?.navigation?.launchAlignM ?? SURFACE_GUIDE_LAUNCH_ALIGN_M;
     this.surfaceGuideTurnArrowCount = 0;
     this.surfaceGuideLaunchTurnArrowCount = 0;
     for (let i = 0; i < this.surfaceGuideArrowCount; i++) {
@@ -2081,7 +2098,7 @@ export class Course implements ICourse {
       const metersToLaunch = launchRoute
         ? (launchS - station + LAP_LENGTH) % LAP_LENGTH
         : Number.POSITIVE_INFINITY;
-      const authoredLaunchTurn = Boolean(launchTurn) && metersToLaunch <= SURFACE_GUIDE_LAUNCH_ALIGN_M;
+      const authoredLaunchTurn = Boolean(launchTurn) && metersToLaunch <= launchAlignM;
       const turn = authoredLaunchTurn || authoredPostThirdTurn ||
         Math.abs(surfaceTurnAhead(station)) >= THREE.MathUtils.degToRad(16);
       const lookAheadS = station + (turn ? 18 : 6);
@@ -2097,7 +2114,7 @@ export class Course implements ICourse {
         _surfaceArrowNext.sub(_surfaceArrowCenter).setY(0).normalize();
         if (_surfaceArrowNext.lengthSq() > 0.5) {
           const alignment = 1 - THREE.MathUtils.clamp(
-            metersToLaunch / SURFACE_GUIDE_LAUNCH_ALIGN_M,
+            metersToLaunch / launchAlignM,
             0,
             1,
           );
@@ -2129,7 +2146,7 @@ export class Course implements ICourse {
     const armed = this.playerLaunchGateState === 'armed';
     this.ribbonMat.uniforms.uLaunchGateActive.value = activeState ? 1 : 0;
     this.ribbonMat.uniforms.uLaunchGateS.value = routeIndex >= 0
-      ? FLIGHT_ROUTES[routeIndex].launchFromU * LAP_LENGTH
+      ? flightLaunchCueU(FLIGHT_ROUTES[routeIndex]) * LAP_LENGTH
       : 0;
     this.ribbonMat.uniforms.uLaunchGateEndS.value = routeIndex >= 0
       ? Math.min(LAP_LENGTH, FLIGHT_ROUTES[routeIndex].exitU * LAP_LENGTH + 8)
@@ -2824,8 +2841,9 @@ export class Course implements ICourse {
     group.name = `${def.id}-launch-gate`;
     group.visible = false;
     this.object.add(group);
-    const launch = this.pointAt(def.launchFromU, new THREE.Vector3());
-    const launchTangent = this.tangentAt(def.launchFromU, new THREE.Vector3()).setY(0).normalize();
+    const launchCueU = flightLaunchCueU(def);
+    const launch = this.pointAt(launchCueU, new THREE.Vector3());
+    const launchTangent = this.tangentAt(launchCueU, new THREE.Vector3()).setY(0).normalize();
     const postureU = def.navigation?.turn?.fromU ?? THREE.MathUtils.lerp(def.entryU, def.gateUs[0], 0.18);
     const postureTarget = runtimePointAt(runtime, postureU, new THREE.Vector3());
     const postureDirection = new THREE.Vector3(
@@ -2834,9 +2852,13 @@ export class Course implements ICourse {
       postureTarget.z - launch.z,
     ).normalize();
     if (postureDirection.lengthSq() < 0.5) postureDirection.copy(launchTangent);
-    const vectorControl = launch.clone().addScaledVector(launchTangent, 8.5);
+    const vectorLength = def.navigation?.launchVectorLengthM ?? 22;
+    const vectorControl = launch.clone().addScaledVector(
+      launchTangent,
+      Math.min(12, vectorLength * 0.386),
+    );
     vectorControl.y = 0;
-    const vectorEnd = launch.clone().addScaledVector(postureDirection, 22);
+    const vectorEnd = launch.clone().addScaledVector(postureDirection, vectorLength);
     vectorEnd.y = 0;
     const vectorCurve = new THREE.QuadraticBezierCurve3(
       new THREE.Vector3(launch.x, 0, launch.z),
@@ -2857,6 +2879,7 @@ export class Course implements ICourse {
       firstVector.x * finalVector.x + firstVector.z * finalVector.z,
     );
     group.userData.launchVectorDirection = def.navigation?.turn?.direction ?? 'straight';
+    group.userData.launchCueU = launchCueU;
     group.userData.launchVectorPathLengthM = path.slice(1).reduce((sum, point, index) =>
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
     group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);

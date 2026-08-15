@@ -94,6 +94,14 @@ export interface FlightRouteNavigation {
   };
   /** World-space locator used when the branch is hidden by swell or outside the camera. */
   locatorU?: number;
+  /** Deploy the visual branch before the normal AI qualification window. Visual only. */
+  guideFromU?: number;
+  /** Recommended player launch marker. It may lead the AI window without changing scoring. */
+  launchCueU?: number;
+  /** Route-specific ascent preview length for making an immediate turn-in readable. */
+  launchVectorLengthM?: number;
+  /** Distance over which surface arrows blend toward the first airborne posture. */
+  launchAlignM?: number;
 }
 
 export interface FlightRouteDefinition {

@@ -1276,6 +1276,7 @@ interface Harness {
   passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
   flightRecoveryCase(routeCursor: number): Record<string, number | string | boolean>;
   medalRecoveryCase(): Record<string, number | string | boolean>;
+  routeFourCueLaunchCase(): Record<string, number | string | boolean>;
   route45ContinuousCase(): Record<string, number | string | boolean>;
   finalApproachCase(): Record<string, unknown>;
   surfaceRouteEnforcementCase(): Record<string, unknown>;
@@ -1846,6 +1847,56 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
       maxStep,
       elapsed,
       finalArmed: course.finalStationArmed(),
+    };
+  } finally {
+    setHarnessInput(null);
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+    harnessEndlessMode = previousEndlessMode;
+  }
+}
+
+function harnessRouteFourCueLaunchCase(): Record<string, number | string | boolean> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = true;
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+
+  const route = course.flightRoutes[3];
+  const guideFromU = route.navigation?.guideFromU ?? route.qualifyFromU;
+  course.resetFlightChallenge();
+  placePack(guideFromU);
+  for (const boat of boats) {
+    boat.state.flightsCleared = 3;
+    boat.state.flightRouteCursor = 3;
+    boat.state.flightRouteIndex = -1;
+    boat.state.flightRouteState = 'idle';
+  }
+  boats[0].state.flightCharges = 1;
+  setHarnessInput(null);
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+
+  try {
+    advanceUntil(() => {
+      const guidance = course.guidanceStatus();
+      return guidance.launchGateRouteIndex === 3 && guidance.launchGateDistanceM <= 3;
+    }, 8);
+    const cueDistanceM = course.guidanceStatus().launchGateDistanceM;
+    pulseHarnessFlightOverAi();
+    const launchAccepted = boats[0].state.flightPhase !== 'surface';
+    advanceUntil(() => boats[0].state.flightRouteState === 'passed' || race.phase === 'defeated', 14);
+    return {
+      phase: race.phase,
+      launchAccepted,
+      cueDistanceM,
+      routeState: boats[0].state.flightRouteState,
+      reason: boats[0].state.flightRouteFailReason,
+      flightsCleared: boats[0].state.flightsCleared,
+      routePasses: harnessRoutePasses[0],
+      routeFails: harnessRouteFails[0],
+      visibleRouteCount: course.guidanceStatus().visibleRouteCount,
     };
   } finally {
     setHarnessInput(null);
@@ -2927,7 +2978,7 @@ function scenario(name: string): void {
     case 'flight-route4-prepare':
       advanceUntil(() => race.phase === 'racing', 8);
       course.resetFlightChallenge();
-      placePack(0.488);
+      placePack(0.476);
       for (const boat of boats) {
         boat.state.flightsCleared = 3;
         boat.state.flightRouteCursor = 3;
@@ -3233,6 +3284,7 @@ if (HARNESS) {
     passExtendedFlight: passHarnessExtendedFlight,
     flightRecoveryCase: harnessFlightRecoveryCase,
     medalRecoveryCase: harnessMedalRecoveryCase,
+    routeFourCueLaunchCase: harnessRouteFourCueLaunchCase,
     route45ContinuousCase: harnessRoute45ContinuousCase,
     finalApproachCase: harnessFinalApproachCase,
     surfaceRouteEnforcementCase: harnessSurfaceRouteEnforcementCase,

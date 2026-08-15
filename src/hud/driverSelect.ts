@@ -63,10 +63,17 @@ export class DriverSelect {
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
     this.root.setAttribute('aria-label', '选择成年竞速选手');
-    // Mobile Chrome treats click as the reliable fullscreen user-activation
-    // boundary. Pointerdown is still handled by the controls fallback, but
-    // the contract selector retries from the actual click gesture.
-    this.root.addEventListener('click', () => this.onFirstInteraction?.(), { capture: true });
+    // Selection clicks warm audio. GO itself owns fullscreen so an earlier
+    // portrait tap cannot leave its reliable click behind a rejected
+    // pointerdown request.
+    this.root.addEventListener('click', (event) => {
+      // GO owns its own click boundary through requestGo(). Every other
+      // selector click may still enter fullscreen, but never double-request
+      // from the same event.
+      const target = event.target;
+      if (target instanceof Element && target.closest('.driver-select-go')) return;
+      this.onFirstInteraction?.();
+    }, { capture: true });
 
     this.mobileBackdrop = document.createElement('img');
     this.mobileBackdrop.className = 'driver-mobile-backdrop';

@@ -57,6 +57,8 @@ export class MobileControls {
   private goLabel = '开始游戏';
   private landscape = matchMedia('(orientation: landscape)').matches;
   private fullscreenRequests = 0;
+  private fullscreenRequestSource: 'none' | 'go' | 'control' = 'none';
+  private fullscreenGoGestures = 0;
   private fullscreenRequestPending = false;
   private firstImmersiveGestureHandled = false;
   private activitySerialValue = 0;
@@ -162,7 +164,10 @@ export class MobileControls {
     });
     window.addEventListener('pointerdown', () => {
       this.anyPressQueued = true;
-      this.requestImmersiveFromGesture();
+      // Warm audio on pointerdown, but let a reliable click boundary own
+      // fullscreen. Android Chrome can reject pointerdown fullscreen while
+      // leaving the GO click blocked behind the still-pending promise.
+      this.onFirstGesture();
     }, { passive: true });
   }
 
@@ -243,7 +248,8 @@ export class MobileControls {
     // Fullscreen must be requested synchronously from the GO click. Waiting
     // for the sensor permission promise loses browser user activation.
     this.onFirstGesture();
-    this.enterImmersiveMode();
+    this.fullscreenGoGestures++;
+    this.enterImmersiveMode('go');
     if (this.activation === 'ready') {
       this.goQueued = true;
       return;
@@ -258,7 +264,7 @@ export class MobileControls {
     this.onFirstGesture();
     if (this.firstImmersiveGestureHandled && !force) return;
     this.firstImmersiveGestureHandled = true;
-    this.enterImmersiveMode();
+    this.enterImmersiveMode('control');
   }
 
   setGoPrompt(show: boolean, label = '开始游戏'): void {
@@ -364,6 +370,8 @@ export class MobileControls {
     angle: number;
     landscape: boolean;
     fullscreenRequests: number;
+    fullscreenRequestSource: 'none' | 'go' | 'control';
+    fullscreenGoGestures: number;
   } {
     return {
       mode: this.mode,
@@ -373,6 +381,8 @@ export class MobileControls {
       angle: this.calibrationAngle,
       landscape: this.landscape,
       fullscreenRequests: this.fullscreenRequests,
+      fullscreenRequestSource: this.fullscreenRequestSource,
+      fullscreenGoGestures: this.fullscreenGoGestures,
     };
   }
 
@@ -404,18 +414,19 @@ export class MobileControls {
     }
   }
 
-  private requestFullscreen(): Promise<void> {
+  private requestFullscreen(source: 'go' | 'control'): Promise<void> {
     if (document.fullscreenElement || !document.documentElement.requestFullscreen) return Promise.resolve();
     if (this.fullscreenRequestPending) return Promise.resolve();
     this.fullscreenRequests++;
+    this.fullscreenRequestSource = source;
     this.fullscreenRequestPending = true;
     return document.documentElement.requestFullscreen({ navigationUI: 'hide' })
       .then(() => undefined)
       .finally(() => { this.fullscreenRequestPending = false; });
   }
 
-  private enterImmersiveMode(): void {
-    void this.requestFullscreen()
+  private enterImmersiveMode(source: 'go' | 'control'): void {
+    void this.requestFullscreen(source)
       .then(() => this.lockLandscape())
       .catch(() => this.lockLandscape());
   }
