@@ -328,6 +328,12 @@ export interface CourseGuidanceStatus {
   actionTargetU: number;
   /** World markers currently carrying the cue. */
   actionMarkerCount: number;
+  /** Shared visual language used by every authored flight branch. */
+  flightGuideStyle: 'virtual-lattice';
+  /** A continuous cyan floor would read as a solid road; this must stay zero. */
+  flightGuideContinuousAlpha: number;
+  /** The broad ribbon stays out of bloom so transparency survives compositing. */
+  flightGuideEnergyBloom: boolean;
 }
 
 /** What the HUD and camera are allowed to know about the race. */

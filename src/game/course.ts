@@ -996,6 +996,9 @@ interface SurfaceActionVisual {
   launchGroup: THREE.Group;
 }
 
+const FLIGHT_GUIDE_STYLE = 'virtual-lattice' as const;
+const FLIGHT_GUIDE_CONTINUOUS_ALPHA = 0;
+
 function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
   const points = [
     -1.12, depth, 0.82, -0.86, depth, 1.08, 0.34, depth, 0.13,
@@ -1391,6 +1394,10 @@ export class Course implements ICourse {
       actionDirection: this.playerActionDirection,
       actionTargetU: this.playerActionTargetU,
       actionMarkerCount: this.playerActionMarkerCount,
+      flightGuideStyle: FLIGHT_GUIDE_STYLE,
+      flightGuideContinuousAlpha: FLIGHT_GUIDE_CONTINUOUS_ALPHA,
+      flightGuideEnergyBloom: this.flightVisuals.some((visual) =>
+        visual.ribbonMesh.layers.isEnabled(LAYER_ENERGY)),
     };
   }
 
@@ -1850,8 +1857,6 @@ export class Course implements ICourse {
       const recovery = this.playerRecoveryRoute === routeIndex ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
       visual.ribbon.uniforms.uRecovery.value = recovery;
       visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
-      if (recovery > 0) visual.ribbonMesh.layers.disable(LAYER_ENERGY);
-      else visual.ribbonMesh.layers.enable(LAYER_ENERGY);
       visual.recoveryArrows.visible = recovery > 0.04;
       visual.recoveryArrowMaterial.opacity = 0.68 * recovery;
       if (recovery > 0) {
@@ -2022,10 +2027,16 @@ export class Course implements ICourse {
           color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
-          float virtualPanel = (1.0 - edge) * (0.075 + step(0.72, fract(vUv.y * 22.0 - uTime * 0.8)) * 0.055);
-          float centerVeil = 1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5));
-          float alpha = virtualPanel + centerVeil * 0.045 + edge * 0.2 + flow * (0.34 + ready * 0.08);
-          alpha += turnZone * (0.04 + packet * 0.04);
+          float latticePhase = abs(fract(vUv.y * 18.0 - uTime * 0.52) - 0.5);
+          float crossbar = (1.0 - smoothstep(0.045, 0.095, latticePhase)) *
+            smoothstep(0.025, 0.12, vUv.x) * (1.0 - smoothstep(0.88, 0.975, vUv.x));
+          float centerSpine = 1.0 - smoothstep(0.018, 0.052, abs(vUv.x - 0.5));
+          float alpha = ${FLIGHT_GUIDE_CONTINUOUS_ALPHA.toFixed(1)};
+          alpha += edge * (0.14 + turnZone * 0.04);
+          alpha += crossbar * (0.11 + turnZone * (0.13 + packet * 0.04));
+          alpha += centerSpine * packet * 0.12;
+          alpha += flow * (0.32 + ready * 0.08 + turnZone * 0.05);
+          alpha *= 1.0 + uWarn * 0.28;
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);
           float recoveryHalf = mix(0.48, 0.14, recoveryT);
@@ -2037,18 +2048,22 @@ export class Course implements ICourse {
           vec3 recoveryColor = mix(uInk, uRecoveryColor, 0.82 + recoveryCore * 0.18);
           color = mix(color, recoveryColor, uRecovery * recoveryVisible);
           alpha = mix(alpha, recoveryAlpha * recoveryVisible * uRecovery, uRecovery);
+          if (alpha < 0.012) discard;
           gl_FragColor = vec4(color, alpha);
         }
       `,
       transparent: true,
+      blending: THREE.NormalBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
+    // Transparent DoubleSide materials otherwise receive a back/front pass.
+    // One pass preserves the authored alpha instead of visually doubling it.
+    ribbonMat.forceSinglePass = true;
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbon.name = `${def.id}-ribbon`;
     ribbon.renderOrder = 3;
-    ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);
 
     // Directional handoff markers appear only after the scoring portal. They

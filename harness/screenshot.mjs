@@ -858,6 +858,12 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
 
   let routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.flightGuideStyle, 'virtual-lattice',
+    'all seven branches must share the open holographic route language');
+  assert.equal(routeGuidance.flightGuideContinuousAlpha, 0,
+    'the cyan route must not regain a continuous tinted floor');
+  assert.equal(routeGuidance.flightGuideEnergyBloom, false,
+    'the broad route mesh must stay out of bloom so transparency survives compositing');
   assert.equal(routeGuidance.actionCue, 'turn');
   assert.equal(routeGuidance.actionRouteIndex, 1);
   assert.equal(routeGuidance.actionDirection, 'left');
@@ -1884,6 +1890,10 @@ async function assertDriverSelectComposition(page, label) {
         const canvas = document.querySelector('.driver-radar');
         return canvas && { width:canvas.width, height:canvas.height, cssWidth:canvas.clientWidth, cssHeight:canvas.clientHeight, dpr:devicePixelRatio };
       })(),
+      radarLayout:(() => {
+        const canvas = document.querySelector('.driver-radar');
+        try { return JSON.parse(canvas?.dataset.layout ?? 'null'); } catch { return null; }
+      })(),
       rosterIndex:document.querySelector('.driver-roster-index')?.textContent ?? '',
       switchControls:[...document.querySelectorAll('.driver-switch-control')].map((node) => rect(`.${node.classList.contains('driver-switch-previous') ? 'driver-switch-previous' : 'driver-switch-next'}`)),
       cardCount:document.querySelectorAll('.driver-card').length,
@@ -1903,6 +1913,7 @@ async function assertDriverSelectComposition(page, label) {
   assert.match(geometry.rosterIndex, /^选手 \d{2} \/ 06$/, `${label} must expose the current place in the six-driver roster`);
   assert.equal(geometry.switchControls.length, 2, `${label} needs previous and next driver controls`);
   if (geometry.mobileBackdropStyle?.coarse) {
+    assert.equal(geometry.radarLayout?.mode, 'compact', `${label} mobile radar must keep its compact layout`);
     assert.ok(geometry.backdrop, `${label} needs a standing mobile portrait`);
     assert.equal(geometry.mobileBackdropStyle.display, 'block', `${label} standing portrait must be visible`);
     assert.equal(geometry.mobileBackdropStyle.objectFit, 'contain', `${label} standing portrait must never be cropped`);
@@ -1945,6 +1956,21 @@ async function assertDriverSelectComposition(page, label) {
     assert.ok(geometry.radarBacking.width >= Math.floor(geometry.radarBacking.cssWidth * requiredDpr) - 1 &&
       geometry.radarBacking.height >= Math.floor(geometry.radarBacking.cssHeight * requiredDpr) - 1,
     `${label} radar backing store must cover CSS pixels at bounded DPR: ${JSON.stringify(geometry.radarBacking)}`);
+    const radarLayout = geometry.radarLayout;
+    assert.equal(radarLayout?.mode, 'desktop', `${label} radar must use the desktop label layout`);
+    assert.equal(radarLayout?.labels?.length, 4, `${label} radar must place all four handling labels`);
+    assert.ok(radarLayout.radius >= radarLayout.width * 0.27,
+      `${label} radar polygon became too small for the data panel: ${JSON.stringify(radarLayout)}`);
+    assert.ok(radarLayout.labelGap >= 8 && radarLayout.labelGap <= 14,
+      `${label} radar labels must stay close to their vertices: ${JSON.stringify(radarLayout)}`);
+    for (const axis of radarLayout.labels) {
+      assert.ok(axis.left >= -0.5 && axis.right <= radarLayout.width + 0.5 && axis.top >= -0.5 && axis.bottom <= radarLayout.height + 0.5,
+        `${label} radar label ${axis.label} clips outside the canvas: ${JSON.stringify(radarLayout)}`);
+      const overlapsPolygon = axis.left < radarLayout.polygon.right && axis.right > radarLayout.polygon.left &&
+        axis.top < radarLayout.polygon.bottom && axis.bottom > radarLayout.polygon.top;
+      assert.equal(overlapsPolygon, false,
+        `${label} radar label ${axis.label} overlaps the data polygon: ${JSON.stringify(radarLayout)}`);
+    }
   }
   assert.equal(geometry.cardCount, 6, `${label} must keep all six carousel destinations`);
   assert.equal(geometry.visibleCardCount, geometry.mobileBackdropStyle?.coarse

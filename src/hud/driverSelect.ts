@@ -505,11 +505,16 @@ export class DriverSelect {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const w = cssWidth;
     const h = cssHeight;
+    const labels = ['加速', '转向', '漂移', '空控'];
+    const values = displayedValues;
+    if (this.desktopStageMedia.matches) {
+      drawDesktopRadar(ctx, this.radar, profile, labels, values, w, h);
+      return;
+    }
+    this.radar.dataset.layout = JSON.stringify({ mode: 'compact' });
     const cx = w * 0.5;
     const cy = h * 0.5 + 7;
     const radius = Math.min(w, h) * 0.35;
-    const labels = ['加速', '转向', '漂移', '空控'];
-    const values = displayedValues;
     ctx.clearRect(0, 0, w, h);
     ctx.lineJoin = 'round';
     for (let ring = 1; ring <= 4; ring++) {
@@ -557,9 +562,121 @@ export class DriverSelect {
   }
 }
 
+function drawDesktopRadar(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  profile: DriverProfile,
+  labels: string[],
+  values: number[],
+  w: number,
+  h: number,
+): void {
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const axisFontSize = clamp(Math.round(w * 0.04), 11, 16);
+  const valueFontSize = axisFontSize + 3;
+  const lineGap = clamp(Math.round(w * 0.012), 3, 5);
+  const labelGap = clamp(Math.round(w * 0.03), 8, 14);
+  const edgeInset = clamp(Math.round(w * 0.025), 6, 12);
+  const valueLabels = values.map(formatHandling);
+
+  const labelWidths = labels.map((label, index) => {
+    ctx.font = `700 ${axisFontSize}px system-ui`;
+    const axisWidth = ctx.measureText(label).width;
+    ctx.font = `900 ${valueFontSize}px system-ui`;
+    const valueWidth = ctx.measureText(valueLabels[index]).width;
+    return Math.ceil(Math.max(axisWidth, valueWidth));
+  });
+  const sideLabelWidth = Math.max(labelWidths[1], labelWidths[3]);
+  const labelBlockHeight = axisFontSize + lineGap + valueFontSize;
+  const horizontalRadius = cx - edgeInset - sideLabelWidth - labelGap;
+  const verticalRadius = cy - edgeInset - labelBlockHeight - labelGap;
+  const radius = Math.max(36, Math.min(Math.min(w, h) * 0.35, horizontalRadius, verticalRadius));
+  const polygonBounds = {
+    left: cx - radius,
+    right: cx + radius,
+    top: cy - radius,
+    bottom: cy + radius,
+  };
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.lineJoin = 'round';
+  for (let ring = 1; ring <= 4; ring++) {
+    polygon(ctx, cx, cy, radius * ring / 4, labels.length);
+    ctx.strokeStyle = ring === 4 ? 'rgba(244,254,255,.55)' : 'rgba(244,254,255,.16)';
+    ctx.lineWidth = ring === 4 ? 3 : 1;
+    ctx.stroke();
+  }
+  for (let i = 0; i < labels.length; i++) {
+    const a = -Math.PI / 2 + i * Math.PI * 2 / labels.length;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
+    ctx.strokeStyle = 'rgba(244,254,255,.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  values.forEach((value, i) => {
+    const a = -Math.PI / 2 + i * Math.PI * 2 / labels.length;
+    const n = 0.58 + (value - 0.94) / 0.12 * 0.42;
+    const x = cx + Math.cos(a) * radius * Math.max(0.58, Math.min(1, n));
+    const y = cy + Math.sin(a) * radius * Math.max(0.58, Math.min(1, n));
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = `${hex(profile.color)}77`;
+  ctx.strokeStyle = hex(profile.color);
+  ctx.lineWidth = 5;
+  ctx.fill();
+  ctx.stroke();
+
+  const labelBounds = labels.map((label, index) => {
+    const width = labelWidths[index];
+    let x = cx;
+    let top = cy - labelBlockHeight * 0.5;
+    let textAlign: CanvasTextAlign = 'center';
+    if (index === 0) top = polygonBounds.top - labelGap - labelBlockHeight;
+    if (index === 1) {
+      x = polygonBounds.right + labelGap;
+      textAlign = 'left';
+    }
+    if (index === 2) top = polygonBounds.bottom + labelGap;
+    if (index === 3) {
+      x = polygonBounds.left - labelGap;
+      textAlign = 'right';
+    }
+    const left = textAlign === 'left' ? x : textAlign === 'right' ? x - width : x - width * 0.5;
+    ctx.textAlign = textAlign;
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(244,254,255,.68)';
+    ctx.font = `700 ${axisFontSize}px system-ui`;
+    ctx.fillText(label, x, top);
+    ctx.fillStyle = '#f4feff';
+    ctx.font = `900 ${valueFontSize}px system-ui`;
+    ctx.fillText(valueLabels[index], x, top + axisFontSize + lineGap);
+    return { label, left, right: left + width, top, bottom: top + labelBlockHeight };
+  });
+
+  canvas.dataset.layout = JSON.stringify({
+    mode: 'desktop',
+    width: w,
+    height: h,
+    radius,
+    labelGap,
+    polygon: polygonBounds,
+    labels: labelBounds,
+  });
+}
+
 function formatHandling(value: number): string {
   const percent = Math.round((value - 1) * 100);
   return percent > 0 ? `+${percent}%` : `${percent}%`;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function handlingValues(profile: DriverProfile): number[] {
