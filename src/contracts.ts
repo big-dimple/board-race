@@ -102,6 +102,8 @@ export interface FlightRouteNavigation {
   locatorU?: number;
   /** Deploy the visual branch before the normal AI qualification window. Visual only. */
   guideFromU?: number;
+  /** Earliest point represented by the branch mesh. Does not deploy or score the route. */
+  visualFromU?: number;
   /** Recommended player launch marker. It may lead the AI window without changing scoring. */
   launchCueU?: number;
   /** Route-specific ascent preview length for making an immediate turn-in readable. */
@@ -341,6 +343,10 @@ export interface CourseGuidanceStatus {
   launchGateDistanceM: number;
   /** Visible rising energy diamonds (always zero or three). */
   launchGateDiamondCount: number;
+  /** Accepted controlled-flight edge currently owning presentation, or -1. */
+  launchCommitRouteIndex: number;
+  /** Surface projection at that accepted edge, or -1 outside a committed flight. */
+  launchCommitU: number;
   /** Shared visual language used by the full-lap surface route. */
   surfaceGuideStyle: 'translucent-wave-spine';
   /** Bounded translucent field; the ocean must remain legible through it. */

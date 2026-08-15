@@ -56,6 +56,9 @@
   保留真实惯性；禁止用 teleport、snap、重置速度或隐藏的自动驾驶把船拉回主线。
 - `flightRouteState='passed'` 不等于路线所有权已经回到 surface。当前 flight branch
   必须继续负责下降、触水和门后的 authored recovery tail；落水本身也不是交接点。
+  唯一的提前交权事件是玩家真实花费库存、Boat 接受 `surface -> spool` 的下一飞；此时
+  新 flight 在同一 fixed-step 原子接管视觉，旧 recovery 不得因状态已被 Boat 清成 idle
+  而冻结或复活。这个例外只影响 presentation owner，不调用 settle、不改惯性或计分。
 - 普通分支的交接条件是船已回到水面，并越过该分支的 exit 平面、处于出口横向
   `24m` 内、真实水平速度没有逆着出口切线。按门到出口距离与路线目标速度计算的
   `2.5-4s` 上限只是防逃线兜底；它不能改变船体运动。
@@ -78,7 +81,8 @@
   corridor 的暖色混合上限保持低于 `.16`，防止青色与黄色混成看似水道的绿色。
   穿过计分门后不能提前把空中航道改成水面指引道：船仍在空中时，recovery 保持 authored
   flight 高度、青色材质和青色开放尖角；真实触水后只把同一套青色几何平滑贴合浪面，直到
-  handoff 才允许恢复绿色 surface 主线。触水不是换材质或换视觉所有权的时机。青色航道用低透明面、扫描节奏、细墨边和白色流光
+  handoff 才允许恢复绿色 surface 主线。若此时真实接受下一飞，则直接从旧 recovery 切到
+  新青色 branch；触水本身仍不是换材质或换视觉所有权的时机。青色航道用低透明面、扫描节奏、细墨边和白色流光
   融入赛璐璐海面，不得恢复紫色能量管或连续实体墙。门后提前露出主线并保持 `16m`
   交叠；世界中仍然最多一个 active branch。回收提示只是可视导航，不是碰撞墙，也
   不改变判定范围。
@@ -89,7 +93,8 @@
   通道的平板几何。
 - passed branch 在下降、触水、authored handoff 完成前同时负责 validation 与唯一
   visual guide；触水前后 active route id、recovery material 和箭头语法必须保持一致。
-  handoff 后才允许部署下一飞青色分支。第七飞 recovery 同样必须先完成，且不得错误
+  普通预览只能在 handoff 后部署；但已接受的下一飞优先级更高，必须同帧撤掉旧 owner、
+  旧 fade 和升空菱形，再成为唯一 branch。第七飞 recovery 同样必须先完成，且不得错误
   预览第一飞。
 
 ### 第四、第五飞的可读性
@@ -109,10 +114,12 @@
   无库存为金色警示，有库存切青白 ready；离水后整组立即隐藏，由青白 flight branch
   接管。门阵无碰撞、不参与输入、不修改
   launch window、通道宽度、门宽、物理或失败判定；世界中仍最多一条 active branch。
-- 第四飞是明确的视觉时序例外，不修改 `launchFromU`、AI 或判定：第三飞 recovery handoff
-  后即从 `guideFromU=.465` 部署青色分支；玩家菱形锚在 `launchCueU=.493`，比 AI 发射点
-  提前，升空向量延长到约 `34m`，水面尖角在前 `65m` 开始对齐左转姿态。绿色路线从
-  视觉菱形处交权，真实提前起飞仍必须通过原通道和原门宽。
+- 第四飞是明确的视觉时序例外，不修改 `launchFromU`、AI 或判定：正常预览仍从
+  `guideFromU=.465` 部署，玩家菱形仍锚在 `launchCueU=.493`；但 mesh 的纯视觉起点固定为
+  `visualFromU=.438`，覆盖第三飞触水后可能立即使用保留库存的区间。若起飞早于 handoff
+  或菱形，Course 必须在接受起飞的同一 fixed-step 清掉 flight-3 recovery owner/fade、
+  隐藏菱形、把绿色 mask 前移到 `.438`，并只显示 flight-4。升空向量仍约 `34m`，水面
+  尖角仍在前 `65m` 对齐左转；真实提前起飞仍必须通过原通道和原门宽。
 - 第五飞空中急弯先用三枚主弯尖角，再在出口回正段使用两枚反向尖角，防止持续空刹
   把船带过头。五枚标记均随浪浮动并由小浮漂和细杆支撑，不得换成矩形高速路牌、文字墙
   或无支架悬浮图标；后两枚必须与前三枚方向相反，HUD 也要按当前弯段切换。桌面首段短提示必须用
@@ -343,6 +350,10 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
 - `medalRecoveryCase()` 必须真实跑第三门 -> medal freeze -> resume countdown -> 下降 ->
   落水 -> handoff，证明合法惯性无 warning/event，且 Final 未 arm；第二飞现有越线与
   逆行合同必须同时通过，锁住局部修复不外泄。
+- `medalEarlyFourthLaunchCase()` 必须从同一真实链路分别覆盖 recovery 尚未 handoff、
+  以及 handoff 后但未到 `launchCueU` 两次提前起飞。接受边沿同帧必须看到 commit=flight-4、
+  recovery=-1、active=flight-4、菱形撤场、mask=`.438`、旧 flight-3 父级不可见，且
+  实际渲染像素证明 flight-4 不是只有子节点 `visible=true`；桌面和移动端都必须通过。
 - `route45ContinuousCase()` 只允许在第四飞起飞窗前 staging 一次，随后真实完成第四
   门、下降、落水、handoff、漂移入库、第五飞起飞、空刹右转和第五门。必须看到
   bank cue、至少 `1.2s` 反应窗、真实库存上升边沿；若入库和起飞发生在同一 fixed

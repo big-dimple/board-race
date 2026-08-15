@@ -37,6 +37,7 @@ import {
   type CourseGuidanceStatus,
   type CourseSample,
   type FlightCourseRouteId,
+  type FlightPhase,
   type FlightRouteDefinition,
   type FlightRouteFailReason,
   type IBoat,
@@ -283,6 +284,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
       // distance suggests. Preview the branch at handoff and recommend an
       // earlier launch, while leaving AI timing, physics and scoring intact.
       guideFromU: 0.465,
+      // A retained cell can be spent as soon as flight three touches down.
+      // Cover that post-gate envelope without moving the scored route.
+      visualFromU: 0.438,
       launchCueU: 0.493,
       launchVectorLengthM: 34,
       launchAlignM: 65,
@@ -539,9 +543,13 @@ function flightLaunchCueU(def: FlightRouteDefinition): number {
   return def.navigation?.launchCueU ?? def.launchFromU;
 }
 
-/** Visual flight ownership begins where the green surface guide hands off. */
+function flightVisualFromU(def: FlightRouteDefinition): number {
+  return Math.min(def.entryU, def.navigation?.visualFromU ?? flightLaunchCueU(def));
+}
+
+/** Normalize route-space effects against the branch mesh's earliest visual coverage. */
 function flightVisualT(def: FlightRouteDefinition, u: number): number {
-  const fromU = Math.min(def.entryU, flightLaunchCueU(def));
+  const fromU = flightVisualFromU(def);
   return THREE.MathUtils.clamp((u - fromU) / Math.max(1e-6, def.exitU - fromU), 0, 1);
 }
 
@@ -1353,6 +1361,9 @@ export class Course implements ICourse {
   private playerLaunchGateRouteIndex = -1;
   private playerLaunchGateDistanceM = -1;
   private playerLaunchGateDiamondCount = 0;
+  private playerPreviousFlightPhase: FlightPhase = 'surface';
+  private playerLaunchCommittedRoute = -1;
+  private playerLaunchCommittedU = -1;
   private surfaceGuideTurnArrowCount = 0;
   private surfaceGuideLaunchTurnArrowCount = 0;
   private activeGuideRoute = -1;
@@ -1532,6 +1543,9 @@ export class Course implements ICourse {
     this.playerLaunchGateRouteIndex = -1;
     this.playerLaunchGateDistanceM = -1;
     this.playerLaunchGateDiamondCount = 0;
+    this.playerPreviousFlightPhase = 'surface';
+    this.playerLaunchCommittedRoute = -1;
+    this.playerLaunchCommittedU = -1;
     this.activeGuideRoute = -1;
     this.playerRecoveryRoute = -1;
     this.playerRecoverySurface = false;
@@ -1655,6 +1669,8 @@ export class Course implements ICourse {
       launchGateRouteIndex: this.playerLaunchGateRouteIndex,
       launchGateDistanceM: this.playerLaunchGateDistanceM,
       launchGateDiamondCount: this.playerLaunchGateDiamondCount,
+      launchCommitRouteIndex: this.playerLaunchCommittedRoute,
+      launchCommitU: this.playerLaunchCommittedU,
       surfaceGuideStyle: SURFACE_GUIDE_STYLE,
       surfaceGuideBaseAlpha: SURFACE_GUIDE_BASE_ALPHA,
       surfaceGuidePeakAlpha: SURFACE_GUIDE_PEAK_ALPHA,
@@ -1729,7 +1745,12 @@ export class Course implements ICourse {
       const pos = boat.state.position;
       const st = boat.state;
       if (st.flightRouteState === 'idle') this.flightDebug[id] = 'idle';
+      this.sample(pos, _routeSample, 'surface');
+      const surfaceU = _routeSample.u;
       if (id === 0) {
+        const acceptedLaunch = this.playerPreviousFlightPhase === 'surface' && st.flightPhase === 'spool';
+        this.playerPreviousFlightPhase = st.flightPhase;
+        this.playerSurfaceU = surfaceU;
         this.playerPosition.copy(pos);
         this.playerFlightReady = st.flightCharges > 0;
         const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length;
@@ -1739,6 +1760,33 @@ export class Course implements ICourse {
         this.playerFlightPressure = st.flightPressure;
         const targetGate = this.flightVisuals[this.playerFlightIndex]?.gates[st.flightGateProgress];
         this.playerTargetGateDistance = targetGate ? targetGate.center.distanceTo(pos) : -1;
+        if (acceptedLaunch && !this.finalArmed) {
+          const committedRoute = st.flightRouteCursor % FLIGHT_ROUTES.length;
+          this.playerLaunchCommittedRoute = committedRoute;
+          this.playerLaunchCommittedU = surfaceU;
+          for (let route = 0; route < this.flightVisuals.length; route++) {
+            if (route === committedRoute) continue;
+            this.flightVisuals[route].recoveryFade = 0;
+            this.flightVisuals[route].recoverySurfaceBlend = 0;
+          }
+          if (this.playerRecoveryRoute >= 0 && this.playerRecoveryRoute !== committedRoute) {
+            const retired = this.flightVisuals[this.playerRecoveryRoute];
+            retired.recoveryFade = 0;
+            retired.recoverySurfaceBlend = 0;
+            this.playerRecoveryRoute = -1;
+            this.playerRecoverySurface = false;
+            this.playerRecoveryElapsed = 0;
+            this.playerRecoveryLimit = 0;
+            this.flightRecoveryT[id] = 0;
+            this.flightRecoveryLimit[id] = 0;
+            this.flightLatched[id] = -1;
+          }
+          this.flightDebug[id] = `launch-commit:f${committedRoute + 1}:u${surfaceU.toFixed(4)}`;
+        } else if (st.flightRouteState === 'passed' || st.flightRouteState === 'failed' ||
+            (st.flightPhase === 'surface' && st.flightRouteState === 'idle')) {
+          this.playerLaunchCommittedRoute = -1;
+          this.playerLaunchCommittedU = -1;
+        }
       }
       let prev = this.flightPrev[id];
       if (!prev) {
@@ -1754,12 +1802,13 @@ export class Course implements ICourse {
       }
 
       const jump = prev.distanceToSquared(pos) > 60 * 60;
-      this.sample(pos, _routeSample, 'surface');
-      const surfaceU = _routeSample.u;
-      if (id === 0) this.playerSurfaceU = surfaceU;
       const flightActive = st.flightPhase !== 'surface';
       if (id === 0 && !this.finalArmed) {
-        if (flightActive && st.flightRouteState === 'active' && st.flightRouteIndex >= 0) {
+        if (flightActive && this.playerLaunchCommittedRoute >= 0) {
+          this.playerLaunchGateState = 'committed';
+          this.playerLaunchGateRouteIndex = this.playerLaunchCommittedRoute;
+          this.playerLaunchGateDistanceM = 0;
+        } else if (flightActive && st.flightRouteState === 'active' && st.flightRouteIndex >= 0) {
           this.playerLaunchGateState = 'committed';
           this.playerLaunchGateRouteIndex = st.flightRouteIndex;
           this.playerLaunchGateDistanceM = 0;
@@ -1950,6 +1999,8 @@ export class Course implements ICourse {
                   Math.max(2.5, Math.min(4,
                     runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
                 if (id === 0) {
+                  this.playerLaunchCommittedRoute = -1;
+                  this.playerLaunchCommittedU = -1;
                   this.playerRecoveryRoute = routeIndex;
                   this.playerRecoverySurface = false;
                   this.playerRecoveryElapsed = 0;
@@ -2054,9 +2105,14 @@ export class Course implements ICourse {
       const recoverySlot = this.playerRecoveryRoute >= 0
         ? this.playerRecoveryRoute
         : this.flightVisuals.findIndex((visual) => visual.recoveryFade > 0);
+      const committedSlot = this.playerLaunchCommittedRoute >= 0 && st.flightPhase !== 'surface'
+        ? this.playerLaunchCommittedRoute
+        : -1;
       const finalApproach = this.finalArmed &&
         st.flightsCleared >= FLIGHT_ROUTES.length && recoverySlot < 0;
-      const slot = recoverySlot >= 0
+      const slot = committedSlot >= 0
+        ? committedSlot
+        : recoverySlot >= 0
         ? recoverySlot
         : finalApproach ? -1
           : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
@@ -2087,18 +2143,21 @@ export class Course implements ICourse {
     }
     const active = next >= 0 ? FLIGHT_ROUTES[next] : null;
     const recovering = next >= 0 && (this.playerRecoveryRoute === next || this.flightVisuals[next].recoveryFade > 0);
+    const committed = active && this.playerLaunchCommittedRoute === active.index;
+    const maskStartU = active
+      ? committed ? flightVisualFromU(active) : flightLaunchCueU(active)
+      : 0;
     this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
-    // The launch aperture is the sole handoff from water to air. Once the
-    // surface spine reaches it, it must never reappear underneath the active
-    // flight branch; waves and camera pitch otherwise make the two routes look
-    // probabilistically interchangeable.
-    this.ribbonMat.uniforms.uMaskStart.value = active ? flightLaunchCueU(active) * LAP_LENGTH : 0;
+    // The aperture is the normal handoff. A genuinely accepted earlier launch
+    // moves ownership to the branch's authored visual start in the same frame;
+    // the green spine must never remain underneath that committed flight.
+    this.ribbonMat.uniforms.uMaskStart.value = maskStartU * LAP_LENGTH;
     this.ribbonMat.uniforms.uMaskEnd.value = active
       ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
       : 0;
     for (const floater of this.floaters) {
       floater.obj.visible = !active || floater.routeU === undefined ||
-        floater.routeU < flightLaunchCueU(active) || floater.routeU > active.exitU;
+        floater.routeU < maskStartU || floater.routeU > active.exitU;
     }
   }
 
@@ -2306,7 +2365,7 @@ export class Course implements ICourse {
       visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0.62 * recovery;
       if (recovery > 0) {
         const def = visual.runtime.def;
-        const visualFromU = Math.min(def.entryU, flightLaunchCueU(def));
+        const visualFromU = flightVisualFromU(def);
         const gateFraction = flightVisualT(def, def.gateUs[def.gateUs.length - 1]);
         const minFraction = Math.max(gateFraction, visual.recoveryProgress - 0.018);
         for (let i = 0; i < visual.recoveryArrowFractions.length; i++) {
@@ -2373,7 +2432,7 @@ export class Course implements ICourse {
     routeGroup.name = `${def.id}-guide`;
     routeGroup.visible = false;
     this.object.add(routeGroup);
-    const visualFromU = Math.min(def.entryU, flightLaunchCueU(def));
+    const visualFromU = flightVisualFromU(def);
     const approachLength = Math.max(0, (def.entryU - visualFromU) * LAP_LENGTH);
     const SEG = Math.max(64, Math.ceil((runtime.routeLength + approachLength) / 1.8));
     const HALF_W = def.corridorHalfWidth;

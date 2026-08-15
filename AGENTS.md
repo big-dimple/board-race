@@ -68,9 +68,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   recovery handoff. Water contact is not a visual ownership edge: the same
   cyan virtual recovery tail remains visible before and after contact. It keeps
   authored aerial height while airborne, then settles onto the swell without
-  turning into the green surface route. The next cyan branch may deploy only
-  after handoff. That transition must never snap the boat, clear horizontal
-  momentum, preload a surface warning, or show more than one flight branch.
+  turning into the green surface route. An accepted next takeoff from retained
+  inventory is the only pre-handoff override: it atomically retires the old
+  presentation owner and launch marker, then gives the sole cyan branch to the
+  new flight. Neither path may snap the boat, clear horizontal momentum,
+  preload a surface warning, or show more than one flight branch.
 - The full-lap green surface guide is a tessellated translucent wake: it bends
   with the local swell, has no hard rails or filled road core, and carries only
   a bounded 170m lookahead of open chevrons spaced 10m apart and moving forward

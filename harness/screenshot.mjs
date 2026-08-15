@@ -1246,8 +1246,10 @@ async function verifyFlightContract(page) {
     `flight four needs a longer turn-in vector than the standard launch beat: ${JSON.stringify(routeFourLaunch)}`);
   assert.equal(routeFourLaunch.corridorVisible, true,
     'the airborne route must already be visible while the early fourth-flight cue is actionable');
-  assert.ok(Math.abs(routeFourLaunch.corridorVisualStartU - routeFourLaunch.cueU) <= 1e-6,
-    `the cyan route must begin exactly where the green guide hands off: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(Math.abs(routeFourLaunch.corridorVisualStartU - 0.438) <= 1e-6,
+    `the fourth cyan route must cover the earliest valid post-medal launch: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(routeFourLaunch.corridorVisualStartU < routeFourLaunch.cueU,
+    `the recommended launch marker may not truncate an already accepted early flight: ${JSON.stringify(routeFourLaunch)}`);
   assert.ok(routeFourLaunch.corridorVisualStartU < routeFourLaunch.corridorAuthoredEntryU,
     `flight four needs a visible cyan approach before its unchanged scoring entry: ${JSON.stringify(routeFourLaunch)}`);
   assert.ok(routeFourLaunch.corridorTurnTintMax > 0 && routeFourLaunch.corridorTurnTintMax <= 0.15,
@@ -1665,6 +1667,95 @@ async function verifyFlightContract(page) {
   assert.equal(routeFourCueLaunch.routePasses, 1);
   assert.equal(routeFourCueLaunch.routeFails, 0);
   assert.equal(routeFourCueLaunch.visibleRouteCount, 1);
+
+  for (const mode of ['during-recovery', 'after-handoff']) {
+    const earlyLaunch = await page.evaluate((launchMode) =>
+      window.__harness.medalEarlyFourthLaunchCase(launchMode), mode);
+    assert.equal(earlyLaunch.phase, 'racing',
+      `the real medal-to-fourth-flight chain must stay live: ${JSON.stringify(earlyLaunch)}`);
+    assert.equal(earlyLaunch.accepted, true,
+      `a retained cell must launch before the recommended marker: ${JSON.stringify(earlyLaunch)}`);
+    assert.equal(earlyLaunch.flightsCleared, 3);
+    assert.equal(earlyLaunch.recoveryOwnerAtWater, 2);
+    assert.ok(earlyLaunch.launchU >= 0.438 && earlyLaunch.launchU < earlyLaunch.routeFourCueU,
+      `the fixture must exercise the previously uncovered early-launch span: ${JSON.stringify(earlyLaunch)}`);
+    assert.equal(earlyLaunch.immediateCommitRoute, 3);
+    assert.equal(earlyLaunch.immediateRecoveryOwner, -1,
+      `an accepted next flight must atomically retire the previous recovery owner: ${JSON.stringify(earlyLaunch)}`);
+    assert.equal(earlyLaunch.immediateActiveOwner, 3);
+    assert.equal(earlyLaunch.immediateVisibleRoutes, 1);
+    assert.equal(earlyLaunch.immediateLaunchGateCommitted, true,
+      `the launch facility must retire on the accepted input edge, not at scoring entry: ${JSON.stringify(earlyLaunch)}`);
+    assert.ok(Math.abs(earlyLaunch.immediateMaskStartU - 0.438) <= 1e-6,
+      `green guidance must yield to the early cyan approach without a gap: ${JSON.stringify(earlyLaunch)}`);
+    assert.equal(earlyLaunch.afterCommitRoute, 3);
+    assert.equal(earlyLaunch.afterRecoveryOwner, -1);
+    assert.equal(earlyLaunch.afterActiveOwner, 3);
+    assert.equal(earlyLaunch.afterVisibleRoutes, 1);
+    assert.equal(earlyLaunch.warningFrames, 0);
+    assert.equal(earlyLaunch.maxVisibleRoutes, 1);
+    assert.equal(earlyLaunch.routePasses, 1);
+    assert.equal(earlyLaunch.routeFails, 0);
+    assert.equal(earlyLaunch.finalArmed, false);
+
+    const visibility = await page.evaluate(() => {
+      const effectivelyVisible = (name) => {
+        let object = window.__scene.getObjectByName(name);
+        if (!object) return false;
+        while (object) {
+          if (!object.visible) return false;
+          object = object.parent;
+        }
+        return true;
+      };
+      return {
+        flightThree: effectivelyVisible('flight-3-ribbon'),
+        flightFour: effectivelyVisible('flight-4-ribbon'),
+        launchGate: effectivelyVisible('flight-4-launch-gate'),
+        visualStartU: window.__scene.getObjectByName('flight-4-ribbon')?.userData?.visualStartU ?? -1,
+      };
+    });
+    assert.equal(visibility.flightThree, false,
+      `the prior recovery branch must not remain effectively visible: ${JSON.stringify(visibility)}`);
+    assert.equal(visibility.flightFour, true,
+      `the fourth branch must be visible through its complete parent chain: ${JSON.stringify(visibility)}`);
+    assert.equal(visibility.launchGate, false);
+    assert.ok(Math.abs(visibility.visualStartU - 0.438) <= 1e-6);
+
+    if (mode === 'during-recovery') {
+      const pixelContribution = await page.evaluate(() => {
+        const canvas = document.querySelector('#app > canvas');
+        const group = window.__scene.getObjectByName('flight-4-guide');
+        if (!(canvas instanceof HTMLCanvasElement) || !group) return -1;
+        const read = () => {
+          window.__harness.render();
+          const copy = document.createElement('canvas');
+          copy.width = canvas.width;
+          copy.height = canvas.height;
+          const context = copy.getContext('2d', { willReadFrequently: true });
+          context.drawImage(canvas, 0, 0);
+          return context.getImageData(0, 0, copy.width, copy.height).data;
+        };
+        const wasVisible = group.visible;
+        group.visible = false;
+        const withoutRoute = read();
+        group.visible = true;
+        const withRoute = read();
+        group.visible = wasVisible;
+        window.__harness.render();
+        let changed = 0;
+        for (let pixel = 0; pixel < withRoute.length; pixel += 4) {
+          const delta = Math.abs(withRoute[pixel] - withoutRoute[pixel]) +
+            Math.abs(withRoute[pixel + 1] - withoutRoute[pixel + 1]) +
+            Math.abs(withRoute[pixel + 2] - withoutRoute[pixel + 2]);
+          if (delta > 2) changed++;
+        }
+        return changed;
+      });
+      assert.ok(pixelContribution > 10000,
+        `the early fourth branch must contribute real rendered pixels: ${pixelContribution}`);
+    }
+  }
 
   console.log('gameplay contract: OK');
 }
@@ -2457,6 +2548,35 @@ async function verifyMobileControls(page) {
   assert.equal(finalControls.flightDisabled, 'true', 'Final flight control must be visibly and semantically inert');
   assert.equal(finalControls.overlayHidden, true,
     'the frozen mobile finale must hide the entire gameplay control layer');
+  const mobileEarlyLaunch = await page.evaluate(() =>
+    window.__harness.medalEarlyFourthLaunchCase('during-recovery'));
+  assert.equal(mobileEarlyLaunch.accepted, true);
+  assert.equal(mobileEarlyLaunch.immediateRecoveryOwner, -1);
+  assert.equal(mobileEarlyLaunch.immediateActiveOwner, 3);
+  assert.equal(mobileEarlyLaunch.immediateVisibleRoutes, 1);
+  assert.ok(Math.abs(mobileEarlyLaunch.immediateMaskStartU - 0.438) <= 1e-6);
+  const mobileEarlyVisibility = await page.evaluate(() => {
+    const effectivelyVisible = (name) => {
+      let object = window.__scene.getObjectByName(name);
+      if (!object) return false;
+      while (object) {
+        if (!object.visible) return false;
+        object = object.parent;
+      }
+      return true;
+    };
+    return {
+      flightThree: effectivelyVisible('flight-3-ribbon'),
+      flightFour: effectivelyVisible('flight-4-ribbon'),
+      launchGate: effectivelyVisible('flight-4-launch-gate'),
+    };
+  });
+  assert.deepEqual(mobileEarlyVisibility, {
+    flightThree: false,
+    flightFour: true,
+    launchGate: false,
+  }, 'mobile must use the same atomic route ownership as desktop');
+
   console.log('mobile controls contract: OK');
 }
 
