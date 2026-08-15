@@ -819,7 +819,33 @@
 }
 
 .hud-turn-warning-title { font-size: 28px; line-height: 1; color: var(--warn); }
-.hud-turn-warning-detail { margin-top: 4px; font-size: 16px; color: var(--text); }
+.hud-turn-warning-detail {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  color: var(--text);
+}
+.hud-turn-key {
+  min-width: 28px;
+  padding: 3px 7px;
+  color: var(--text);
+  background: rgba(5, 10, 24, 0.82);
+  border: 1px solid currentColor;
+  box-shadow: 2px 2px 0 var(--ink);
+  font: 900 11px/1 system-ui, sans-serif;
+  text-align: center;
+  white-space: nowrap;
+}
+.hud-turn-plus { color: rgba(244, 254, 255, 0.6); font: 900 11px/1 system-ui, sans-serif; }
+.hud-turn-action { margin-left: 3px; white-space: nowrap; }
+.hud-turn-warning.route-turn-right .hud-turn-warning-mark {
+  width: 72px;
+  color: var(--warn);
+  font-size: 25px;
+  letter-spacing: 0;
+}
 .hud-turn-warning.braking { border-color: var(--flight); }
 .hud-turn-warning.braking .hud-turn-warning-title { color: var(--flight); }
 .hud-turn-warning.braking .hud-turn-warning-title::after { content: ' · 制动锁定'; }

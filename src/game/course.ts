@@ -223,6 +223,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     launchToU: 0.253,
     turnWarningFromU: 0.258,
     turnWarningToU: 0.292,
+    navigation: {
+      turn: { fromU: 0.258, toU: 0.292, direction: 'left' },
+    },
   },
   {
     id: 'flight-3',
@@ -246,6 +249,10 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     launchToU: 0.398,
     turnWarningFromU: 0.397,
     turnWarningToU: 0.447,
+    navigation: {
+      turn: { fromU: 0.397, toU: 0.447, direction: 'left' },
+      postGateRecovery: { handoffMarginM: 18, maxDurationS: 5.2 },
+    },
   },
   {
     id: 'flight-4',
@@ -269,6 +276,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     launchToU: 0.522,
     turnWarningFromU: 0.548,
     turnWarningToU: 0.558,
+    navigation: {
+      locatorU: 0.56,
+    },
   },
   {
     id: 'flight-5',
@@ -295,6 +305,15 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     launchToU: 0.642,
     turnWarningFromU: 0.645,
     turnWarningToU: 0.694,
+    navigation: {
+      action: {
+        bankFromU: 0.58,
+        bankToU: 0.616,
+        launchFromU: 0.616,
+        launchToU: 0.624,
+      },
+      turn: { fromU: 0.645, toU: 0.694, direction: 'right' },
+    },
   },
   {
     id: 'flight-6',
@@ -318,6 +337,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     launchToU: 0.782,
     turnWarningFromU: 0.785,
     turnWarningToU: 0.831,
+    navigation: {
+      turn: { fromU: 0.785, toU: 0.831, direction: 'left' },
+    },
   },
   {
     id: 'flight-7',
@@ -357,7 +379,9 @@ const FLIGHT_ATTEMPT_EARLY_U = 0.012;
 interface FlightRouteRuntime {
   def: FlightRouteDefinition;
   curve: THREE.CatmullRomCurve3;
+  recoveryCurve: THREE.CubicBezierCurve3 | null;
   tableN: number;
+  routeLength: number;
   x: Float32Array;
   y: Float32Array;
   z: Float32Array;
@@ -382,11 +406,33 @@ function buildFlightRuntime(def: FlightRouteDefinition): FlightRouteRuntime {
   }
   const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
   curve.arcLengthDivisions = 320;
-  const tableN = Math.max(256, Math.ceil(curve.getLength() / 0.45));
+  const lastGateU = def.gateUs[def.gateUs.length - 1];
+  let recoveryCurve: THREE.CubicBezierCurve3 | null = null;
+  if (def.navigation?.postGateRecovery) {
+    const gatePoint = curve.getPoint(flightCurveT(def, lastGateU), new THREE.Vector3());
+    const gateTangent = curve.getTangent(flightCurveT(def, lastGateU), new THREE.Vector3()).setY(0).normalize();
+    const exitPoint = CURVE.getPointAt(def.exitU, new THREE.Vector3());
+    exitPoint.y = 0;
+    const exitTangent = CURVE.getTangentAt(def.exitU, new THREE.Vector3()).setY(0).normalize();
+    const planarDistance = Math.hypot(exitPoint.x - gatePoint.x, exitPoint.z - gatePoint.z);
+    const startHandle = Math.min(34, planarDistance * 0.34);
+    const endHandle = Math.min(38, planarDistance * 0.4);
+    recoveryCurve = new THREE.CubicBezierCurve3(
+      gatePoint,
+      gatePoint.clone().addScaledVector(gateTangent, startHandle),
+      exitPoint.clone().addScaledVector(exitTangent, -endHandle),
+      exitPoint,
+    );
+    recoveryCurve.arcLengthDivisions = 160;
+  }
+  const authoredLength = curve.getLength() + (recoveryCurve?.getLength() ?? 0);
+  const tableN = Math.max(256, Math.ceil(authoredLength / 0.45));
   const runtime: FlightRouteRuntime = {
     def,
     curve,
+    recoveryCurve,
     tableN,
+    routeLength: 0,
     x: new Float32Array(tableN),
     y: new Float32Array(tableN),
     z: new Float32Array(tableN),
@@ -400,23 +446,48 @@ function buildFlightRuntime(def: FlightRouteDefinition): FlightRouteRuntime {
   };
   for (let i = 0; i < tableN; i++) {
     const f = i / (tableN - 1);
-    curve.getPoint(f, p);
-    curve.getTangent(f, t).normalize();
+    const u = def.entryU + (def.exitU - def.entryU) * f;
+    runtimePointAt(runtime, u, p);
+    runtimeTangentAt(runtime, u, t).normalize();
     runtime.x[i] = p.x;
     runtime.y[i] = p.y;
     runtime.z[i] = p.z;
     runtime.tx[i] = t.x;
     runtime.ty[i] = t.y;
     runtime.tz[i] = t.z;
-    runtime.u[i] = def.entryU + (def.exitU - def.entryU) * f;
+    runtime.u[i] = u;
+    if (i > 0) {
+      runtime.routeLength += Math.hypot(
+        runtime.x[i] - runtime.x[i - 1],
+        runtime.y[i] - runtime.y[i - 1],
+        runtime.z[i] - runtime.z[i - 1],
+      );
+    }
   }
-  const lastGateU = def.gateUs[def.gateUs.length - 1];
   runtime.gateFraction = flightCurveT(def, lastGateU);
   const gateIndex = Math.max(0, Math.min(tableN - 1, Math.round(runtime.gateFraction * (tableN - 1))));
   for (let i = gateIndex + 1; i < tableN; i++) {
     runtime.gateToExitDistance += Math.hypot(runtime.x[i] - runtime.x[i - 1], runtime.z[i] - runtime.z[i - 1]);
   }
   return runtime;
+}
+
+function runtimePointAt(runtime: FlightRouteRuntime, u: number, out: THREE.Vector3): THREE.Vector3 {
+  const recovery = runtime.recoveryCurve;
+  const gateU = runtime.def.gateUs[runtime.def.gateUs.length - 1];
+  if (recovery && u > gateU) {
+    return recovery.getPoint(THREE.MathUtils.clamp((u - gateU) / Math.max(1e-6, runtime.def.exitU - gateU), 0, 1), out);
+  }
+  return runtime.curve.getPoint(flightCurveT(runtime.def, u), out);
+}
+
+function runtimeTangentAt(runtime: FlightRouteRuntime, u: number, out: THREE.Vector3): THREE.Vector3 {
+  const recovery = runtime.recoveryCurve;
+  const gateU = runtime.def.gateUs[runtime.def.gateUs.length - 1];
+  if (recovery && u > gateU) {
+    return recovery.getTangent(THREE.MathUtils.clamp((u - gateU) / Math.max(1e-6, runtime.def.exitU - gateU), 0, 1), out);
+  }
+  return runtime.curve.getTangent(flightCurveT(runtime.def, u), out);
 }
 
 const FLIGHT_RUNTIME = FLIGHT_ROUTES.map(buildFlightRuntime);
@@ -908,11 +979,58 @@ interface FlightRouteVisual {
   recoveryArrowMaterial: THREE.MeshBasicMaterial;
   recoveryArrowFractions: number[];
   recoveryArrowMatrices: THREE.Matrix4[];
+  turnChevronGroup: THREE.Group | null;
+  turnChevronFill: THREE.MeshBasicMaterial | null;
+  turnChevronCount: number;
   gates: FlightGate[];
   deployActive: boolean;
   deployTime: number;
   recoveryFade: number;
   recoveryProgress: number;
+}
+
+interface SurfaceActionVisual {
+  group: THREE.Group;
+  bankGroup: THREE.Group;
+  launchGroup: THREE.Group;
+}
+
+function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
+  const points = [
+    -1.12, depth, 0.82, -0.86, depth, 1.08, 0.34, depth, 0.13,
+    -1.12, depth, 0.82, 0.34, depth, 0.13, 0.06, depth, -0.1,
+    -1.12, depth, -0.82, 0.06, depth, 0.1, 0.34, depth, -0.13,
+    -1.12, depth, -0.82, 0.34, depth, -0.13, -0.86, depth, -1.08,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function makeVerticalChevronGeometry(depth = 0): THREE.BufferGeometry {
+  const points = [
+    -1.12, 0.82, depth, -0.86, 1.08, depth, 0.34, 0.13, depth,
+    -1.12, 0.82, depth, 0.34, 0.13, depth, 0.06, -0.1, depth,
+    -1.12, -0.82, depth, 0.06, 0.1, depth, 0.34, -0.13, depth,
+    -1.12, -0.82, depth, 0.34, -0.13, depth, -0.86, -1.08, depth,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function makeForwardArrowGeometry(depth = 0): THREE.BufferGeometry {
+  const points = [
+    -1.3, depth, -0.42, 0.05, depth, -0.42, 0.05, depth, 0.42,
+    -1.3, depth, -0.42, 0.05, depth, 0.42, -1.3, depth, 0.42,
+    -0.12, depth, -1.08, 1.28, depth, 0, -0.12, depth, 1.08,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 /**
@@ -965,6 +1083,7 @@ export class Course implements ICourse {
   private readonly ribbonMat: THREE.ShaderMaterial;
   private readonly stripMat: THREE.ShaderMaterial;
   private readonly flightVisuals: FlightRouteVisual[];
+  private readonly surfaceActionVisual: SurfaceActionVisual;
   private readonly floaters: Floater[] = [];
   private readonly flightPrev: THREE.Vector3[] = [];
   private readonly flightPrevClearance: number[] = [];
@@ -985,6 +1104,11 @@ export class Course implements ICourse {
   private readonly playerPosition = new THREE.Vector3();
   private playerTargetGateDistance = -1;
   private playerTargetAnchorScale = 1;
+  private playerActionCue: CourseGuidanceStatus['actionCue'] = 'none';
+  private playerActionRouteIndex = -1;
+  private playerActionDirection: CourseGuidanceStatus['actionDirection'] = 'none';
+  private playerActionTargetU = -1;
+  private playerActionMarkerCount = 0;
   private activeGuideRoute = -1;
   private playerRecoveryRoute = -1;
   private playerRecoveryElapsed = 0;
@@ -1006,6 +1130,7 @@ export class Course implements ICourse {
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
     this.buildGates();
+    this.surfaceActionVisual = this.buildSurfaceActionVisual();
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
@@ -1065,14 +1190,14 @@ export class Course implements ICourse {
     if (routeId === 'surface') return this.pointAt(u, out);
     const runtime = flightRuntime(routeId);
     if (u < runtime.def.entryU || u > runtime.def.exitU) return this.pointAt(u, out);
-    return runtime.curve.getPoint(flightCurveT(runtime.def, u), out);
+    return runtimePointAt(runtime, u, out);
   }
 
   routeTangentAt(routeId: CourseRouteId, u: number, out: THREE.Vector3): THREE.Vector3 {
     if (routeId === 'surface') return this.tangentAt(u, out);
     const runtime = flightRuntime(routeId);
     if (u < runtime.def.entryU || u > runtime.def.exitU) return this.tangentAt(u, out);
-    runtime.curve.getTangent(flightCurveT(runtime.def, u), out);
+    runtimeTangentAt(runtime, u, out);
     out.y = 0;
     const l = Math.hypot(out.x, out.z) || 1;
     out.x /= l;
@@ -1144,6 +1269,11 @@ export class Course implements ICourse {
     this.playerSurfaceU = 0;
     this.playerTargetGateDistance = -1;
     this.playerTargetAnchorScale = 1;
+    this.playerActionCue = 'none';
+    this.playerActionRouteIndex = -1;
+    this.playerActionDirection = 'none';
+    this.playerActionTargetU = -1;
+    this.playerActionMarkerCount = 0;
     this.activeGuideRoute = -1;
     this.playerRecoveryRoute = -1;
     this.playerRecoveryElapsed = 0;
@@ -1155,6 +1285,7 @@ export class Course implements ICourse {
     if (this.finalStation) this.finalStation.visible = false;
     this.ribbonMat.uniforms.uGuideActive.value = 0;
     this.ribbonMat.uniforms.uFinalApproach.value = 0;
+    this.surfaceActionVisual.group.visible = false;
     for (const visual of this.flightVisuals) {
       visual.group.visible = false;
       visual.deployActive = false;
@@ -1248,6 +1379,11 @@ export class Course implements ICourse {
         this.playerPosition.z - this.finalPortalCenter.z,
       ),
       finalGuideCount: this.finalArmed ? 1 : 0,
+      actionCue: this.playerActionCue,
+      actionRouteIndex: this.playerActionRouteIndex,
+      actionDirection: this.playerActionDirection,
+      actionTargetU: this.playerActionTargetU,
+      actionMarkerCount: this.playerActionMarkerCount,
     };
   }
 
@@ -1289,6 +1425,11 @@ export class Course implements ICourse {
   }
 
   updateFlightRoute(dt: number, boats: readonly IBoat[]): void {
+    this.playerActionCue = 'none';
+    this.playerActionRouteIndex = -1;
+    this.playerActionDirection = 'none';
+    this.playerActionTargetU = -1;
+    this.playerActionMarkerCount = 0;
     for (const boat of boats) {
       const id = boat.id;
       const pos = boat.state.position;
@@ -1323,6 +1464,19 @@ export class Course implements ICourse {
       const surfaceU = _routeSample.u;
       if (id === 0) this.playerSurfaceU = surfaceU;
       const flightActive = st.flightPhase !== 'surface';
+      if (id === 0 && !this.finalArmed && !flightActive &&
+          st.flightRouteCursor % FLIGHT_ROUTES.length === 4) {
+        const action = FLIGHT_ROUTES[4].navigation?.action;
+        if (action && surfaceU >= FLIGHT_ROUTES[3].gateUs[0] - 0.004 &&
+            surfaceU <= FLIGHT_ROUTES[4].launchToU) {
+          this.playerActionCue = st.flightCharges > 0 ? 'launch' : 'bank';
+          this.playerActionRouteIndex = 4;
+          this.playerActionTargetU = st.flightCharges > 0
+            ? (action.launchFromU + action.launchToU) * 0.5
+            : (action.bankFromU + action.bankToU) * 0.5;
+          this.playerActionMarkerCount = st.flightCharges > 0 ? 2 : 3;
+        }
+      }
       if (id === 0 && this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
           st.flightRouteState === 'idle') {
         // The seventh pass owns the approach until Race certifies the line.
@@ -1347,6 +1501,15 @@ export class Course implements ICourse {
           (surfaceU >= def.qualifyFromU && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
+      if (id === 0 && routeIndex === 4 && !this.finalArmed && def.navigation?.turn &&
+          flightActive && st.flightRouteState === 'active' &&
+          near.u >= def.navigation.turn.fromU && near.u <= def.navigation.turn.toU) {
+          this.playerActionCue = 'turn';
+          this.playerActionRouteIndex = routeIndex;
+          this.playerActionDirection = def.navigation.turn.direction;
+          this.playerActionTargetU = Math.min(def.navigation.turn.toU, near.u + 0.008);
+          this.playerActionMarkerCount = this.flightVisuals[routeIndex]?.turnChevronCount ?? 3;
+      }
 
       if (jump) {
         if (st.flightRouteState === 'active') this.failFlight(boat, visual, 'teleport', surfaceU, null);
@@ -1361,9 +1524,11 @@ export class Course implements ICourse {
       if (st.flightRouteState === 'passed') {
         this.flightLatched[id] = routeIndex;
         const elapsed = (this.flightRecoveryT[id] ?? 0) + dt;
+        const recoveryConfig = def.navigation?.postGateRecovery;
         const limit = this.flightRecoveryLimit[id] > 0
           ? this.flightRecoveryLimit[id]
-          : Math.max(2.5, Math.min(4, runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
+          : recoveryConfig?.maxDurationS ??
+            Math.max(2.5, Math.min(4, runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
         this.flightRecoveryT[id] = elapsed;
         this.flightRecoveryLimit[id] = limit;
         if (id === 0) {
@@ -1381,10 +1546,17 @@ export class Course implements ICourse {
         const dx = pos.x - runtime.x[end];
         const dz = pos.z - runtime.z[end];
         const forwardOfExit = dx * nx + dz * nz >= 0;
-        const lateralToExit = Math.abs(dx * nz - dz * nx);
+        const signedLateralToExit = dx * nz - dz * nx;
+        const lateralToExit = Math.abs(signedLateralToExit);
         boat.collisionVelocity(_recoveryVelocity);
         const forwardVelocity = _recoveryVelocity.x * nx + _recoveryVelocity.y * nz;
-        const certifiedHandoff = !flightActive && forwardOfExit && lateralToExit <= 24 && forwardVelocity >= 0;
+        const handoffMargin = recoveryConfig?.handoffMarginM ?? 24;
+        const predictedLateral = Math.abs(
+          signedLateralToExit + (_recoveryVelocity.x * nz - _recoveryVelocity.y * nx) * 0.35,
+        );
+        const stableRecovery = !recoveryConfig || predictedLateral < 24;
+        const certifiedHandoff = !flightActive && forwardOfExit && lateralToExit <= handoffMargin &&
+          stableRecovery && forwardVelocity >= 0;
         const timedOut = !flightActive && elapsed >= limit;
         this.flightDebug[id] = `recovery:${near.u.toFixed(4)}:${elapsed.toFixed(2)}/${limit.toFixed(2)}`;
         if (certifiedHandoff || timedOut) {
@@ -1458,10 +1630,9 @@ export class Course implements ICourse {
               if (gateIndex + 1 >= visual.gates.length) {
                 boat.completeFlightRoute(routeIndex, st.flightRouteCursor);
                 this.flightRecoveryT[id] = 0;
-                this.flightRecoveryLimit[id] = Math.max(
-                  2.5,
-                  Math.min(4, runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5),
-                );
+                this.flightRecoveryLimit[id] = def.navigation?.postGateRecovery?.maxDurationS ??
+                  Math.max(2.5, Math.min(4,
+                    runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
                 if (id === 0) {
                   this.playerRecoveryRoute = routeIndex;
                   this.playerRecoveryElapsed = 0;
@@ -1609,6 +1780,10 @@ export class Course implements ICourse {
   update(dt: number, t: number): void {
     this.ribbonMat.uniforms.uTime.value = t;
     this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
+    const surfaceAction = this.playerActionCue === 'bank' || this.playerActionCue === 'launch';
+    this.surfaceActionVisual.group.visible = surfaceAction;
+    this.surfaceActionVisual.bankGroup.visible = this.playerActionCue === 'bank';
+    this.surfaceActionVisual.launchGroup.visible = this.playerActionCue === 'launch';
     this.stripMat.uniforms.uTime.value = t;
     this.flightWarn = Math.max(0, this.flightWarn - dt);
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
@@ -1668,7 +1843,7 @@ export class Course implements ICourse {
       }
       visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
       visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
-      visual.rail.opacity = recovery > 0 ? 0 : warn > 0.5 ? 1 : 0.76 + (upcoming ? readyStep * 0.18 : 0);
+      visual.rail.opacity = recovery > 0 ? 0 : warn > 0.5 ? 0.92 : 0.56 + (upcoming ? readyStep * 0.14 : 0);
       visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + (upcoming ? readyStep * 0.2 : 0);
       for (let i = 0; i < visual.gates.length; i++) {
         const gate = visual.gates[i];
@@ -1709,7 +1884,7 @@ export class Course implements ICourse {
     routeGroup.name = `${def.id}-guide`;
     routeGroup.visible = false;
     this.object.add(routeGroup);
-    const SEG = Math.max(64, Math.ceil(runtime.curve.getLength() / 1.8));
+    const SEG = Math.max(64, Math.ceil(runtime.routeLength / 1.8));
     const HALF_W = def.corridorHalfWidth;
     const pos = new Float32Array((SEG + 1) * 2 * 3);
     const uv = new Float32Array((SEG + 1) * 2 * 2);
@@ -1765,7 +1940,7 @@ export class Course implements ICourse {
         uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
         uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
         uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
-        uMystic: { value: new THREE.Color().setHex(0x9b7cff, THREE.NoColorSpace) },
+        uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
       },
       vertexShader: /* glsl */ `
@@ -1793,7 +1968,7 @@ export class Course implements ICourse {
         uniform vec3 uFlight;
         uniform vec3 uRecoveryColor;
         uniform vec3 uInk;
-        uniform vec3 uMystic;
+        uniform vec3 uFoam;
         uniform vec3 uWarnColor;
         varying vec2 vUv;
         void main() {
@@ -1804,7 +1979,8 @@ export class Course implements ICourse {
           float packet = smoothstep(0.02, 0.16, packetPhase) * (1.0 - smoothstep(0.55, 0.82, packetPhase));
           float flow = max(flowA, flowB) * (0.28 + packet * 0.72);
           float turnZone = smoothstep(0.08, 0.22, vUv.y) * (1.0 - smoothstep(0.7, 0.9, vUv.y));
-          vec3 airColor = mix(uFlight, uMystic, 0.5 + 0.5 * sin(vUv.y * 24.0 - uTime * 3.0));
+          float foamBeat = 0.08 + packet * 0.2;
+          vec3 airColor = mix(uFlight, uFoam, foamBeat);
           vec3 color = mix(airColor, uWarnColor, max(uWarn, uTurn * turnZone));
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
@@ -1862,8 +2038,9 @@ export class Course implements ICourse {
     for (let i = 0; i < 7; i++) {
       const f = runtime.gateFraction + (1 - runtime.gateFraction) * ((i + 0.7) / 7.7);
       recoveryArrowFractions.push(f);
-      runtime.curve.getPoint(f, p);
-      runtime.curve.getTangent(f, t);
+      const u = def.entryU + (def.exitU - def.entryU) * f;
+      runtimePointAt(runtime, u, p);
+      runtimeTangentAt(runtime, u, t);
       arrowTransform.position.set(p.x, 0.28, p.z);
       arrowTransform.rotation.set(0, Math.atan2(t.x, t.z), 0);
       const taper = 0.96 - i * 0.025;
@@ -1875,10 +2052,117 @@ export class Course implements ICourse {
     recoveryArrows.instanceMatrix.needsUpdate = true;
     routeGroup.add(recoveryArrows);
 
+    let turnChevronGroup: THREE.Group | null = null;
+    let turnChevronFill: THREE.MeshBasicMaterial | null = null;
+    let turnChevronCount = 0;
+    const turn = def.navigation?.turn;
+    if (turn) {
+      turnChevronCount = 3;
+      turnChevronGroup = new THREE.Group();
+      turnChevronGroup.name = `${def.id}-marine-chevrons-${turn.direction}`;
+      const backingMaterial = new THREE.MeshBasicMaterial({
+        color: PALETTE.ink,
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      turnChevronFill = new THREE.MeshBasicMaterial({
+        color: def.index === 4 ? PALETTE.sunFlare : PALETTE.foam,
+        transparent: true,
+        opacity: def.index === 4 ? 0.9 : 0.62,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      if (def.index === 4) {
+        const verticalInk = makeVerticalChevronGeometry();
+        const verticalFill = makeVerticalChevronGeometry(0.055);
+        const mastGeometry = new THREE.CylinderGeometry(0.07, 0.11, 1, 6);
+        const buoyGeometry = new THREE.CylinderGeometry(0.34, 0.48, 0.5, 8);
+        const foamGeometry = makeFoamRingGeometry();
+        const mastMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.ink, toneMapped: false });
+        const buoyMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.flightDeep, toneMapped: false });
+        const foamMaterial = new THREE.MeshBasicMaterial({
+          color: PALETTE.foam,
+          transparent: true,
+          opacity: 0.8,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+        for (let i = 0; i < turnChevronCount; i++) {
+          const f = (i + 0.75) / (turnChevronCount + 0.5);
+          const u = THREE.MathUtils.lerp(turn.fromU, turn.toU, f);
+          runtimePointAt(runtime, u, p);
+          runtimeTangentAt(runtime, u, t).setY(0).normalize();
+          const outside = turn.direction === 'right' ? 1 : -1;
+          const support = new THREE.Group();
+          support.name = `${def.id}-chevron-buoy-${i + 1}`;
+          support.position.set(p.x + t.z * (HALF_W + 1.75) * outside, 0, p.z - t.x * (HALF_W + 1.75) * outside);
+          const buoy = new THREE.Mesh(buoyGeometry, buoyMaterial);
+          buoy.position.y = 0.24;
+          const foam = new THREE.Mesh(foamGeometry, foamMaterial);
+          foam.position.y = 0.45;
+          foam.scale.setScalar(0.38);
+          const mastHeight = Math.max(3.8, p.y + 1.05);
+          const mast = new THREE.Mesh(mastGeometry, mastMaterial);
+          mast.position.y = mastHeight * 0.5;
+          mast.scale.y = mastHeight;
+          const signInk = new THREE.Mesh(verticalInk, backingMaterial);
+          signInk.position.y = mastHeight;
+          signInk.scale.setScalar(1.08);
+          const sign = new THREE.Mesh(verticalFill, turnChevronFill);
+          sign.position.set(0, mastHeight, 0.055);
+          sign.scale.setScalar(0.78);
+          sign.renderOrder = 6;
+          support.add(buoy, foam, mast, signInk, sign);
+          turnChevronGroup.add(support);
+          const yaw = Math.atan2(-t.x, -t.z) + (turn.direction === 'left' ? Math.PI : 0);
+          this.floaters.push({
+            obj: support,
+            x: support.position.x,
+            z: support.position.z,
+            yawQ: new THREE.Quaternion().setFromAxisAngle(UP, yaw),
+          });
+        }
+      } else {
+        const backing = new THREE.InstancedMesh(makeOpenChevronGeometry(), backingMaterial, turnChevronCount);
+        const fill = new THREE.InstancedMesh(makeOpenChevronGeometry(0.055), turnChevronFill, turnChevronCount);
+        backing.name = `${def.id}-chevron-ink`;
+        fill.name = `${def.id}-chevron-fill`;
+        backing.renderOrder = 5;
+        fill.renderOrder = 6;
+        const marker = new THREE.Object3D();
+        const fillMarker = new THREE.Object3D();
+        for (let i = 0; i < turnChevronCount; i++) {
+          const f = (i + 0.7) / (turnChevronCount + 0.4);
+          const u = THREE.MathUtils.lerp(turn.fromU, turn.toU, f);
+          runtimePointAt(runtime, u, p);
+          runtimeTangentAt(runtime, u, t).setY(0).normalize();
+          marker.position.set(p.x, p.y + 0.17, p.z);
+          marker.rotation.set(0, Math.atan2(t.x, t.z) + (turn.direction === 'left' ? Math.PI : 0), 0);
+          marker.scale.setScalar(0.98);
+          marker.updateMatrix();
+          backing.setMatrixAt(i, marker.matrix);
+          fillMarker.position.copy(marker.position);
+          fillMarker.rotation.copy(marker.rotation);
+          fillMarker.scale.copy(marker.scale).multiplyScalar(0.72);
+          fillMarker.updateMatrix();
+          fill.setMatrixAt(i, fillMarker.matrix);
+        }
+        backing.instanceMatrix.needsUpdate = true;
+        fill.instanceMatrix.needsUpdate = true;
+        turnChevronGroup.add(backing, fill);
+      }
+      routeGroup.add(turnChevronGroup);
+    }
+
     const railMat = new THREE.MeshBasicMaterial({
       color: PALETTE.flight,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.68,
       depthWrite: false,
       toneMapped: false,
     });
@@ -1892,7 +2176,7 @@ export class Course implements ICourse {
         railPoints.push(new THREE.Vector3(p.x + t.z * HALF_W * side, p.y + 0.12, p.z - t.x * HALF_W * side));
       }
       const railCurve = new THREE.CatmullRomCurve3(railPoints, false, 'centripetal');
-      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.13, 5, false), railMat);
+      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.085, 5, false), railMat);
       rail.name = `${def.id}-rail-${side > 0 ? 'r' : 'l'}`;
       rail.renderOrder = 4;
       rail.layers.enable(LAYER_ENERGY);
@@ -1952,7 +2236,7 @@ export class Course implements ICourse {
     for (let i = 0; i < def.gateUs.length; i++) {
       const u = def.gateUs[i];
       const center = this.routePointAt(def.id, u, new THREE.Vector3());
-      runtime.curve.getTangent(flightCurveT(def, u), tangent3).normalize();
+      runtimeTangentAt(runtime, u, tangent3).normalize();
       const normal = new THREE.Vector3(tangent3.x, 0, tangent3.z).normalize();
       const right = new THREE.Vector3(normal.z, 0, -normal.x);
       const gateGroup = new THREE.Group();
@@ -1999,7 +2283,31 @@ export class Course implements ICourse {
       );
       anchor.position.z = 0.42;
       gateGroup.add(beamSpine, beam, beamCore, surfaceLock, lockBeam, anchor);
+      if (def.navigation?.locatorU !== undefined && Math.abs(def.navigation.locatorU - u) < 0.012) {
+        const locatorMaterial = new THREE.MeshBasicMaterial({
+          color: PALETTE.flight,
+          transparent: true,
+          opacity: 0.72,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+        const locatorStem = new THREE.Mesh(beamGeo, locatorMaterial);
+        locatorStem.name = `${def.id}-locator-stem`;
+        locatorStem.position.set(0, gateHalfHeight + 2.25, 0.46);
+        locatorStem.scale.set(0.09, 2.7, 0.09);
+        const locator = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.34, 4), locatorMaterial);
+        locator.name = `${def.id}-locator-diamond`;
+        locator.position.set(0, gateHalfHeight + 4.7, 0.48);
+        locator.rotation.z = Math.PI * 0.25;
+        locator.renderOrder = 8;
+        gateGroup.add(locatorStem, locator);
+      }
       gateGroup.traverse((o) => o.layers.enable(LAYER_ENERGY));
+      gateGroup.traverse((o) => {
+        if (o.name.startsWith(`${def.id}-locator-`)) o.layers.disable(LAYER_ENERGY);
+      });
       surfaceLock.layers.disable(LAYER_ENERGY);
       beamCore.layers.disable(LAYER_ENERGY);
       for (const core of corePillars) core.layers.disable(LAYER_ENERGY);
@@ -2037,6 +2345,9 @@ export class Course implements ICourse {
       recoveryArrowMaterial,
       recoveryArrowFractions,
       recoveryArrowMatrices,
+      turnChevronGroup,
+      turnChevronFill,
+      turnChevronCount,
       gates,
       deployActive: false,
       deployTime: 0,
@@ -2046,6 +2357,104 @@ export class Course implements ICourse {
   }
 
   // ------------------------------------------------------------- ribbon ----
+
+  private buildSurfaceActionVisual(): SurfaceActionVisual {
+    const group = new THREE.Group();
+    group.name = 'flight-5-surface-actions';
+    group.visible = false;
+    this.object.add(group);
+    const bankGroup = new THREE.Group();
+    bankGroup.name = 'flight-5-bank-actions';
+    const launchGroup = new THREE.Group();
+    launchGroup.name = 'flight-5-launch-actions';
+    group.add(bankGroup, launchGroup);
+    const backing = new THREE.MeshBasicMaterial({
+      color: PALETTE.ink,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const bankFill = new THREE.MeshBasicMaterial({
+      color: PALETTE.sunFlare,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const launchFill = new THREE.MeshBasicMaterial({
+      color: PALETTE.foam,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    const bankInkGeometry = makeOpenChevronGeometry();
+    const bankFillGeometry = makeOpenChevronGeometry(0.055);
+    const launchInkGeometry = makeForwardArrowGeometry();
+    const launchFillGeometry = makeForwardArrowGeometry(0.055);
+    const action = FLIGHT_ROUTES[4].navigation!.action!;
+    const addMarker = (
+      parent: THREE.Group,
+      u: number,
+      inkGeometry: THREE.BufferGeometry,
+      fillGeometry: THREE.BufferGeometry,
+      fillMaterial: THREE.MeshBasicMaterial,
+      scale: number,
+      name: string,
+    ): void => {
+      this.pointAt(u, _sp);
+      this.tangentAt(u, _ta);
+      const marker = new THREE.Group();
+      marker.name = name;
+      marker.position.set(_sp.x, 0, _sp.z);
+      const ink = new THREE.Mesh(inkGeometry, backing);
+      ink.position.y = 0.22;
+      ink.scale.setScalar(scale);
+      const fill = new THREE.Mesh(fillGeometry, fillMaterial);
+      fill.position.y = 0.22;
+      fill.scale.setScalar(scale * 0.84);
+      fill.renderOrder = 5;
+      marker.add(ink, fill);
+      parent.add(marker);
+      this.floaters.push({
+        obj: marker,
+        x: _sp.x,
+        z: _sp.z,
+        yawQ: new THREE.Quaternion().setFromAxisAngle(UP, Math.atan2(-_ta.z, _ta.x)),
+      });
+    };
+    // These read as broad paint beats inside the green route, not as props.
+    // The nearest beat is deliberately early enough to survive the low chase
+    // camera and the fifth approach's foreshortening on phone screens.
+    const bankStations = [action.bankFromU + 0.001, 0.592, action.bankToU - 0.013];
+    for (let i = 0; i < bankStations.length; i++) {
+      addMarker(
+        bankGroup,
+        bankStations[i],
+        bankInkGeometry,
+        bankFillGeometry,
+        bankFill,
+        2.9,
+        `flight-5-bank-chevron-${i + 1}`,
+      );
+    }
+    for (let i = 0; i < 2; i++) {
+      addMarker(
+        launchGroup,
+        THREE.MathUtils.lerp(action.launchFromU + 0.0005, action.launchToU - 0.0015, i),
+        launchInkGeometry,
+        launchFillGeometry,
+        launchFill,
+        2.35,
+        `flight-5-launch-chevron-${i + 1}`,
+      );
+    }
+    return { group, bankGroup, launchGroup };
+  }
 
   /** 8m soft field with a 3.4m bright spine; one draw call; OFF LAYER_INK. */
   private buildRibbon(): THREE.ShaderMaterial {

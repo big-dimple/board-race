@@ -332,6 +332,18 @@
   color: #ffcf4a;
 }
 .mobile-controls.turn-warning .mobile-action-zones button:first-child span { border-color:#ffcf4a; box-shadow:inset 0 0 0 5px rgba(20,18,43,.5),0 0 24px rgba(255,207,74,.42); }
+.mobile-controls.route-action-bank .mobile-action-zones [data-mobile-action="drift"] span,
+.mobile-controls.route-action-launch .mobile-action-zones [data-mobile-action="flight"] span {
+  border-color: #ffcf4a;
+  box-shadow: inset 0 0 0 5px rgba(20,18,43,.5), 0 0 18px rgba(255,207,74,.34);
+}
+.mobile-controls.route-action-turn .mobile-action-zones [data-mobile-action="drift"] span,
+.mobile-controls.route-turn-left .mobile-steer-zones [data-mobile-action="left"] span,
+.mobile-controls.route-turn-right .mobile-steer-zones [data-mobile-action="right"] span {
+  border-color: #ffcf4a;
+  color: #ffcf4a;
+  box-shadow: inset 0 0 0 5px rgba(20,18,43,.5), 0 0 20px rgba(255,207,74,.38);
+}
 .mobile-controls.flight-urgent .mobile-action-zones button:last-child span::after { filter: hue-rotate(28deg); }
 .mobile-controls.flight-critical .mobile-action-zones button:last-child span::after { filter: hue-rotate(110deg) saturate(1.4); opacity: 1; }
 

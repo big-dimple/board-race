@@ -51,6 +51,10 @@ const SCENARIOS = {
   'flight-extension-spool': { scenario: 'flight-extension-spool' },
   'flight-extension-descent': { scenario: 'flight-extension-descent' },
   'flight-airbrake': { scenario: 'flight-airbrake' },
+  'flight-route4-approach': { scenario: 'flight-route4-approach' },
+  'flight-route5-prepare': { scenario: 'flight-route5-prepare' },
+  'flight-route5-launch': { scenario: 'flight-route5-launch' },
+  'flight-route5-turn': { scenario: 'flight-route5-turn' },
   'flight-combo': { scenario: 'flight-combo', freeCamDynamic: { back: 7, up: 1.55, lookUp: 0.4 } },
   'flight-descent': { scenario: 'flight-descent' },
   'flight-miss': { scenario: 'flight-miss', settleMs: 760 },
@@ -646,6 +650,58 @@ async function verifyFlightContract(page) {
     assert.ok(recovery.minProgressDelta > -2, `flight ${route + 1} merge must not jump progress backwards: ${JSON.stringify(recovery)}`);
   }
 
+  const medalRecovery = await page.evaluate(() => window.__harness.medalRecoveryCase());
+  assert.equal(medalRecovery.phaseAtPass, 'medal',
+    `the third portal must enter the medal freeze before recovery resumes: ${JSON.stringify(medalRecovery)}`);
+  assert.equal(medalRecovery.phase, 'racing',
+    `a delayed but valid left correction after the medal must remain playable: ${JSON.stringify(medalRecovery)}`);
+  assert.equal(medalRecovery.routeState, 'idle');
+  assert.equal(medalRecovery.flightPhase, 'surface');
+  assert.equal(medalRecovery.flightsCleared, 3);
+  assert.ok(medalRecovery.freezePositionDelta < 0.001,
+    `medal and resume countdown must freeze the hull: ${JSON.stringify(medalRecovery)}`);
+  assert.ok(Math.abs(medalRecovery.freezeWorldDelta) < 0.001);
+  assert.ok(Math.abs(medalRecovery.freezeRaceDelta) < 0.001);
+  assert.ok(Math.abs(medalRecovery.freezeRecoveryDelta) < 0.001);
+  assert.equal(medalRecovery.sawSurfaceRecovery, true,
+    'the third branch must retain ownership after touching water');
+  assert.equal(medalRecovery.handoffCount, 1,
+    'the third branch must hand navigation to the surface exactly once');
+  assert.equal(medalRecovery.warningFrames, 0,
+    `valid third-flight inertia must not flash an off-course banner: ${JSON.stringify(medalRecovery)}`);
+  assert.equal(medalRecovery.warningEvents, 0,
+    'a visually suppressed warning must not still emit warning haptics');
+  assert.ok(medalRecovery.maxVisibleRoutes <= 1);
+  assert.ok(medalRecovery.maxStep < 1.5,
+    `medal recovery must preserve continuous motion without teleporting: ${JSON.stringify(medalRecovery)}`);
+  assert.equal(medalRecovery.routePasses, 1);
+  assert.equal(medalRecovery.routeFails, 0);
+  assert.equal(medalRecovery.finalArmed, false,
+    'third-flight recovery must never borrow the Final free-route exemption');
+
+  const route45 = await page.evaluate(() => window.__harness.route45ContinuousCase());
+  assert.equal(route45.phase, 'racing', `the fourth-to-fifth journey must remain live: ${JSON.stringify(route45)}`);
+  assert.equal(route45.flightsCleared, 5, `both gates must be earned without restaging: ${JSON.stringify(route45)}`);
+  assert.equal(route45.routePasses, 2);
+  assert.equal(route45.routeFails, 0);
+  assert.equal(route45.sawRouteFourPassed, true);
+  assert.equal(route45.sawRouteFourSurfaceRecovery, true,
+    'flight four must really land before the fifth-flight preparation window');
+  assert.equal(route45.sawRouteFourHandoff, true,
+    'the fifth-flight cue may not skip the authored recovery ownership');
+  assert.equal(route45.sawBankCue, true, 'the green line must expose drift preparation before flight five');
+  assert.equal(route45.sawLaunchCue, true, 'the same line must hand emphasis to launch after a real bank');
+  assert.ok(route45.cueLeadSeconds >= 1.2,
+    `route guidance needs a human reaction window before launch: ${JSON.stringify(route45)}`);
+  assert.ok(route45.routeFiveChargeEdges >= 1,
+    `flight five must be earned through a real drift release: ${JSON.stringify(route45)}`);
+  assert.ok(route45.airBrakeLatencySeconds >= 0 && route45.airBrakeLatencySeconds <= 0.35,
+    `air brake must engage promptly after the real fifth launch: ${JSON.stringify(route45)}`);
+  assert.equal(route45.warningFrames, 0);
+  assert.ok(route45.maxVisibleRoutes <= 1);
+  assert.ok(route45.maxStep < 1.5, `continuous route four-to-five motion may not teleport: ${JSON.stringify(route45)}`);
+  assert.equal(route45.finalArmed, false, 'flight-five guidance must not borrow Final state');
+
   // Seventh-flight certification changes the objective atomically: the
   // authored recovery still plays, then the green route becomes optional and
   // only the visible gold portal can finish the run.
@@ -779,6 +835,38 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.ok(state.flightFxDeflection > 0.12, `air-brake must visibly deform the airflow: ${state.flightFxDeflection}`);
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
+
+  await page.evaluate(() => window.__harness.scenario('flight-route5-prepare'));
+  let routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.actionCue, 'bank');
+  assert.equal(routeGuidance.actionRouteIndex, 4);
+  assert.equal(routeGuidance.actionDirection, 'none');
+  assert.equal(routeGuidance.actionMarkerCount, 3,
+    'the fifth-flight approach must expose three wave-following drift chevrons');
+  assert.ok(routeGuidance.actionTargetU < 0.616,
+    `drift guidance must appear before the launch window: ${JSON.stringify(routeGuidance)}`);
+
+  await page.evaluate(() => window.__harness.scenario('flight-route5-launch'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.actionCue, 'launch');
+  assert.equal(routeGuidance.actionRouteIndex, 4);
+  assert.equal(routeGuidance.actionMarkerCount, 2,
+    'a stored charge must transfer emphasis to the two cyan launch beats');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route5-turn'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.actionCue, 'turn');
+  assert.equal(routeGuidance.actionDirection, 'right');
+  assert.equal(routeGuidance.actionMarkerCount, 3,
+    'the hardest bend must retain three supported marine chevrons');
+  assert.equal(routeGuidance.visibleRouteCount, 1,
+    'route action markers must not manufacture a second flight branch');
+  const routeFiveWarning = await page.locator('.hud-turn-warning').textContent() ?? '';
+  assert.match(routeFiveWarning, /急右航道/);
+  assert.match(routeFiveWarning, /SHIFT/);
+  assert.match(routeFiveWarning, /→/);
+  assert.doesNotMatch(routeFiveWarning, /A\s*\/\s*D/,
+    'the right-turn combo must not ask players to translate a generic A/D label');
 
   await page.evaluate(() => window.__harness.scenario('overtake'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -1410,6 +1498,37 @@ async function verifyMobileControls(page) {
     assert.ok(touchActions.controls[action].faceCenterX < touchActions.width * 0.44,
       `${action} must remain in the left-thumb steering zone: ${JSON.stringify(touchActions.controls[action])}`);
   }
+
+  await page.evaluate(() => {
+    window.__harness.scenario('flight-route5-turn');
+    window.__gamepadFixture.clearVibrations();
+  });
+  const mobileRouteGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(mobileRouteGuidance.actionCue, 'turn');
+  assert.equal(mobileRouteGuidance.actionDirection, 'right');
+  assert.equal(await page.locator('.mobile-controls').evaluate((element) =>
+    element.classList.contains('route-action-turn') && element.classList.contains('route-turn-right')), true,
+  'the fifth-flight bend must pair air brake with the fixed right steering zone');
+  assert.equal(await page.locator('.hud-turn-warning').isVisible(), false,
+    'phone guidance must stay in-world and on the controls instead of adding a text card');
+  const routeTurnActions = await readMobileControlGeometry(page);
+  await page.locator('.mobile-controls').evaluate((element) => {
+    element.classList.remove('route-action-turn', 'route-turn-right');
+  });
+  const routeNeutralActions = await readMobileControlGeometry(page);
+  await page.locator('.mobile-controls').evaluate((element) => {
+    element.classList.add('route-action-turn', 'route-turn-right');
+  });
+  for (const action of ['drift', 'flight', 'left', 'right']) {
+    for (const edge of ['left', 'right', 'top', 'bottom']) {
+      assert.ok(Math.abs(routeTurnActions.controls[action][edge] - routeNeutralActions.controls[action][edge]) < 0.5,
+        `route guidance may not move the ${action} hit zone (${edge})`);
+    }
+  }
+  await page.evaluate(() => window.__harness.advance(0.1));
+  vibrationLog = await page.evaluate(() => window.__gamepadFixture.vibrations());
+  assert.equal(vibrationLog.length, 0,
+    `settled route markers must not emit any extra vibration: ${JSON.stringify(vibrationLog)}`);
 
   // Exercise the production path that failed in the shipped v7 build:
   // migrated novice -> first failure -> immediate continue -> real GO ->

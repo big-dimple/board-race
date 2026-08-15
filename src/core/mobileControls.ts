@@ -1,4 +1,4 @@
-import type { BoatInput } from '../contracts';
+import type { BoatInput, RouteTurnDirection } from '../contracts';
 import type { AbilityHudState } from './abilityTelemetry';
 import './mobileControls.css';
 
@@ -277,7 +277,12 @@ export class MobileControls {
     }
   }
 
-  setActionState(state: AbilityHudState, turnWarning = false): void {
+  setActionState(
+    state: AbilityHudState,
+    turnWarning = false,
+    routeAction: 'none' | 'bank' | 'launch' | 'turn' = 'none',
+    routeDirection: RouteTurnDirection | 'none' = 'none',
+  ): void {
     if (!this.root) return;
     const charges = Math.round(clamp(state.flightCharges, 0, 2));
     this.root.style.setProperty('--mobile-drift-progress', String(clamp(state.boostCharge, 0, 1)));
@@ -312,6 +317,11 @@ export class MobileControls {
     if (stock) stock.textContent = `x${charges}`;
     this.root.classList.toggle('in-flight', state.flightPhase !== 'surface');
     this.root.classList.toggle('turn-warning', turnWarning);
+    this.root.classList.toggle('route-action-bank', routeAction === 'bank');
+    this.root.classList.toggle('route-action-launch', routeAction === 'launch');
+    this.root.classList.toggle('route-action-turn', routeAction === 'turn');
+    this.root.classList.toggle('route-turn-left', routeAction === 'turn' && routeDirection === 'left');
+    this.root.classList.toggle('route-turn-right', routeAction === 'turn' && routeDirection === 'right');
     const leftLabel = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加' : '漂';
     const leftSubLabel = state.flightPhase !== 'surface' ? 'AIR BRAKE' : state.leftMode === 'boost' ? 'BOOST' : 'DRIFT';
     if (this.driftLabel) this.driftLabel.textContent = leftLabel;

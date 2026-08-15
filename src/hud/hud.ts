@@ -152,7 +152,12 @@ export class HUD {
   private readonly battleStreak: HTMLDivElement;
   private battleTimer = 0;
   private readonly turnWarning: HTMLDivElement;
+  private readonly turnWarningMark: HTMLDivElement;
+  private readonly turnWarningTitle: HTMLDivElement;
   private readonly turnWarningDetail: HTMLDivElement;
+  private readonly turnWarningDriftKey: HTMLSpanElement;
+  private readonly turnWarningSteerKey: HTMLSpanElement;
+  private readonly turnWarningAction: HTMLSpanElement;
   private turnWarningTimer = 0;
   private readonly coachEl: HTMLDivElement;
   private readonly coachSpotlight: HTMLDivElement;
@@ -425,10 +430,14 @@ export class HUD {
     this.pcPrimerClose.addEventListener('click', onPcPrimerDismiss);
     this.pcPrimerEl.appendChild(this.pcPrimerClose);
     this.turnWarning = h('div', 'hud-turn-warning', this.root);
-    h('div', 'hud-turn-warning-mark hud-inked', this.turnWarning, '!');
+    this.turnWarningMark = h('div', 'hud-turn-warning-mark hud-inked', this.turnWarning, '!');
     const turnCopy = h('div', 'hud-turn-warning-copy', this.turnWarning);
-    h('div', 'hud-turn-warning-title hud-inked', turnCopy, '急弯逼近');
-    this.turnWarningDetail = h('div', 'hud-turn-warning-detail', turnCopy, '按住 SHIFT 空刹 · A / D 转向');
+    this.turnWarningTitle = h('div', 'hud-turn-warning-title hud-inked', turnCopy, '急弯逼近');
+    this.turnWarningDetail = h('div', 'hud-turn-warning-detail', turnCopy);
+    this.turnWarningDriftKey = h('span', 'hud-turn-key', this.turnWarningDetail, 'SHIFT') as unknown as HTMLSpanElement;
+    h('span', 'hud-turn-plus', this.turnWarningDetail, '+');
+    this.turnWarningSteerKey = h('span', 'hud-turn-key', this.turnWarningDetail, 'A / D') as unknown as HTMLSpanElement;
+    this.turnWarningAction = h('span', 'hud-turn-action', this.turnWarningDetail, '空刹转向') as unknown as HTMLSpanElement;
     this.wrongWayEl = h('div', 'hud-wrongway', this.root, '方向反了 · 掉头');
     this.finalTargetEl = h('div', 'hud-final-target', this.root);
     this.finalTargetEl.setAttribute('aria-hidden', 'true');
@@ -780,6 +789,10 @@ export class HUD {
       this.powerPanel.classList.remove('flight-alert');
     }
 
+    const routeGuidance = this.course.guidanceStatus();
+    const routeFiveTurn = routeGuidance.actionCue === 'turn' && routeGuidance.actionRouteIndex === 4 &&
+      routeGuidance.actionDirection === 'right';
+    this.syncTurnWarningCopy(routeFiveTurn);
     if (race.phase === 'racing' && st.flightRouteState === 'active' && this.course.flightTurnWarning(player.id)) {
       this.turnWarningTimer = 1.45;
     } else if (st.flightRouteState !== 'active' || st.flightPhase === 'surface') {
@@ -1250,7 +1263,25 @@ export class HUD {
         : { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
     this.controlDevice = device;
     this.controlLabels = controls;
-    this.turnWarningDetail.textContent = `按住 ${controls.drift} 空刹 · ${controls.steer} 转向`;
+    this.syncTurnWarningCopy(false);
+  }
+
+  private syncTurnWarningCopy(routeFiveTurn: boolean): void {
+    const mark = routeFiveTurn ? '›››' : '!';
+    const title = routeFiveTurn ? '急右航道' : '急弯逼近';
+    const steer = routeFiveTurn
+      ? this.controlDevice === 'keyboard' ? '→'
+        : this.controlDevice === 'gamepad' ? '摇杆 →' : '右转'
+      : this.controlLabels.steer;
+    const action = routeFiveTurn ? '空刹右转' : '空刹转向';
+    if (this.turnWarningMark.textContent !== mark) this.turnWarningMark.textContent = mark;
+    if (this.turnWarningTitle.textContent !== title) this.turnWarningTitle.textContent = title;
+    if (this.turnWarningDriftKey.textContent !== this.controlLabels.drift) {
+      this.turnWarningDriftKey.textContent = this.controlLabels.drift;
+    }
+    if (this.turnWarningSteerKey.textContent !== steer) this.turnWarningSteerKey.textContent = steer;
+    if (this.turnWarningAction.textContent !== action) this.turnWarningAction.textContent = action;
+    this.turnWarning.classList.toggle('route-turn-right', routeFiveTurn);
   }
 
   clearBattle(): void {

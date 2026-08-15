@@ -254,6 +254,7 @@ let harnessLastBattleKind = 'none';
 let harnessLastBattleCount = 0;
 let harnessLastBattleStreak = 0;
 let harnessCheckpointEvents = 0;
+let harnessCourseWarningEvents = 0;
 const harnessRoutePasses = new Array<number>(boats.length).fill(0);
 const harnessRouteFails = new Array<number>(boats.length).fill(0);
 const harnessPrevRouteStates: FlightRouteState[] = boats.map((boat) => boat.state.flightRouteState);
@@ -279,7 +280,10 @@ const race = new Race(course, boats, {
     if (r.isPlayer) audio.finishSting();
   },
   courseWarning: (r, warning) => {
-    if (r.isPlayer && warning !== 'none') haptics.cue('warning');
+    if (r.isPlayer && warning !== 'none') {
+      if (HARNESS) harnessCourseWarningEvents++;
+      haptics.cue('warning');
+    }
   },
   battle: (event) => {
     if (HARNESS) {
@@ -673,6 +677,7 @@ function resetRace(): void {
   harnessLastBattleCount = 0;
   harnessLastBattleStreak = 0;
   harnessCheckpointEvents = 0;
+  harnessCourseWarningEvents = 0;
   for (let i = 0; i < boats.length; i++) {
     harnessRoutePasses[i] = 0;
     harnessRouteFails[i] = 0;
@@ -1075,7 +1080,13 @@ function step(dt: number, _t: number): void {
   const ps = boats[0].state;
   tower.update(dt, race, ps.flightPhase !== 'surface');
   hud.update(dt, race, boats[0], boats);
-  mobileInput.setActionState(deriveAbilityHudState(ps, course.finalStationArmed()), course.flightTurnWarning(boats[0].id));
+  const routeGuidance = course.guidanceStatus();
+  mobileInput.setActionState(
+    deriveAbilityHudState(ps, course.finalStationArmed()),
+    course.flightTurnWarning(boats[0].id),
+    routeGuidance.actionCue,
+    routeGuidance.actionDirection,
+  );
   // Position the education slot only after the objective block, race tower,
   // near-boat meter, and contextual thumb controls have their final geometry
   // for this frame. Measuring earlier leaves the card one layout frame stale.
@@ -1252,6 +1263,8 @@ interface Harness {
   passFlight(routeCursor: number, initialCharges?: number, forceAirBrake?: boolean): void;
   passExtendedFlight(routeCursor: number, forceAirBrake?: boolean): void;
   flightRecoveryCase(routeCursor: number): Record<string, number | string | boolean>;
+  medalRecoveryCase(): Record<string, number | string | boolean>;
+  route45ContinuousCase(): Record<string, number | string | boolean>;
   finalApproachCase(): Record<string, unknown>;
   surfaceRouteEnforcementCase(): Record<string, unknown>;
   flightBudgetCase(): Record<string, unknown>;
@@ -1542,6 +1555,251 @@ function harnessFlightRecoveryCase(routeCursor: number): Record<string, number |
   } finally {
     harnessForceAirBrake = false;
     harnessSuppressAirborneFlightTrigger = false;
+  }
+}
+
+function harnessMedalRecoveryCase(): Record<string, number | string | boolean> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = true;
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  beginHarnessRouteFlight(2, 1);
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+  const dt = 1 / 60;
+  try {
+    advanceUntil(() => race.phase === 'medal' || race.phase === 'defeated', 14);
+    const passState = boats[0].state;
+    const passedAtMedal = race.phase === 'medal' && passState.flightRouteState === 'passed';
+    const frozenX = passState.position.x;
+    const frozenY = passState.position.y;
+    const frozenZ = passState.position.z;
+    const frozenWorldTime = worldTime;
+    const frozenRaceTime = race.raceTime;
+    const recoveryAtMedal = course.guidanceStatus().recoveryElapsed;
+    const warningEventsAtMedal = harnessCourseWarningEvents;
+    loop.advance(MEDAL_CEREMONY_S - 0.1);
+    const freezePositionDelta = Math.hypot(
+      boats[0].state.position.x - frozenX,
+      boats[0].state.position.y - frozenY,
+      boats[0].state.position.z - frozenZ,
+    );
+    const freezeWorldDelta = worldTime - frozenWorldTime;
+    const freezeRaceDelta = race.raceTime - frozenRaceTime;
+    const freezeRecoveryDelta = course.guidanceStatus().recoveryElapsed - recoveryAtMedal;
+    loop.advance(0.15);
+    advanceUntil(() => race.phase === 'racing', 5);
+
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+    setHarnessInput({ throttle: 1, steer: 0 });
+    let frames = 0;
+    let warningFrames = 0;
+    let maxVisibleRoutes = 0;
+    let handoffCount = 0;
+    let handoffDebug = 'none';
+    let handoffSurfaceDistance = -1;
+    let lastRecovery = course.guidanceStatus().recoveryActive > 0;
+    let sawSurfaceRecovery = false;
+    let maxStep = 0;
+    let previousX = boats[0].state.position.x;
+    let previousZ = boats[0].state.position.z;
+    const surfaceSample: CourseSample = {
+      u: 0,
+      point: new THREE.Vector3(),
+      tangent: new THREE.Vector3(),
+      distance: 0,
+      routeId: 'surface',
+    };
+    while (frames < 36 && race.phase === 'racing') {
+      loop.advance(dt);
+      frames++;
+      const state = boats[0].state;
+      const guidance = course.guidanceStatus();
+      warningFrames += race.racers[0].courseWarning === 'none' ? 0 : 1;
+      maxVisibleRoutes = Math.max(maxVisibleRoutes, guidance.visibleRouteCount);
+      sawSurfaceRecovery ||= state.flightRouteState === 'passed' && state.flightPhase === 'surface';
+      const recovery = guidance.recoveryActive > 0;
+      if (lastRecovery && !recovery) {
+        handoffCount++;
+        handoffDebug = course.flightDebugStatus(0);
+        course.sample(state.position, surfaceSample, 'surface');
+        handoffSurfaceDistance = surfaceSample.distance;
+      }
+      lastRecovery = recovery;
+      maxStep = Math.max(maxStep, Math.hypot(state.position.x - previousX, state.position.z - previousZ));
+      previousX = state.position.x;
+      previousZ = state.position.z;
+    }
+    setHarnessInput({ throttle: 1, steer: -1 });
+    let stableSurfaceFrames = 0;
+    let correctionFrames = 0;
+    let releasedToAi = false;
+    while (frames < 60 * 8 && race.phase === 'racing' && stableSurfaceFrames < 120) {
+      loop.advance(dt);
+      frames++;
+      correctionFrames++;
+      const state = boats[0].state;
+      const guidance = course.guidanceStatus();
+      warningFrames += race.racers[0].courseWarning === 'none' ? 0 : 1;
+      maxVisibleRoutes = Math.max(maxVisibleRoutes, guidance.visibleRouteCount);
+      sawSurfaceRecovery ||= state.flightRouteState === 'passed' && state.flightPhase === 'surface';
+      const recovery = guidance.recoveryActive > 0;
+      if (lastRecovery && !recovery) {
+        handoffCount++;
+        handoffDebug = course.flightDebugStatus(0);
+        course.sample(state.position, surfaceSample, 'surface');
+        handoffSurfaceDistance = surfaceSample.distance;
+      }
+      lastRecovery = recovery;
+      maxStep = Math.max(maxStep, Math.hypot(state.position.x - previousX, state.position.z - previousZ));
+      previousX = state.position.x;
+      previousZ = state.position.z;
+      if (!releasedToAi && correctionFrames >= 72) {
+        releasedToAi = true;
+        setHarnessInput(null);
+      }
+      stableSurfaceFrames = releasedToAi && state.flightRouteState === 'idle' && state.flightPhase === 'surface'
+        ? stableSurfaceFrames + 1 : 0;
+    }
+    const state = boats[0].state;
+    return {
+      phaseAtPass: passedAtMedal ? 'medal' : 'invalid',
+      phase: race.phase,
+      routeState: state.flightRouteState,
+      flightPhase: state.flightPhase,
+      flightsCleared: state.flightsCleared,
+      freezePositionDelta,
+      freezeWorldDelta,
+      freezeRaceDelta,
+      freezeRecoveryDelta,
+      warningFrames,
+      warningEvents: harnessCourseWarningEvents - warningEventsAtMedal,
+      maxVisibleRoutes,
+      handoffCount,
+      handoffDebug,
+      handoffSurfaceDistance,
+      sawSurfaceRecovery,
+      maxStep,
+      routePasses: harnessRoutePasses[0],
+      routeFails: harnessRouteFails[0],
+      finalArmed: course.finalStationArmed(),
+    };
+  } finally {
+    setHarnessInput(null);
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+    harnessEndlessMode = previousEndlessMode;
+  }
+}
+
+function harnessRoute45ContinuousCase(): Record<string, number | string | boolean> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = true;
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+
+  // One staging operation before flight four. From this point through the
+  // fifth gate the case uses only real fixed-step input, drift, launch,
+  // descent and route handoff paths.
+  course.resetFlightChallenge();
+  placePack(course.flightRoutes[3].launchFromU - 0.006);
+  for (const boat of boats) {
+    boat.state.flightsCleared = 3;
+    boat.state.flightRouteCursor = 3;
+    boat.state.flightRouteIndex = -1;
+    boat.state.flightRouteState = 'idle';
+  }
+  boats[0].state.flightCharges = 1;
+  setHarnessInput(null);
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+
+  const dt = 1 / 60;
+  let elapsed = 0;
+  let firstActionCueAt = -1;
+  let routeFiveLaunchAt = -1;
+  let airBrakeReadyAt = -1;
+  let sawBankCue = false;
+  let sawLaunchCue = false;
+  let sawRouteFourPassed = false;
+  let sawRouteFourSurfaceRecovery = false;
+  let sawRouteFourHandoff = false;
+  let routeFiveChargeEdges = 0;
+  let warningFrames = 0;
+  let maxVisibleRoutes = 0;
+  let maxStep = 0;
+  let previousX = boats[0].state.position.x;
+  let previousZ = boats[0].state.position.z;
+  let previousCharges = boats[0].state.flightCharges;
+  let previousPhase = boats[0].state.flightPhase;
+  let previousRouteState = boats[0].state.flightRouteState;
+
+  try {
+    while (elapsed < 30 && race.phase === 'racing' && boats[0].state.flightsCleared < 5) {
+      loop.advance(dt);
+      elapsed += dt;
+      const state = boats[0].state;
+      const guidance = course.guidanceStatus();
+      maxStep = Math.max(maxStep, Math.hypot(state.position.x - previousX, state.position.z - previousZ));
+      previousX = state.position.x;
+      previousZ = state.position.z;
+      maxVisibleRoutes = Math.max(maxVisibleRoutes, guidance.visibleRouteCount);
+      warningFrames += race.racers[0].courseWarning === 'none' ? 0 : 1;
+
+      if (state.flightsCleared >= 4) sawRouteFourPassed = true;
+      if (state.flightRouteCursor === 4 && state.flightRouteState === 'passed' && state.flightPhase === 'surface') {
+        sawRouteFourSurfaceRecovery = true;
+      }
+      if (state.flightRouteCursor === 4 && previousRouteState === 'passed' && state.flightRouteState === 'idle') {
+        sawRouteFourHandoff = true;
+      }
+      if (guidance.actionRouteIndex === 4 && (guidance.actionCue === 'bank' || guidance.actionCue === 'launch')) {
+        if (firstActionCueAt < 0) firstActionCueAt = elapsed;
+        sawBankCue ||= guidance.actionCue === 'bank';
+        sawLaunchCue ||= guidance.actionCue === 'launch';
+      }
+      if (state.flightRouteCursor === 4 && state.flightPhase === 'surface' &&
+          state.flightCharges > previousCharges) routeFiveChargeEdges++;
+      if (state.flightRouteCursor === 4 && previousPhase === 'surface' && state.flightPhase !== 'surface') {
+        routeFiveLaunchAt = elapsed;
+      }
+      if (routeFiveLaunchAt >= 0 && airBrakeReadyAt < 0 && state.flightAirBrake >= 0.7) {
+        airBrakeReadyAt = elapsed;
+      }
+
+      previousCharges = state.flightCharges;
+      previousPhase = state.flightPhase;
+      previousRouteState = state.flightRouteState;
+    }
+    const state = boats[0].state;
+    return {
+      phase: race.phase,
+      flightsCleared: state.flightsCleared,
+      routeState: state.flightRouteState,
+      routePasses: harnessRoutePasses[0],
+      routeFails: harnessRouteFails[0],
+      sawRouteFourPassed,
+      sawRouteFourSurfaceRecovery,
+      sawRouteFourHandoff,
+      sawBankCue,
+      sawLaunchCue,
+      cueLeadSeconds: firstActionCueAt >= 0 && routeFiveLaunchAt >= 0 ? routeFiveLaunchAt - firstActionCueAt : -1,
+      routeFiveChargeEdges,
+      airBrakeLatencySeconds: routeFiveLaunchAt >= 0 && airBrakeReadyAt >= 0 ? airBrakeReadyAt - routeFiveLaunchAt : -1,
+      warningFrames,
+      maxVisibleRoutes,
+      maxStep,
+      elapsed,
+      finalArmed: course.finalStationArmed(),
+    };
+  } finally {
+    setHarnessInput(null);
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+    harnessEndlessMode = previousEndlessMode;
   }
 }
 
@@ -2525,6 +2783,33 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 1, steer: -1, airBrake: true });
       loop.advance(0.24);
       break;
+    case 'flight-route4-approach':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(3);
+      loop.advance(0.42);
+      break;
+    case 'flight-route5-prepare':
+    case 'flight-route5-launch':
+      advanceUntil(() => race.phase === 'racing', 8);
+      course.resetFlightChallenge();
+      placePack(name === 'flight-route5-launch' ? 0.606 : 0.574);
+      for (const boat of boats) {
+        boat.state.flightsCleared = 4;
+        boat.state.flightRouteCursor = 4;
+        boat.state.flightRouteIndex = -1;
+        boat.state.flightRouteState = 'idle';
+      }
+      boats[0].state.flightCharges = name === 'flight-route5-launch' ? 1 : 0;
+      setHarnessInput({ throttle: 0 });
+      loop.advance(1.55);
+      break;
+    case 'flight-route5-turn':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(4);
+      advanceUntil(() => course.guidanceStatus().actionCue === 'turn', 3);
+      setHarnessInput({ throttle: 1, steer: 1, airBrake: true });
+      loop.advance(0.16);
+      break;
     case 'flight-combo':
       advanceUntil(() => race.phase === 'racing', 8);
       earnHarnessFlight(true);
@@ -2768,6 +3053,8 @@ if (HARNESS) {
     passFlight: passHarnessFlight,
     passExtendedFlight: passHarnessExtendedFlight,
     flightRecoveryCase: harnessFlightRecoveryCase,
+    medalRecoveryCase: harnessMedalRecoveryCase,
+    route45ContinuousCase: harnessRoute45ContinuousCase,
     finalApproachCase: harnessFinalApproachCase,
     surfaceRouteEnforcementCase: harnessSurfaceRouteEnforcementCase,
     flightBudgetCase,

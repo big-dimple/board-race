@@ -78,6 +78,31 @@ export interface FlightRouteNode {
   height: number;
 }
 
+export type RouteTurnDirection = 'left' | 'right';
+
+export interface FlightRouteNavigation {
+  /** Authored bend markers. Direction names the steering action, not screen space. */
+  turn?: {
+    fromU: number;
+    toU: number;
+    direction: RouteTurnDirection;
+  };
+  /** Optional surface preparation and launch markings before this branch. */
+  action?: {
+    bankFromU: number;
+    bankToU: number;
+    launchFromU: number;
+    launchToU: number;
+  };
+  /** Keep the scoring curve intact, but author a tangent-matched tail after its final gate. */
+  postGateRecovery?: {
+    handoffMarginM: number;
+    maxDurationS: number;
+  };
+  /** World-space locator used when the branch is hidden by swell or outside the camera. */
+  locatorU?: number;
+}
+
 export interface FlightRouteDefinition {
   id: FlightCourseRouteId;
   index: number;
@@ -95,6 +120,7 @@ export interface FlightRouteDefinition {
   launchToU: number;
   turnWarningFromU: number;
   turnWarningToU: number;
+  navigation?: FlightRouteNavigation;
 }
 
 /**
@@ -295,6 +321,13 @@ export interface CourseGuidanceStatus {
   finalDistance: number;
   /** Deterministic count of active Final targets (always zero or one). */
   finalGuideCount: number;
+  /** Current route-authored action; this never changes input or physics. */
+  actionCue: 'none' | 'bank' | 'launch' | 'turn';
+  actionRouteIndex: number;
+  actionDirection: RouteTurnDirection | 'none';
+  actionTargetU: number;
+  /** World markers currently carrying the cue. */
+  actionMarkerCount: number;
 }
 
 /** What the HUD and camera are allowed to know about the race. */
