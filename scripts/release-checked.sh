@@ -38,4 +38,24 @@ fi
 
 args=(--repo "$repo_root" --commit-message "$commit_message")
 if [[ -n "$mode" ]]; then args+=("$mode"); fi
-exec "$publisher" "${args[@]}"
+
+set +e
+"$publisher" "${args[@]}"
+publish_status=$?
+set -e
+
+if [[ $publish_status -eq 0 ]]; then exit 0; fi
+if [[ -z "$mode" ]]; then exit "$publish_status"; fi
+
+if [[ -n "$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)" ]]; then
+  exit "$publish_status"
+fi
+
+local_sha="$(git -C "$repo_root" rev-parse HEAD)"
+remote_sha="$(git -C "$repo_root" ls-remote origin refs/heads/main | awk '{print $1}')"
+if [[ -z "$remote_sha" || "$local_sha" != "$remote_sha" ]]; then
+  exit "$publish_status"
+fi
+
+echo "checked publisher metadata verification failed after push; trying public Pages fallback" >&2
+node "$repo_root/scripts/verify-pages-fallback.mjs" "$local_sha"

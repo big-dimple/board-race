@@ -286,6 +286,11 @@ commit、push、remote SHA 与 Pages live marker 校验。没有发现新事实�
 异常键，以及本仓库仍在运行的人工 Vite 服务。它已经是发布合同的第一道 gate；只有
 它发现新问题时才进入交互式 `neat-freak` 裁决。
 
+若 GitHub 匿名 API 配额耗尽，checked publisher 可能在成功 push 后返回 metadata
+错误。`release:checked` 只在工作区已干净且 local SHA 等于 `origin/main` 时启用公开
+Pages fallback；fallback 还必须同时看到 Actions HTML 对该 SHA 标记 success，且线上
+canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败，禁止只看 HTTP 200。
+
 飞行回收的最低回归集：
 
 - `flightRecoveryCase(routeCursor)` 只允许在起飞前 staging 一次；穿门后逐帧跑到
