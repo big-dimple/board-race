@@ -7,6 +7,10 @@
   },
   "gates": [
     {
+      "name": "knowledge-workspace-closeout",
+      "argv": ["npm", "run", "verify:closeout"]
+    },
+    {
       "name": "build",
       "argv": ["npm", "run", "build"]
     },

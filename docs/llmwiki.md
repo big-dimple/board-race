@@ -276,6 +276,16 @@ npm run verify:release
 systems、endurance 和 performance。物理、生命周期、音频、记录或渲染有改动时，
 必须更新对应 harness 合同，不能为了通过而放宽阈值。
 
+暂存且只暂存已审阅文件后，使用
+`npm run release:checked -- "type: message"`。仓库脚本会定位
+`github-operator` 的 checked publisher，并一次完成确定性洁癖检查、全部 release gates、
+commit、push、remote SHA 与 Pages live marker 校验。没有发现新事实、冲突或清理候选时，
+不得再把这套固定流程拆成多轮大模型交互。
+
+`npm run verify:closeout` 会拒绝未暂存 / 未跟踪残留、备份类文件、tracked `.env` 中的
+异常键，以及本仓库仍在运行的人工 Vite 服务。它已经是发布合同的第一道 gate；只有
+它发现新问题时才进入交互式 `neat-freak` 裁决。
+
 飞行回收的最低回归集：
 
 - `flightRecoveryCase(routeCursor)` 只允许在起飞前 staging 一次；穿门后逐帧跑到

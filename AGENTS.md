@@ -9,6 +9,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - `npm run build` type-checks and builds production assets.
 - `npm run verify:release` runs gameplay, mobile, collision, audio, systems,
   endurance, and performance contracts.
+- After staging only reviewed files, `npm run release:checked -- "type: message"`
+  runs deterministic knowledge/workspace closeout, all release gates, commit,
+  push, remote-SHA verification, and Pages verification as one operation.
 
 ## Stack And Layout
 
@@ -40,8 +43,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   explicit alternate port only for a deliberate concurrent session, and stop
   the exact recorded process before handoff.
 - GitHub mutation or release work must use the available GitHub operations
-  skill. Knowledge/workspace closeout must use `neat-freak`; neither is implied
-  by a local implementation request.
+  skill. The checked release script includes the repository's deterministic
+  neat-freak closeout gate; run extra interactive closeout only when new facts,
+  conflicts, or cleanup candidates are discovered.
 
 ## Current State
 
