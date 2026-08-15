@@ -65,11 +65,18 @@ automatically; players steer, drift/air-brake, and trigger flight.
   event. Collision and landing haptics queue behind drift/air-brake control
   pulses and route only to the most recently active device.
 - A passed flight keeps its authored branch through descent and landing until
-  recovery handoff. That transition may rebase route sampling, but it must never
-  snap the boat, clear horizontal momentum, or preload a surface warning.
+  recovery handoff. At first water contact the next branch may become the sole
+  visual guide while the passed branch still owns validation. That transition
+  must never snap the boat, clear horizontal momentum, preload a surface warning,
+  or show more than one flight branch.
+- Flight branches use one translucent cyan virtual-ribbon language. Authored
+  sharp bends carry lane-width warm triple chevrons inside that ribbon; flight
+  five's buoy signs are secondary and do not create another target.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.
+  Shift/mobile brake then targets 18m/s with air-brake turn authority and cannot
+  drift, boost, charge, spend a cell, reverse, or emit a new feedback cue.
 - Desktop READY uses a frozen three-column driver stage from 1366x768 upward,
   six stable roster destinations, a cancellable clip reveal, and a DPR-backed
   radar. The accepted coarse-pointer mobile portrait composition stays separate.
@@ -77,8 +84,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG
   capture composites that transparent celebration layer instead of a dark
-  result card; deterministic Final screenshots cover impact, hero, and settled
-  beats.
+  result card. `神秘资料片` is the default primary action; screenshot and continue
+  are compact utilities, and mobile controls stay hidden throughout finale and
+  dossier. Deterministic Final screenshots cover impact, hero, and settled beats.
 - Expansion images are replaceable owner-supplied WebP concept assets under
   `src/assets/expansions/`; prompts and semantic filenames are the durable contract.
 - The dossier pages are concept previews; no expansion gameplay exists yet.

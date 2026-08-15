@@ -75,6 +75,10 @@ const TUNING = {
   airBrakeAttack: 0.08,
   airBrakeRelease: 0.16,
 
+  // -- Final return brake (same turn authority, lower surface target) --
+  returnBrakeTargetSpeed: 18,
+  returnBrakeDecel: 28,
+
   // -- earned anti-grav flight --
   flightSpool: 0.12,
   flightAscend: 0.48,
@@ -813,7 +817,11 @@ export class Boat implements IBoat {
     const thr = clamp(input.throttle, -1, 1);
     const steer = clamp(input.steer, -1, 1);
     const flightWasActive = st.flightPhase !== 'surface';
-    const airBrakeTarget = flightWasActive && input.airBrake ? 1 : 0;
+    // Input adapters only send a surface air-brake after Final has armed. It
+    // deliberately reuses the proven flight-brake envelope without becoming a
+    // drift, charge source, boost payout, or reverse gear.
+    const surfaceReturnBrake = !flightWasActive && input.airBrake;
+    const airBrakeTarget = input.airBrake && (flightWasActive || surfaceReturnBrake) ? 1 : 0;
     const airBrakeTau = airBrakeTarget > this.airBrakeFx ? TUNING.airBrakeAttack : TUNING.airBrakeRelease;
     this.airBrakeFx += (airBrakeTarget - this.airBrakeFx) * (1 - Math.exp(-dt / airBrakeTau));
     st.flightDenied = false;
@@ -824,7 +832,7 @@ export class Boat implements IBoat {
     // boost timer (release payout from a previous frame)
     if (this.boostTimer > 0) this.boostTimer = Math.max(0, this.boostTimer - dt);
     let boosting = this.boostTimer > 0;
-    const surfaceBoost = boosting && !flightWasActive;
+    const surfaceBoost = boosting && !flightWasActive && !surfaceReturnBrake;
     const taperRef = TUNING.topSpeed * TUNING.taperHeadroom * (surfaceBoost ? TUNING.boostTopMul : 1);
     const accel = TUNING.accel * this.handling.acceleration * (surfaceBoost ? TUNING.boostAccelMul : 1);
 
@@ -856,6 +864,14 @@ export class Boat implements IBoat {
           -maxDecel,
           TUNING.flightDriveAccel,
         );
+      } else if (surfaceReturnBrake) {
+        const dragCompensation = TUNING.dragQuad * vF * Math.abs(vF);
+        const maxDecel = TUNING.returnBrakeDecel * Math.max(0.5, this.airBrakeFx);
+        aF = clamp(
+          (TUNING.returnBrakeTargetSpeed - vF) * TUNING.flightDriveGain + dragCompensation,
+          -maxDecel,
+          0,
+        );
       } else if (thr >= 0) {
         const driveMul = st.flightPenaltyRemaining > 0 ? TUNING.flightMissDriveMul : 1;
         aF = thr * accel * driveMul * Math.max(0, 1 - vF / taperRef);
@@ -868,6 +884,7 @@ export class Boat implements IBoat {
       if (input.drift) aF -= TUNING.driftScrub * vF;
       vF += aF * dt;
       if (flightWasActive) vF = Math.min(vF, TUNING.flightHardCap);
+      if (surfaceReturnBrake) vF = Math.max(0, vF);
 
       // lateral hydrodynamic grip — cut while drifting (powerslide)
       const brakeGrip = TUNING.lateralGrip + (TUNING.airBrakeGrip - TUNING.lateralGrip) * this.airBrakeFx;

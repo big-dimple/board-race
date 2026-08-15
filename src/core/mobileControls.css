@@ -298,6 +298,14 @@
 }
 .mobile-controls[data-flight-mode='finish'] .mobile-action-zones button:last-child { color:#ffcf4a; }
 .mobile-controls[data-flight-mode='finish'] .mobile-action-zones button:last-child span::after { --rim-progress:1; opacity:1; }
+.mobile-controls[data-left-mode='finish'] .mobile-action-zones button:first-child { color:#ffcf4a; }
+.mobile-controls[data-left-mode='finish'] .mobile-action-zones button:first-child span {
+  border-color:#ffcf4a;
+  box-shadow:inset 0 0 0 5px rgba(20,18,43,.5),0 0 18px rgba(255,207,74,.3);
+}
+.mobile-controls[data-flight-mode='finish'] [data-mobile-action='flight'][aria-disabled='true'] {
+  opacity:.62;
+}
 .mobile-controls.flight-extension-ready .mobile-action-zones button:last-child span {
   border-color: #f8ff7a;
   background: color-mix(in srgb, #55e7ff 12%, rgba(10, 16, 42, 0.82));

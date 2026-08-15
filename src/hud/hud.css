@@ -232,6 +232,7 @@
 .hud-driver-rail-right { right: 22px; color: var(--flight); --rail-progress: var(--driver-flight); }
 .hud-driver-power[data-left='boost'] .hud-driver-rail-left { --rail-progress: var(--driver-boost); }
 .hud-driver-power[data-left='airbrake'] .hud-driver-rail-left { --rail-progress: var(--driver-airbrake); color: var(--warn); }
+.hud-driver-power[data-left='finish'] .hud-driver-rail-left { --rail-progress: var(--driver-airbrake); color: var(--warn); }
 .hud-driver-power[data-urgency='soon'] .hud-driver-rail-right { color: var(--warn); }
 .hud-driver-power[data-urgency='critical'] .hud-driver-rail-right { color: #ff6b9a; }
 .hud-driver-power[data-flight='extend'] .hud-driver-rail-right { color: var(--warn); }
@@ -840,7 +841,8 @@
 }
 .hud-turn-plus { color: rgba(244, 254, 255, 0.6); font: 900 11px/1 system-ui, sans-serif; }
 .hud-turn-action { margin-left: 3px; white-space: nowrap; }
-.hud-turn-warning.route-turn-right .hud-turn-warning-mark {
+.hud-turn-warning.route-turn-right .hud-turn-warning-mark,
+.hud-turn-warning.route-turn-left .hud-turn-warning-mark {
   width: 72px;
   color: var(--warn);
   font-size: 25px;

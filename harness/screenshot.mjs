@@ -665,6 +665,10 @@ async function verifyFlightContract(page) {
   assert.ok(Math.abs(medalRecovery.freezeRecoveryDelta) < 0.001);
   assert.equal(medalRecovery.sawSurfaceRecovery, true,
     'the third branch must retain ownership after touching water');
+  assert.equal(medalRecovery.sawRouteFourPreview, true,
+    'first water contact after flight three must hand the single visual guide to flight four');
+  assert.ok(medalRecovery.routeFourPreviewLeadSeconds >= 1.8,
+    `flight four needs a conservative pre-launch read window through the swell: ${JSON.stringify(medalRecovery)}`);
   assert.equal(medalRecovery.handoffCount, 1,
     'the third branch must hand navigation to the surface exactly once');
   assert.equal(medalRecovery.warningFrames, 0,
@@ -725,6 +729,23 @@ async function verifyFlightContract(page) {
   assert.equal(finalApproach.finalGuideCount, 1, 'Final must expose one authoritative target');
   assert.equal(finalApproach.visibleRouteCount, 0, 'flight seven must not remain as a stale branch after handoff');
   assert.equal(finalApproach.activeRouteIndex, -1);
+  assert.ok(finalApproach.maxBrakeEnvelope >= 0.9,
+    `Final Shift must engage the return-brake envelope: ${JSON.stringify(finalApproach)}`);
+  assert.ok(finalApproach.speedAfterBrake <= 20 && finalApproach.speedAfterBrake < finalApproach.speedBeforeBrake - 6,
+    `the return brake must settle near its 18m/s target: ${JSON.stringify(finalApproach)}`);
+  assert.ok(finalApproach.speedAfterBrakeRelease > finalApproach.speedAfterBrake + 4,
+    `releasing Final brake must restore automatic throttle: ${JSON.stringify(finalApproach)}`);
+  assert.ok(finalApproach.minBrakeSpeed >= 0, 'Final return braking must never select reverse');
+  assert.ok(finalApproach.brakeHeadingDelta >= 0.45,
+    `return braking must provide enough authority to recover around the portal: ${JSON.stringify(finalApproach)}`);
+  assert.equal(finalApproach.chargesAfterBrake, finalApproach.chargesBeforeBrake,
+    'Final braking must not earn or spend a flight cell');
+  assert.equal(finalApproach.boostChargeAfterBrake, finalApproach.boostChargeBeforeBrake,
+    'Final braking must not charge a drift payout');
+  assert.equal(finalApproach.driftingAfterBrake, false);
+  assert.equal(finalApproach.boostingAfterBrake, false);
+  assert.ok(finalApproach.brakeEnvelopeAfterRelease < 0.02,
+    'the return brake envelope must fully release back to automatic drive');
   assert.equal(finalApproach.outsidePhase, 'racing', 'passing outside a gold column is retryable, not terminal');
   assert.equal(finalApproach.outsideWarning, 'none');
   assert.equal(finalApproach.finishedPhase, 'finished', 'a reverse-side pass through the visible portal must finish');
@@ -836,8 +857,25 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightFxDeflection > 0.12, `air-brake must visibly deform the airflow: ${state.flightFxDeflection}`);
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
 
-  await page.evaluate(() => window.__harness.scenario('flight-route5-prepare'));
   let routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.actionCue, 'turn');
+  assert.equal(routeGuidance.actionRouteIndex, 1);
+  assert.equal(routeGuidance.actionDirection, 'left');
+  assert.equal(routeGuidance.actionMarkerCount, 3,
+    'the second-flight bend must use the same three-chevron route language');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route4-approach'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.actionCue, 'turn');
+  assert.equal(routeGuidance.actionRouteIndex, 3);
+  assert.equal(routeGuidance.actionDirection, 'left');
+  assert.equal(routeGuidance.actionMarkerCount, 3,
+    'the wave-obscured fourth-flight bend must announce itself on the flight ribbon');
+  assert.equal(routeGuidance.visibleRouteCount, 1,
+    'fourth-flight chevrons must remain part of the single player-owned branch');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route5-prepare'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
   assert.equal(routeGuidance.actionCue, 'bank');
   assert.equal(routeGuidance.actionRouteIndex, 4);
   assert.equal(routeGuidance.actionDirection, 'none');
@@ -1779,6 +1817,29 @@ async function verifyMobileControls(page) {
   await page.waitForTimeout(120);
   assert.equal(await page.locator('.mobile-orientation').isVisible(), false, 'rotating back must dismiss the blocker');
   assert.equal(await page.locator('[data-mobile-action="flight"]').isVisible(), true, 'landscape controls must recover after rotation');
+
+  const mobileFinal = await page.evaluate(() => window.__harness.finalApproachCase());
+  assert.ok(mobileFinal.maxBrakeEnvelope >= 0.9,
+    `the mobile Final path must exercise the same return brake: ${JSON.stringify(mobileFinal)}`);
+  await page.evaluate(() => window.__harness.advance(1 / 60));
+  const finalControls = await page.evaluate(() => {
+    const drift = document.querySelector('[data-mobile-action="drift"]');
+    const flight = document.querySelector('[data-mobile-action="flight"]');
+    const root = document.querySelector('.mobile-controls');
+    return {
+      drift:drift?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      driftLabel:drift?.getAttribute('aria-label') ?? '',
+      flight:flight?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      flightDisabled:flight?.getAttribute('aria-disabled') ?? '',
+      overlayHidden:root?.classList.contains('overlay-hidden') ?? false,
+    };
+  });
+  assert.match(finalControls.drift, /刹.*BRAKE/);
+  assert.equal(finalControls.driftLabel, '回港刹车');
+  assert.match(finalControls.flight, /终.*FINAL/);
+  assert.equal(finalControls.flightDisabled, 'true', 'Final flight control must be visibly and semantically inert');
+  assert.equal(finalControls.overlayHidden, true,
+    'the frozen mobile finale must hide the entire gameplay control layer');
   console.log('mobile controls contract: OK');
 }
 
@@ -2587,8 +2648,8 @@ async function main() {
         assert.equal(await gallery.evaluate((element) => element.classList.contains('on')), false,
           'Escape must return to the frozen finale');
         if (mobile) {
-          assert.equal(await mobileControls.evaluate((element) => element.classList.contains('overlay-hidden')), false,
-            'returning to the finale must release the dossier control-layer override');
+          assert.equal(await mobileControls.evaluate((element) => element.classList.contains('overlay-hidden')), true,
+            'returning to the frozen finale must keep gameplay controls out of the result composition');
         }
         await page.locator('[data-action="gallery"]').click();
         if (mobile) {
@@ -2654,6 +2715,14 @@ async function main() {
         const settledState = await page.evaluate(() => window.__harness.playerState());
         assert.equal(settledState.finaleVisualPhase, 'settled');
         assert.equal(settledState.finaleActionsVisible, true, 'finale actions must wait for the minimum read');
+        assert.equal(settledState.finaleFocusedAction, 'gallery',
+          'the mysterious dossier must own default keyboard/gamepad confirmation');
+        assert.match(await page.locator('[data-action="gallery"]').textContent() ?? '', /神秘资料片/);
+        if (mobile) {
+          assert.equal(await page.locator('.mobile-controls').evaluate((element) =>
+            element.classList.contains('overlay-hidden')), true,
+          'the frozen finale must not leave touch controls over the primary dossier action');
+        }
         await page.screenshot({ path: path.join(OUT, `final-station-settled${mobileSuffix}.png`) });
       }
       if (wantStats) console.log(JSON.stringify(await page.evaluate(() => window.__harness.stats())));

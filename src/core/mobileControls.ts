@@ -61,6 +61,7 @@ export class MobileControls {
   private firstImmersiveGestureHandled = false;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
+  private finalMode = false;
 
   get ready(): boolean {
     return !this.enabled || this.landscape && this.activation === 'ready';
@@ -214,14 +215,14 @@ export class MobileControls {
     const action = this.hasAction('drift');
     const flightTrigger = this.flightQueued;
     this.flightQueued = false;
-    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';
-    if (this.driftSubLabel) this.driftSubLabel.textContent = flightActive ? 'AIR BRAKE' : 'DRIFT';
+    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : this.finalMode ? '刹' : '漂';
+    if (this.driftSubLabel) this.driftSubLabel.textContent = flightActive ? 'AIR BRAKE' : this.finalMode ? 'BRAKE' : 'DRIFT';
     return {
       throttle: 1,
       steer,
-      drift: action && !flightActive,
-      flightTrigger,
-      airBrake: action && flightActive,
+      drift: action && !flightActive && !this.finalMode,
+      flightTrigger: this.finalMode ? false : flightTrigger,
+      airBrake: action && (flightActive || this.finalMode),
     };
   }
 
@@ -284,6 +285,7 @@ export class MobileControls {
     routeDirection: RouteTurnDirection | 'none' = 'none',
   ): void {
     if (!this.root) return;
+    this.finalMode = state.flightMode === 'finish';
     const charges = Math.round(clamp(state.flightCharges, 0, 2));
     this.root.style.setProperty('--mobile-drift-progress', String(clamp(state.boostCharge, 0, 1)));
     this.root.style.setProperty('--mobile-bank-progress', String(clamp(state.driftBankProgress, 0, 1)));
@@ -310,6 +312,7 @@ export class MobileControls {
           ? '飞行中，当前不可续航'
           : charges > 0 ? `飞行，已蓄能 ${charges} 次` : '飞行，尚未蓄能';
       flight.setAttribute('aria-label', label);
+      flight.setAttribute('aria-disabled', this.finalMode ? 'true' : 'false');
     }
     if (this.flightLabel) this.flightLabel.textContent = state.flightMode === 'extend' ? '续' : state.flightMode === 'finish' ? '终' : '飞';
     if (this.flightSubLabel) this.flightSubLabel.textContent = state.flightMode === 'extend' ? 'EXTEND' : state.flightMode === 'finish' ? 'FINAL' : 'FLIGHT';
@@ -322,12 +325,12 @@ export class MobileControls {
     this.root.classList.toggle('route-action-turn', routeAction === 'turn');
     this.root.classList.toggle('route-turn-left', routeAction === 'turn' && routeDirection === 'left');
     this.root.classList.toggle('route-turn-right', routeAction === 'turn' && routeDirection === 'right');
-    const leftLabel = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加' : '漂';
-    const leftSubLabel = state.flightPhase !== 'surface' ? 'AIR BRAKE' : state.leftMode === 'boost' ? 'BOOST' : 'DRIFT';
+    const leftLabel = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'finish' ? '刹' : state.leftMode === 'boost' ? '加' : '漂';
+    const leftSubLabel = state.flightPhase !== 'surface' ? 'AIR BRAKE' : state.leftMode === 'finish' ? 'BRAKE' : state.leftMode === 'boost' ? 'BOOST' : 'DRIFT';
     if (this.driftLabel) this.driftLabel.textContent = leftLabel;
     if (this.driftSubLabel) this.driftSubLabel.textContent = leftSubLabel;
     const drift = this.buttons.get('drift');
-    if (drift) drift.setAttribute('aria-label', state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加速中' : '漂移');
+    if (drift) drift.setAttribute('aria-label', state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'finish' ? '回港刹车' : state.leftMode === 'boost' ? '加速中' : '漂移');
   }
 
   reset(): void {
@@ -531,6 +534,7 @@ export class MobileControls {
     this.activitySerialValue++;
     if (this.controlPhase === 'inactive' || this.activation !== 'ready') return;
     if ((this.controlPhase === 'presentation' || this.controlPhase === 'preparing') && action === 'flight') return;
+    if (this.finalMode && action === 'flight') return;
     event.preventDefault();
     const button = event.currentTarget as HTMLButtonElement;
     this.activePointers.set(event.pointerId, action);

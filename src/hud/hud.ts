@@ -19,6 +19,7 @@ import type {
   FlightFailureSnapshot,
   FlightRouteFailReason,
   CourseWarning,
+  RouteTurnDirection,
 } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
@@ -790,9 +791,8 @@ export class HUD {
     }
 
     const routeGuidance = this.course.guidanceStatus();
-    const routeFiveTurn = routeGuidance.actionCue === 'turn' && routeGuidance.actionRouteIndex === 4 &&
-      routeGuidance.actionDirection === 'right';
-    this.syncTurnWarningCopy(routeFiveTurn);
+    const authoredTurn = routeGuidance.actionCue === 'turn' ? routeGuidance.actionDirection : 'none';
+    this.syncTurnWarningCopy(authoredTurn);
     if (race.phase === 'racing' && st.flightRouteState === 'active' && this.course.flightTurnWarning(player.id)) {
       this.turnWarningTimer = 1.45;
     } else if (st.flightRouteState !== 'active' || st.flightPhase === 'surface') {
@@ -847,7 +847,7 @@ export class HUD {
     // once an airborne envelope is actually consuming time.
     this.driverRightRail.classList.toggle('on', active &&
       (state.flightMode === 'active' || state.flightMode === 'extend' || state.flightMode === 'finish'));
-    this.driverLeftLabel.textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'FINAL' : state.driftReleaseReady && state.flightCharges < 2 ? 'BANK' : state.drifting && state.flightCharges >= 2 ? 'MAX' : '';
+    this.driverLeftLabel.textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'BRAKE' : state.driftReleaseReady && state.flightCharges < 2 ? 'BANK' : state.drifting && state.flightCharges >= 2 ? 'MAX' : '';
     this.driverRightLabel.textContent = state.flightMode === 'finish' ? 'GO' : state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
     this.driverPower.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < 2);
     this.driverPower.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
@@ -939,8 +939,9 @@ export class HUD {
   }
 
   showFinalReady(): void {
+    const brake = this.controlDevice === 'mobile' ? '按住「刹」回港刹车' : `按住 ${this.controlLabels.drift} 回港刹车`;
     this.enqueueImpact({
-      kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '七飞完成 · 航线解除', detail: '落水后穿过金色终点',
+      kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '七飞完成 · 航线解除', detail: `${brake} · 穿过金色终点`,
       color: PALETTE.sunFlare, duration: 2.1, priority: 96,
     });
   }
@@ -1263,17 +1264,19 @@ export class HUD {
         : { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
     this.controlDevice = device;
     this.controlLabels = controls;
-    this.syncTurnWarningCopy(false);
+    this.syncTurnWarningCopy('none');
   }
 
-  private syncTurnWarningCopy(routeFiveTurn: boolean): void {
-    const mark = routeFiveTurn ? '›››' : '!';
-    const title = routeFiveTurn ? '急右航道' : '急弯逼近';
-    const steer = routeFiveTurn
-      ? this.controlDevice === 'keyboard' ? '→'
-        : this.controlDevice === 'gamepad' ? '摇杆 →' : '右转'
+  private syncTurnWarningCopy(direction: RouteTurnDirection | 'none'): void {
+    const authoredTurn = direction !== 'none';
+    const right = direction === 'right';
+    const mark = authoredTurn ? right ? '›››' : '‹‹‹' : '!';
+    const title = authoredTurn ? right ? '急右航道' : '急左航道' : '急弯逼近';
+    const steer = authoredTurn
+      ? this.controlDevice === 'keyboard' ? right ? '→' : '←'
+        : this.controlDevice === 'gamepad' ? right ? '摇杆 →' : '摇杆 ←' : right ? '右转' : '左转'
       : this.controlLabels.steer;
-    const action = routeFiveTurn ? '空刹右转' : '空刹转向';
+    const action = authoredTurn ? right ? '空刹右转' : '空刹左转' : '空刹转向';
     if (this.turnWarningMark.textContent !== mark) this.turnWarningMark.textContent = mark;
     if (this.turnWarningTitle.textContent !== title) this.turnWarningTitle.textContent = title;
     if (this.turnWarningDriftKey.textContent !== this.controlLabels.drift) {
@@ -1281,7 +1284,8 @@ export class HUD {
     }
     if (this.turnWarningSteerKey.textContent !== steer) this.turnWarningSteerKey.textContent = steer;
     if (this.turnWarningAction.textContent !== action) this.turnWarningAction.textContent = action;
-    this.turnWarning.classList.toggle('route-turn-right', routeFiveTurn);
+    this.turnWarning.classList.toggle('route-turn-right', right);
+    this.turnWarning.classList.toggle('route-turn-left', direction === 'left');
   }
 
   clearBattle(): void {

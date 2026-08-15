@@ -19,7 +19,7 @@ export interface BoatInput {
   drift: boolean;
   /** Edge-triggered. Starts flight on water, or spends the spare cell to extend an active flight. */
   flightTrigger: boolean;
-  /** Held brake key. During controlled flight this becomes vector air-braking. */
+  /** Held context brake: vector air-braking in flight, return braking after Final arms. */
   airBrake: boolean;
 }
 

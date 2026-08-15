@@ -31,10 +31,16 @@
 .finale-overlay.reveal .finale-easter i:nth-child(5) { transition-delay: .24s; }
 .finale-overlay.reveal .finale-easter i:nth-child(6) { transition-delay: .3s; }
 .finale-overlay.reveal .finale-easter i:nth-child(7) { transition-delay: .36s; }
-.finale-actions { display: flex; justify-content: center; gap: 10px; margin-top: 20px; opacity: 0; visibility: hidden; }
+.finale-actions { display: grid; place-items: center; margin-top: 20px; opacity: 0; visibility: hidden; }
 .finale-actions.on { opacity: 1; visibility: visible; }
-.finale-actions button { min-width: 150px; min-height: 48px; padding: 8px 16px; border: 1px solid #55e7ff; border-left-width: 5px; color: #55e7ff; background: rgba(8, 13, 42, .72); font: 900 16px/1 system-ui, sans-serif; pointer-events: auto; box-shadow: 0 5px 0 rgba(12, 12, 37, .5); }
-.finale-actions [data-action='continue'] { color: #ffcf4a; border-color: #ffcf4a; }
+.finale-actions button { min-height: 44px; border: 1px solid rgba(85,231,255,.72); color: #55e7ff; background: rgba(8, 13, 42, .76); font: 900 14px/1 system-ui, sans-serif; pointer-events: auto; box-shadow: 0 4px 0 rgba(12, 12, 37, .52); }
+.finale-primary { display: grid; width: min(390px, calc(100vw - 80px)); min-height: 78px !important; place-items: center; gap: 3px; padding: 9px 34px 10px; border: 2px solid #ffcf4a !important; border-left-width: 7px !important; color: #fff3ae !important; background: rgba(18,12,42,.86) !important; box-shadow: 0 6px 0 rgba(12,12,37,.62), inset 0 0 24px rgba(255,207,74,.09) !important; }
+.finale-primary small { color: rgba(244,254,255,.62); font: 800 9px/1 system-ui,sans-serif; letter-spacing:.08em; }
+.finale-primary strong { font: 900 25px/1 system-ui,sans-serif; }
+.finale-primary span { color:#ffcf4a; font:800 11px/1 system-ui,sans-serif; }
+.finale-utilities { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display:flex; gap:8px; }
+.finale-utilities button { min-width: 72px; padding: 7px 12px; color: rgba(244,254,255,.76); border-color: rgba(244,254,255,.38); background: rgba(8,13,42,.58); box-shadow: 0 3px 0 rgba(12,12,37,.48); }
+.finale-utilities [data-action='continue'] { min-width: 98px; }
 .finale-actions button:disabled { opacity: .45; }
 .finale-actions button:focus-visible { outline: 3px solid #f4feff; outline-offset: 3px; }
 @media (max-height: 520px) {
@@ -46,8 +52,12 @@
   .finale-time { font-size: 12px; }
   .finale-easter { margin-top: 10px; gap: 4px; }
   .finale-easter i { padding: 7px 2px; font-size: 9px; }
-  .finale-actions { margin-top: 10px; }
-  .finale-actions button { min-width: 126px; min-height: 44px; font-size: 13px; }
+  .finale-actions { margin-top: 9px; }
+  .finale-primary { width:min(330px,calc(100vw - 42px)); min-height:64px !important; padding:7px 24px 8px; }
+  .finale-primary strong { font-size:21px; }
+  .finale-utilities { right:max(10px,env(safe-area-inset-right)); bottom:max(9px,env(safe-area-inset-bottom)); gap:6px; }
+  .finale-utilities button { min-width:62px; min-height:44px; padding:6px 9px; font-size:12px; }
+  .finale-utilities [data-action='continue'] { min-width:88px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .finale-overlay * { animation: none !important; transition: none !important; }

@@ -274,9 +274,10 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     qualifyFromU: 0.482,
     launchFromU: 0.503,
     launchToU: 0.522,
-    turnWarningFromU: 0.548,
+    turnWarningFromU: 0.515,
     turnWarningToU: 0.558,
     navigation: {
+      turn: { fromU: 0.515, toU: 0.558, direction: 'left' },
       locatorU: 0.56,
     },
   },
@@ -1111,6 +1112,8 @@ export class Course implements ICourse {
   private playerActionMarkerCount = 0;
   private activeGuideRoute = -1;
   private playerRecoveryRoute = -1;
+  private playerPreviewRoute = -1;
+  private playerPreviewFinal = false;
   private playerRecoveryElapsed = 0;
   private playerRecoveryLimit = 0;
   private startGantry: THREE.Group | null = null;
@@ -1276,6 +1279,8 @@ export class Course implements ICourse {
     this.playerActionMarkerCount = 0;
     this.activeGuideRoute = -1;
     this.playerRecoveryRoute = -1;
+    this.playerPreviewRoute = -1;
+    this.playerPreviewFinal = false;
     this.playerRecoveryElapsed = 0;
     this.playerRecoveryLimit = 0;
     this.finalArmed = false;
@@ -1348,6 +1353,8 @@ export class Course implements ICourse {
   resetFinalStation(): void {
     this.finalArmed = false;
     this.finalCelebrating = false;
+    this.playerPreviewFinal = false;
+    this.playerPreviewRoute = -1;
     this.finalCelebrationTime = 0;
     this.finalStationBlend = 0;
     this.ribbonMat.uniforms.uFinalApproach.value = 0;
@@ -1501,7 +1508,7 @@ export class Course implements ICourse {
           (surfaceU >= def.qualifyFromU && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
-      if (id === 0 && routeIndex === 4 && !this.finalArmed && def.navigation?.turn &&
+      if (id === 0 && !this.finalArmed && def.navigation?.turn &&
           flightActive && st.flightRouteState === 'active' &&
           near.u >= def.navigation.turn.fromU && near.u <= def.navigation.turn.toU) {
           this.playerActionCue = 'turn';
@@ -1732,16 +1739,35 @@ export class Course implements ICourse {
     let next = -1;
     if (player) {
       const st = player.state;
+      if (this.playerRecoveryRoute >= 0 && st.flightRouteState === 'passed' && st.flightPhase === 'surface') {
+        this.playerPreviewFinal = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length;
+        this.playerPreviewRoute = this.playerPreviewFinal ? -1 : st.flightRouteCursor % FLIGHT_ROUTES.length;
+      } else if (st.flightRouteState === 'active' || st.flightRouteState === 'failed') {
+        this.playerPreviewRoute = -1;
+        this.playerPreviewFinal = false;
+      }
       const recoverySlot = this.playerRecoveryRoute >= 0
         ? this.playerRecoveryRoute
         : this.flightVisuals.findIndex((visual) => visual.recoveryFade > 0);
-      const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length && recoverySlot < 0;
-      const slot = recoverySlot >= 0
-        ? recoverySlot
-        : finalApproach ? -1
-          : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
+      // Validation keeps the passed branch until its authored handoff. The
+      // visual guide can hand the player's eye to the next branch as soon as
+      // the hull touches water, when the old airborne line has done its job.
+      const landedRecovery = this.playerRecoveryRoute >= 0 &&
+        st.flightRouteState === 'passed' && st.flightPhase === 'surface';
+      const finalApproach = this.playerPreviewFinal ||
+        (this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length && (landedRecovery || recoverySlot < 0));
+      const slot = this.playerPreviewFinal
+        ? -1
+        : this.playerPreviewRoute >= 0 ? this.playerPreviewRoute
+        : landedRecovery
+          ? finalApproach ? -1 : st.flightRouteCursor % FLIGHT_ROUTES.length
+        : recoverySlot >= 0
+          ? recoverySlot
+          : finalApproach ? -1
+            : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
       const def = FLIGHT_ROUTES[slot];
-      if (def && (recoverySlot >= 0 || st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
+      if (def && (this.playerPreviewRoute >= 0 || landedRecovery || recoverySlot >= 0 ||
+          st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
           (this.playerSurfaceU >= def.qualifyFromU && this.playerSurfaceU <= def.exitU + 0.01))) {
         next = slot;
       }
@@ -1843,7 +1869,7 @@ export class Course implements ICourse {
       }
       visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
       visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
-      visual.rail.opacity = recovery > 0 ? 0 : warn > 0.5 ? 0.92 : 0.56 + (upcoming ? readyStep * 0.14 : 0);
+      visual.rail.opacity = recovery > 0 ? 0 : warn > 0.5 ? 0.72 : 0.24 + (upcoming ? readyStep * 0.08 : 0);
       visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + (upcoming ? readyStep * 0.2 : 0);
       for (let i = 0; i < visual.gates.length; i++) {
         const gate = visual.gates[i];
@@ -1934,6 +1960,9 @@ export class Course implements ICourse {
         uWarn: { value: 0 },
         uReady: { value: 0 },
         uTurn: { value: 0 },
+        uHasTurn: { value: def.navigation?.turn ? 1 : 0 },
+        uTurnFrom: { value: def.navigation?.turn ? flightCurveT(def, def.navigation.turn.fromU) : 0 },
+        uTurnTo: { value: def.navigation?.turn ? flightCurveT(def, def.navigation.turn.toU) : 1 },
         uRecovery: { value: 0 },
         uRecoveryProgress: { value: runtime.gateFraction },
         uGateF: { value: runtime.gateFraction },
@@ -1941,6 +1970,7 @@ export class Course implements ICourse {
         uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
         uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
         uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
+        uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
       },
       vertexShader: /* glsl */ `
@@ -1962,6 +1992,9 @@ export class Course implements ICourse {
         uniform float uWarn;
         uniform float uReady;
         uniform float uTurn;
+        uniform float uHasTurn;
+        uniform float uTurnFrom;
+        uniform float uTurnTo;
         uniform float uRecovery;
         uniform float uRecoveryProgress;
         uniform float uGateF;
@@ -1969,22 +2002,30 @@ export class Course implements ICourse {
         uniform vec3 uRecoveryColor;
         uniform vec3 uInk;
         uniform vec3 uFoam;
+        uniform vec3 uTurnColor;
         uniform vec3 uWarnColor;
         varying vec2 vUv;
         void main() {
-          float wave = sin(vUv.y * 52.0 - uTime * 5.5) * 0.035;
-          float flowA = 1.0 - smoothstep(0.012, 0.029, abs(vUv.x - (0.44 + wave)));
-          float flowB = 1.0 - smoothstep(0.012, 0.029, abs(vUv.x - (0.56 - wave)));
+          float wave = sin(vUv.y * 52.0 - uTime * 5.5) * 0.026;
+          float flowA = 1.0 - smoothstep(0.014, 0.034, abs(vUv.x - (0.43 + wave)));
+          float flowB = 1.0 - smoothstep(0.014, 0.034, abs(vUv.x - (0.57 - wave)));
           float packetPhase = fract(vUv.y * 13.0 - uTime * 1.9);
           float packet = smoothstep(0.02, 0.16, packetPhase) * (1.0 - smoothstep(0.55, 0.82, packetPhase));
-          float flow = max(flowA, flowB) * (0.28 + packet * 0.72);
-          float turnZone = smoothstep(0.08, 0.22, vUv.y) * (1.0 - smoothstep(0.7, 0.9, vUv.y));
+          float flow = max(flowA, flowB) * (0.3 + packet * 0.7);
+          float turnIn = smoothstep(uTurnFrom, min(uTurnFrom + 0.025, uTurnTo), vUv.y);
+          float turnOut = 1.0 - smoothstep(max(uTurnFrom, uTurnTo - 0.025), uTurnTo, vUv.y);
+          float turnZone = uHasTurn * turnIn * turnOut;
           float foamBeat = 0.08 + packet * 0.2;
           vec3 airColor = mix(uFlight, uFoam, foamBeat);
-          vec3 color = mix(airColor, uWarnColor, max(uWarn, uTurn * turnZone));
+          float brakeInk = turnZone * (0.32 + packet * 0.14);
+          vec3 color = mix(airColor, uTurnColor, min(0.62, brakeInk + uTurn * turnZone * 0.22));
+          color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
-          float alpha = edge * 0.1 + flow * (0.28 + ready * 0.1);
+          float virtualPanel = (1.0 - edge) * (0.075 + step(0.72, fract(vUv.y * 22.0 - uTime * 0.8)) * 0.055);
+          float centerVeil = 1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5));
+          float alpha = virtualPanel + centerVeil * 0.045 + edge * 0.2 + flow * (0.34 + ready * 0.08);
+          alpha += turnZone * (0.04 + packet * 0.04);
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);
           float recoveryHalf = mix(0.48, 0.14, recoveryT);
@@ -2069,13 +2110,43 @@ export class Course implements ICourse {
         toneMapped: false,
       });
       turnChevronFill = new THREE.MeshBasicMaterial({
-        color: def.index === 4 ? PALETTE.sunFlare : PALETTE.foam,
+        color: PALETTE.sunFlare,
         transparent: true,
-        opacity: def.index === 4 ? 0.9 : 0.62,
+        opacity: def.index === 4 ? 0.9 : 0.82,
         depthWrite: false,
         side: THREE.DoubleSide,
         toneMapped: false,
       });
+      const backing = new THREE.InstancedMesh(makeOpenChevronGeometry(), backingMaterial, turnChevronCount);
+      const fill = new THREE.InstancedMesh(makeOpenChevronGeometry(0.055), turnChevronFill, turnChevronCount);
+      backing.name = `${def.id}-chevron-ink`;
+      fill.name = `${def.id}-chevron-fill`;
+      backing.renderOrder = 5;
+      fill.renderOrder = 6;
+      const marker = new THREE.Object3D();
+      const fillMarker = new THREE.Object3D();
+      for (let i = 0; i < turnChevronCount; i++) {
+        // Keep the three road-grade chevrons together near the decision point.
+        // A compact, lane-width cluster reads through waves and perspective;
+        // small markers spread across the whole bend disappear one by one.
+        const f = 0.16 + i * 0.15;
+        const u = THREE.MathUtils.lerp(turn.fromU, turn.toU, f);
+        runtimePointAt(runtime, u, p);
+        runtimeTangentAt(runtime, u, t).setY(0).normalize();
+        marker.position.set(p.x, p.y + 0.17, p.z);
+        marker.rotation.set(0, Math.atan2(t.x, t.z) + (turn.direction === 'left' ? Math.PI : 0), 0);
+        marker.scale.set(Math.min(4.5, Math.max(3.4, HALF_W * 0.62)), 1.08, 1.85);
+        marker.updateMatrix();
+        backing.setMatrixAt(i, marker.matrix);
+        fillMarker.position.copy(marker.position);
+        fillMarker.rotation.copy(marker.rotation);
+        fillMarker.scale.copy(marker.scale).multiplyScalar(0.7);
+        fillMarker.updateMatrix();
+        fill.setMatrixAt(i, fillMarker.matrix);
+      }
+      backing.instanceMatrix.needsUpdate = true;
+      fill.instanceMatrix.needsUpdate = true;
+      turnChevronGroup.add(backing, fill);
       if (def.index === 4) {
         const verticalInk = makeVerticalChevronGeometry();
         const verticalFill = makeVerticalChevronGeometry(0.055);
@@ -2127,34 +2198,6 @@ export class Course implements ICourse {
             yawQ: new THREE.Quaternion().setFromAxisAngle(UP, yaw),
           });
         }
-      } else {
-        const backing = new THREE.InstancedMesh(makeOpenChevronGeometry(), backingMaterial, turnChevronCount);
-        const fill = new THREE.InstancedMesh(makeOpenChevronGeometry(0.055), turnChevronFill, turnChevronCount);
-        backing.name = `${def.id}-chevron-ink`;
-        fill.name = `${def.id}-chevron-fill`;
-        backing.renderOrder = 5;
-        fill.renderOrder = 6;
-        const marker = new THREE.Object3D();
-        const fillMarker = new THREE.Object3D();
-        for (let i = 0; i < turnChevronCount; i++) {
-          const f = (i + 0.7) / (turnChevronCount + 0.4);
-          const u = THREE.MathUtils.lerp(turn.fromU, turn.toU, f);
-          runtimePointAt(runtime, u, p);
-          runtimeTangentAt(runtime, u, t).setY(0).normalize();
-          marker.position.set(p.x, p.y + 0.17, p.z);
-          marker.rotation.set(0, Math.atan2(t.x, t.z) + (turn.direction === 'left' ? Math.PI : 0), 0);
-          marker.scale.setScalar(0.98);
-          marker.updateMatrix();
-          backing.setMatrixAt(i, marker.matrix);
-          fillMarker.position.copy(marker.position);
-          fillMarker.rotation.copy(marker.rotation);
-          fillMarker.scale.copy(marker.scale).multiplyScalar(0.72);
-          fillMarker.updateMatrix();
-          fill.setMatrixAt(i, fillMarker.matrix);
-        }
-        backing.instanceMatrix.needsUpdate = true;
-        fill.instanceMatrix.needsUpdate = true;
-        turnChevronGroup.add(backing, fill);
       }
       routeGroup.add(turnChevronGroup);
     }
