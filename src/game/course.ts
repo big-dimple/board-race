@@ -539,6 +539,12 @@ function flightLaunchCueU(def: FlightRouteDefinition): number {
   return def.navigation?.launchCueU ?? def.launchFromU;
 }
 
+/** Visual flight ownership begins where the green surface guide hands off. */
+function flightVisualT(def: FlightRouteDefinition, u: number): number {
+  const fromU = Math.min(def.entryU, flightLaunchCueU(def));
+  return THREE.MathUtils.clamp((u - fromU) / Math.max(1e-6, def.exitU - fromU), 0, 1);
+}
+
 // -------------------------------------------------------------- grid ----
 
 export interface GridSlot {
@@ -1548,7 +1554,10 @@ export class Course implements ICourse {
       visual.deployActive = false;
       visual.deployTime = 0;
       visual.recoveryFade = 0;
-      visual.recoveryProgress = visual.runtime.gateFraction;
+      visual.recoveryProgress = flightVisualT(
+        visual.runtime.def,
+        visual.runtime.def.gateUs[visual.runtime.def.gateUs.length - 1],
+      );
       visual.recoverySurfaceBlend = 0;
       for (const gate of visual.gates) {
         gate.deploy = 0;
@@ -1842,7 +1851,7 @@ export class Course implements ICourse {
           this.playerRecoverySurface = !flightActive;
           this.playerRecoveryElapsed = elapsed;
           this.playerRecoveryLimit = limit;
-          visual.recoveryProgress = flightCurveT(def, near.u);
+          visual.recoveryProgress = flightVisualT(def, near.u);
         }
         const end = runtime.tableN - 1;
         const tx = runtime.tx[end];
@@ -2296,15 +2305,17 @@ export class Course implements ICourse {
       visual.recoveryArrows.visible = recovery > 0.04;
       visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0.62 * recovery;
       if (recovery > 0) {
+        const def = visual.runtime.def;
+        const visualFromU = Math.min(def.entryU, flightLaunchCueU(def));
+        const gateFraction = flightVisualT(def, def.gateUs[def.gateUs.length - 1]);
+        const minFraction = Math.max(gateFraction, visual.recoveryProgress - 0.018);
         for (let i = 0; i < visual.recoveryArrowFractions.length; i++) {
-          const minFraction = Math.max(visual.runtime.gateFraction, visual.recoveryProgress - 0.018);
           const flow = (this.flightFlowTime * SURFACE_GUIDE_ARROW_SPEED_MPS /
             Math.max(1, visual.runtime.routeLength)) % 1;
           const phase = (i / visual.recoveryArrowFractions.length + flow) % 1;
           const fraction = minFraction + (1 - minFraction) * phase;
           visual.recoveryArrowFractions[i] = fraction;
-          const u = visual.runtime.def.entryU +
-            (visual.runtime.def.exitU - visual.runtime.def.entryU) * fraction;
+          const u = visualFromU + (def.exitU - visualFromU) * fraction;
           runtimePointAt(visual.runtime, u, _surfaceArrowCenter);
           runtimeTangentAt(visual.runtime, u, _surfaceArrowForward).setY(0).normalize();
           _surfaceArrowQuaternion.setFromAxisAngle(
@@ -2362,7 +2373,9 @@ export class Course implements ICourse {
     routeGroup.name = `${def.id}-guide`;
     routeGroup.visible = false;
     this.object.add(routeGroup);
-    const SEG = Math.max(64, Math.ceil(runtime.routeLength / 1.8));
+    const visualFromU = Math.min(def.entryU, flightLaunchCueU(def));
+    const approachLength = Math.max(0, (def.entryU - visualFromU) * LAP_LENGTH);
+    const SEG = Math.max(64, Math.ceil((runtime.routeLength + approachLength) / 1.8));
     const HALF_W = def.corridorHalfWidth;
     const pos = new Float32Array((SEG + 1) * 2 * 3);
     const uv = new Float32Array((SEG + 1) * 2 * 2);
@@ -2372,7 +2385,7 @@ export class Course implements ICourse {
 
     for (let i = 0; i <= SEG; i++) {
       const f = i / SEG;
-      const u = def.entryU + (def.exitU - def.entryU) * f;
+      const u = visualFromU + (def.exitU - visualFromU) * f;
       this.routePointAt(def.id, u, p);
       this.routeTangentAt(def.id, u, t);
       const rx = t.z;
@@ -2413,12 +2426,13 @@ export class Course implements ICourse {
         uReady: { value: 0 },
         uTurn: { value: 0 },
         uHasTurn: { value: def.navigation?.turn ? 1 : 0 },
-        uTurnFrom: { value: def.navigation?.turn ? flightCurveT(def, def.navigation.turn.fromU) : 0 },
-        uTurnTo: { value: def.navigation?.turn ? flightCurveT(def, def.navigation.turn.toU) : 1 },
+        uTurnFrom: { value: def.navigation?.turn ? flightVisualT(def, def.navigation.turn.fromU) : 0 },
+        uTurnTo: { value: def.navigation?.turn ? flightVisualT(def, def.navigation.turn.toU) : 1 },
+        uEntryF: { value: flightVisualT(def, def.entryU) },
         uRecovery: { value: 0 },
         uRecoverySurface: { value: 0 },
-        uRecoveryProgress: { value: runtime.gateFraction },
-        uGateF: { value: runtime.gateFraction },
+        uRecoveryProgress: { value: flightVisualT(def, def.gateUs[def.gateUs.length - 1]) },
+        uGateF: { value: flightVisualT(def, def.gateUs[def.gateUs.length - 1]) },
         uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
         uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
         uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
@@ -2432,17 +2446,23 @@ export class Course implements ICourse {
         uCenterAlpha: { value: 0.07 },
         uEdgeAlpha: { value: 0.29 },
         uFlowAlpha: { value: 0.46 },
+        // Warm color belongs to the authored chevrons. A low ceiling keeps
+        // the corridor unmistakably cyan instead of mixing into surface green.
+        uTurnTintMax: { value: 0.14 },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform float uRecovery;
         uniform float uRecoverySurface;
         uniform float uGateF;
+        uniform float uEntryF;
         varying vec2 vUv;
         ${WAVES_GLSL}
         void main() {
           vUv = uv;
           vec3 p = position;
+          float approach = 1.0 - smoothstep(uEntryF, min(1.0, uEntryF + 0.03), uv.y);
+          p.y = mix(p.y, waveHeight(p.xz, uTime) + 0.22, approach);
           float recoveryTail = uRecovery * uRecoverySurface * step(uGateF - 0.003, uv.y);
           p.y = mix(p.y, waveHeight(p.xz, uTime) + 0.22, recoveryTail);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -2470,6 +2490,7 @@ export class Course implements ICourse {
         uniform float uCenterAlpha;
         uniform float uEdgeAlpha;
         uniform float uFlowAlpha;
+        uniform float uTurnTintMax;
         varying vec2 vUv;
         void main() {
           float wave = sin(vUv.y * 52.0 - uTime * 5.5) * 0.026;
@@ -2484,7 +2505,8 @@ export class Course implements ICourse {
           float foamBeat = 0.08 + packet * 0.2;
           vec3 airColor = mix(uFlight, uFoam, foamBeat);
           float brakeInk = turnZone * (0.32 + packet * 0.14);
-          vec3 color = mix(airColor, uTurnColor, min(0.62, brakeInk + uTurn * turnZone * 0.22));
+          float turnTint = min(uTurnTintMax, brakeInk * 0.34 + uTurn * turnZone * 0.06);
+          vec3 color = mix(airColor, uTurnColor, turnTint);
           color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
@@ -2519,6 +2541,9 @@ export class Course implements ICourse {
     });
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbon.name = `${def.id}-ribbon`;
+    ribbon.userData.visualStartU = visualFromU;
+    ribbon.userData.authoredEntryU = def.entryU;
+    ribbon.userData.turnTintMax = ribbonMat.uniforms.uTurnTintMax.value;
     ribbon.renderOrder = 3;
     ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);
@@ -2544,9 +2569,9 @@ export class Course implements ICourse {
     for (let i = 0; i < 7; i++) recoveryArrowPhases.setX(i, i / 7);
     arrowGeo.setAttribute('aPhase', recoveryArrowPhases);
     for (let i = 0; i < 7; i++) {
-      const f = runtime.gateFraction + (1 - runtime.gateFraction) * ((i + 0.7) / 7.7);
-      recoveryArrowFractions.push(f);
-      const u = def.entryU + (def.exitU - def.entryU) * f;
+      const routeF = runtime.gateFraction + (1 - runtime.gateFraction) * ((i + 0.7) / 7.7);
+      const u = def.entryU + (def.exitU - def.entryU) * routeF;
+      recoveryArrowFractions.push(flightVisualT(def, u));
       runtimePointAt(runtime, u, p);
       runtimeTangentAt(runtime, u, t);
       arrowTransform.position.set(p.x, 0.28, p.z);
@@ -2614,7 +2639,9 @@ export class Course implements ICourse {
         runtimePointAt(runtime, u, p);
         runtimeTangentAt(runtime, u, t).setY(0).normalize();
         marker.position.set(p.x, p.y + 0.17, p.z);
-        marker.rotation.set(0, Math.atan2(t.x, t.z) + (spec.cue.direction === 'left' ? Math.PI : 0), 0);
+        // In this boat frame local +X is port/left when +Z follows the route.
+        // Flip only right-turn chevrons toward starboard.
+        marker.rotation.set(0, Math.atan2(t.x, t.z) + (spec.cue.direction === 'right' ? Math.PI : 0), 0);
         marker.scale.set(Math.min(4.5, Math.max(3.4, HALF_W * 0.62)), 1.08, 1.85);
         marker.updateMatrix();
         backing.setMatrixAt(i, marker.matrix);
@@ -2653,6 +2680,8 @@ export class Course implements ICourse {
           support.name = `${def.id}-chevron-buoy-${i + 1}`;
           support.userData.turnRole = spec.role;
           support.userData.turnDirection = spec.cue.direction;
+          support.userData.routeTangentX = t.x;
+          support.userData.routeTangentZ = t.z;
           support.position.set(p.x + t.z * (HALF_W + 1.75) * outside, 0, p.z - t.x * (HALF_W + 1.75) * outside);
           const buoy = new THREE.Mesh(buoyGeometry, buoyMaterial);
           buoy.position.y = 0.24;
@@ -2672,10 +2701,9 @@ export class Course implements ICourse {
           sign.renderOrder = 6;
           support.add(buoy, foam, mast, signInk, sign);
           turnChevronGroup.add(support);
-          // The vertical plate uses the same local +X arrow as the in-ribbon
-          // marker. DoubleSide already keeps it readable from the approach;
-          // reversing the plate tangent here would reverse the instruction.
-          const yaw = Math.atan2(t.x, t.z) + (spec.cue.direction === 'left' ? Math.PI : 0);
+          // Local +X is port/left in the route frame, so right cues need the
+          // half-turn. DoubleSide affects visibility, never cue direction.
+          const yaw = Math.atan2(t.x, t.z) + (spec.cue.direction === 'right' ? Math.PI : 0);
           this.floaters.push({
             obj: support,
             x: support.position.x,
@@ -2879,7 +2907,7 @@ export class Course implements ICourse {
       deployActive: false,
       deployTime: 0,
       recoveryFade: 0,
-      recoveryProgress: runtime.gateFraction,
+      recoveryProgress: flightVisualT(def, def.gateUs[def.gateUs.length - 1]),
       recoverySurfaceBlend: 0,
     };
   }
@@ -2929,7 +2957,13 @@ export class Course implements ICourse {
       firstVector.x * finalVector.z - firstVector.z * finalVector.x,
       firstVector.x * finalVector.x + firstVector.z * finalVector.z,
     );
-    group.userData.launchVectorDirection = def.navigation?.turn?.direction ?? 'straight';
+    const measuredVectorDirection = Math.abs(headingDelta) < THREE.MathUtils.degToRad(0.5)
+      ? 'straight'
+      : headingDelta > 0 ? 'right' : 'left';
+    const authoredDirection = def.navigation?.turn?.direction ?? 'straight';
+    group.userData.launchVectorDirection = authoredDirection;
+    group.userData.launchMeasuredDirection = measuredVectorDirection;
+    group.userData.launchAuthoredDirection = authoredDirection;
     group.userData.launchCueU = launchCueU;
     group.userData.launchVectorPathLengthM = path.slice(1).reduce((sum, point, index) =>
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
@@ -2975,7 +3009,8 @@ export class Course implements ICourse {
     const diamonds: LaunchGateDiamond[] = [];
     const forward = new THREE.Vector3(0, 0, 1);
     const waveWeights = [1, 0.42, 0];
-    const turnDirection = def.navigation?.turn?.direction ?? 'none';
+    const turnDirection = authoredDirection === 'straight' ? 'none' : authoredDirection;
+    group.userData.launchPostureDirection = turnDirection;
     const bankDirection = turnDirection === 'left' ? 1 : turnDirection === 'right' ? -1 : 0;
     for (let i = 0; i < path.length; i++) {
       const root = new THREE.Group();
@@ -3031,7 +3066,9 @@ export class Course implements ICourse {
           side: THREE.DoubleSide,
           toneMapped: false,
         });
-        const postureSign = turnDirection === 'left' ? -1 : 1;
+        // The diamond root follows local +Z and local +X is port/left.
+        // Mirroring X therefore points right-turn posture toward starboard.
+        const postureSign = turnDirection === 'left' ? 1 : -1;
         const postureInkMesh = new THREE.Mesh(postureGeometry, postureInk);
         postureInkMesh.name = `${def.id}-launch-posture-ink-${i}`;
         postureInkMesh.position.z = 0.055;

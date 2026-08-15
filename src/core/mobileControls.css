@@ -18,6 +18,7 @@
   --mobile-airbrake-progress: 0;
   --control-h: clamp(128px, 36vh, 158px);
   --control-w: clamp(288px, 39vw, 340px);
+  --steer-w: clamp(280px, 32vw, 300px);
 }
 
 .mobile-controls button {
@@ -95,6 +96,7 @@
 }
 
 .mobile-steer-zones {
+  width: var(--steer-w);
   left: max(10px, env(safe-area-inset-left));
   display: none;
 }

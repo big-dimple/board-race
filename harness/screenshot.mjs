@@ -167,6 +167,20 @@ async function verifySurfaceGuideVisualContract(page) {
   const launchGateTopology = await page.evaluate(() => Array.from({ length: 7 }, (_, routeIndex) => {
     const id = `flight-${routeIndex + 1}`;
     const group = window.__scene.getObjectByName(`${id}-launch-gate`);
+    const postureDirectionDots = [1, 2].map((index) => {
+      const posture = group?.getObjectByName(`${id}-launch-posture-${index}`);
+      const root = posture?.parent;
+      if (!posture || !root) return null;
+      posture.updateWorldMatrix(true, false);
+      root.updateWorldMatrix(true, false);
+      const arrow = posture.matrixWorld.elements;
+      const frame = root.matrixWorld.elements;
+      const portX = frame[10];
+      const portZ = -frame[8];
+      const side = group?.userData?.launchPostureDirection === 'right' ? -1 : 1;
+      return (arrow[0] * portX * side + arrow[2] * portZ * side) /
+        (Math.max(1e-6, Math.hypot(arrow[0], arrow[2])) * Math.max(1e-6, Math.hypot(portX, portZ)));
+    }).filter((dot) => dot !== null);
     return {
       exists: Boolean(group),
       projectors: ['left', 'right'].filter((side) => group?.getObjectByName(`${id}-launch-projector-${side}`)).length,
@@ -175,12 +189,25 @@ async function verifySurfaceGuideVisualContract(page) {
       packetVertices: group?.getObjectByName(`${id}-launch-energy-packet-1`)?.geometry?.attributes?.position?.count ?? 0,
       postureMarkers: [1, 2].filter((index) => group?.getObjectByName(`${id}-launch-posture-${index}`)).length,
       vectorPathLengthM: group?.userData?.launchVectorPathLengthM ?? -1,
+      vectorDirection: group?.userData?.launchVectorDirection ?? 'missing',
+      measuredDirection: group?.userData?.launchMeasuredDirection ?? 'missing',
+      authoredDirection: group?.userData?.launchAuthoredDirection ?? 'missing',
+      postureDirection: group?.userData?.launchPostureDirection ?? 'missing',
+      postureDirectionDots,
     };
   }));
   assert.equal(launchGateTopology.length, 7);
   for (const [routeIndex, topology] of launchGateTopology.entries()) {
     const postureMarkers = routeIndex === 0 || routeIndex === 6 ? 0 : 2;
-    const { vectorPathLengthM, ...staticTopology } = topology;
+    const {
+      vectorPathLengthM,
+      vectorDirection,
+      measuredDirection,
+      authoredDirection,
+      postureDirection,
+      postureDirectionDots,
+      ...staticTopology
+    } = topology;
     assert.deepEqual(staticTopology, {
       exists: true,
       projectors: 2,
@@ -193,6 +220,21 @@ async function verifySurfaceGuideVisualContract(page) {
     const vectorRange = routeIndex === 3 ? [32, 36] : [20, 26];
     assert.ok(vectorPathLengthM >= vectorRange[0] && vectorPathLengthM <= vectorRange[1],
       `flight ${routeIndex + 1} must preview a readable launch vector: ${JSON.stringify(topology)}`);
+    if (postureMarkers > 0) {
+      assert.equal(vectorDirection, authoredDirection,
+        `flight ${routeIndex + 1} launch cue must retain the authored gameplay turn`);
+      assert.equal(postureDirection, authoredDirection,
+        `flight ${routeIndex + 1} posture arrows must retain the authored gameplay turn`);
+      assert.equal(postureDirectionDots.length, 2);
+      assert.ok(postureDirectionDots.every((dot) => dot > 0.9),
+        `flight ${routeIndex + 1} upper diamond arrows point to the wrong side: ${JSON.stringify(topology)}`);
+    } else {
+      assert.equal(postureDirection, 'none',
+        `flight ${routeIndex + 1} must not invent turn arrows without an authored bend`);
+      assert.equal(postureDirectionDots.length, 0);
+    }
+    assert.ok(['left', 'right', 'straight'].includes(measuredDirection),
+      `flight ${routeIndex + 1} launch geometry must expose a valid diagnostic direction`);
   }
 
   const arrowMotion = await page.evaluate(() => {
@@ -1188,10 +1230,14 @@ async function verifyFlightContract(page) {
     'the surface route must not reappear between the fourth launch aperture and flight corridor');
   const routeFourLaunch = await page.evaluate(() => {
     const group = window.__scene.getObjectByName('flight-4-launch-gate');
+    const corridor = window.__scene.getObjectByName('flight-4-ribbon');
     return {
       cueU:group?.userData?.launchCueU ?? -1,
       pathLengthM:group?.userData?.launchVectorPathLengthM ?? -1,
-      corridorVisible:Boolean(window.__scene.getObjectByName('flight-4-ribbon')?.visible),
+      corridorVisible:Boolean(corridor?.visible),
+      corridorVisualStartU:corridor?.userData?.visualStartU ?? -1,
+      corridorAuthoredEntryU:corridor?.userData?.authoredEntryU ?? -1,
+      corridorTurnTintMax:corridor?.material?.uniforms?.uTurnTintMax?.value ?? -1,
     };
   });
   assert.ok(Math.abs(routeFourLaunch.cueU - 0.493) <= 1e-6,
@@ -1200,6 +1246,12 @@ async function verifyFlightContract(page) {
     `flight four needs a longer turn-in vector than the standard launch beat: ${JSON.stringify(routeFourLaunch)}`);
   assert.equal(routeFourLaunch.corridorVisible, true,
     'the airborne route must already be visible while the early fourth-flight cue is actionable');
+  assert.ok(Math.abs(routeFourLaunch.corridorVisualStartU - routeFourLaunch.cueU) <= 1e-6,
+    `the cyan route must begin exactly where the green guide hands off: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(routeFourLaunch.corridorVisualStartU < routeFourLaunch.corridorAuthoredEntryU,
+    `flight four needs a visible cyan approach before its unchanged scoring entry: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(routeFourLaunch.corridorTurnTintMax > 0 && routeFourLaunch.corridorTurnTintMax <= 0.15,
+    `warm turn emphasis must stay on chevrons instead of recoloring the cyan corridor: ${JSON.stringify(routeFourLaunch)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-route4-approach'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -1257,6 +1309,8 @@ async function verifyFlightContract(page) {
       packetCount: packets.filter(Boolean).length,
       diamondPositions: diamonds.map((diamond) => diamond?.position.toArray() ?? []),
       launchVectorDirection: group?.userData?.launchVectorDirection ?? 'missing',
+      launchAuthoredDirection: group?.userData?.launchAuthoredDirection ?? 'missing',
+      launchPostureDirection: group?.userData?.launchPostureDirection ?? 'missing',
       launchVectorPathLengthM: group?.userData?.launchVectorPathLengthM ?? -1,
       launchVectorHeadingDeltaDeg: group?.userData?.launchVectorHeadingDeltaDeg ?? 0,
       launchVectorClearances: group?.userData?.launchVectorClearances ?? [],
@@ -1272,6 +1326,24 @@ async function verifyFlightContract(page) {
         group?.getObjectByName(`flight-5-launch-posture-ink-${index}`)).length,
       postureDirections: [1, 2].map((index) =>
         group?.getObjectByName(`flight-5-launch-posture-${index}`)?.scale?.x ?? 0),
+      postureDirectionDots: [1, 2].map((index) => {
+        const posture = group?.getObjectByName(`flight-5-launch-posture-${index}`);
+        const root = posture?.parent;
+        if (!posture || !root) return -2;
+        posture.updateWorldMatrix(true, false);
+        root.updateWorldMatrix(true, false);
+        const arrow = posture.matrixWorld.elements;
+        const frame = root.matrixWorld.elements;
+        const arrowX = arrow[0];
+        const arrowZ = arrow[2];
+        const forwardX = frame[8];
+        const forwardZ = frame[10];
+        const portX = forwardZ;
+        const portZ = -forwardX;
+        const side = group?.userData?.launchPostureDirection === 'right' ? -1 : 1;
+        return (arrowX * portX * side + arrowZ * portZ * side) /
+          (Math.max(1e-6, Math.hypot(arrowX, arrowZ)) * Math.max(1e-6, Math.hypot(portX, portZ)));
+      }),
       energyColor: diamonds[0]?.children?.[1]?.material?.color?.getHex() ?? -1,
       allEnergyDepthIndependent: diamonds.every((diamond) => diamond?.children?.[1]?.material?.depthTest === false),
       containsTextGeometry: Boolean(group?.getObjectByProperty('type', 'Sprite')),
@@ -1284,16 +1356,21 @@ async function verifyFlightContract(page) {
   assert.equal(unarmedLaunchGate.packetCount, 3);
   assert.equal(unarmedLaunchGate.diamondPositions.length, 3);
   assert.equal(unarmedLaunchGate.launchVectorDirection, 'right',
-    'the fifth-flight launch aperture must communicate the authored entry posture');
+    'the fifth-flight launch aperture must communicate its actual entry vector');
+  assert.equal(unarmedLaunchGate.launchAuthoredDirection, unarmedLaunchGate.launchVectorDirection,
+    'authored fifth-flight direction must agree with the vector players actually see');
+  assert.equal(unarmedLaunchGate.launchPostureDirection, 'right');
   assert.ok(unarmedLaunchGate.launchVectorPathLengthM >= 20 &&
     unarmedLaunchGate.launchVectorPathLengthM <= 26,
     `the launch aperture must preview a readable airborne vector: ${JSON.stringify(unarmedLaunchGate)}`);
-  assert.ok(Math.abs(unarmedLaunchGate.launchVectorHeadingDeltaDeg) >= 4,
-    `the launch vector must visibly bend instead of stacking vertically: ${JSON.stringify(unarmedLaunchGate)}`);
+  assert.ok(unarmedLaunchGate.launchVectorHeadingDeltaDeg >= 4,
+    `positive launch-vector rotation must describe the fifth-flight right turn: ${JSON.stringify(unarmedLaunchGate)}`);
   assert.equal(unarmedLaunchGate.postureCount, 2);
   assert.equal(unarmedLaunchGate.postureInkCount, 2);
-  assert.ok(unarmedLaunchGate.postureDirections.every((direction) => direction > 0),
-    'the two upper beats must carry right-facing posture chevrons for flight five');
+  assert.ok(unarmedLaunchGate.postureDirections.every((direction) => direction < 0),
+    'right-facing posture chevrons must mirror local +X toward starboard');
+  assert.ok(unarmedLaunchGate.postureDirectionDots.every((dot) => dot > 0.9),
+    `the two upper beats must point toward the actual right side of their ascent vector: ${JSON.stringify(unarmedLaunchGate)}`);
   assert.ok(unarmedLaunchGate.corridorAlpha.panel >= 0.11 &&
     unarmedLaunchGate.corridorAlpha.center >= 0.065 &&
     unarmedLaunchGate.corridorAlpha.edge >= 0.28 &&
@@ -1365,20 +1442,30 @@ async function verifyFlightContract(page) {
     floorMarkers?.updateWorldMatrix(true, false);
     const floorMatrices = floorMarkers?.instanceMatrix?.array ?? [];
     const floorWorld = floorMarkers?.matrixWorld?.elements ?? [];
-    const orientationDots = supports.map((support, index) => {
+    const directionDots = supports.map((support, index) => {
       if (!support || floorMatrices.length < (index + 1) * 16 || floorWorld.length < 16) return -2;
       support.updateWorldMatrix(true, false);
       const supportWorld = support.matrixWorld.elements;
       const sx = supportWorld[0];
       const sz = supportWorld[2];
+      const tx = Number(support.userData.routeTangentX);
+      const tz = Number(support.userData.routeTangentZ);
+      const side = support.userData.turnDirection === 'right' ? -1 : 1;
+      const expectedX = tz * side;
+      const expectedZ = -tx * side;
       const floorOffset = index * 16;
       const localX = floorMatrices[floorOffset];
       const localY = floorMatrices[floorOffset + 1];
       const localZ = floorMatrices[floorOffset + 2];
       const fx = floorWorld[0] * localX + floorWorld[4] * localY + floorWorld[8] * localZ;
       const fz = floorWorld[2] * localX + floorWorld[6] * localY + floorWorld[10] * localZ;
-      return (sx * fx + sz * fz) /
-        (Math.max(1e-6, Math.hypot(sx, sz)) * Math.max(1e-6, Math.hypot(fx, fz)));
+      const expectedLength = Math.max(1e-6, Math.hypot(expectedX, expectedZ));
+      return {
+        sign: (sx * expectedX + sz * expectedZ) /
+          (Math.max(1e-6, Math.hypot(sx, sz)) * expectedLength),
+        floor: (fx * expectedX + fz * expectedZ) /
+          (Math.max(1e-6, Math.hypot(fx, fz)) * expectedLength),
+      };
     });
     return {
       entryCount: group?.userData?.entryMarkerCount ?? -1,
@@ -1387,7 +1474,8 @@ async function verifyFlightContract(page) {
       supportCount: supports.filter(Boolean).length,
       lateRoles: supports.slice(3).map((support) => support?.userData?.turnRole ?? 'missing'),
       lateDirections: supports.slice(3).map((support) => support?.userData?.turnDirection ?? 'missing'),
-      orientationDots,
+      signDirectionDots: directionDots.map((entry) => entry.sign),
+      floorDirectionDots: directionDots.map((entry) => entry.floor),
     };
   });
   assert.equal(routeFiveMarkers.entryCount, 3);
@@ -1398,10 +1486,12 @@ async function verifyFlightContract(page) {
   assert.deepEqual(routeFiveMarkers.lateRoles, ['counter', 'counter']);
   assert.deepEqual(routeFiveMarkers.lateDirections, ['left', 'left'],
     'the final two signs must oppose the entry rotation instead of encouraging more oversteer');
-  assert.equal(routeFiveMarkers.orientationDots.length, 5,
-    'all five authored freestanding turn plates must participate in the orientation contract');
-  assert.ok(routeFiveMarkers.orientationDots.every((dot) => dot > 0.9),
-    `every freestanding plate must point with its matching in-route chevron: ${JSON.stringify(routeFiveMarkers)}`);
+  assert.equal(routeFiveMarkers.signDirectionDots.length, 5,
+    'all five authored freestanding turn plates must participate in the direction contract');
+  assert.ok(routeFiveMarkers.signDirectionDots.every((dot) => dot > 0.9),
+    `every freestanding plate must point to the authored side of the route tangent: ${JSON.stringify(routeFiveMarkers)}`);
+  assert.ok(routeFiveMarkers.floorDirectionDots.every((dot) => dot > 0.9),
+    `every in-route chevron must independently point to the authored side: ${JSON.stringify(routeFiveMarkers)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-route5-counter'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -2696,6 +2786,14 @@ async function assertMobileControlLayout(page, label, mode) {
       assert.ok(control.faceCenterX < geometry.width * 0.44,
         `${label} ${name} left the left-thumb steering zone: ${JSON.stringify(control)}`);
     }
+    const steeringFaceGap = right.faceCenterX - left.faceCenterX;
+    const steeringSpan = right.right - left.left;
+    assert.ok(steeringFaceGap >= 130 && steeringFaceGap <= 155,
+      `${label} steering faces must stay within one left-thumb sweep: gap=${steeringFaceGap}`);
+    assert.ok(steeringSpan <= 301,
+      `${label} steering hit region spread too far across the screen: span=${steeringSpan}`);
+    assert.ok(right.faceCenterX <= geometry.width * 0.3,
+      `${label} right steering face is too far for the left thumb: ${JSON.stringify(right)}`);
     assert.ok(right.right < flight.left, `${label} steering and skill hit regions overlap`);
   }
   const hudCollisions = await page.evaluate(() => {
