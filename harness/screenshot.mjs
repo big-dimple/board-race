@@ -97,6 +97,112 @@ async function waitForServer(url, tries = 60) {
   throw new Error(`dev server did not come up at ${url}`);
 }
 
+async function verifySurfaceGuideVisualContract(page) {
+  await page.evaluate(() => window.__harness.scenario('hairpin'));
+  const visual = await page.evaluate(() => {
+    const ribbon = window.__scene.getObjectByName('racing-line');
+    const arrows = window.__scene.getObjectByName('surface-guide-chevrons');
+    if (!ribbon?.isMesh || !arrows?.isMesh) return null;
+    return {
+      ribbonVertices: ribbon.geometry.attributes.position.count,
+      ribbonSide: ribbon.material.side,
+      ribbonVertexShader: ribbon.material.vertexShader,
+      ribbonFragmentShader: ribbon.material.fragmentShader,
+      arrowVertices: arrows.geometry.attributes.position.count,
+      arrowHasTurnAttribute: Boolean(arrows.geometry.attributes.aTurn),
+      arrowSide: arrows.material.side,
+      arrowVertexShader: arrows.material.vertexShader,
+    };
+  });
+  assert.ok(visual, 'surface guide meshes must exist in the rendered scene');
+  assert.equal(visual.ribbonVertices, (1400 + 1) * 9,
+    'the surface veil must be tessellated across eight strips so it follows local waves');
+  assert.equal(visual.ribbonSide, 0, 'the surface veil must render once from above, not double-blend');
+  assert.match(visual.ribbonVertexShader, /waveHeight\(p\.xz, uTime\)/,
+    'the translucent veil must follow the live ocean displacement');
+  assert.doesNotMatch(visual.ribbonFragmentShader, /railInk|crossbar|arrowPhase/,
+    'the retired thick rails and procedural V wallpaper must not return');
+  assert.ok(visual.arrowVertices > 900, 'sparse route arrows must be real geometry, not a shader decal');
+  assert.equal(visual.arrowHasTurnAttribute, true, 'arrow geometry must distinguish ordinary and turn cues');
+  assert.equal(visual.arrowSide, 0, 'surface arrows must avoid a second transparent back-face pass');
+  assert.match(visual.arrowVertexShader, /waveHeight\(world\.xz, uTime\)/,
+    'each arrow vertex must move with the water instead of floating as a rigid panel');
+
+  const pixels = await page.evaluate(() => {
+    const canvas = document.querySelector('#app > canvas');
+    const scene = window.__scene;
+    if (!(canvas instanceof HTMLCanvasElement)) return null;
+    const read = () => {
+      window.__harness.render();
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const context = copy.getContext('2d', { willReadFrequently: true });
+      context.drawImage(canvas, 0, 0);
+      return context.getImageData(0, 0, copy.width, copy.height).data;
+    };
+    const compareToggle = (name, includeVariance) => {
+      const mesh = scene.getObjectByName(name);
+      const wasVisible = mesh.visible;
+      mesh.visible = false;
+      const off = read();
+      mesh.visible = true;
+      const on = read();
+      mesh.visible = wasVisible;
+      window.__harness.render();
+      let changed = 0;
+      let deltaSum = 0;
+      let offSum = 0;
+      let onSum = 0;
+      let offSq = 0;
+      let onSq = 0;
+      const deltas = [];
+      for (let i = 0; i < on.length; i += 4) {
+        const delta = Math.abs(on[i] - off[i]) + Math.abs(on[i + 1] - off[i + 1]) +
+          Math.abs(on[i + 2] - off[i + 2]);
+        if (delta <= 2) continue;
+        changed++;
+        deltaSum += delta;
+        deltas.push(delta);
+        if (includeVariance) {
+          const offLuma = off[i] * 0.2126 + off[i + 1] * 0.7152 + off[i + 2] * 0.0722;
+          const onLuma = on[i] * 0.2126 + on[i + 1] * 0.7152 + on[i + 2] * 0.0722;
+          offSum += offLuma;
+          onSum += onLuma;
+          offSq += offLuma * offLuma;
+          onSq += onLuma * onLuma;
+        }
+      }
+      deltas.sort((a, b) => a - b);
+      const offVariance = includeVariance && changed > 0
+        ? offSq / changed - (offSum / changed) ** 2
+        : 0;
+      const onVariance = includeVariance && changed > 0
+        ? onSq / changed - (onSum / changed) ** 2
+        : 0;
+      return {
+        changed,
+        meanDelta: deltaSum / Math.max(1, changed),
+        p95Delta: deltas[Math.floor(deltas.length * 0.95)] ?? 0,
+        varianceRetention: includeVariance ? onVariance / Math.max(1, offVariance) : 0,
+      };
+    };
+    return {
+      veil: compareToggle('racing-line', true),
+      arrows: compareToggle('surface-guide-chevrons', false),
+    };
+  });
+  assert.ok(pixels, 'surface guide pixel probe needs the live renderer canvas');
+  assert.ok(pixels.veil.changed > 20000,
+    `the water veil must be visible in a real rendered frame: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.meanDelta < 45 && pixels.veil.p95Delta < 100,
+    `the water veil must remain translucent rather than repainting the ocean: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.varianceRetention >= 0.72,
+    `ocean bands must remain legible through the guide: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.arrows.changed > 200,
+    `open-chevron geometry must produce visible pixels in the driving view: ${JSON.stringify(pixels.arrows)}`);
+}
+
 async function verifyFlightContract(page) {
   // A fresh page waits forever. Enter is advertised, while Space is the quiet
   // one-hand alternative; R remains retry-only.
@@ -858,15 +964,25 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
 
   let routeGuidance = await page.evaluate(() => window.__harness.guidance());
-  assert.equal(routeGuidance.surfaceGuideStyle, 'open-lattice',
-    'the full-lap water guide must use the open route language seen from GO');
-  assert.equal(routeGuidance.surfaceGuideContinuousAlpha, 0,
-    'the water guide must not regain the solid road-like core visible at the start line');
+  assert.equal(routeGuidance.surfaceGuideStyle, 'translucent-wave-veil',
+    'the full-lap route must use the water-conforming virtual-wake language');
+  assert.ok(routeGuidance.surfaceGuideBaseAlpha >= 0.05 && routeGuidance.surfaceGuideBaseAlpha <= 0.09,
+    `the guide field must remain restrained: ${JSON.stringify(routeGuidance)}`);
+  assert.ok(routeGuidance.surfaceGuidePeakAlpha <= 0.36,
+    `the guide veil must never become an opaque road: ${JSON.stringify(routeGuidance)}`);
+  assert.equal(routeGuidance.surfaceGuideArrowCadenceM, 24,
+    'ordinary direction markers must stay sparse rather than wallpapering the route');
+  assert.ok(routeGuidance.surfaceGuideArrowCount >= 90 && routeGuidance.surfaceGuideArrowCount <= 160,
+    `the full lap needs a bounded arrow budget: ${JSON.stringify(routeGuidance)}`);
+  assert.equal(routeGuidance.surfaceGuideTurnChevronCount, 3,
+    'sharp turns must use the highway-style three-chevron beat');
   assert.equal(routeGuidance.actionCue, 'turn');
   assert.equal(routeGuidance.actionRouteIndex, 1);
   assert.equal(routeGuidance.actionDirection, 'left');
   assert.equal(routeGuidance.actionMarkerCount, 3,
     'the second-flight bend must use the same three-chevron route language');
+
+  await verifySurfaceGuideVisualContract(page);
 
   await page.evaluate(() => window.__harness.scenario('flight-route4-approach'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());

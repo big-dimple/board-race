@@ -69,10 +69,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   visual guide while the passed branch still owns validation. That transition
   must never snap the boat, clear horizontal momentum, preload a surface warning,
   or show more than one flight branch.
-- The full-lap green surface guide uses an open water-following lattice with no
-  filled core. Flight branches retain their translucent cyan virtual-ribbon
-  treatment. Authored sharp bends carry lane-width warm triple chevrons; flight
-  five's buoy signs are secondary and do not create another target.
+- The full-lap green surface guide is a tessellated translucent wake: it bends
+  with the local swell, has no hard rails or filled road core, and carries
+  sparse open chevrons. Sharp bends replace the ordinary marker with one warm
+  three-chevron beat. Flight branches retain their separate translucent cyan
+  treatment; flight five's buoy signs remain secondary.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.

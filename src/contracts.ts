@@ -329,9 +329,14 @@ export interface CourseGuidanceStatus {
   /** World markers currently carrying the cue. */
   actionMarkerCount: number;
   /** Shared visual language used by the full-lap surface route. */
-  surfaceGuideStyle: 'open-lattice';
-  /** The surface route must never regain a filled road-like core. */
-  surfaceGuideContinuousAlpha: number;
+  surfaceGuideStyle: 'translucent-wave-veil';
+  /** Bounded translucent field; the ocean must remain legible through it. */
+  surfaceGuideBaseAlpha: number;
+  surfaceGuidePeakAlpha: number;
+  /** Sparse arrow cadence and deterministic geometry diagnostics. */
+  surfaceGuideArrowCadenceM: number;
+  surfaceGuideArrowCount: number;
+  surfaceGuideTurnChevronCount: number;
 }
 
 /** What the HUD and camera are allowed to know about the race. */

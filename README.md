@@ -168,10 +168,11 @@ harness/
 
 ## Visual guidance
 
-The full-lap green surface guide is an open water-following lattice of paired rails,
-sparse crossbars, and forward chevrons rather than a filled road. The cyan flight
-branches remain a separate translucent aerial layer; neither guide changes route
-validation or boat physics.
+The full-lap green surface guide is a soft translucent wake tessellated across the
+local swell. It has no hard rails or painted-road core: two restrained flow traces
+and sparse open chevrons preserve the ocean underneath, while a warm three-chevron
+beat announces sharp turns. Cyan flight branches remain a separate aerial layer;
+neither guide changes route validation or boat physics.
 
 ## Verification harness
 

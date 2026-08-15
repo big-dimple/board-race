@@ -851,31 +851,41 @@ function makeStripeToon(map: THREE.Texture, shadowFloor = 0.52): THREE.ShaderMat
 // ---------------------------------------------------------------- ribbon ----
 
 const RIBBON_SEGS = 1400;
-// Eight-meter open navigation field. Geometry width is only the canvas for
-// rails/chevrons; it is never a filled road or a change to route validation.
+// Eight-meter navigation field. The surface guide is tessellated across its
+// width so every part follows the swell instead of bridging it like a panel.
 const RIBBON_HALF_W = 4;
-const SURFACE_GUIDE_STYLE = 'open-lattice' as const;
-const SURFACE_GUIDE_CONTINUOUS_ALPHA = 0;
+const SURFACE_GUIDE_CROSS_SEGS = 8;
+const SURFACE_GUIDE_STYLE = 'translucent-wave-veil' as const;
+const SURFACE_GUIDE_BASE_ALPHA = 0.075;
+const SURFACE_GUIDE_PEAK_ALPHA = 0.36;
+const SURFACE_GUIDE_ARROW_CADENCE_M = 24;
+const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
+
+function createSurfaceGuideUniforms() {
+  return {
+    uTime: { value: 0 },
+    uColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
+    uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
+    uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
+    uPlayerS: { value: 0 },
+    uLapLength: { value: LAP_LENGTH },
+    uMaskStart: { value: 0 },
+    uMaskEnd: { value: 0 },
+    uGuideActive: { value: 0 },
+    uFinalApproach: { value: 0 },
+  };
+}
+
+type SurfaceGuideUniforms = ReturnType<typeof createSurfaceGuideUniforms>;
 
 /**
- * Open racing lattice: paired rails establish the curve while sparse
- * transverse cells and forward chevrons encode scale/direction. Empty pixels
- * are discarded so the ocean remains the surface; there is no painted road.
+ * A low-opacity virtual wake. The ocean remains the dominant surface; soft
+ * packets and two inner filaments carry motion without drawing road edges.
  */
-function buildRibbonMaterial(): THREE.ShaderMaterial {
+function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     name: 'RacingLine',
-    uniforms: {
-      uTime: { value: 0 },
-      uColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
-      uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
-      uPlayerS: { value: 0 },
-      uLapLength: { value: LAP_LENGTH },
-      uMaskStart: { value: 0 },
-      uMaskEnd: { value: 0 },
-      uGuideActive: { value: 0 },
-      uFinalApproach: { value: 0 },
-    },
+    uniforms,
     vertexShader: /* glsl */ `
       uniform float uTime;
       varying float vS;
@@ -884,10 +894,7 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
       ${WAVES_GLSL}
       void main() {
         vec3 p = position;
-        // ride the swell instead of clipping through it. Lift compromise:
-        // 0.22 read as an elevated rail bridging troughs; 0.1 clips under
-        // far wave slopes (broken line). 0.17 survives both at chase angles.
-        p.y = waveHeight(p.xz, uTime) + 0.17;
+        p.y = waveHeight(p.xz, uTime) + 0.135;
         vS = uv.x;
         vSide = uv.y;
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -898,7 +905,7 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       uniform float uTime;
       uniform vec3 uColor;
-      uniform vec3 uInk;
+      uniform vec3 uFoam;
       uniform float uPlayerS;
       uniform float uLapLength;
       uniform float uMaskStart;
@@ -913,39 +920,261 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        float a = abs(vSide);
-        float railInk = 1.0 - smoothstep(0.055, 0.105, abs(a - 0.76));
-        float rail = 1.0 - smoothstep(0.018, 0.052, abs(a - 0.76));
-        float cellPhase = abs(fract(vS / 13.5 - uTime * 0.045) - 0.5);
-        float crossbar = (1.0 - smoothstep(0.025, 0.055, cellPhase)) *
-          smoothstep(0.08, 0.18, a) * (1.0 - smoothstep(0.68, 0.74, a));
-        // V-shaped markings point toward increasing spline distance.
-        float arrowPhase = fract(vS / 17.0 - uTime * 0.035);
-        float arrowCenter = 0.56 + (1.0 - min(a / 0.62, 1.0)) * 0.19;
-        float chevron = (1.0 - smoothstep(0.018, 0.045, abs(arrowPhase - arrowCenter))) *
-          (1.0 - smoothstep(0.58, 0.68, a));
-        float packet = smoothstep(0.04, 0.2, arrowPhase) *
-          (1.0 - smoothstep(0.76, 0.94, arrowPhase));
-        float centerFlow = (1.0 - smoothstep(0.022, 0.06, abs(a - 0.18))) * packet;
-        // Preserve a stable locator spine through the full 170m navigation
-        // horizon instead of fading the exact turn-away point to nothing.
+        float side = abs(vSide);
+        float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
+        float packetPhase = fract(vS / 21.0 - uTime * 0.42);
+        float packet = smoothstep(0.04, 0.2, packetPhase) *
+          (1.0 - smoothstep(0.66, 0.94, packetPhase));
+        float drift = sin(vS * 0.19 - uTime * 1.7) * 0.025;
+        float flowA = 1.0 - smoothstep(0.022, 0.07, abs(vSide - (0.18 + drift)));
+        float flowB = 1.0 - smoothstep(0.022, 0.07, abs(vSide - (-0.18 - drift)));
+        float flow = max(flowA, flowB) * (0.42 + packet * 0.58);
+        float centerVeil = 1.0 - smoothstep(0.06, 0.7, side);
+        float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} + packet * 0.032);
+        float alpha = veil + centerVeil * 0.026 + flow * 0.23;
         float localFade = 1.0 - smoothstep(125.0, 170.0, ahead) * 0.28;
         float fade = (vDist < 220.0 ? 1.0 : 0.62) * max(localFade, step(0.001, behind) * step(behind, 12.0));
-        vec3 col = mix(uInk, uColor, min(1.0, rail * 0.9 + crossbar * 0.72 + chevron + centerFlow));
-        float alpha = ${SURFACE_GUIDE_CONTINUOUS_ALPHA.toFixed(1)};
-        alpha += railInk * 0.24 + rail * 0.58;
-        alpha += crossbar * 0.16;
-        alpha += chevron * 0.48 + centerFlow * 0.28;
+        vec3 col = mix(uColor, uFoam, 0.08 + flow * 0.2 + packet * 0.04);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
-        if (alpha < 0.012) discard;
+        alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
+        if (alpha < 0.008) discard;
         gl_FragColor = vec4(col, alpha);
       }
     `,
     transparent: true,
     blending: THREE.NormalBlending,
     depthWrite: false,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
+    toneMapped: false,
+  });
+}
+
+interface SurfaceGuideBuild {
+  ribbon: THREE.ShaderMaterial;
+  arrowCount: number;
+}
+
+interface SurfaceArrowMarker {
+  s: number;
+  direction: 'forward' | 'left' | 'right';
+  turn: boolean;
+  phase: number;
+}
+
+function circularDistanceM(a: number, b: number): number {
+  const d = Math.abs(a - b) % LAP_LENGTH;
+  return Math.min(d, LAP_LENGTH - d);
+}
+
+function surfaceTurnAhead(s: number): number {
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  CURVE.getTangentAt(((s + 8) % LAP_LENGTH) / LAP_LENGTH, a).setY(0).normalize();
+  CURVE.getTangentAt(((s + 38) % LAP_LENGTH) / LAP_LENGTH, b).setY(0).normalize();
+  return Math.atan2(a.x * b.z - a.z * b.x, a.x * b.x + a.z * b.z);
+}
+
+function buildSurfaceArrowGeometry(): { geometry: THREE.BufferGeometry; count: number } {
+  const markers: SurfaceArrowMarker[] = [];
+  const explicitFlightCues = FLIGHT_ROUTES.flatMap((route) => {
+    if (!route.navigation?.turn || route.navigation.action) return [];
+    const s = Math.max(route.qualifyFromU * LAP_LENGTH, route.launchFromU * LAP_LENGTH - 32);
+    return [{ s, direction: route.navigation.turn.direction }];
+  });
+  const flightFiveAction = FLIGHT_ROUTES[4].navigation?.action;
+  const actionFromS = (flightFiveAction?.bankFromU ?? 0) * LAP_LENGTH;
+  const actionToS = (flightFiveAction?.launchToU ?? 0) * LAP_LENGTH;
+  let lastTurnS = -Infinity;
+  let skipUntil = -Infinity;
+  for (let s = 12; s < LAP_LENGTH; s += SURFACE_GUIDE_ARROW_CADENCE_M) {
+    const inFlightFiveAction = flightFiveAction && s >= actionFromS - 8 && s <= actionToS + 8;
+    const nearFlightCue = explicitFlightCues.some((cue) => circularDistanceM(s, cue.s) < 22);
+    if (inFlightFiveAction || nearFlightCue || s < skipUntil) continue;
+    const turn = surfaceTurnAhead(s);
+    if (Math.abs(turn) >= THREE.MathUtils.degToRad(18) && s - lastTurnS >= 36) {
+      for (let i = 0; i < SURFACE_GUIDE_TURN_CHEVRON_COUNT; i++) {
+        markers.push({ s: s + i * 4.5, direction: 'forward', turn: true, phase: i / 3 });
+      }
+      lastTurnS = s;
+      skipUntil = s + 16;
+    } else {
+      markers.push({ s, direction: 'forward', turn: false, phase: 0 });
+    }
+  }
+  for (const cue of explicitFlightCues) {
+    for (let i = 0; i < SURFACE_GUIDE_TURN_CHEVRON_COUNT; i++) {
+      markers.push({ s: cue.s + i * 4.5, direction: cue.direction, turn: true, phase: i / 3 });
+    }
+  }
+
+  const positions: number[] = [];
+  const stations: number[] = [];
+  const turns: number[] = [];
+  const phases: number[] = [];
+  const center = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const right = new THREE.Vector3();
+  const world = new THREE.Vector3();
+  const localToWorld = (x: number, z: number, forward: THREE.Vector3, lateral: THREE.Vector3): THREE.Vector3 => {
+    return world.copy(center).addScaledVector(lateral, x).addScaledVector(forward, z).clone();
+  };
+  const addTriangle = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, marker: SurfaceArrowMarker): void => {
+    const crossY = new THREE.Vector3().subVectors(b, a)
+      .cross(new THREE.Vector3().subVectors(c, a)).y;
+    const ordered = crossY >= 0 ? [a, b, c] : [a, c, b];
+    for (const point of ordered) {
+      positions.push(point.x, 0, point.z);
+      stations.push((marker.s + LAP_LENGTH) % LAP_LENGTH);
+      turns.push(marker.turn ? 1 : 0);
+      phases.push(marker.phase);
+    }
+  };
+  const addWing = (
+    startX: number,
+    startZ: number,
+    endX: number,
+    endZ: number,
+    marker: SurfaceArrowMarker,
+    forward: THREE.Vector3,
+    lateral: THREE.Vector3,
+  ): void => {
+    const dx = endX - startX;
+    const dz = endZ - startZ;
+    const inv = 1 / Math.hypot(dx, dz);
+    const px = -dz * inv;
+    const pz = dx * inv;
+    const startHalf = marker.turn ? 0.27 : 0.23;
+    const endHalf = marker.turn ? 0.18 : 0.16;
+    const a = localToWorld(startX + px * startHalf, startZ + pz * startHalf, forward, lateral);
+    const b = localToWorld(startX - px * startHalf, startZ - pz * startHalf, forward, lateral);
+    const c = localToWorld(endX + px * endHalf, endZ + pz * endHalf, forward, lateral);
+    const d = localToWorld(endX - px * endHalf, endZ - pz * endHalf, forward, lateral);
+    addTriangle(a, c, b, marker);
+    addTriangle(b, c, d, marker);
+  };
+
+  for (const marker of markers) {
+    const u = ((marker.s % LAP_LENGTH) + LAP_LENGTH) % LAP_LENGTH / LAP_LENGTH;
+    CURVE.getPointAt(u, center);
+    CURVE.getTangentAt(u, tangent).setY(0).normalize();
+    right.set(tangent.z, 0, -tangent.x).normalize();
+    const forward = marker.direction === 'forward'
+      ? tangent.clone()
+      : right.clone().multiplyScalar(marker.direction === 'right' ? 1 : -1);
+    const lateral = new THREE.Vector3(forward.z, 0, -forward.x);
+    const width = marker.turn ? 2.2 : 1.9;
+    const tail = marker.turn ? -1.05 : -0.9;
+    const tip = marker.turn ? 2.15 : 1.85;
+    addWing(-width, tail, 0, tip, marker, forward, lateral);
+    addWing(width, tail, 0, tip, marker, forward, lateral);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('aStation', new THREE.Float32BufferAttribute(stations, 1));
+  geometry.setAttribute('aTurn', new THREE.Float32BufferAttribute(turns, 1));
+  geometry.setAttribute('aPhase', new THREE.Float32BufferAttribute(phases, 1));
+  geometry.computeBoundingSphere();
+  return { geometry, count: markers.length };
+}
+
+function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    name: 'SurfaceGuideChevrons',
+    uniforms,
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      attribute float aStation;
+      attribute float aTurn;
+      attribute float aPhase;
+      varying float vS;
+      varying float vTurn;
+      varying float vPhase;
+      varying float vDist;
+      ${WAVES_GLSL}
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        world.y = waveHeight(world.xz, uTime) + 0.19;
+        vS = aStation;
+        vTurn = aTurn;
+        vPhase = aPhase;
+        vec4 mv = viewMatrix * world;
+        vDist = -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      uniform vec3 uColor;
+      uniform vec3 uFoam;
+      uniform vec3 uTurnColor;
+      uniform float uPlayerS;
+      uniform float uLapLength;
+      uniform float uMaskStart;
+      uniform float uMaskEnd;
+      uniform float uGuideActive;
+      uniform float uFinalApproach;
+      varying float vS;
+      varying float vTurn;
+      varying float vPhase;
+      varying float vDist;
+      void main() {
+        float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
+        float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
+        if (ahead > 170.0 && behind > 12.0) discard;
+        if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
+        float pulse = 0.5 + 0.5 * sin(uTime * 3.4 - vPhase * 6.283 - vS * 0.035);
+        float localFade = 1.0 - smoothstep(125.0, 170.0, ahead) * 0.34;
+        float fade = (vDist < 220.0 ? 1.0 : 0.66) * max(localFade, step(0.001, behind) * step(behind, 12.0));
+        vec3 base = mix(uColor, uTurnColor, vTurn);
+        vec3 color = mix(base, uFoam, 0.12 + pulse * mix(0.08, 0.18, vTurn));
+        float alpha = mix(0.44, 0.72, vTurn) * (0.84 + pulse * 0.16) * fade;
+        alpha *= mix(1.0, 0.18, uFinalApproach);
+        gl_FragColor = vec4(color, alpha);
+      }
+    `,
+    transparent: true,
+    blending: THREE.NormalBlending,
+    depthWrite: false,
+    side: THREE.FrontSide,
+    toneMapped: false,
+  });
+}
+
+function buildSurfaceCueMaterial(
+  timeUniform: THREE.IUniform<number>,
+  color: number,
+  opacity: number,
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    name: 'SurfaceActionChevron',
+    uniforms: {
+      uTime: timeUniform,
+      uColor: { value: new THREE.Color().setHex(color, THREE.NoColorSpace) },
+      uOpacity: { value: opacity },
+    },
+    vertexShader: /* glsl */ `
+      uniform float uTime;
+      ${WAVES_GLSL}
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        world.y = waveHeight(world.xz, uTime) + 0.205;
+        gl_Position = projectionMatrix * viewMatrix * world;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      void main() {
+        gl_FragColor = vec4(uColor, uOpacity);
+      }
+    `,
+    transparent: true,
+    blending: THREE.NormalBlending,
+    depthWrite: false,
+    side: THREE.FrontSide,
+    toneMapped: false,
   });
 }
 
@@ -1087,6 +1316,7 @@ export class Course implements ICourse {
   readonly flightGateUs = FLIGHT_GATE_US;
 
   private readonly ribbonMat: THREE.ShaderMaterial;
+  private readonly surfaceGuideArrowCount: number;
   private readonly stripMat: THREE.ShaderMaterial;
   private readonly flightVisuals: FlightRouteVisual[];
   private readonly surfaceActionVisual: SurfaceActionVisual;
@@ -1134,7 +1364,9 @@ export class Course implements ICourse {
   constructor() {
     this.object = new THREE.Group();
     this.object.name = 'course';
-    this.ribbonMat = this.buildRibbon();
+    const surfaceGuide = this.buildRibbon();
+    this.ribbonMat = surfaceGuide.ribbon;
+    this.surfaceGuideArrowCount = surfaceGuide.arrowCount;
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
     this.buildGates();
@@ -1397,7 +1629,11 @@ export class Course implements ICourse {
       actionTargetU: this.playerActionTargetU,
       actionMarkerCount: this.playerActionMarkerCount,
       surfaceGuideStyle: SURFACE_GUIDE_STYLE,
-      surfaceGuideContinuousAlpha: SURFACE_GUIDE_CONTINUOUS_ALPHA,
+      surfaceGuideBaseAlpha: SURFACE_GUIDE_BASE_ALPHA,
+      surfaceGuidePeakAlpha: SURFACE_GUIDE_PEAK_ALPHA,
+      surfaceGuideArrowCadenceM: SURFACE_GUIDE_ARROW_CADENCE_M,
+      surfaceGuideArrowCount: this.surfaceGuideArrowCount,
+      surfaceGuideTurnChevronCount: SURFACE_GUIDE_TURN_CHEVRON_COUNT,
     };
   }
 
@@ -2418,41 +2654,17 @@ export class Course implements ICourse {
     const launchGroup = new THREE.Group();
     launchGroup.name = 'flight-5-launch-actions';
     group.add(bankGroup, launchGroup);
-    const backing = new THREE.MeshBasicMaterial({
-      color: PALETTE.ink,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-    const bankFill = new THREE.MeshBasicMaterial({
-      color: PALETTE.sunFlare,
-      transparent: true,
-      opacity: 0.94,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-    const launchFill = new THREE.MeshBasicMaterial({
-      color: PALETTE.foam,
-      transparent: true,
-      opacity: 0.94,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-    const bankInkGeometry = makeOpenChevronGeometry();
-    const bankFillGeometry = makeOpenChevronGeometry(0.055);
-    const launchInkGeometry = makeForwardArrowGeometry();
-    const launchFillGeometry = makeForwardArrowGeometry(0.055);
+    const cueShadow = buildSurfaceCueMaterial(this.ribbonMat.uniforms.uTime, PALETTE.flightDeep, 0.28);
+    const bankFill = buildSurfaceCueMaterial(this.ribbonMat.uniforms.uTime, PALETTE.sunFlare, 0.78);
+    const launchFill = buildSurfaceCueMaterial(this.ribbonMat.uniforms.uTime, PALETTE.foam, 0.82);
+    const bankFillGeometry = makeOpenChevronGeometry();
+    const launchFillGeometry = makeForwardArrowGeometry();
     const action = FLIGHT_ROUTES[4].navigation!.action!;
     const addMarker = (
       parent: THREE.Group,
       u: number,
-      inkGeometry: THREE.BufferGeometry,
       fillGeometry: THREE.BufferGeometry,
-      fillMaterial: THREE.MeshBasicMaterial,
+      fillMaterial: THREE.ShaderMaterial,
       scale: number,
       name: string,
     ): void => {
@@ -2461,21 +2673,15 @@ export class Course implements ICourse {
       const marker = new THREE.Group();
       marker.name = name;
       marker.position.set(_sp.x, 0, _sp.z);
-      const ink = new THREE.Mesh(inkGeometry, backing);
-      ink.position.y = 0.22;
-      ink.scale.setScalar(scale);
+      marker.rotation.y = Math.atan2(-_ta.z, _ta.x);
+      const shadow = new THREE.Mesh(fillGeometry, cueShadow);
+      shadow.scale.setScalar(scale);
+      shadow.renderOrder = 4;
       const fill = new THREE.Mesh(fillGeometry, fillMaterial);
-      fill.position.y = 0.22;
-      fill.scale.setScalar(scale * 0.84);
+      fill.scale.setScalar(scale * 0.78);
       fill.renderOrder = 5;
-      marker.add(ink, fill);
+      marker.add(shadow, fill);
       parent.add(marker);
-      this.floaters.push({
-        obj: marker,
-        x: _sp.x,
-        z: _sp.z,
-        yawQ: new THREE.Quaternion().setFromAxisAngle(UP, Math.atan2(-_ta.z, _ta.x)),
-      });
     };
     // These read as broad paint beats inside the green route, not as props.
     // The nearest beat is deliberately early enough to survive the low chase
@@ -2485,7 +2691,6 @@ export class Course implements ICourse {
       addMarker(
         bankGroup,
         bankStations[i],
-        bankInkGeometry,
         bankFillGeometry,
         bankFill,
         2.9,
@@ -2496,7 +2701,6 @@ export class Course implements ICourse {
       addMarker(
         launchGroup,
         THREE.MathUtils.lerp(action.launchFromU + 0.0005, action.launchToU - 0.0015, i),
-        launchInkGeometry,
         launchFillGeometry,
         launchFill,
         2.35,
@@ -2506,12 +2710,13 @@ export class Course implements ICourse {
     return { group, bankGroup, launchGroup };
   }
 
-  /** 8m soft field with a 3.4m bright spine; one draw call; OFF LAYER_INK. */
-  private buildRibbon(): THREE.ShaderMaterial {
+  /** Wave-conforming translucent route plus sparse authored arrow geometry. */
+  private buildRibbon(): SurfaceGuideBuild {
     const rows = RIBBON_SEGS + 1;
-    const pos = new Float32Array(rows * 2 * 3);
-    const uv = new Float32Array(rows * 2 * 2);
-    const idx = new Uint32Array(RIBBON_SEGS * 6);
+    const columns = SURFACE_GUIDE_CROSS_SEGS + 1;
+    const pos = new Float32Array(rows * columns * 3);
+    const uv = new Float32Array(rows * columns * 2);
+    const idx = new Uint32Array(RIBBON_SEGS * SURFACE_GUIDE_CROSS_SEGS * 6);
     const p = new THREE.Vector3();
     const t = new THREE.Vector3();
     for (let i = 0; i < rows; i++) {
@@ -2522,40 +2727,52 @@ export class Course implements ICourse {
       const lx = -t.z * il; // left normal of the tangent
       const lz = t.x * il;
       const s = i * (LAP_LENGTH / RIBBON_SEGS); // arc-length station (m)
-      pos[i * 6] = p.x + lx * RIBBON_HALF_W;
-      pos[i * 6 + 1] = 0;
-      pos[i * 6 + 2] = p.z + lz * RIBBON_HALF_W;
-      pos[i * 6 + 3] = p.x - lx * RIBBON_HALF_W;
-      pos[i * 6 + 4] = 0;
-      pos[i * 6 + 5] = p.z - lz * RIBBON_HALF_W;
-      uv[i * 4] = s;
-      uv[i * 4 + 1] = 1;
-      uv[i * 4 + 2] = s;
-      uv[i * 4 + 3] = -1;
+      for (let j = 0; j < columns; j++) {
+        const side = 1 - (j / SURFACE_GUIDE_CROSS_SEGS) * 2;
+        const vertex = i * columns + j;
+        pos[vertex * 3] = p.x + lx * RIBBON_HALF_W * side;
+        pos[vertex * 3 + 1] = 0;
+        pos[vertex * 3 + 2] = p.z + lz * RIBBON_HALF_W * side;
+        uv[vertex * 2] = s;
+        uv[vertex * 2 + 1] = side;
+      }
     }
     for (let i = 0; i < RIBBON_SEGS; i++) {
-      const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      idx[i * 6] = a;
-      idx[i * 6 + 1] = b;
-      idx[i * 6 + 2] = c;
-      idx[i * 6 + 3] = b;
-      idx[i * 6 + 4] = d;
-      idx[i * 6 + 5] = c;
+      for (let j = 0; j < SURFACE_GUIDE_CROSS_SEGS; j++) {
+        const a = i * columns + j;
+        const b = a + 1;
+        const c = (i + 1) * columns + j;
+        const d = c + 1;
+        const index = (i * SURFACE_GUIDE_CROSS_SEGS + j) * 6;
+        // +Y winding lets the always-above-water guide render FrontSide only.
+        idx[index] = a;
+        idx[index + 1] = c;
+        idx[index + 2] = b;
+        idx[index + 3] = b;
+        idx[index + 4] = c;
+        idx[index + 5] = d;
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    const mat = buildRibbonMaterial();
+    const uniforms = createSurfaceGuideUniforms();
+    const mat = buildRibbonMaterial(uniforms);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = 'racing-line';
     mesh.frustumCulled = false; // spans the whole course
     mesh.renderOrder = 2; // over the water
     this.object.add(mesh);
-    return mat;
+
+    const arrowBuild = buildSurfaceArrowGeometry();
+    const arrowMat = buildSurfaceArrowMaterial(uniforms);
+    const arrows = new THREE.Mesh(arrowBuild.geometry, arrowMat);
+    arrows.name = 'surface-guide-chevrons';
+    arrows.frustumCulled = false;
+    arrows.renderOrder = 3;
+    this.object.add(arrows);
+    return { ribbon: mat, arrowCount: arrowBuild.count };
   }
 
   // -------------------------------------------------------- start strip ----
