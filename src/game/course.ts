@@ -307,12 +307,6 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     turnWarningFromU: 0.645,
     turnWarningToU: 0.694,
     navigation: {
-      action: {
-        bankFromU: 0.58,
-        bankToU: 0.616,
-        launchFromU: 0.616,
-        launchToU: 0.624,
-      },
       turn: { fromU: 0.645, toU: 0.694, direction: 'right' },
     },
   },
@@ -861,14 +855,16 @@ const RIBBON_SEGS = 1400;
 // width so every part follows the swell instead of bridging it like a panel.
 const RIBBON_HALF_W = 4;
 const SURFACE_GUIDE_CROSS_SEGS = 8;
-const SURFACE_GUIDE_STYLE = 'translucent-wave-veil' as const;
-const SURFACE_GUIDE_BASE_ALPHA = 0.11;
-const SURFACE_GUIDE_PEAK_ALPHA = 0.46;
-const SURFACE_GUIDE_ARROW_CADENCE_M = 12;
-const SURFACE_GUIDE_ARROW_SPEED_MPS = 8;
+const SURFACE_GUIDE_STYLE = 'translucent-wave-spine' as const;
+const SURFACE_GUIDE_BASE_ALPHA = 0.17;
+const SURFACE_GUIDE_PEAK_ALPHA = 0.58;
+const SURFACE_GUIDE_ARROW_CADENCE_M = 10;
+const SURFACE_GUIDE_ARROW_SPEED_MPS = 10;
 const SURFACE_GUIDE_ARROW_START_M = 16;
 const SURFACE_GUIDE_ARROW_COUNT = Math.ceil((170 - SURFACE_GUIDE_ARROW_START_M) / SURFACE_GUIDE_ARROW_CADENCE_M);
 const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
+const LAUNCH_GATE_PREVIEW_M = 140;
+const LAUNCH_GATE_FOCUS_M = 30;
 
 function createSurfaceGuideUniforms() {
   return {
@@ -876,12 +872,15 @@ function createSurfaceGuideUniforms() {
     uColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
     uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
     uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
+    uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
     uPlayerS: { value: 0 },
     uLapLength: { value: LAP_LENGTH },
     uMaskStart: { value: 0 },
     uMaskEnd: { value: 0 },
     uGuideActive: { value: 0 },
     uFinalApproach: { value: 0 },
+    uLaunchGateActive: { value: 0 },
+    uLaunchGateS: { value: 0 },
   };
 }
 
@@ -921,6 +920,8 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       uniform float uMaskEnd;
       uniform float uGuideActive;
       uniform float uFinalApproach;
+      uniform float uLaunchGateActive;
+      uniform float uLaunchGateS;
       varying float vS;
       varying float vSide;
       varying float vDist;
@@ -929,21 +930,24 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
+        float afterLaunch = mod(vS - uLaunchGateS + uLapLength, uLapLength);
+        if (uLaunchGateActive > 0.5 && afterLaunch < 22.0) discard;
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
         float packetPhase = fract(vS / 21.0 - uTime * 0.42);
         float packet = smoothstep(0.04, 0.2, packetPhase) *
           (1.0 - smoothstep(0.66, 0.94, packetPhase));
         float drift = sin(vS * 0.19 - uTime * 1.7) * 0.025;
-        float flowA = 1.0 - smoothstep(0.022, 0.07, abs(vSide - (0.18 + drift)));
-        float flowB = 1.0 - smoothstep(0.022, 0.07, abs(vSide - (-0.18 - drift)));
+        float flowA = 1.0 - smoothstep(0.022, 0.075, abs(vSide - (0.18 + drift)));
+        float flowB = 1.0 - smoothstep(0.022, 0.075, abs(vSide - (-0.18 - drift)));
         float flow = max(flowA, flowB) * (0.46 + packet * 0.54);
         float centerVeil = 1.0 - smoothstep(0.06, 0.7, side);
+        float navSpine = 1.0 - smoothstep(0.055, 0.145, side);
         float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} + packet * 0.045);
-        float alpha = veil + centerVeil * 0.052 + flow * 0.25;
-        float localFade = 1.0 - smoothstep(125.0, 170.0, ahead) * 0.28;
-        float fade = (vDist < 220.0 ? 1.0 : 0.62) * max(localFade, step(0.001, behind) * step(behind, 12.0));
-        vec3 col = mix(uColor, uFoam, 0.15 + flow * 0.34 + packet * 0.05);
+        float alpha = veil + centerVeil * 0.065 + navSpine * 0.34 + flow * 0.29;
+        float localFade = 1.0 - smoothstep(140.0, 170.0, ahead) * 0.18;
+        float fade = (vDist < 220.0 ? 1.0 : 0.78) * max(localFade, step(0.001, behind) * step(behind, 12.0));
+        vec3 col = mix(uColor, uFoam, 0.14 + navSpine * 0.18 + flow * 0.32 + packet * 0.05);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
         alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
@@ -962,6 +966,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
 interface SurfaceGuideBuild {
   ribbon: THREE.ShaderMaterial;
   arrows: THREE.InstancedMesh;
+  arrowInk: THREE.InstancedMesh;
   arrowStations: THREE.InstancedBufferAttribute;
   arrowTurns: THREE.InstancedBufferAttribute;
   arrowPhases: THREE.InstancedBufferAttribute;
@@ -988,23 +993,23 @@ function buildSurfaceChevronGeometry(): THREE.BufferGeometry {
     const inv = 1 / Math.hypot(dx, dz);
     const px = -dz * inv;
     const pz = dx * inv;
-    const startHalf = 0.14;
-    const endHalf = 0.1;
+    const startHalf = 0.32;
+    const endHalf = 0.24;
     const a = [startX + px * startHalf, 0, startZ + pz * startHalf];
     const b = [startX - px * startHalf, 0, startZ - pz * startHalf];
     const c = [endX + px * endHalf, 0, endZ + pz * endHalf];
     const d = [endX - px * endHalf, 0, endZ - pz * endHalf];
     positions.push(...a, ...c, ...b, ...b, ...c, ...d);
   };
-  addWing(-1.4, -1.15, 0, 2.1);
-  addWing(1.4, -1.15, 0, 2.1);
+  addWing(-1.9, -1.8, 0, 2.6);
+  addWing(1.9, -1.8, 0, 2.6);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.computeBoundingSphere();
   return geometry;
 }
 
-function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMaterial {
+function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     name: 'SurfaceGuideChevrons',
     uniforms,
@@ -1019,12 +1024,12 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms): THREE.Shader
       varying float vDist;
       ${WAVES_GLSL}
       void main() {
-        vec4 local = vec4(position, 1.0);
+        vec4 local = vec4(position * ${ink ? '1.18' : '1.0'}, 1.0);
         #ifdef USE_INSTANCING
           local = instanceMatrix * local;
         #endif
         vec4 world = modelMatrix * local;
-        world.y = waveHeight(world.xz, uTime) + 0.19;
+        world.y = waveHeight(world.xz, uTime) + ${ink ? '0.185' : '0.215'};
         vS = aStation;
         vTurn = aTurn;
         vPhase = aPhase;
@@ -1038,12 +1043,15 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms): THREE.Shader
       uniform vec3 uColor;
       uniform vec3 uFoam;
       uniform vec3 uTurnColor;
+      uniform vec3 uInk;
       uniform float uPlayerS;
       uniform float uLapLength;
       uniform float uMaskStart;
       uniform float uMaskEnd;
       uniform float uGuideActive;
       uniform float uFinalApproach;
+      uniform float uLaunchGateActive;
+      uniform float uLaunchGateS;
       varying float vS;
       varying float vTurn;
       varying float vPhase;
@@ -1053,16 +1061,18 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms): THREE.Shader
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
+        float afterLaunch = mod(vS - uLaunchGateS + uLapLength, uLapLength);
+        if (uLaunchGateActive > 0.5 && afterLaunch < 22.0) discard;
         // Actual instance motion carries direction; the phase sweep keeps a
         // readable front-to-back rhythm without making arrows blink off.
         float travel = fract(uTime * 0.65 - vPhase);
         float pulse = 1.0 - smoothstep(0.02, 0.34, travel);
-        float nearFade = smoothstep(10.0, 18.0, ahead);
+        float nearFade = smoothstep(9.0, 16.0, ahead);
         float localFade = 1.0 - smoothstep(145.0, 170.0, ahead);
-        float fade = nearFade * localFade * (vDist < 220.0 ? 1.0 : 0.66);
+        float fade = nearFade * localFade * (vDist < 220.0 ? 1.0 : 0.78);
         vec3 base = mix(uColor, uTurnColor, vTurn);
-        vec3 color = mix(base, uFoam, 0.2 + pulse * 0.3);
-        float alpha = mix(0.6, 0.8, vTurn) * (0.72 + pulse * 0.28) * fade;
+        vec3 color = ${ink ? 'uInk' : 'mix(base, uFoam, 0.2 + pulse * 0.3)'};
+        float alpha = ${ink ? '0.86' : 'mix(0.82, 0.94, vTurn) * (0.88 + pulse * 0.12)'} * fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
         gl_FragColor = vec4(color, alpha);
       }
@@ -1171,10 +1181,30 @@ interface FlightRouteVisual {
   recoveryProgress: number;
 }
 
-interface SurfaceActionVisual {
+interface LaunchGateDiamond {
+  root: THREE.Group;
+  ink: THREE.MeshBasicMaterial;
+  energy: THREE.MeshBasicMaterial;
+  x: number;
+  z: number;
+  clearance: number;
+  waveWeight: number;
+}
+
+interface LaunchGateProjector {
+  root: THREE.Group;
+  lens: THREE.MeshBasicMaterial;
+  x: number;
+  z: number;
+}
+
+interface LaunchGateVisual {
   group: THREE.Group;
-  bankGroup: THREE.Group;
-  launchGroup: THREE.Group;
+  projectors: LaunchGateProjector[];
+  diamonds: LaunchGateDiamond[];
+  packets: THREE.Mesh[];
+  packetMaterial: THREE.MeshBasicMaterial;
+  deploy: number;
 }
 
 function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
@@ -1196,18 +1226,6 @@ function makeVerticalChevronGeometry(depth = 0): THREE.BufferGeometry {
     -1.12, 0.82, depth, 0.34, 0.13, depth, 0.06, -0.1, depth,
     -1.12, -0.82, depth, 0.06, 0.1, depth, 0.34, -0.13, depth,
     -1.12, -0.82, depth, 0.34, -0.13, depth, -0.86, -1.08, depth,
-  ];
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-function makeForwardArrowGeometry(depth = 0): THREE.BufferGeometry {
-  const points = [
-    -1.3, depth, -0.42, 0.05, depth, -0.42, 0.05, depth, 0.42,
-    -1.3, depth, -0.42, 0.05, depth, 0.42, -1.3, depth, 0.42,
-    -0.12, depth, -1.08, 1.28, depth, 0, -0.12, depth, 1.08,
   ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
@@ -1264,13 +1282,14 @@ export class Course implements ICourse {
 
   private readonly ribbonMat: THREE.ShaderMaterial;
   private readonly surfaceGuideArrows: THREE.InstancedMesh;
+  private readonly surfaceGuideArrowInk: THREE.InstancedMesh;
   private readonly surfaceGuideArrowStations: THREE.InstancedBufferAttribute;
   private readonly surfaceGuideArrowTurns: THREE.InstancedBufferAttribute;
   private readonly surfaceGuideArrowPhases: THREE.InstancedBufferAttribute;
   private readonly surfaceGuideArrowCount: number;
   private readonly stripMat: THREE.ShaderMaterial;
   private readonly flightVisuals: FlightRouteVisual[];
-  private readonly surfaceActionVisual: SurfaceActionVisual;
+  private readonly launchGateVisuals: LaunchGateVisual[];
   private readonly floaters: Floater[] = [];
   private readonly flightPrev: THREE.Vector3[] = [];
   private readonly flightPrevClearance: number[] = [];
@@ -1296,6 +1315,10 @@ export class Course implements ICourse {
   private playerActionDirection: CourseGuidanceStatus['actionDirection'] = 'none';
   private playerActionTargetU = -1;
   private playerActionMarkerCount = 0;
+  private playerLaunchGateState: CourseGuidanceStatus['launchGateState'] = 'hidden';
+  private playerLaunchGateRouteIndex = -1;
+  private playerLaunchGateDistanceM = -1;
+  private playerLaunchGateDiamondCount = 0;
   private surfaceGuideTurnArrowCount = 0;
   private activeGuideRoute = -1;
   private playerRecoveryRoute = -1;
@@ -1317,6 +1340,7 @@ export class Course implements ICourse {
     const surfaceGuide = this.buildRibbon();
     this.ribbonMat = surfaceGuide.ribbon;
     this.surfaceGuideArrows = surfaceGuide.arrows;
+    this.surfaceGuideArrowInk = surfaceGuide.arrowInk;
     this.surfaceGuideArrowStations = surfaceGuide.arrowStations;
     this.surfaceGuideArrowTurns = surfaceGuide.arrowTurns;
     this.surfaceGuideArrowPhases = surfaceGuide.arrowPhases;
@@ -1324,7 +1348,7 @@ export class Course implements ICourse {
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
     this.buildGates();
-    this.surfaceActionVisual = this.buildSurfaceActionVisual();
+    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildLaunchGateVisual(runtime));
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
@@ -1468,6 +1492,10 @@ export class Course implements ICourse {
     this.playerActionDirection = 'none';
     this.playerActionTargetU = -1;
     this.playerActionMarkerCount = 0;
+    this.playerLaunchGateState = 'hidden';
+    this.playerLaunchGateRouteIndex = -1;
+    this.playerLaunchGateDistanceM = -1;
+    this.playerLaunchGateDiamondCount = 0;
     this.activeGuideRoute = -1;
     this.playerRecoveryRoute = -1;
     this.playerRecoveryElapsed = 0;
@@ -1479,7 +1507,11 @@ export class Course implements ICourse {
     if (this.finalStation) this.finalStation.visible = false;
     this.ribbonMat.uniforms.uGuideActive.value = 0;
     this.ribbonMat.uniforms.uFinalApproach.value = 0;
-    this.surfaceActionVisual.group.visible = false;
+    this.ribbonMat.uniforms.uLaunchGateActive.value = 0;
+    for (const visual of this.launchGateVisuals) {
+      visual.group.visible = false;
+      visual.deploy = 0;
+    }
     for (const visual of this.flightVisuals) {
       visual.group.visible = false;
       visual.deployActive = false;
@@ -1578,6 +1610,10 @@ export class Course implements ICourse {
       actionDirection: this.playerActionDirection,
       actionTargetU: this.playerActionTargetU,
       actionMarkerCount: this.playerActionMarkerCount,
+      launchGateState: this.playerLaunchGateState,
+      launchGateRouteIndex: this.playerLaunchGateRouteIndex,
+      launchGateDistanceM: this.playerLaunchGateDistanceM,
+      launchGateDiamondCount: this.playerLaunchGateDiamondCount,
       surfaceGuideStyle: SURFACE_GUIDE_STYLE,
       surfaceGuideBaseAlpha: SURFACE_GUIDE_BASE_ALPHA,
       surfaceGuidePeakAlpha: SURFACE_GUIDE_PEAK_ALPHA,
@@ -1632,6 +1668,10 @@ export class Course implements ICourse {
     this.playerActionDirection = 'none';
     this.playerActionTargetU = -1;
     this.playerActionMarkerCount = 0;
+    this.playerLaunchGateState = 'hidden';
+    this.playerLaunchGateRouteIndex = -1;
+    this.playerLaunchGateDistanceM = -1;
+    this.playerLaunchGateDiamondCount = 0;
     for (const boat of boats) {
       const id = boat.id;
       const pos = boat.state.position;
@@ -1666,17 +1706,31 @@ export class Course implements ICourse {
       const surfaceU = _routeSample.u;
       if (id === 0) this.playerSurfaceU = surfaceU;
       const flightActive = st.flightPhase !== 'surface';
-      if (id === 0 && !this.finalArmed && !flightActive &&
-          st.flightRouteCursor % FLIGHT_ROUTES.length === 4) {
-        const action = FLIGHT_ROUTES[4].navigation?.action;
-        if (action && surfaceU >= FLIGHT_ROUTES[3].gateUs[0] - 0.004 &&
-            surfaceU <= FLIGHT_ROUTES[4].launchToU) {
-          this.playerActionCue = st.flightCharges > 0 ? 'launch' : 'bank';
-          this.playerActionRouteIndex = 4;
-          this.playerActionTargetU = st.flightCharges > 0
-            ? (action.launchFromU + action.launchToU) * 0.5
-            : (action.bankFromU + action.bankToU) * 0.5;
-          this.playerActionMarkerCount = st.flightCharges > 0 ? 2 : 3;
+      if (id === 0 && !this.finalArmed) {
+        if (flightActive && st.flightRouteState === 'active' && st.flightRouteIndex >= 0) {
+          this.playerLaunchGateState = 'committed';
+          this.playerLaunchGateRouteIndex = st.flightRouteIndex;
+          this.playerLaunchGateDistanceM = 0;
+        } else if (st.flightRouteState === 'idle' || st.flightRouteState === 'passed') {
+          const launchRouteIndex = st.flightRouteCursor % FLIGHT_ROUTES.length;
+          const launchRoute = FLIGHT_ROUTES[launchRouteIndex];
+          const surfaceS = surfaceU * LAP_LENGTH;
+          const launchS = launchRoute.launchFromU * LAP_LENGTH;
+          const launchDistance = (launchS - surfaceS + LAP_LENGTH) % LAP_LENGTH;
+          if (launchDistance <= LAUNCH_GATE_PREVIEW_M) {
+            const armed = st.flightCharges > 0;
+            this.playerLaunchGateState = armed ? 'armed' : 'unarmed';
+            this.playerLaunchGateRouteIndex = launchRouteIndex;
+            this.playerLaunchGateDistanceM = launchDistance;
+            this.playerLaunchGateDiamondCount = 3;
+            if (!flightActive) {
+              this.playerActionCue = armed ? 'launch' : 'bank';
+              this.playerActionRouteIndex = launchRouteIndex;
+              this.playerActionDirection = launchRoute.navigation?.turn?.direction ?? 'none';
+              this.playerActionTargetU = launchRoute.launchFromU;
+              this.playerActionMarkerCount = 3;
+            }
+          }
         }
       }
       if (id === 0 && this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
@@ -1986,7 +2040,6 @@ export class Course implements ICourse {
   private updateSurfaceGuideArrowFlow(t: number): void {
     const playerS = this.playerSurfaceU * LAP_LENGTH;
     const travel = (t * SURFACE_GUIDE_ARROW_SPEED_MPS) % SURFACE_GUIDE_ARROW_CADENCE_M;
-    const flightFiveAction = FLIGHT_ROUTES[4].navigation?.action;
     const postThirdFromU = FLIGHT_ROUTES[2].exitU - 0.003;
     const postThirdToU = FLIGHT_ROUTES[2].exitU + 0.012;
     this.surfaceGuideTurnArrowCount = 0;
@@ -1994,16 +2047,9 @@ export class Course implements ICourse {
       const station = (playerS + SURFACE_GUIDE_ARROW_START_M +
         i * SURFACE_GUIDE_ARROW_CADENCE_M + travel) % LAP_LENGTH;
       const u = station / LAP_LENGTH;
-      const overlapsFlightFiveAction = Boolean(flightFiveAction &&
-        u >= flightFiveAction.bankFromU - 0.003 && u <= flightFiveAction.launchToU + 0.003);
       const phase = (i % SURFACE_GUIDE_TURN_CHEVRON_COUNT) / SURFACE_GUIDE_TURN_CHEVRON_COUNT;
       this.surfaceGuideArrowStations.setX(i, station);
       this.surfaceGuideArrowPhases.setX(i, phase);
-      if (overlapsFlightFiveAction) {
-        this.surfaceGuideArrows.setMatrixAt(i, _hiddenRecoveryArrow);
-        this.surfaceGuideArrowTurns.setX(i, 0);
-        continue;
-      }
       const authoredPostThirdTurn = u >= postThirdFromU && u <= postThirdToU;
       const turn = authoredPostThirdTurn || Math.abs(surfaceTurnAhead(station)) >= THREE.MathUtils.degToRad(16);
       const lookAheadS = station + (turn ? 18 : 6);
@@ -2014,26 +2060,93 @@ export class Course implements ICourse {
         CURVE.getTangentAt(u, _surfaceArrowForward).setY(0).normalize();
       }
       _surfaceArrowQuaternion.setFromAxisAngle(UP, Math.atan2(_surfaceArrowForward.x, _surfaceArrowForward.z));
-      _surfaceArrowScale.setScalar(turn ? 1.6 : 1);
+      const ahead = (station - playerS + LAP_LENGTH) % LAP_LENGTH;
+      const farScaleT = THREE.MathUtils.smoothstep(ahead, 35, 150);
+      const distanceScale = THREE.MathUtils.lerp(1, 1.6, farScaleT);
+      _surfaceArrowScale.setScalar(distanceScale * (turn ? 1.35 : 1));
       _surfaceArrowMatrix.compose(_surfaceArrowCenter, _surfaceArrowQuaternion, _surfaceArrowScale);
       this.surfaceGuideArrows.setMatrixAt(i, _surfaceArrowMatrix);
+      this.surfaceGuideArrowInk.setMatrixAt(i, _surfaceArrowMatrix);
       this.surfaceGuideArrowTurns.setX(i, turn ? 1 : 0);
       if (turn) this.surfaceGuideTurnArrowCount++;
     }
     this.surfaceGuideArrows.instanceMatrix.needsUpdate = true;
+    this.surfaceGuideArrowInk.instanceMatrix.needsUpdate = true;
     this.surfaceGuideArrowStations.needsUpdate = true;
     this.surfaceGuideArrowTurns.needsUpdate = true;
     this.surfaceGuideArrowPhases.needsUpdate = true;
+  }
+
+  private updateLaunchGateVisuals(dt: number, t: number): void {
+    const activeState = this.playerLaunchGateState === 'unarmed' || this.playerLaunchGateState === 'armed';
+    const routeIndex = activeState ? this.playerLaunchGateRouteIndex : -1;
+    const armed = this.playerLaunchGateState === 'armed';
+    this.ribbonMat.uniforms.uLaunchGateActive.value = activeState ? 1 : 0;
+    this.ribbonMat.uniforms.uLaunchGateS.value = routeIndex >= 0
+      ? FLIGHT_ROUTES[routeIndex].launchFromU * LAP_LENGTH
+      : 0;
+    for (let i = 0; i < this.launchGateVisuals.length; i++) {
+      const visual = this.launchGateVisuals[i];
+      const active = i === routeIndex;
+      if (!active) {
+        visual.group.visible = false;
+        visual.deploy = 0;
+        continue;
+      }
+      visual.group.visible = true;
+      visual.deploy = Math.min(1, visual.deploy + dt / 0.35);
+      const deploy = visual.deploy * visual.deploy * (3 - 2 * visual.deploy);
+      const focus = 1 - THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
+      const farScale = 1 + THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_PREVIEW_M, 0, 1) * 0.62;
+      const energyColor = armed ? PALETTE.flight : PALETTE.sunFlare;
+      for (const projector of visual.projectors) {
+        projector.root.position.y = waterHeight(projector.x, projector.z, t);
+        projector.lens.color.setHex(energyColor, THREE.NoColorSpace);
+        projector.lens.opacity = (armed ? 0.92 : 0.74) * deploy;
+        projector.root.scale.setScalar(0.82 + deploy * (0.18 + focus * 0.08));
+      }
+      for (let diamondIndex = 0; diamondIndex < visual.diamonds.length; diamondIndex++) {
+        const diamond = visual.diamonds[diamondIndex];
+        const wave = waterHeight(diamond.x, diamond.z, t);
+        diamond.root.position.set(
+          diamond.x,
+          diamond.clearance + wave * diamond.waveWeight,
+          diamond.z,
+        );
+        const sequence = 0.5 + 0.5 * Math.sin(t * (armed ? 7.4 : 3.8) - diamondIndex * 1.55);
+        const baseScale = (1.85 + diamondIndex * 0.2) * farScale;
+        const pulseScale = 1 + sequence * (armed ? 0.09 : 0.045) + focus * 0.04;
+        diamond.root.scale.setScalar(baseScale * deploy * pulseScale);
+        diamond.ink.opacity = 0.82 * deploy;
+        diamond.energy.color.setHex(energyColor, THREE.NoColorSpace);
+        diamond.energy.opacity = (armed ? 0.78 + sequence * 0.18 : 0.58 + sequence * 0.16) * deploy;
+      }
+      visual.packetMaterial.color.setHex(armed ? PALETTE.foam : PALETTE.sunFlare, THREE.NoColorSpace);
+      visual.packetMaterial.opacity = (armed ? 0.94 : 0.62) * deploy;
+      const speed = armed ? 1.35 : 0.62;
+      for (let packetIndex = 0; packetIndex < visual.packets.length; packetIndex++) {
+        const packet = visual.packets[packetIndex];
+        const phase = (t * speed + packetIndex / visual.packets.length) % 1;
+        const scaled = phase * (visual.diamonds.length - 1);
+        const segment = Math.min(visual.diamonds.length - 2, Math.floor(scaled));
+        const local = scaled - segment;
+        packet.position.lerpVectors(
+          visual.diamonds[segment].root.position,
+          visual.diamonds[segment + 1].root.position,
+          local,
+        );
+        const packetScale = deploy * (armed ? 1 + focus * 0.35 : 0.72);
+        packet.scale.setScalar(packetScale);
+        packet.rotation.y = t * 2.4 + packetIndex;
+      }
+    }
   }
 
   update(dt: number, t: number): void {
     this.ribbonMat.uniforms.uTime.value = t;
     this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
     this.updateSurfaceGuideArrowFlow(t);
-    const surfaceAction = this.playerActionCue === 'bank' || this.playerActionCue === 'launch';
-    this.surfaceActionVisual.group.visible = surfaceAction;
-    this.surfaceActionVisual.bankGroup.visible = this.playerActionCue === 'bank';
-    this.surfaceActionVisual.launchGroup.visible = this.playerActionCue === 'launch';
+    this.updateLaunchGateVisuals(dt, t);
     this.stripMat.uniforms.uTime.value = t;
     this.flightWarn = Math.max(0, this.flightWarn - dt);
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
@@ -2630,70 +2743,127 @@ export class Course implements ICourse {
 
   // ------------------------------------------------------------- ribbon ----
 
-  private buildSurfaceActionVisual(): SurfaceActionVisual {
+  private buildLaunchGateVisual(runtime: FlightRouteRuntime): LaunchGateVisual {
+    const def = runtime.def;
     const group = new THREE.Group();
-    group.name = 'flight-5-surface-actions';
+    group.name = `${def.id}-launch-gate`;
     group.visible = false;
     this.object.add(group);
-    const bankGroup = new THREE.Group();
-    bankGroup.name = 'flight-5-bank-actions';
-    const launchGroup = new THREE.Group();
-    launchGroup.name = 'flight-5-launch-actions';
-    group.add(bankGroup, launchGroup);
-    const cueShadow = buildSurfaceCueMaterial(this.ribbonMat.uniforms.uTime, PALETTE.flightDeep, 0.28);
-    const bankFill = buildSurfaceCueMaterial(this.ribbonMat.uniforms.uTime, PALETTE.sunFlare, 0.78);
-    const launchFill = buildSurfaceCueMaterial(this.ribbonMat.uniforms.uTime, PALETTE.foam, 0.82);
-    const bankFillGeometry = makeOpenChevronGeometry();
-    const launchFillGeometry = makeForwardArrowGeometry();
-    const action = FLIGHT_ROUTES[4].navigation!.action!;
-    const addMarker = (
-      parent: THREE.Group,
-      u: number,
-      fillGeometry: THREE.BufferGeometry,
-      fillMaterial: THREE.ShaderMaterial,
-      scale: number,
-      name: string,
-    ): void => {
-      this.pointAt(u, _sp);
-      this.tangentAt(u, _ta);
-      const marker = new THREE.Group();
-      marker.name = name;
-      marker.position.set(_sp.x, 0, _sp.z);
-      marker.rotation.y = Math.atan2(-_ta.z, _ta.x);
-      const shadow = new THREE.Mesh(fillGeometry, cueShadow);
-      shadow.scale.setScalar(scale);
-      shadow.renderOrder = 4;
-      const fill = new THREE.Mesh(fillGeometry, fillMaterial);
-      fill.scale.setScalar(scale * 0.78);
-      fill.renderOrder = 5;
-      marker.add(shadow, fill);
-      parent.add(marker);
-    };
-    // These read as broad paint beats inside the green route, not as props.
-    // The nearest beat is deliberately early enough to survive the low chase
-    // camera and the fifth approach's foreshortening on phone screens.
-    const bankStations = [action.bankFromU + 0.001, 0.592, action.bankToU - 0.013];
-    for (let i = 0; i < bankStations.length; i++) {
-      addMarker(
-        bankGroup,
-        bankStations[i],
-        bankFillGeometry,
-        bankFill,
-        2.9,
-        `flight-5-bank-chevron-${i + 1}`,
-      );
+    const launch = this.pointAt(def.launchFromU, new THREE.Vector3());
+    const launchTangent = this.tangentAt(def.launchFromU, new THREE.Vector3()).setY(0).normalize();
+    const climbU = THREE.MathUtils.lerp(def.entryU, def.gateUs[0], 0.18);
+    const climb = runtimePointAt(runtime, climbU, new THREE.Vector3());
+    const riseDirection = new THREE.Vector3(climb.x - launch.x, 0, climb.z - launch.z).normalize();
+    const path = [
+      new THREE.Vector3(launch.x, 1.4, launch.z),
+      new THREE.Vector3(launch.x + riseDirection.x * 3.5, 4, launch.z + riseDirection.z * 3.5),
+      new THREE.Vector3(launch.x + riseDirection.x * 7, Math.max(7, climb.y), launch.z + riseDirection.z * 7),
+    ];
+
+    const projectorBody = new THREE.CylinderGeometry(0.34, 0.43, 0.62, 8);
+    const projectorFloat = new THREE.TorusGeometry(0.48, 0.14, 8, 16);
+    projectorFloat.rotateX(Math.PI / 2);
+    const projectorLens = new THREE.OctahedronGeometry(0.26, 0);
+    const bodyMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.ink, toneMapped: false });
+    const floatMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.flightDeep, toneMapped: false });
+    const lensMaterial = new THREE.MeshBasicMaterial({
+      color: PALETTE.sunFlare,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const right = new THREE.Vector3(launchTangent.z, 0, -launchTangent.x);
+    const projectors: LaunchGateProjector[] = [];
+    for (const side of [-1, 1]) {
+      const root = new THREE.Group();
+      root.name = `${def.id}-launch-projector-${side < 0 ? 'left' : 'right'}`;
+      const x = launch.x + right.x * 5.2 * side;
+      const z = launch.z + right.z * 5.2 * side;
+      root.position.set(x, 0, z);
+      const floater = new THREE.Mesh(projectorFloat, floatMaterial);
+      floater.position.y = 0.2;
+      const body = new THREE.Mesh(projectorBody, bodyMaterial);
+      body.position.y = 0.54;
+      const lens = new THREE.Mesh(projectorLens, lensMaterial);
+      lens.position.y = 1.02;
+      lens.rotation.y = Math.PI * 0.25;
+      lens.layers.enable(LAYER_ENERGY);
+      root.add(floater, body, lens);
+      group.add(root);
+      projectors.push({ root, lens: lensMaterial, x, z });
     }
-    for (let i = 0; i < 2; i++) {
-      addMarker(
-        launchGroup,
-        THREE.MathUtils.lerp(action.launchFromU + 0.0005, action.launchToU - 0.0015, i),
-        launchFillGeometry,
-        launchFill,
-        2.35,
-        `flight-5-launch-chevron-${i + 1}`,
-      );
+
+    const inkGeometry = new THREE.RingGeometry(0.72, 1.12, 4);
+    const energyGeometry = new THREE.RingGeometry(0.68, 1.02, 4);
+    const diamonds: LaunchGateDiamond[] = [];
+    const forward = new THREE.Vector3(0, 0, 1);
+    const clearances = [1.4, 4, Math.max(7, climb.y)];
+    const waveWeights = [1, 0.42, 0];
+    for (let i = 0; i < path.length; i++) {
+      const root = new THREE.Group();
+      root.name = `${def.id}-launch-diamond-${i + 1}`;
+      const direction = i < path.length - 1
+        ? new THREE.Vector3().subVectors(path[i + 1], path[i]).setY(0).normalize()
+        : runtimeTangentAt(runtime, climbU, new THREE.Vector3()).setY(0).normalize();
+      root.quaternion.setFromUnitVectors(forward, direction);
+      const ink = new THREE.MeshBasicMaterial({
+        color: PALETTE.ink,
+        transparent: true,
+        opacity: 0.86,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const energy = new THREE.MeshBasicMaterial({
+        color: PALETTE.sunFlare,
+        transparent: true,
+        opacity: 0.78,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const inkRing = new THREE.Mesh(inkGeometry, ink);
+      inkRing.renderOrder = 7;
+      const energyRing = new THREE.Mesh(energyGeometry, energy);
+      energyRing.position.z = 0.035;
+      energyRing.renderOrder = 8;
+      energyRing.layers.enable(LAYER_ENERGY);
+      root.add(inkRing, energyRing);
+      root.position.set(path[i].x, clearances[i], path[i].z);
+      group.add(root);
+      diamonds.push({
+        root,
+        ink,
+        energy,
+        x: path[i].x,
+        z: path[i].z,
+        clearance: clearances[i],
+        waveWeight: waveWeights[i],
+      });
     }
-    return { group, bankGroup, launchGroup };
+
+    const packetMaterial = new THREE.MeshBasicMaterial({
+      color: PALETTE.flight,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const packetGeometry = new THREE.OctahedronGeometry(0.2, 0);
+    const packets: THREE.Mesh[] = [];
+    for (let i = 0; i < 3; i++) {
+      const packet = new THREE.Mesh(packetGeometry, packetMaterial);
+      packet.name = `${def.id}-launch-energy-packet-${i + 1}`;
+      packet.renderOrder = 9;
+      packet.layers.enable(LAYER_ENERGY);
+      group.add(packet);
+      packets.push(packet);
+    }
+    return { group, projectors, diamonds, packets, packetMaterial, deploy: 0 };
   }
 
   /** Wave-conforming translucent route plus sparse authored arrow geometry. */
@@ -2762,17 +2932,28 @@ export class Course implements ICourse {
     arrowGeo.setAttribute('aTurn', arrowTurns);
     arrowGeo.setAttribute('aPhase', arrowPhases);
     const arrowMat = buildSurfaceArrowMaterial(uniforms);
+    const arrowInkMat = buildSurfaceArrowMaterial(uniforms, true);
     const arrows = new THREE.InstancedMesh(arrowGeo, arrowMat, SURFACE_GUIDE_ARROW_COUNT);
     arrows.name = 'surface-guide-chevrons';
     arrows.frustumCulled = false;
     arrows.renderOrder = 3;
     arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    for (let i = 0; i < SURFACE_GUIDE_ARROW_COUNT; i++) arrows.setMatrixAt(i, _hiddenRecoveryArrow);
+    const arrowInk = new THREE.InstancedMesh(arrowGeo, arrowInkMat, SURFACE_GUIDE_ARROW_COUNT);
+    arrowInk.name = 'surface-guide-chevron-ink';
+    arrowInk.frustumCulled = false;
+    arrowInk.renderOrder = 2;
+    arrowInk.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < SURFACE_GUIDE_ARROW_COUNT; i++) {
+      arrows.setMatrixAt(i, _hiddenRecoveryArrow);
+      arrowInk.setMatrixAt(i, _hiddenRecoveryArrow);
+    }
     arrows.instanceMatrix.needsUpdate = true;
-    this.object.add(arrows);
+    arrowInk.instanceMatrix.needsUpdate = true;
+    this.object.add(arrowInk, arrows);
     return {
       ribbon: mat,
       arrows,
+      arrowInk,
       arrowStations,
       arrowTurns,
       arrowPhases,

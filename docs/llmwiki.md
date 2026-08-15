@@ -79,9 +79,10 @@
   交叠；世界中仍然最多一个 active branch。回收提示只是可视导航，不是碰撞墙，也
   不改变判定范围。
 - 水面主线横向细分后逐顶点采样实时浪高；禁止恢复粗双轨、横杆或 fragment shader
-  重复 V 字。只实例化前方 `170m` 的开放尖角，间距 `12m`，并以 `8m/s` 沿真实
-  曲线前进；急弯必须连续放大并变暖至少三枚，不能只做原地明暗呼吸。薄雾和箭头都
-  不进入 bloom，也不能复制空中通道的平板几何。
+  重复 V 字。半透明场内保留一条可辨认的亮色导航脊；只实例化前方 `170m` 的开放尖角，
+  间距 `10m`，并以 `10m/s` 沿真实曲线前进。尖角必须有赛璐璐墨边，急弯连续放大并
+  变暖至少三枚，不能只做原地明暗呼吸。薄雾和箭头都不进入 bloom，也不能复制空中
+  通道的平板几何。
 - passed branch 在下降、触水、authored handoff 完成前同时负责 validation 与唯一
   visual guide；触水前后 active route id、recovery material 和箭头语法必须保持一致。
   handoff 后才允许部署下一飞青色分支。第七飞 recovery 同样必须先完成，且不得错误
@@ -94,9 +95,11 @@
 - 第二、三、四、五、六飞的 authored 急弯统一在青色航道内使用一组三枚、航道宽度级
   暖色尖角，集中放在可决策区而不是平均摊到整个弯。方向分别为左、左、左、右、左；
   第一、七飞不伪造急弯。尖角属于同一 ribbon group，不计作第二 branch，也不改物理。
-- 第五飞不改主线、launch window、通道宽度或门宽。提示直接写进玩家持续注视的
-  绿色线：无库存时只显示三段黄色开放尖角；真实入库后黄色退场，只显示两枚带
-  墨边白色前向起飞箭头；离水后两者都退场，由青白 flight branch 接管。
+- 七个起飞入口统一使用同一套世界内升空门阵，不用字幕或 HUD 冒充路线：水面主线在
+  `launchFromU` 处停止，两只低矮浮漂投影器随浪运动，三枚紧凑的空心菱形从水面向
+  上排开，并有能量粒子沿三段上升。无库存为金色警示，有库存切青白 ready；离水后
+  整组立即隐藏，由青白 flight branch 接管。门阵无碰撞、不参与输入、不修改
+  launch window、通道宽度、门宽、物理或失败判定；世界中仍最多一条 active branch。
 - 第五飞空中急弯固定为右转。青色分支外侧使用三个随浪浮动、由小浮漂和细杆支撑的
   黄色右尖角，不得换成矩形高速路牌、文字墙或无支架悬浮图标。桌面短提示必须用
   `[SHIFT] + [→]`，不能写泛化 `A/D`；移动端只描边既有空刹与右转触区，不能移动
@@ -321,16 +324,19 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
   逆行合同必须同时通过，锁住局部修复不外泄。
 - `route45ContinuousCase()` 只允许在第四飞起飞窗前 staging 一次，随后真实完成第四
   门、下降、落水、handoff、漂移入库、第五飞起飞、空刹右转和第五门。必须看到
-  bank -> launch cue、至少 `1.2s` 反应窗、真实库存上升边沿、零 warning/fail、零
-  teleport，并保持 `visibleRouteCount<=1`。
+  bank cue、至少 `1.2s` 反应窗、真实库存上升边沿；若入库和起飞发生在同一 fixed
+  step，允许 armed launch cue 没有单独展示帧，但不能为满足测试破坏同帧操作合同。
+  全程零 warning/fail、零 teleport，并保持 `visibleRouteCount<=1`。
 - `third-recovery-air` 与 `third-recovery-surface` 必须走真实第三门、medal freeze
   和 resume countdown；两个 beat 都断言 active/recovery route 仍是 flight-3、同一个
   shader、同一开放尖角几何，且 `visibleRouteCount===1`。通用
   `flight-recovery-air/surface` 继续覆盖其它路线和紧凑横屏。
-- 整圈绿色水面主线采用随浪薄雾：base alpha 约 `.11`、峰值不得超过 `.46`，像素
-  合同还必须保留海面色带方差。前方只保留 12-15 枚流动开放尖角；第三门后的真实
-  medal recovery 在落水前后都必须看到至少三枚放大的暖色转弯尖角。七条空中分支
-  门前保留既有半透明烟雾飘带与 energy bloom，不得因水面主线改版而降可见度。
+- 整圈绿色水面主线采用随浪薄雾 + 导航脊：base alpha 约 `.17`、峰值不超过 `.58`，
+  像素合同仍须保留海面色带方差。前方只保留 15-17 枚带墨边的流动开放尖角；第三门
+  后的真实 medal recovery 在落水前后都必须看到至少三枚放大的暖色转弯尖角。七个
+  起飞入口都必须各有两只投影浮漂、三枚上升菱形和三枚流动粒子；至少分别验证
+  unarmed / armed / committed，且 committed 时水面门阵撤场。七条空中分支门前保留
+  既有半透明烟雾飘带与 energy bloom，不得因水面主线改版而降可见度。
 - 旧的 `passFlight()` 会在每飞前 staging，适合门判定和计数等局部合同，不得把它
   当作冲门后惯性或 route handoff 的端到端证据。
 - `finalApproachCase()` 必须从真实第七门继续下降、落水和 handoff，再驶出旧 `42m`

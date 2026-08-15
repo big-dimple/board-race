@@ -87,13 +87,6 @@ export interface FlightRouteNavigation {
     toU: number;
     direction: RouteTurnDirection;
   };
-  /** Optional surface preparation and launch markings before this branch. */
-  action?: {
-    bankFromU: number;
-    bankToU: number;
-    launchFromU: number;
-    launchToU: number;
-  };
   /** Keep the scoring curve intact, but author a tangent-matched tail after its final gate. */
   postGateRecovery?: {
     handoffMarginM: number;
@@ -328,8 +321,14 @@ export interface CourseGuidanceStatus {
   actionTargetU: number;
   /** World markers currently carrying the cue. */
   actionMarkerCount: number;
+  /** World-space launch facility state; visual only, never an input or physics gate. */
+  launchGateState: 'hidden' | 'unarmed' | 'armed' | 'committed';
+  launchGateRouteIndex: number;
+  launchGateDistanceM: number;
+  /** Visible rising energy diamonds (always zero or three). */
+  launchGateDiamondCount: number;
   /** Shared visual language used by the full-lap surface route. */
-  surfaceGuideStyle: 'translucent-wave-veil';
+  surfaceGuideStyle: 'translucent-wave-spine';
   /** Bounded translucent field; the ocean must remain legible through it. */
   surfaceGuideBaseAlpha: number;
   surfaceGuidePeakAlpha: number;

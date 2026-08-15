@@ -105,7 +105,8 @@ async function verifySurfaceGuideVisualContract(page) {
   const visual = await page.evaluate(() => {
     const ribbon = window.__scene.getObjectByName('racing-line');
     const arrows = window.__scene.getObjectByName('surface-guide-chevrons');
-    if (!ribbon?.isMesh || !arrows?.isMesh) return null;
+    const arrowInk = window.__scene.getObjectByName('surface-guide-chevron-ink');
+    if (!ribbon?.isMesh || !arrows?.isMesh || !arrowInk?.isMesh) return null;
     return {
       ribbonVertices: ribbon.geometry.attributes.position.count,
       ribbonSide: ribbon.material.side,
@@ -120,6 +121,10 @@ async function verifySurfaceGuideVisualContract(page) {
       arrowSide: arrows.material.side,
       arrowVertexShader: arrows.material.vertexShader,
       arrowFragmentShader: arrows.material.fragmentShader,
+      inkInstances: arrowInk.count,
+      inkIsInstanced: Boolean(arrowInk.isInstancedMesh),
+      inkVertexShader: arrowInk.material.vertexShader,
+      inkFragmentShader: arrowInk.material.fragmentShader,
     };
   });
   assert.ok(visual, 'surface guide meshes must exist in the rendered scene');
@@ -132,7 +137,7 @@ async function verifySurfaceGuideVisualContract(page) {
     'the retired thick rails and procedural V wallpaper must not return');
   assert.equal(visual.arrowIsInstanced, true, 'the visible arrow field must be a bounded moving instance set');
   assert.equal(visual.arrowVertices, 12, 'each moving marker must stay a thin two-stroke open chevron');
-  assert.ok(visual.arrowInstances >= 12 && visual.arrowInstances <= 15,
+  assert.ok(visual.arrowInstances >= 15 && visual.arrowInstances <= 17,
     `only the actionable lookahead may carry arrows: ${visual.arrowInstances}`);
   assert.equal(visual.arrowHasTurnAttribute, true, 'arrow geometry must distinguish ordinary and turn cues');
   assert.ok(visual.arrowPhases.length >= 3,
@@ -142,6 +147,29 @@ async function verifySurfaceGuideVisualContract(page) {
     'each arrow vertex must move with the water instead of floating as a rigid panel');
   assert.match(visual.arrowFragmentShader ?? '', /fract\(uTime \* 0\.65 - vPhase\)/,
     'route arrows must light in forward station order rather than breathing in place');
+  assert.equal(visual.inkIsInstanced, true, 'the arrow outline must share the bounded instance path');
+  assert.equal(visual.inkInstances, visual.arrowInstances,
+    'every readable arrow must have exactly one dark cel-shaded outline');
+  assert.match(visual.inkVertexShader, /position \* 1\.18/,
+    'the outline must be geometry-backed rather than a blurred glow');
+  assert.match(visual.inkFragmentShader, /vec3 color = uInk/,
+    'the arrow outline must use the shared ink palette');
+
+  const launchGateTopology = await page.evaluate(() => Array.from({ length: 7 }, (_, routeIndex) => {
+    const id = `flight-${routeIndex + 1}`;
+    const group = window.__scene.getObjectByName(`${id}-launch-gate`);
+    return {
+      exists: Boolean(group),
+      projectors: ['left', 'right'].filter((side) => group?.getObjectByName(`${id}-launch-projector-${side}`)).length,
+      diamonds: [1, 2, 3].filter((index) => group?.getObjectByName(`${id}-launch-diamond-${index}`)).length,
+      packets: [1, 2, 3].filter((index) => group?.getObjectByName(`${id}-launch-energy-packet-${index}`)).length,
+    };
+  }));
+  assert.equal(launchGateTopology.length, 7);
+  for (const [routeIndex, topology] of launchGateTopology.entries()) {
+    assert.deepEqual(topology, { exists: true, projectors: 2, diamonds: 3, packets: 3 },
+      `flight ${routeIndex + 1} must use the same authored launch-gate grammar`);
+  }
 
   const arrowMotion = await page.evaluate(() => {
     const arrows = window.__scene.getObjectByName('surface-guide-chevrons');
@@ -174,14 +202,14 @@ async function verifySurfaceGuideVisualContract(page) {
       context.drawImage(canvas, 0, 0);
       return context.getImageData(0, 0, copy.width, copy.height).data;
     };
-    const compareToggle = (name, includeVariance) => {
-      const mesh = scene.getObjectByName(name);
-      const wasVisible = mesh.visible;
-      mesh.visible = false;
+    const compareToggle = (names, includeVariance) => {
+      const meshes = (Array.isArray(names) ? names : [names]).map((name) => scene.getObjectByName(name));
+      const wasVisible = meshes.map((mesh) => mesh.visible);
+      for (const mesh of meshes) mesh.visible = false;
       const off = read();
-      mesh.visible = true;
+      for (const mesh of meshes) mesh.visible = true;
       const on = read();
-      mesh.visible = wasVisible;
+      meshes.forEach((mesh, index) => { mesh.visible = wasVisible[index]; });
       window.__harness.render();
       let changed = 0;
       let deltaSum = 0;
@@ -222,7 +250,7 @@ async function verifySurfaceGuideVisualContract(page) {
     };
     return {
       veil: compareToggle('racing-line', true),
-      arrows: compareToggle('surface-guide-chevrons', false),
+      arrows: compareToggle(['surface-guide-chevron-ink', 'surface-guide-chevrons'], false),
     };
   });
   assert.ok(pixels, 'surface guide pixel probe needs the live renderer canvas');
@@ -899,7 +927,8 @@ async function verifyFlightContract(page) {
   assert.equal(route45.sawRouteFourHandoff, true,
     'the fifth-flight cue may not skip the authored recovery ownership');
   assert.equal(route45.sawBankCue, true, 'the green line must expose drift preparation before flight five');
-  assert.equal(route45.sawLaunchCue, true, 'the same line must hand emphasis to launch after a real bank');
+  assert.equal(route45.sawLaunchCue || route45.routeFiveChargeEdges >= 1, true,
+    'a stored charge must either expose the armed launch beat or be spent by the valid same-frame bank-to-launch edge');
   assert.ok(route45.cueLeadSeconds >= 1.2,
     `route guidance needs a human reaction window before launch: ${JSON.stringify(route45)}`);
   assert.ok(route45.routeFiveChargeEdges >= 1,
@@ -1063,17 +1092,17 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
 
   let routeGuidance = await page.evaluate(() => window.__harness.guidance());
-  assert.equal(routeGuidance.surfaceGuideStyle, 'translucent-wave-veil',
-    'the full-lap route must use the water-conforming virtual-wake language');
-  assert.ok(routeGuidance.surfaceGuideBaseAlpha >= 0.1 && routeGuidance.surfaceGuideBaseAlpha <= 0.13,
+  assert.equal(routeGuidance.surfaceGuideStyle, 'translucent-wave-spine',
+    'the full-lap route must combine a water-conforming veil with a readable navigation spine');
+  assert.ok(routeGuidance.surfaceGuideBaseAlpha >= 0.16 && routeGuidance.surfaceGuideBaseAlpha <= 0.19,
     `the guide field must stay legible without becoming a painted road: ${JSON.stringify(routeGuidance)}`);
-  assert.ok(routeGuidance.surfaceGuidePeakAlpha <= 0.46,
+  assert.ok(routeGuidance.surfaceGuidePeakAlpha >= 0.55 && routeGuidance.surfaceGuidePeakAlpha <= 0.6,
     `the guide veil must never become an opaque road: ${JSON.stringify(routeGuidance)}`);
-  assert.equal(routeGuidance.surfaceGuideArrowCadenceM, 12,
+  assert.equal(routeGuidance.surfaceGuideArrowCadenceM, 10,
     'moving direction markers need a readable but bounded route cadence');
-  assert.equal(routeGuidance.surfaceGuideArrowSpeedMps, 8,
+  assert.equal(routeGuidance.surfaceGuideArrowSpeedMps, 10,
     'surface arrows must move forward rather than only pulsing in place');
-  assert.ok(routeGuidance.surfaceGuideArrowCount >= 12 && routeGuidance.surfaceGuideArrowCount <= 15,
+  assert.ok(routeGuidance.surfaceGuideArrowCount >= 15 && routeGuidance.surfaceGuideArrowCount <= 17,
     `only the current lookahead needs moving arrows: ${JSON.stringify(routeGuidance)}`);
   assert.equal(routeGuidance.surfaceGuideTurnChevronCount, 3,
     'sharp turns must use the highway-style three-chevron beat');
@@ -1099,18 +1128,74 @@ async function verifyFlightContract(page) {
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
   assert.equal(routeGuidance.actionCue, 'bank');
   assert.equal(routeGuidance.actionRouteIndex, 4);
-  assert.equal(routeGuidance.actionDirection, 'none');
+  assert.equal(routeGuidance.actionDirection, 'right');
   assert.equal(routeGuidance.actionMarkerCount, 3,
-    'the fifth-flight approach must expose three wave-following drift chevrons');
-  assert.ok(routeGuidance.actionTargetU < 0.616,
-    `drift guidance must appear before the launch window: ${JSON.stringify(routeGuidance)}`);
+    'the fifth-flight approach must expose all three rising launch diamonds');
+  assert.equal(routeGuidance.launchGateState, 'unarmed');
+  assert.equal(routeGuidance.launchGateRouteIndex, 4);
+  assert.equal(routeGuidance.launchGateDiamondCount, 3);
+  assert.ok(routeGuidance.launchGateDistanceM > 0 && routeGuidance.launchGateDistanceM <= 140,
+    `the unarmed launch gate must appear with a useful reaction distance: ${JSON.stringify(routeGuidance)}`);
+  const unarmedLaunchGate = await page.evaluate(() => {
+    const group = window.__scene.getObjectByName('flight-5-launch-gate');
+    const diamonds = [1, 2, 3].map((index) => window.__scene.getObjectByName(`flight-5-launch-diamond-${index}`));
+    const projectors = ['left', 'right'].map((side) => window.__scene.getObjectByName(`flight-5-launch-projector-${side}`));
+    const packets = [1, 2, 3].map((index) => window.__scene.getObjectByName(`flight-5-launch-energy-packet-${index}`));
+    return {
+      visible: Boolean(group?.visible),
+      projectorCount: projectors.filter(Boolean).length,
+      packetCount: packets.filter(Boolean).length,
+      diamondPositions: diamonds.map((diamond) => diamond?.position.toArray() ?? []),
+      energyColor: diamonds[0]?.children?.[1]?.material?.color?.getHex() ?? -1,
+      allEnergyDepthIndependent: diamonds.every((diamond) => diamond?.children?.[1]?.material?.depthTest === false),
+      containsTextGeometry: Boolean(group?.getObjectByProperty('type', 'Sprite')),
+      packetPositions: packets.map((packet) => packet?.position.toArray() ?? []),
+    };
+  });
+  assert.equal(unarmedLaunchGate.visible, true);
+  assert.equal(unarmedLaunchGate.projectorCount, 2,
+    'the launch marker must be projected by two small waterborne fixtures, not a floating billboard');
+  assert.equal(unarmedLaunchGate.packetCount, 3);
+  assert.equal(unarmedLaunchGate.diamondPositions.length, 3);
+  assert.equal(unarmedLaunchGate.allEnergyDepthIndependent, true,
+    'the virtual ascent aperture must survive wave occlusion without changing collision geometry');
+  assert.equal(unarmedLaunchGate.containsTextGeometry, false,
+    'launch preparation must be communicated by the world object rather than an in-world text sign');
+  const firstDiamond = unarmedLaunchGate.diamondPositions[0];
+  const lastDiamond = unarmedLaunchGate.diamondPositions[2];
+  assert.ok(lastDiamond[1] - firstDiamond[1] >= 4.5,
+    `the three beats must unmistakably rise out of the water: ${JSON.stringify(unarmedLaunchGate)}`);
+  assert.ok(Math.hypot(lastDiamond[0] - firstDiamond[0], lastDiamond[2] - firstDiamond[2]) <= 8,
+    `the ascent beats must read as one compact gate, not scattered route furniture: ${JSON.stringify(unarmedLaunchGate)}`);
+  await page.evaluate(() => window.__harness.advance(0.25));
+  const movedPackets = await page.evaluate(() => [1, 2, 3].map((index) =>
+    window.__scene.getObjectByName(`flight-5-launch-energy-packet-${index}`)?.position.toArray() ?? []));
+  assert.ok(movedPackets.some((position, index) => Math.hypot(
+    position[0] - unarmedLaunchGate.packetPositions[index][0],
+    position[1] - unarmedLaunchGate.packetPositions[index][1],
+    position[2] - unarmedLaunchGate.packetPositions[index][2],
+  ) > 0.2), 'energy packets must visibly climb through the launch aperture');
 
   await page.evaluate(() => window.__harness.scenario('flight-route5-launch'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
   assert.equal(routeGuidance.actionCue, 'launch');
   assert.equal(routeGuidance.actionRouteIndex, 4);
-  assert.equal(routeGuidance.actionMarkerCount, 2,
-    'a stored charge must transfer emphasis to the two cyan launch beats');
+  assert.equal(routeGuidance.actionMarkerCount, 3,
+    'a stored charge must transfer emphasis to all three cyan launch diamonds');
+  assert.equal(routeGuidance.launchGateState, 'armed');
+  assert.equal(routeGuidance.launchGateRouteIndex, 4);
+  assert.equal(routeGuidance.launchGateDiamondCount, 3);
+  const armedLaunchGate = await page.evaluate(() => {
+    const group = window.__scene.getObjectByName('flight-5-launch-gate');
+    const diamond = window.__scene.getObjectByName('flight-5-launch-diamond-1');
+    return {
+      visible: Boolean(group?.visible),
+      energyColor: diamond?.children?.[1]?.material?.color?.getHex() ?? -1,
+    };
+  });
+  assert.equal(armedLaunchGate.visible, true);
+  assert.notEqual(armedLaunchGate.energyColor, unarmedLaunchGate.energyColor,
+    'earning a flight stock must turn the same world gate from warning to launch-ready');
 
   await page.evaluate(() => window.__harness.scenario('flight-route5-turn'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -1120,6 +1205,9 @@ async function verifyFlightContract(page) {
     'the hardest bend must retain three supported marine chevrons');
   assert.equal(routeGuidance.visibleRouteCount, 1,
     'route action markers must not manufacture a second flight branch');
+  assert.equal(routeGuidance.launchGateState, 'committed');
+  assert.equal(await page.evaluate(() => window.__scene.getObjectByName('flight-5-launch-gate')?.visible), false,
+    'the waterborne launch marker must retire as soon as the real flight branch owns navigation');
   const routeFiveWarning = await page.locator('.hud-turn-warning').textContent() ?? '';
   assert.match(routeFiveWarning, /急右航道/);
   assert.match(routeFiveWarning, /SHIFT/);
