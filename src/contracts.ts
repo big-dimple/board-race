@@ -23,6 +23,9 @@ export interface BoatInput {
   airBrake: boolean;
 }
 
+/** Contextual meaning of the shared drift / air-brake action after water contact. */
+export type SurfaceActionMode = 'drift' | 'return-brake';
+
 export type FlightPhase = 'surface' | 'spool' | 'ascending' | 'cruise' | 'descending';
 export type FlightCourseRouteId =
   | 'flight-1'
@@ -215,7 +218,7 @@ export interface IBoat {
   readonly state: BoatState;
   /** Attach point for the rider, positioned at the helm. */
   readonly riderMount: THREE.Object3D;
-  update(dt: number, input: BoatInput, t: number): void;
+  update(dt: number, input: BoatInput, t: number, surfaceAction: SurfaceActionMode): void;
   teleport(x: number, z: number, heading: number): void;
   beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void;
   applyFlightGatePass(gateIndex: number): void;

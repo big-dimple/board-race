@@ -893,11 +893,12 @@ function step(dt: number, _t: number): void {
       inp = { ...inp, flightTrigger: false };
     }
     if (i === 0 && harnessFlightTriggerPulse) inp = { ...inp, flightTrigger: true };
-    if (i === 0 && course.finalStationArmed()) {
+    const finalReturnBrake = i === 0 && course.finalStationArmed();
+    if (finalReturnBrake) {
       const returnBrake = inp.drift || inp.airBrake;
       inp = { ...inp, drift: false, airBrake: returnBrake, flightTrigger: false };
     }
-    boats[i].update(dt, inp, worldTime);
+    boats[i].update(dt, inp, worldTime, finalReturnBrake ? 'return-brake' : 'drift');
     if (i === 0) harnessFlightTriggerPulse = false;
   }
 
@@ -1879,6 +1880,9 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
   let previousCharges = boats[0].state.flightCharges;
   let previousPhase = boats[0].state.flightPhase;
   let previousRouteState = boats[0].state.flightRouteState;
+  let routeFourLandingBridged = false;
+  let routeFourLandingCharge = -1;
+  let routeFourLandingBrakeEnvelope = -1;
 
   try {
     while (elapsed < 30 && race.phase === 'racing' && boats[0].state.flightsCleared < 5) {
@@ -1909,6 +1913,11 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
       if (state.flightRouteCursor === 4 && previousPhase === 'surface' && state.flightPhase !== 'surface') {
         routeFiveLaunchAt = elapsed;
       }
+      if (state.flightRouteCursor === 4 && previousPhase !== 'surface' && state.flightPhase === 'surface') {
+        routeFourLandingBridged = state.drifting;
+        routeFourLandingCharge = state.boostCharge;
+        routeFourLandingBrakeEnvelope = state.flightAirBrake;
+      }
       if (routeFiveLaunchAt >= 0 && airBrakeReadyAt < 0 && state.flightAirBrake >= 0.7) {
         airBrakeReadyAt = elapsed;
       }
@@ -1931,6 +1940,9 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
       sawLaunchCue,
       cueLeadSeconds: firstActionCueAt >= 0 && routeFiveLaunchAt >= 0 ? routeFiveLaunchAt - firstActionCueAt : -1,
       routeFiveChargeEdges,
+      routeFourLandingBridged,
+      routeFourLandingCharge,
+      routeFourLandingBrakeEnvelope,
       airBrakeLatencySeconds: routeFiveLaunchAt >= 0 && airBrakeReadyAt >= 0 ? airBrakeReadyAt - routeFiveLaunchAt : -1,
       warningFrames,
       maxVisibleRoutes,
@@ -2045,9 +2057,14 @@ function harnessFinalApproachCase(): Record<string, unknown> {
   let sawSurfaceRecovery = false;
   let sawHandoff = false;
   let releasedReturnBrake = false;
+  let finalLandingObserved = false;
+  let finalLandingDrifting = false;
+  let finalLandingBoostCharge = -1;
+  let finalLandingBrakeEnvelope = -1;
   let previousX = boats[0].state.position.x;
   let previousZ = boats[0].state.position.z;
   let framesAfterHandoff = 0;
+  let previousFlightPhase = boats[0].state.flightPhase;
 
   harnessForceAirBrake = true;
   harnessSuppressAirborneFlightTrigger = true;
@@ -2067,6 +2084,12 @@ function harnessFinalApproachCase(): Record<string, unknown> {
         recoveryFrames++;
         if (state.flightPhase === 'surface') sawSurfaceRecovery = true;
       }
+      if (!finalLandingObserved && previousFlightPhase !== 'surface' && state.flightPhase === 'surface') {
+        finalLandingObserved = true;
+        finalLandingDrifting = state.drifting;
+        finalLandingBoostCharge = state.boostCharge;
+        finalLandingBrakeEnvelope = state.flightAirBrake;
+      }
       if (state.flightRouteState === 'idle' && state.flightPhase === 'surface') {
         sawHandoff = true;
         framesAfterHandoff++;
@@ -2076,6 +2099,7 @@ function harnessFinalApproachCase(): Record<string, unknown> {
         }
       }
       if (sawHandoff && framesAfterHandoff >= 150 && maxRouteDistance >= 48) break;
+      previousFlightPhase = state.flightPhase;
     }
 
     const stateAfterExcursion = boats[0].state;
@@ -2157,6 +2181,10 @@ function harnessFinalApproachCase(): Record<string, unknown> {
       recoveryFrames,
       sawSurfaceRecovery,
       sawHandoff,
+      finalLandingObserved,
+      finalLandingDrifting,
+      finalLandingBoostCharge,
+      finalLandingBrakeEnvelope,
       maxRouteDistance,
       maxStep,
       progressDrift: Math.abs(progressAfterExcursion - progressAtPass),

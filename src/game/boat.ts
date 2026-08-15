@@ -18,7 +18,17 @@
  */
 import * as THREE from 'three';
 import { LAYER_ENERGY, markInk } from '../contracts';
-import type { BoatInput, BoatState, FlightFailureSnapshot, FlightPhase, IBoat, IJetTrail, IWake, ISpray } from '../contracts';
+import type {
+  BoatInput,
+  BoatState,
+  FlightFailureSnapshot,
+  FlightPhase,
+  IBoat,
+  IJetTrail,
+  ISpray,
+  IWake,
+  SurfaceActionMode,
+} from '../contracts';
 import { PALETTE } from '../core/palette';
 import { waterHeight, waterNormalInto } from '../water/waves';
 import { createToonMaterial } from '../cel/toonMaterial';
@@ -809,7 +819,7 @@ export class Boat implements IBoat {
   }
 
   /** dt is FIXED 1/60 — no substepping needed. */
-  update(dt: number, input: BoatInput, t: number): void {
+  update(dt: number, input: BoatInput, t: number, surfaceAction: SurfaceActionMode): void {
     this.lastT = t;
     const st = this.state;
     const pos = this.object.position;
@@ -817,10 +827,10 @@ export class Boat implements IBoat {
     const thr = clamp(input.throttle, -1, 1);
     const steer = clamp(input.steer, -1, 1);
     const flightWasActive = st.flightPhase !== 'surface';
-    // Input adapters only send a surface air-brake after Final has armed. It
-    // deliberately reuses the proven flight-brake envelope without becoming a
-    // drift, charge source, boost payout, or reverse gear.
-    const surfaceReturnBrake = !flightWasActive && input.airBrake;
+    // Final deliberately reuses the proven flight-brake envelope on water
+    // without becoming a drift, charge source, boost payout, or reverse gear.
+    const surfaceReturnBrake = !flightWasActive && surfaceAction === 'return-brake' && input.airBrake;
+    let surfaceDrift = !flightWasActive && surfaceAction === 'drift' && input.drift;
     const airBrakeTarget = input.airBrake && (flightWasActive || surfaceReturnBrake) ? 1 : 0;
     const airBrakeTau = airBrakeTarget > this.airBrakeFx ? TUNING.airBrakeAttack : TUNING.airBrakeRelease;
     this.airBrakeFx += (airBrakeTarget - this.airBrakeFx) * (1 - Math.exp(-dt / airBrakeTau));
@@ -881,14 +891,14 @@ export class Boat implements IBoat {
         aF = thr * TUNING.reverseAccel * Math.max(0, 1 + vF / TUNING.reverseSpeed);
       }
       aF -= TUNING.dragQuad * vF * Math.abs(vF);
-      if (input.drift) aF -= TUNING.driftScrub * vF;
+      if (surfaceDrift) aF -= TUNING.driftScrub * vF;
       vF += aF * dt;
       if (flightWasActive) vF = Math.min(vF, TUNING.flightHardCap);
       if (surfaceReturnBrake) vF = Math.max(0, vF);
 
       // lateral hydrodynamic grip — cut while drifting (powerslide)
       const brakeGrip = TUNING.lateralGrip + (TUNING.airBrakeGrip - TUNING.lateralGrip) * this.airBrakeFx;
-      const driftCut = input.drift ? TUNING.driftGripMul + (1 - TUNING.driftGripMul) * this.airBrakeFx : 1;
+      const driftCut = surfaceDrift ? TUNING.driftGripMul + (1 - TUNING.driftGripMul) * this.airBrakeFx : 1;
       const grip = brakeGrip * driftCut;
       vL *= Math.max(0, 1 - grip * dt);
     }
@@ -906,17 +916,15 @@ export class Boat implements IBoat {
     const authority = Math.min(speedAbs / TUNING.steerFullSpeed, 1) * (vF < 0 ? -1 : 1);
     const yawTarget = -steer * Math.min(TUNING.yawRateMax * steeringMul, gCap) * authority;
     const baseYawDamp = TUNING.yawDamp + (TUNING.airBrakeYawDamp - TUNING.yawDamp) * this.airBrakeFx;
-    const driftYawCut = input.drift ? TUNING.driftYawDampMul + (1 - TUNING.driftYawDampMul) * this.airBrakeFx : 1;
+    const driftYawCut = surfaceDrift ? TUNING.driftYawDampMul + (1 - TUNING.driftYawDampMul) * this.airBrakeFx : 1;
     const yawDamp = baseYawDamp * driftYawCut;
     this.yawRate += (yawTarget - this.yawRate) * Math.min(1, yawDamp * dt);
     this.heading = wrapAngle(this.heading + this.yawRate * dt);
     this.lateralG = vF * this.yawRate; // + = turning left
 
     // drift charge / boost payout on release
-    if (input.drift && !flightWasActive) {
-      if (speedAbs > TUNING.driftMinSpeed) {
-        st.boostCharge = Math.min(1, st.boostCharge + dt * this.handling.driftCharge / TUNING.driftChargeTime);
-      }
+    if (surfaceDrift) {
+      this.accrueDriftCharge(dt, speedAbs);
     } else if (this.wasDrifting) {
       if (st.boostCharge >= TUNING.boostReleaseMin) {
         this.boostTimer = st.boostCharge * TUNING.boostDuration;
@@ -928,7 +936,7 @@ export class Boat implements IBoat {
       }
       st.boostCharge = 0;
     }
-    this.wasDrifting = input.drift;
+    this.wasDrifting = surfaceDrift;
     boosting = this.boostTimer > 0;
 
     // Process the trigger after drift payout so releasing Shift and pressing Space
@@ -1022,6 +1030,19 @@ export class Boat implements IBoat {
         }
       } else {
         this.unloadTime = 0;
+      }
+    }
+
+    // Input is sampled before the vertical integrator discovers water contact.
+    // Hand a held air-brake to surface drift on that exact fixed step so the
+    // player never has to release and press Shift again after a normal flight.
+    // Final keeps air-brake ownership and is intentionally excluded.
+    if (flightWasActive && st.flightPhase === 'surface' && surfaceAction === 'drift') {
+      this.airBrakeFx = 0;
+      if (input.airBrake) {
+        surfaceDrift = true;
+        this.accrueDriftCharge(dt, speedAbs);
+        this.wasDrifting = true;
       }
     }
 
@@ -1145,7 +1166,7 @@ export class Boat implements IBoat {
 
     this.driftTrailCd -= dt;
     this.opponentDriftSprayCd -= dt;
-    if (input.drift && st.boostCharge > 0.04 && speedAbs > TUNING.driftMinSpeed && this.driftTrailCd <= 0) {
+    if (surfaceDrift && st.boostCharge > 0.04 && speedAbs > TUNING.driftMinSpeed && this.driftTrailCd <= 0) {
       const opponent = this.id > 0;
       this.driftTrailCd = opponent ? 0.052 / this.opponentFxScale : 0.05;
       const side = Math.abs(this.lateralG) > 0.5 ? (this.lateralG > 0 ? -1 : 1) : (steer >= 0 ? 1 : -1);
@@ -1171,7 +1192,7 @@ export class Boat implements IBoat {
     // Opponent technique must be readable in the world, not through another
     // HUD badge. Two short stern sprays mark a real drift input, with a simple
     // distance LOD to avoid filling the horizon when the field spreads out.
-    if (this.id > 0 && input.drift && !st.airborne && st.flightPhase === 'surface' &&
+    if (this.id > 0 && surfaceDrift && !st.airborne && st.flightPhase === 'surface' &&
         speedAbs > TUNING.driftMinSpeed && this.opponentDriftSprayCd <= 0) {
       this.opponentDriftSprayCd = 0.075 / this.opponentFxScale;
       for (const streamSide of [-1, 1]) {
@@ -1191,8 +1212,8 @@ export class Boat implements IBoat {
     st.speed = vF;
     st.throttle = thr;
     st.steer = steer;
-    st.drifting = input.drift;
-    st.driftReleaseReady = input.drift && st.flightPhase === 'surface' &&
+    st.drifting = surfaceDrift;
+    st.driftReleaseReady = surfaceDrift && st.flightPhase === 'surface' &&
       speedAbs > TUNING.driftMinSpeed && st.boostCharge >= TUNING.boostReleaseMin;
     st.boosting = boosting;
     st.boostRemaining = boosting && this.boostTotal > 0 ? clamp(this.boostTimer / this.boostTotal, 0, 1) : 0;
@@ -1542,6 +1563,14 @@ export class Boat implements IBoat {
 
   private flightDescendAt(): number {
     return TUNING.flightSpool + TUNING.flightAscend + TUNING.flightCruise + this.flightExtensionTime;
+  }
+
+  private accrueDriftCharge(dt: number, speedAbs: number): void {
+    if (speedAbs <= TUNING.driftMinSpeed) return;
+    this.state.boostCharge = Math.min(
+      1,
+      this.state.boostCharge + dt * this.handling.driftCharge / TUNING.driftChargeTime,
+    );
   }
 
   private canExtendFlight(): boolean {

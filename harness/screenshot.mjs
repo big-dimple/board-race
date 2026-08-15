@@ -107,6 +107,21 @@ async function waitForServer(url, tries = 60) {
   throw new Error(`dev server did not come up at ${url}`);
 }
 
+async function advanceToControlledWaterContact(page, maxFrames = 180) {
+  return page.evaluate((limit) => {
+    let before = window.__harness.playerState();
+    for (let frame = 1; frame <= limit; frame++) {
+      window.__harness.advance(1 / 60);
+      const after = window.__harness.playerState();
+      if (before.flightPhase !== 'surface' && after.flightPhase === 'surface') {
+        return { before, after, frames:frame };
+      }
+      before = after;
+    }
+    throw new Error(`controlled flight did not contact water within ${limit} fixed steps`);
+  }, maxFrames);
+}
+
 async function verifySurfaceGuideVisualContract(page) {
   await page.evaluate(() => window.__harness.scenario('hairpin'));
   const visual = await page.evaluate(() => {
@@ -1185,6 +1200,12 @@ async function verifyFlightContract(page) {
     `route guidance needs a human reaction window before launch: ${JSON.stringify(route45)}`);
   assert.ok(route45.routeFiveChargeEdges >= 1,
     `flight five must be earned through a real drift release: ${JSON.stringify(route45)}`);
+  assert.equal(route45.routeFourLandingBridged, true,
+    `held air brake must become drift on flight four's exact landing frame: ${JSON.stringify(route45)}`);
+  assert.ok(route45.routeFourLandingCharge > 0 && route45.routeFourLandingCharge < 0.08,
+    `continuous route four-to-five play must start with one fixed drift step: ${JSON.stringify(route45)}`);
+  assert.ok(route45.routeFourLandingBrakeEnvelope < 0.001,
+    `route four landing may not carry air-brake damping into the fifth-flight bank: ${JSON.stringify(route45)}`);
   assert.ok(route45.airBrakeLatencySeconds >= 0 && route45.airBrakeLatencySeconds <= 0.35,
     `air brake must engage promptly after the real fifth launch: ${JSON.stringify(route45)}`);
   assert.equal(route45.warningFrames, 0);
@@ -1202,6 +1223,13 @@ async function verifyFlightContract(page) {
   assert.equal(finalApproach.flightPhaseAfterExcursion, 'surface');
   assert.equal(finalApproach.sawSurfaceRecovery, true, 'route seven must retain recovery ownership through water contact');
   assert.equal(finalApproach.sawHandoff, true, 'route seven must hand off before free approach');
+  assert.equal(finalApproach.finalLandingObserved, true);
+  assert.equal(finalApproach.finalLandingDrifting, false,
+    'Final Shift remains return brake and must never bridge into drift');
+  assert.equal(finalApproach.finalLandingBoostCharge, 0,
+    'Final water contact may not manufacture drift charge');
+  assert.ok(finalApproach.finalLandingBrakeEnvelope > 0.7,
+    `Final must preserve its return-brake envelope through water contact: ${JSON.stringify(finalApproach)}`);
   assert.ok(finalApproach.recoveryFrames > 0);
   assert.ok(finalApproach.maxRouteDistance >= 48,
     `the contract must actually leave the old 42m fail corridor: ${JSON.stringify(finalApproach)}`);
@@ -1275,10 +1303,25 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.scenario('flight-descent'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightPhase, 'descending');
-  await page.evaluate(() => window.__harness.advance(0.9));
-  state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightPhase, 'surface', `flight must settle back onto the water: ${JSON.stringify(state)}`);
-  assert.equal(state.flightReady, false, 'a spent charge must not silently re-arm');
+  await page.evaluate(() => window.__harness.usePlayerInput(true));
+  await page.keyboard.down('Shift');
+  const keyboardWaterContact = await advanceToControlledWaterContact(page);
+  assert.notEqual(keyboardWaterContact.before.flightPhase, 'surface');
+  assert.equal(keyboardWaterContact.after.flightPhase, 'surface');
+  assert.equal(keyboardWaterContact.after.drifting, true,
+    `held keyboard Shift must become drift on the exact water-contact step: ${JSON.stringify(keyboardWaterContact)}`);
+  assert.ok(keyboardWaterContact.after.boostCharge > 0 && keyboardWaterContact.after.boostCharge < 0.08,
+    `water contact must earn exactly the first fixed step, not backdate airborne time: ${JSON.stringify(keyboardWaterContact)}`);
+  assert.ok(keyboardWaterContact.after.driftBankProgress > 0,
+    `the nearby BANK gauge must move on the contact step: ${JSON.stringify(keyboardWaterContact)}`);
+  assert.ok(keyboardWaterContact.after.flightAirBrake < 0.001,
+    `normal landing must retire the air-brake envelope before surface handling: ${JSON.stringify(keyboardWaterContact)}`);
+  assert.equal(keyboardWaterContact.after.flightReady, false, 'a spent charge must not silently re-arm');
+  await page.keyboard.up('Shift');
+  await page.evaluate(() => {
+    window.__harness.advance(1 / 60);
+    window.__harness.usePlayerInput(false);
+  });
 
   await page.evaluate(() => window.__harness.scenario('flight-route'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -1762,10 +1805,19 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'racing');
   assert.notEqual(state.flightPhase, 'spool', 'held Space must not auto-launch after the ceremony');
-  await page.evaluate(() => window.__harness.advance(1.15));
+  const medalWaterContact = await advanceToControlledWaterContact(page);
+  state = medalWaterContact.after;
+  assert.equal(state.drifting, true, 'held Shift must become surface drift on the medal landing frame');
+  assert.ok(state.boostCharge > 0 && state.boostCharge < 0.08,
+    `medal resume must not lose or backdate the first drift step: ${JSON.stringify(medalWaterContact)}`);
+  assert.ok(state.flightAirBrake < 0.001,
+    `medal landing must hand air-brake ownership to drift immediately: ${JSON.stringify(medalWaterContact)}`);
+  await page.evaluate(() => {
+    for (let i = 0; i < 60 && !window.__harness.playerState().driftReleaseReady; i++) {
+      window.__harness.advance(1 / 60);
+    }
+  });
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightPhase, 'surface');
-  assert.equal(state.drifting, true, 'held Shift must become surface drift immediately after landing');
   assert.equal(state.driftReleaseReady, true, 'the preserved hold must reach a readable release threshold');
   assert.equal(state.flightCharges, heldChargeBeforeLanding,
     'holding drift must preserve the spare cell without silently issuing another before release');
@@ -1981,6 +2033,25 @@ async function verifyGamepadContract(page) {
   assert.equal(state.drifting, true, 'X / Square must hold the contextual drift action');
   assert.equal(state.driftReleaseReady, true, 'a held gamepad drift must reach the real release threshold');
 
+  // The same physical X / Square hold is an air brake in flight and must
+  // become drift on the exact fixed step that the hull contacts water.
+  await page.evaluate(() => {
+    window.__gamepadFixture.clear(1);
+    window.__harness.scenario('flight-descent');
+    window.__harness.usePlayerInput(true);
+    window.__gamepadFixture.padButton(1, 2, true);
+    window.__harness.advance(1 / 60);
+  });
+  const gamepadWaterContact = await advanceToControlledWaterContact(page);
+  assert.equal(gamepadWaterContact.after.drifting, true,
+    `held X / Square must bridge air brake to drift at water contact: ${JSON.stringify(gamepadWaterContact)}`);
+  assert.ok(gamepadWaterContact.after.boostCharge > 0 && gamepadWaterContact.after.boostCharge < 0.08);
+  assert.ok(gamepadWaterContact.after.flightAirBrake < 0.001);
+  await page.evaluate(() => {
+    window.__gamepadFixture.padButton(1, 2, false);
+    window.__harness.advance(1 / 60);
+  });
+
   // A second idle controller may be present, but deliberate input must take
   // ownership and steer in the same frame. Small idle noise cannot steal it.
   await page.evaluate(() => {
@@ -2179,6 +2250,7 @@ async function verifyMobileControls(page) {
   vibrationLog = await page.evaluate(() => window.__gamepadFixture.vibrations());
   assert.deepEqual(vibrationLog, [], 'disabling haptics must silence phone vibration independently');
   await page.evaluate(() => window.__harness.setHapticsEnabled(true));
+
   const selectedBefore = await page.locator('.driver-card.selected').getAttribute('data-driver');
   const featuredBefore = await page.locator('.driver-featured').boundingBox();
   const alternate = page.locator('.driver-switch-next');
@@ -2473,6 +2545,30 @@ async function verifyMobileControls(page) {
   firstFailure = await page.evaluate(() => window.__harness.playerState());
   assert.equal(firstFailure.coachStatus, 'disabled');
   assert.equal(firstFailure.coachVisible, false, 'mobile must be able to close the guide from its first visible step');
+
+  // With the production touch adapter activated by GO, a held contextual
+  // action must hand air-brake ownership to drift on the exact landing step.
+  // This runs after novice onboarding assertions so accepted gameplay edges
+  // cannot pre-master the first-failure curriculum under test above.
+  await page.evaluate(() => {
+    window.__harness.scenario('flight-descent');
+    window.__harness.usePlayerInput(true);
+  });
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', {
+    pointerId: 71, pointerType: 'touch', isPrimary: true,
+  });
+  const mobileWaterContact = await advanceToControlledWaterContact(page);
+  assert.equal(mobileWaterContact.after.drifting, true,
+    `a held mobile air-brake must become drift at water contact: ${JSON.stringify(mobileWaterContact)}`);
+  assert.ok(mobileWaterContact.after.boostCharge > 0 && mobileWaterContact.after.boostCharge < 0.08);
+  assert.ok(mobileWaterContact.after.flightAirBrake < 0.001);
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', {
+    pointerId: 71, pointerType: 'touch', isPrimary: true,
+  });
+  await page.evaluate(() => {
+    window.__harness.advance(1 / 60);
+    window.__harness.usePlayerInput(false);
+  });
 
   // The medal presentation and resume countdown expose direction/drift for
   // preloading, but keep flight disabled. A touch that begins after the medal

@@ -73,6 +73,10 @@ automatically; players steer, drift/air-brake, and trigger flight.
   presentation owner and launch marker, then gives the sole cyan branch to the
   new flight. Neither path may snap the boat, clear horizontal momentum,
   preload a surface warning, or show more than one flight branch.
+- Normal water contact atomically hands a held contextual air-brake to surface
+  drift on that exact fixed step, starts only one step of charge, and clears
+  the air-brake envelope. Final Station is the sole exception: Shift remains
+  its non-charging return brake.
 - The full-lap green surface guide is a tessellated translucent wake: it bends
   with the local swell, has no hard rails or filled road core, and carries only
   a bounded 170m lookahead of open chevrons spaced 10m apart and moving forward

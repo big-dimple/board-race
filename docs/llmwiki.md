@@ -37,6 +37,10 @@
    必须拒绝，一飞最多续航一次。
 6. 通过或错过目标门会立即进入下降。未消费的备用格可跨落水和三飞勋章冻结
    保留；全新一局会清空。
+7. 普通受控飞行落水时，若玩家一直按住同一个漂移 / 空刹动作，接触水面的那个
+   fixed-step 必须原子切换为水面漂移、清零旧空刹包络，并只从该帧开始累计
+   `boostCharge`。不能回算空中时间，也不能要求松开重按。Final 已 arm 时是唯一
+   例外：该动作继续是 `return-brake`，不得进入漂移、蓄力或 BOOST。
 
 权威实现：`src/game/boat.ts`。跨系统只读合同：`src/contracts.ts` 的
 `BoatState`。HUD 派生：`src/core/abilityTelemetry.ts`。
@@ -363,7 +367,9 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
   门、下降、落水、handoff、漂移入库、第五飞起飞、空刹右转和第五门。必须看到
   bank cue、至少 `1.2s` 反应窗、真实库存上升边沿；若入库和起飞发生在同一 fixed
   step，允许 armed launch cue 没有单独展示帧，但不能为满足测试破坏同帧操作合同。
-  全程零 warning/fail、零 teleport，并保持 `visibleRouteCount<=1`。
+  第四飞落水的精确边沿还必须证明 held air-brake 已在同帧变成漂移、只增加一帧
+  charge 且空刹包络归零。全程零 warning/fail、零 teleport，并保持
+  `visibleRouteCount<=1`。
 - `third-recovery-air` 与 `third-recovery-surface` 必须走真实第三门、medal freeze
   和 resume countdown；两个 beat 都断言 active/recovery route 仍是 flight-3、同一个
   shader、同一青色开放尖角几何，空中 blend 必须为 0、触水后才允许贴浪，且
@@ -386,7 +392,11 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
   当作冲门后惯性或 route handoff 的端到端证据。
 - `finalApproachCase()` 必须从真实第七门继续下降、落水和 handoff，再驶出旧 `42m`
   失败走廊至少 `2.5s`；全程 warning/fail 为零、progress 不漂移、没有 teleport。随后
-  覆盖金柱外擦过可重试、正反穿门、高速 sweep 和超 `4m` cut 拒绝。
+  覆盖金柱外擦过可重试、正反穿门、高速 sweep 和超 `4m` cut 拒绝；第七飞落水帧
+  必须反向证明 Shift 仍是 return-brake、包络保留、漂移与 charge 都为零。
+- 键盘 Shift、标准手柄 X / Square 和真实移动 pointer 都要在
+  `descending -> surface` 的相邻 fixed-step 上断言交接；只在落水一秒后检查
+  `drifting=true` 属于假阳性，不能作为这条生命周期合同。
 
 教学相关的最低回归集：
 
