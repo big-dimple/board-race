@@ -64,8 +64,15 @@ function checkManualViteServers() {
     if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
     try {
       const cwd = readlinkSync(`/proc/${entry.name}/cwd`);
-      const command = readFileSync(`/proc/${entry.name}/cmdline`, 'utf8').replaceAll('\0', ' ');
-      if (cwd === root && /(?:node_modules\/\.bin\/vite|\bvite\b)/.test(command)) {
+      const argv = readFileSync(`/proc/${entry.name}/cmdline`, 'utf8')
+        .split('\0')
+        .filter(Boolean);
+      const executable = basename(argv[0] ?? '');
+      const entrypoint = argv[1] ?? '';
+      const isVite = executable === 'vite'
+        || entrypoint === `${root}/node_modules/.bin/vite`
+        || entrypoint.startsWith(`${root}/node_modules/vite/bin/vite`);
+      if (cwd === root && isVite) {
         failures.push(`manual Vite server still running: pid ${entry.name}`);
       }
     } catch {
