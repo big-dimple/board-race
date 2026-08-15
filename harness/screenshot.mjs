@@ -37,6 +37,7 @@ const SCENARIOS = {
   sweeper: { scenario: 'sweeper' },
   chicane: { scenario: 'chicane' },
   hairpin: { scenario: 'hairpin' },
+  'post-third-turn': { scenario: 'post-third-turn' },
   airtime: { scenario: 'airtime' },
   'drift-charge': { scenario: 'drift-charge' },
   'coach-drift': { scenario: 'coach-drift' },
@@ -64,6 +65,8 @@ const SCENARIOS = {
   'flight-route': { scenario: 'flight-route' },
   'flight-recovery-air': { scenario: 'flight-recovery-air' },
   'flight-recovery-surface': { scenario: 'flight-recovery-surface' },
+  'third-recovery-air': { scenario: 'third-recovery-air' },
+  'third-recovery-surface': { scenario: 'third-recovery-surface' },
   'flight-spent-charge': { scenario: 'flight-spent-charge' },
   'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
   'medal-ceremony': { scenario: 'medal-ceremony', timeout: 180000, settleMs: 180 },
@@ -109,9 +112,14 @@ async function verifySurfaceGuideVisualContract(page) {
       ribbonVertexShader: ribbon.material.vertexShader,
       ribbonFragmentShader: ribbon.material.fragmentShader,
       arrowVertices: arrows.geometry.attributes.position.count,
+      arrowInstances: arrows.count,
+      arrowIsInstanced: Boolean(arrows.isInstancedMesh),
       arrowHasTurnAttribute: Boolean(arrows.geometry.attributes.aTurn),
+      arrowPhases: [...new Set(Array.from(arrows.geometry.attributes.aPhase.array)
+        .map((value) => Number(value.toFixed(3))))],
       arrowSide: arrows.material.side,
       arrowVertexShader: arrows.material.vertexShader,
+      arrowFragmentShader: arrows.material.fragmentShader,
     };
   });
   assert.ok(visual, 'surface guide meshes must exist in the rendered scene');
@@ -122,11 +130,36 @@ async function verifySurfaceGuideVisualContract(page) {
     'the translucent veil must follow the live ocean displacement');
   assert.doesNotMatch(visual.ribbonFragmentShader, /railInk|crossbar|arrowPhase/,
     'the retired thick rails and procedural V wallpaper must not return');
-  assert.ok(visual.arrowVertices > 900, 'sparse route arrows must be real geometry, not a shader decal');
+  assert.equal(visual.arrowIsInstanced, true, 'the visible arrow field must be a bounded moving instance set');
+  assert.equal(visual.arrowVertices, 12, 'each moving marker must stay a thin two-stroke open chevron');
+  assert.ok(visual.arrowInstances >= 12 && visual.arrowInstances <= 15,
+    `only the actionable lookahead may carry arrows: ${visual.arrowInstances}`);
   assert.equal(visual.arrowHasTurnAttribute, true, 'arrow geometry must distinguish ordinary and turn cues');
+  assert.ok(visual.arrowPhases.length >= 3,
+    `route arrows need ordered animation phases rather than one static pulse: ${visual.arrowPhases}`);
   assert.equal(visual.arrowSide, 0, 'surface arrows must avoid a second transparent back-face pass');
   assert.match(visual.arrowVertexShader, /waveHeight\(world\.xz, uTime\)/,
     'each arrow vertex must move with the water instead of floating as a rigid panel');
+  assert.match(visual.arrowFragmentShader ?? '', /fract\(uTime \* 0\.65 - vPhase\)/,
+    'route arrows must light in forward station order rather than breathing in place');
+
+  const arrowMotion = await page.evaluate(() => {
+    const arrows = window.__scene.getObjectByName('surface-guide-chevrons');
+    const before = Array.from(arrows.instanceMatrix.array);
+    window.__harness.advance(0.25);
+    const after = Array.from(arrows.instanceMatrix.array);
+    let maxTranslation = 0;
+    for (let i = 0; i < arrows.count; i++) {
+      const offset = i * 16;
+      maxTranslation = Math.max(maxTranslation, Math.hypot(
+        after[offset + 12] - before[offset + 12],
+        after[offset + 14] - before[offset + 14],
+      ));
+    }
+    return maxTranslation;
+  });
+  assert.ok(arrowMotion > 0.5,
+    `arrow instances must actually travel along the route: ${arrowMotion}`);
 
   const pixels = await page.evaluate(() => {
     const canvas = document.querySelector('#app > canvas');
@@ -195,12 +228,70 @@ async function verifySurfaceGuideVisualContract(page) {
   assert.ok(pixels, 'surface guide pixel probe needs the live renderer canvas');
   assert.ok(pixels.veil.changed > 20000,
     `the water veil must be visible in a real rendered frame: ${JSON.stringify(pixels.veil)}`);
-  assert.ok(pixels.veil.meanDelta < 45 && pixels.veil.p95Delta < 100,
+  assert.ok(pixels.veil.meanDelta >= 27,
+    `the water route must remain immediately findable against the ocean: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.meanDelta < 55 && pixels.veil.p95Delta < 125,
     `the water veil must remain translucent rather than repainting the ocean: ${JSON.stringify(pixels.veil)}`);
   assert.ok(pixels.veil.varianceRetention >= 0.72,
     `ocean bands must remain legible through the guide: ${JSON.stringify(pixels.veil)}`);
   assert.ok(pixels.arrows.changed > 200,
     `open-chevron geometry must produce visible pixels in the driving view: ${JSON.stringify(pixels.arrows)}`);
+
+  await page.evaluate(() => window.__harness.scenario('post-third-turn'));
+  const postThird = await page.evaluate(() => {
+    const route = window.__scene.getObjectByName('flight-3-ribbon');
+    const recoveryArrows = window.__scene.getObjectByName('flight-3-recovery-arrows');
+    return {
+      guidance: window.__harness.guidance(),
+      recoveryFragmentShader: route?.material?.fragmentShader ?? '',
+      recoveryArrowVertices: recoveryArrows?.geometry?.attributes?.position?.count ?? 0,
+      recoveryArrowVertexShader: recoveryArrows?.material?.vertexShader ?? '',
+    };
+  });
+  assert.ok(postThird.guidance.surfaceGuideTurnArrowCount >= 3,
+    `the third-flight exit must expose an advance left-turn sequence: ${JSON.stringify(postThird.guidance)}`);
+  assert.match(postThird.recoveryFragmentShader, /recoveryVeil/,
+    'the pre-water recovery tail must use the same soft veil language as the surface route');
+  assert.doesNotMatch(postThird.recoveryFragmentShader, /recoveryEdge|recoveryDash/,
+    'the retired dashed recovery funnel must not reappear before water contact');
+  assert.equal(postThird.recoveryArrowVertices, 12,
+    'pre-water recovery arrows and surface arrows must share the same open-chevron geometry');
+  assert.match(postThird.recoveryArrowVertexShader, /waveHeight\(world\.xz, uTime\)/,
+    'recovery arrows must ride the same live water surface as the main route');
+
+  const thirdRecoveryBeats = [];
+  for (const beat of ['third-recovery-air', 'third-recovery-surface']) {
+    await page.evaluate((name) => window.__harness.scenario(name), beat);
+    thirdRecoveryBeats.push(await page.evaluate(() => {
+      const route = window.__scene.getObjectByName('flight-3-ribbon');
+      const arrows = window.__scene.getObjectByName('flight-3-recovery-arrows');
+      return {
+        state: window.__harness.playerState(),
+        guidance: window.__harness.guidance(),
+        ribbonVisible: Boolean(route?.visible),
+        ribbonShader: route?.material?.fragmentShader ?? '',
+        arrowVisible: Boolean(arrows?.visible),
+        arrowShader: arrows?.material?.fragmentShader ?? '',
+      };
+    }));
+  }
+  const [airRecovery, surfaceRecovery] = thirdRecoveryBeats;
+  for (const beat of thirdRecoveryBeats) {
+    assert.equal(beat.state.flightRouteState, 'passed',
+      `the third-flight visual beat must remain inside certified recovery: ${JSON.stringify(beat)}`);
+    assert.equal(beat.guidance.activeRouteIndex, 2,
+      'water contact must not swap the third-flight recovery guide for flight four');
+    assert.equal(beat.guidance.recoveryRouteIndex, 2);
+    assert.equal(beat.guidance.visibleRouteCount, 1);
+    assert.equal(beat.ribbonVisible, true);
+    assert.equal(beat.arrowVisible, true);
+    assert.match(beat.arrowShader, /fract\(uTime \* 0\.65 - vPhase\)/,
+      'recovery arrows must share the moving phase rhythm used by the surface route');
+  }
+  assert.notEqual(airRecovery.state.flightPhase, 'surface');
+  assert.equal(surfaceRecovery.state.flightPhase, 'surface');
+  assert.equal(airRecovery.ribbonShader, surfaceRecovery.ribbonShader,
+    'the third-flight route must keep one material language across water contact');
 }
 
 async function verifyFlightContract(page) {
@@ -771,10 +862,18 @@ async function verifyFlightContract(page) {
   assert.ok(Math.abs(medalRecovery.freezeRecoveryDelta) < 0.001);
   assert.equal(medalRecovery.sawSurfaceRecovery, true,
     'the third branch must retain ownership after touching water');
-  assert.equal(medalRecovery.sawRouteFourPreview, true,
-    'first water contact after flight three must hand the single visual guide to flight four');
-  assert.ok(medalRecovery.routeFourPreviewLeadSeconds >= 1.8,
-    `flight four needs a conservative pre-launch read window through the swell: ${JSON.stringify(medalRecovery)}`);
+  assert.equal(medalRecovery.recoveryOwnerBeforeWater, true,
+    'the third recovery guide must own the descent before water contact');
+  assert.equal(medalRecovery.recoveryOwnerAfterWater, true,
+    'the same third recovery guide must remain visible after water contact');
+  assert.equal(medalRecovery.routeFourPreviewBeforeHandoff, false,
+    'flight four must not replace the recovery visual before its authored handoff');
+  assert.equal(medalRecovery.sawPostThirdTurnGuidance, true,
+    'the flowing surface route must expose the sharp post-third turn in advance');
+  assert.ok(medalRecovery.postThirdTurnLeadSeconds >= 1.8,
+    `the route-embedded turn beat needs a conservative reaction window: ${JSON.stringify(medalRecovery)}`);
+  assert.ok(medalRecovery.maxTurnArrowsBeforeWater >= 3);
+  assert.ok(medalRecovery.maxTurnArrowsAfterWater >= 3);
   assert.equal(medalRecovery.handoffCount, 1,
     'the third branch must hand navigation to the surface exactly once');
   assert.equal(medalRecovery.warningFrames, 0,
@@ -966,14 +1065,16 @@ async function verifyFlightContract(page) {
   let routeGuidance = await page.evaluate(() => window.__harness.guidance());
   assert.equal(routeGuidance.surfaceGuideStyle, 'translucent-wave-veil',
     'the full-lap route must use the water-conforming virtual-wake language');
-  assert.ok(routeGuidance.surfaceGuideBaseAlpha >= 0.05 && routeGuidance.surfaceGuideBaseAlpha <= 0.09,
-    `the guide field must remain restrained: ${JSON.stringify(routeGuidance)}`);
-  assert.ok(routeGuidance.surfaceGuidePeakAlpha <= 0.36,
+  assert.ok(routeGuidance.surfaceGuideBaseAlpha >= 0.1 && routeGuidance.surfaceGuideBaseAlpha <= 0.13,
+    `the guide field must stay legible without becoming a painted road: ${JSON.stringify(routeGuidance)}`);
+  assert.ok(routeGuidance.surfaceGuidePeakAlpha <= 0.46,
     `the guide veil must never become an opaque road: ${JSON.stringify(routeGuidance)}`);
-  assert.equal(routeGuidance.surfaceGuideArrowCadenceM, 24,
-    'ordinary direction markers must stay sparse rather than wallpapering the route');
-  assert.ok(routeGuidance.surfaceGuideArrowCount >= 90 && routeGuidance.surfaceGuideArrowCount <= 160,
-    `the full lap needs a bounded arrow budget: ${JSON.stringify(routeGuidance)}`);
+  assert.equal(routeGuidance.surfaceGuideArrowCadenceM, 12,
+    'moving direction markers need a readable but bounded route cadence');
+  assert.equal(routeGuidance.surfaceGuideArrowSpeedMps, 8,
+    'surface arrows must move forward rather than only pulsing in place');
+  assert.ok(routeGuidance.surfaceGuideArrowCount >= 12 && routeGuidance.surfaceGuideArrowCount <= 15,
+    `only the current lookahead needs moving arrows: ${JSON.stringify(routeGuidance)}`);
   assert.equal(routeGuidance.surfaceGuideTurnChevronCount, 3,
     'sharp turns must use the highway-style three-chevron beat');
   assert.equal(routeGuidance.actionCue, 'turn');

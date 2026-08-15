@@ -1612,8 +1612,13 @@ function harnessMedalRecoveryCase(): Record<string, number | string | boolean> {
     let handoffCount = 0;
     let handoffDebug = 'none';
     let handoffSurfaceDistance = -1;
-    let sawRouteFourPreview = false;
-    let routeFourPreviewLeadSeconds = -1;
+    let sawPostThirdTurnGuidance = false;
+    let postThirdTurnLeadSeconds = -1;
+    let recoveryOwnerBeforeWater = false;
+    let recoveryOwnerAfterWater = false;
+    let routeFourPreviewBeforeHandoff = false;
+    let maxTurnArrowsBeforeWater = 0;
+    let maxTurnArrowsAfterWater = 0;
     let lastRecovery = course.guidanceStatus().recoveryActive > 0;
     let sawSurfaceRecovery = false;
     let maxStep = 0;
@@ -1634,11 +1639,18 @@ function harnessMedalRecoveryCase(): Record<string, number | string | boolean> {
       warningFrames += race.racers[0].courseWarning === 'none' ? 0 : 1;
       maxVisibleRoutes = Math.max(maxVisibleRoutes, guidance.visibleRouteCount);
       sawSurfaceRecovery ||= state.flightRouteState === 'passed' && state.flightPhase === 'surface';
-      if (!sawRouteFourPreview && state.flightRouteState === 'passed' && state.flightPhase === 'surface' &&
-          guidance.activeRouteIndex === 3) {
-        sawRouteFourPreview = true;
+      if (state.flightRouteState === 'passed' && state.flightPhase === 'surface') {
+        recoveryOwnerAfterWater ||= guidance.activeRouteIndex === 2;
+        maxTurnArrowsAfterWater = Math.max(maxTurnArrowsAfterWater, guidance.surfaceGuideTurnArrowCount);
+      } else if (state.flightRouteState === 'passed') {
+        recoveryOwnerBeforeWater ||= guidance.activeRouteIndex === 2;
+        maxTurnArrowsBeforeWater = Math.max(maxTurnArrowsBeforeWater, guidance.surfaceGuideTurnArrowCount);
+      }
+      routeFourPreviewBeforeHandoff ||= state.flightRouteState === 'passed' && guidance.activeRouteIndex === 3;
+      if (!sawPostThirdTurnGuidance && guidance.surfaceGuideTurnArrowCount >= 3) {
+        sawPostThirdTurnGuidance = true;
         const remainingU = Math.max(0, course.flightRoutes[3].launchFromU - guidance.playerSurfaceU);
-        routeFourPreviewLeadSeconds = remainingU * course.length / 50;
+        postThirdTurnLeadSeconds = remainingU * course.length / 50;
       }
       const recovery = guidance.recoveryActive > 0;
       if (lastRecovery && !recovery) {
@@ -1665,11 +1677,18 @@ function harnessMedalRecoveryCase(): Record<string, number | string | boolean> {
       warningFrames += race.racers[0].courseWarning === 'none' ? 0 : 1;
       maxVisibleRoutes = Math.max(maxVisibleRoutes, guidance.visibleRouteCount);
       sawSurfaceRecovery ||= state.flightRouteState === 'passed' && state.flightPhase === 'surface';
-      if (!sawRouteFourPreview && state.flightRouteState === 'passed' && state.flightPhase === 'surface' &&
-          guidance.activeRouteIndex === 3) {
-        sawRouteFourPreview = true;
+      if (state.flightRouteState === 'passed' && state.flightPhase === 'surface') {
+        recoveryOwnerAfterWater ||= guidance.activeRouteIndex === 2;
+        maxTurnArrowsAfterWater = Math.max(maxTurnArrowsAfterWater, guidance.surfaceGuideTurnArrowCount);
+      } else if (state.flightRouteState === 'passed') {
+        recoveryOwnerBeforeWater ||= guidance.activeRouteIndex === 2;
+        maxTurnArrowsBeforeWater = Math.max(maxTurnArrowsBeforeWater, guidance.surfaceGuideTurnArrowCount);
+      }
+      routeFourPreviewBeforeHandoff ||= state.flightRouteState === 'passed' && guidance.activeRouteIndex === 3;
+      if (!sawPostThirdTurnGuidance && guidance.surfaceGuideTurnArrowCount >= 3) {
+        sawPostThirdTurnGuidance = true;
         const remainingU = Math.max(0, course.flightRoutes[3].launchFromU - guidance.playerSurfaceU);
-        routeFourPreviewLeadSeconds = remainingU * course.length / 50;
+        postThirdTurnLeadSeconds = remainingU * course.length / 50;
       }
       const recovery = guidance.recoveryActive > 0;
       if (lastRecovery && !recovery) {
@@ -1707,8 +1726,13 @@ function harnessMedalRecoveryCase(): Record<string, number | string | boolean> {
       handoffDebug,
       handoffSurfaceDistance,
       sawSurfaceRecovery,
-      sawRouteFourPreview,
-      routeFourPreviewLeadSeconds,
+      sawPostThirdTurnGuidance,
+      postThirdTurnLeadSeconds,
+      recoveryOwnerBeforeWater,
+      recoveryOwnerAfterWater,
+      routeFourPreviewBeforeHandoff,
+      maxTurnArrowsBeforeWater,
+      maxTurnArrowsAfterWater,
       maxStep,
       routePasses: harnessRoutePasses[0],
       routeFails: harnessRouteFails[0],
@@ -2170,6 +2194,37 @@ function stageHarnessFlightRecovery(routeCursor: number, beat: 'air' | 'surface'
     }
     // Recovery screenshots inspect the navigation handoff itself. Keep the
     // deterministic pack from parking a full hull across that visual target.
+    for (let i = 1; i < boats.length; i++) boats[i].object.visible = false;
+  } finally {
+    harnessForceAirBrake = false;
+    harnessSuppressAirborneFlightTrigger = false;
+  }
+}
+
+function stageHarnessThirdRecovery(beat: 'air' | 'surface'): void {
+  beginHarnessRouteFlight(2, 1);
+  harnessForceAirBrake = true;
+  harnessSuppressAirborneFlightTrigger = true;
+  try {
+    advanceUntil(() => race.phase === 'medal' || race.phase === 'defeated', 14);
+    if (race.phase !== 'medal') {
+      throw new Error(`third flight did not reach the medal recovery: ${course.flightDebugStatus(0)}`);
+    }
+    loop.advance(MEDAL_CEREMONY_S + 0.15);
+    advanceUntil(() => race.phase === 'racing', 5);
+    if (beat === 'air') {
+      loop.advance(0.12);
+      if (boats[0].state.flightRouteState !== 'passed' || boats[0].state.flightPhase === 'surface') {
+        throw new Error('third-flight air recovery beat was skipped');
+      }
+    } else {
+      advanceUntil(() => boats[0].state.flightPhase === 'surface' &&
+        boats[0].state.flightRouteState === 'passed', 2);
+      loop.advance(0.06);
+      if (boats[0].state.flightRouteState !== 'passed') {
+        throw new Error('third-flight surface recovery beat was skipped');
+      }
+    }
     for (let i = 1; i < boats.length; i++) boats[i].object.visible = false;
   } finally {
     harnessForceAirBrake = false;
@@ -2766,6 +2821,11 @@ function scenario(name: string): void {
       }
       break;
     }
+    case 'post-third-turn':
+      advanceUntil(() => race.phase === 'racing', 8);
+      placePack(0.452);
+      loop.advance(1.45);
+      break;
     case 'flight-ready':
       advanceUntil(() => race.phase === 'racing', 8);
       earnHarnessFlight(false);
@@ -2996,6 +3056,14 @@ function scenario(name: string): void {
     case 'flight-recovery-surface':
       advanceUntil(() => race.phase === 'racing', 8);
       stageHarnessFlightRecovery(5, 'surface');
+      break;
+    case 'third-recovery-air':
+      advanceUntil(() => race.phase === 'racing', 8);
+      stageHarnessThirdRecovery('air');
+      break;
+    case 'third-recovery-surface':
+      advanceUntil(() => race.phase === 'racing', 8);
+      stageHarnessThirdRecovery('surface');
       break;
     case 'flight-spent-charge':
       advanceUntil(() => race.phase === 'racing', 8);

@@ -335,7 +335,9 @@ export interface CourseGuidanceStatus {
   surfaceGuidePeakAlpha: number;
   /** Sparse arrow cadence and deterministic geometry diagnostics. */
   surfaceGuideArrowCadenceM: number;
+  surfaceGuideArrowSpeedMps: number;
   surfaceGuideArrowCount: number;
+  surfaceGuideTurnArrowCount: number;
   surfaceGuideTurnChevronCount: number;
 }
 

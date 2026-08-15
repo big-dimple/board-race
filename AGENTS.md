@@ -65,15 +65,17 @@ automatically; players steer, drift/air-brake, and trigger flight.
   event. Collision and landing haptics queue behind drift/air-brake control
   pulses and route only to the most recently active device.
 - A passed flight keeps its authored branch through descent and landing until
-  recovery handoff. At first water contact the next branch may become the sole
-  visual guide while the passed branch still owns validation. That transition
-  must never snap the boat, clear horizontal momentum, preload a surface warning,
-  or show more than one flight branch.
+  recovery handoff. Water contact is not a visual ownership edge: the same
+  green, wave-following recovery veil and moving chevrons remain visible before
+  and after contact. The next cyan branch may deploy only after handoff. That
+  transition must never snap the boat, clear horizontal momentum, preload a
+  surface warning, or show more than one flight branch.
 - The full-lap green surface guide is a tessellated translucent wake: it bends
-  with the local swell, has no hard rails or filled road core, and carries
-  sparse open chevrons. Sharp bends replace the ordinary marker with one warm
-  three-chevron beat. Flight branches retain their separate translucent cyan
-  treatment; flight five's buoy signs remain secondary.
+  with the local swell, has no hard rails or filled road core, and carries only
+  a bounded 170m lookahead of open chevrons spaced 12m apart and moving forward
+  at 8m/s. Sharp bends enlarge and warm at least three consecutive markers.
+  Flight branches retain their separate translucent cyan treatment before the
+  scoring portal; flight five's buoy signs remain secondary.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.
