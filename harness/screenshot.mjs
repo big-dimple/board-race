@@ -2788,10 +2788,16 @@ async function assertMobileControlLayout(page, label, mode) {
     }
     const steeringFaceGap = right.faceCenterX - left.faceCenterX;
     const steeringSpan = right.right - left.left;
-    assert.ok(steeringFaceGap >= 130 && steeringFaceGap <= 155,
+    const rightButtonCenter = (right.left + right.right) / 2;
+    const rightFaceInset = rightButtonCenter - right.faceCenterX;
+    assert.ok(steeringFaceGap >= 114 && steeringFaceGap <= 122,
       `${label} steering faces must stay within one left-thumb sweep: gap=${steeringFaceGap}`);
-    assert.ok(steeringSpan <= 301,
+    assert.ok(steeringSpan >= 279 && steeringSpan <= 281,
       `${label} steering hit region spread too far across the screen: span=${steeringSpan}`);
+    assert.ok(rightFaceInset >= 21 && rightFaceInset <= 23,
+      `${label} right steering face must be inset without shrinking its hit target: inset=${rightFaceInset}`);
+    assert.ok(right.faceCenterX - right.faceWidth / 2 >= right.left,
+      `${label} inset right steering face escaped its own touch target: ${JSON.stringify(right)}`);
     assert.ok(right.faceCenterX <= geometry.width * 0.3,
       `${label} right steering face is too far for the left thumb: ${JSON.stringify(right)}`);
     assert.ok(right.right < flight.left, `${label} steering and skill hit regions overlap`);

@@ -18,7 +18,10 @@
   --mobile-airbrake-progress: 0;
   --control-h: clamp(128px, 36vh, 158px);
   --control-w: clamp(288px, 39vw, 340px);
-  --steer-w: clamp(280px, 32vw, 300px);
+  /* Keep the left-thumb sweep stable on wide phones. The hit targets stay
+     140px wide; only the visible right face is inset toward the thumb. */
+  --steer-w: 280px;
+  --steer-right-face-inset: 22px;
 }
 
 .mobile-controls button {
@@ -220,6 +223,9 @@
   height: clamp(72px, 20vh, 88px);
   background: rgba(10, 16, 42, 0.52);
   opacity: 0.78;
+}
+.mobile-steer-zones [data-mobile-action="right"] span {
+  left: calc(50% - var(--steer-right-face-inset));
 }
 .mobile-steer-zones small { margin-top: -3px; }
 
