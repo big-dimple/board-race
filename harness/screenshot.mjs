@@ -1359,8 +1359,27 @@ async function verifyFlightContract(page) {
     'the right-turn combo must not ask players to translate a generic A/D label');
   const routeFiveMarkers = await page.evaluate(() => {
     const group = window.__scene.getObjectByName('flight-5-marine-chevrons-right');
+    const floorMarkers = window.__scene.getObjectByName('flight-5-chevron-fill');
     const supports = [1, 2, 3, 4, 5].map((index) =>
       window.__scene.getObjectByName(`flight-5-chevron-buoy-${index}`));
+    floorMarkers?.updateWorldMatrix(true, false);
+    const floorMatrices = floorMarkers?.instanceMatrix?.array ?? [];
+    const floorWorld = floorMarkers?.matrixWorld?.elements ?? [];
+    const orientationDots = supports.map((support, index) => {
+      if (!support || floorMatrices.length < (index + 1) * 16 || floorWorld.length < 16) return -2;
+      support.updateWorldMatrix(true, false);
+      const supportWorld = support.matrixWorld.elements;
+      const sx = supportWorld[0];
+      const sz = supportWorld[2];
+      const floorOffset = index * 16;
+      const localX = floorMatrices[floorOffset];
+      const localY = floorMatrices[floorOffset + 1];
+      const localZ = floorMatrices[floorOffset + 2];
+      const fx = floorWorld[0] * localX + floorWorld[4] * localY + floorWorld[8] * localZ;
+      const fz = floorWorld[2] * localX + floorWorld[6] * localY + floorWorld[10] * localZ;
+      return (sx * fx + sz * fz) /
+        (Math.max(1e-6, Math.hypot(sx, sz)) * Math.max(1e-6, Math.hypot(fx, fz)));
+    });
     return {
       entryCount: group?.userData?.entryMarkerCount ?? -1,
       counterCount: group?.userData?.counterMarkerCount ?? -1,
@@ -1368,6 +1387,7 @@ async function verifyFlightContract(page) {
       supportCount: supports.filter(Boolean).length,
       lateRoles: supports.slice(3).map((support) => support?.userData?.turnRole ?? 'missing'),
       lateDirections: supports.slice(3).map((support) => support?.userData?.turnDirection ?? 'missing'),
+      orientationDots,
     };
   });
   assert.equal(routeFiveMarkers.entryCount, 3);
@@ -1378,6 +1398,10 @@ async function verifyFlightContract(page) {
   assert.deepEqual(routeFiveMarkers.lateRoles, ['counter', 'counter']);
   assert.deepEqual(routeFiveMarkers.lateDirections, ['left', 'left'],
     'the final two signs must oppose the entry rotation instead of encouraging more oversteer');
+  assert.equal(routeFiveMarkers.orientationDots.length, 5,
+    'all five authored freestanding turn plates must participate in the orientation contract');
+  assert.ok(routeFiveMarkers.orientationDots.every((dot) => dot > 0.9),
+    `every freestanding plate must point with its matching in-route chevron: ${JSON.stringify(routeFiveMarkers)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-route5-counter'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());

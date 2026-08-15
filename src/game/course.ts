@@ -2672,7 +2672,10 @@ export class Course implements ICourse {
           sign.renderOrder = 6;
           support.add(buoy, foam, mast, signInk, sign);
           turnChevronGroup.add(support);
-          const yaw = Math.atan2(-t.x, -t.z) + (spec.cue.direction === 'left' ? Math.PI : 0);
+          // The vertical plate uses the same local +X arrow as the in-ribbon
+          // marker. DoubleSide already keeps it readable from the approach;
+          // reversing the plate tangent here would reverse the instruction.
+          const yaw = Math.atan2(t.x, t.z) + (spec.cue.direction === 'left' ? Math.PI : 0);
           this.floaters.push({
             obj: support,
             x: support.position.x,
