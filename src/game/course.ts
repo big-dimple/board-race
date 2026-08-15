@@ -851,20 +851,16 @@ function makeStripeToon(map: THREE.Texture, shadowFloor = 0.52): THREE.ShaderMat
 // ---------------------------------------------------------------- ribbon ----
 
 const RIBBON_SEGS = 1400;
-// Eight-meter soft navigation field. The shader keeps the authored 3.4m
-// directional spine bright; the outer width is translucent context, never a
-// collision lane or a change to route validation.
+// Eight-meter open navigation field. Geometry width is only the canvas for
+// rails/chevrons; it is never a filled road or a change to route validation.
 const RIBBON_HALF_W = 4;
+const SURFACE_GUIDE_STYLE = 'open-lattice' as const;
+const SURFACE_GUIDE_CONTINUOUS_ALPHA = 0;
 
 /**
- * Painted racing line: normal-blended (NOT additive — the old additive core
- * washed out to pale mint over crests and its dim rails/fade steps read as
- * wide dark "asphalt" bands over deep water). Hard-stepped zones across the
- * width: bright dash core flowing along the lap, always-on slim green rails
- * for wayfinding between dashes, thin ink under-stroke edging so the line
- * keeps contrast on pale-cyan crests. The outer glow is a SMOOTH radial
- * falloff to zero at the ribbon edge — the old hard-stepped translucent
- * flank read as a ghost polygon paralleling the line.
+ * Open racing lattice: paired rails establish the curve while sparse
+ * transverse cells and forward chevrons encode scale/direction. Empty pixels
+ * are discarded so the ocean remains the surface; there is no painted road.
  */
 function buildRibbonMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -917,23 +913,32 @@ function buildRibbonMaterial(): THREE.ShaderMaterial {
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        // hard dash band flowing along the 3.4m directional spine (~14m period)
-        float dash = step(fract(vS * 0.07 - uTime * 0.6), 0.62);
         float a = abs(vSide);
-        // The inner 42% is the original 3.4m line. Outside it, a faint field
-        // makes distant bends legible without pretending to be a hard road.
-        float core = 1.0 - step(0.42, a);
-        float rail = step(0.42, a) * (1.0 - step(0.5, a));
-        float edge = step(0.5, a) * (1.0 - step(0.59, a));
-        float halo = step(0.59, a) * (1.0 - smoothstep(0.59, 1.0, a));
+        float railInk = 1.0 - smoothstep(0.055, 0.105, abs(a - 0.76));
+        float rail = 1.0 - smoothstep(0.018, 0.052, abs(a - 0.76));
+        float cellPhase = abs(fract(vS / 13.5 - uTime * 0.045) - 0.5);
+        float crossbar = (1.0 - smoothstep(0.025, 0.055, cellPhase)) *
+          smoothstep(0.08, 0.18, a) * (1.0 - smoothstep(0.68, 0.74, a));
+        // V-shaped markings point toward increasing spline distance.
+        float arrowPhase = fract(vS / 17.0 - uTime * 0.035);
+        float arrowCenter = 0.56 + (1.0 - min(a / 0.62, 1.0)) * 0.19;
+        float chevron = (1.0 - smoothstep(0.018, 0.045, abs(arrowPhase - arrowCenter))) *
+          (1.0 - smoothstep(0.58, 0.68, a));
+        float packet = smoothstep(0.04, 0.2, arrowPhase) *
+          (1.0 - smoothstep(0.76, 0.94, arrowPhase));
+        float centerFlow = (1.0 - smoothstep(0.022, 0.06, abs(a - 0.18))) * packet;
         // Preserve a stable locator spine through the full 170m navigation
         // horizon instead of fading the exact turn-away point to nothing.
         float localFade = 1.0 - smoothstep(125.0, 170.0, ahead) * 0.28;
         float fade = (vDist < 220.0 ? 1.0 : 0.62) * max(localFade, step(0.001, behind) * step(behind, 12.0));
-        vec3 col = uColor * (core * (0.68 + 0.72 * dash) + rail * 0.9 + halo * 0.42)
-                 + uInk * edge;
-        float alpha = (core * (0.34 + dash * 0.66) + rail * 0.9 + edge * 0.92 + halo * 0.12) * fade;
+        vec3 col = mix(uInk, uColor, min(1.0, rail * 0.9 + crossbar * 0.72 + chevron + centerFlow));
+        float alpha = ${SURFACE_GUIDE_CONTINUOUS_ALPHA.toFixed(1)};
+        alpha += railInk * 0.24 + rail * 0.58;
+        alpha += crossbar * 0.16;
+        alpha += chevron * 0.48 + centerFlow * 0.28;
+        alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
+        if (alpha < 0.012) discard;
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -995,9 +1000,6 @@ interface SurfaceActionVisual {
   bankGroup: THREE.Group;
   launchGroup: THREE.Group;
 }
-
-const FLIGHT_GUIDE_STYLE = 'virtual-lattice' as const;
-const FLIGHT_GUIDE_CONTINUOUS_ALPHA = 0;
 
 function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
   const points = [
@@ -1394,10 +1396,8 @@ export class Course implements ICourse {
       actionDirection: this.playerActionDirection,
       actionTargetU: this.playerActionTargetU,
       actionMarkerCount: this.playerActionMarkerCount,
-      flightGuideStyle: FLIGHT_GUIDE_STYLE,
-      flightGuideContinuousAlpha: FLIGHT_GUIDE_CONTINUOUS_ALPHA,
-      flightGuideEnergyBloom: this.flightVisuals.some((visual) =>
-        visual.ribbonMesh.layers.isEnabled(LAYER_ENERGY)),
+      surfaceGuideStyle: SURFACE_GUIDE_STYLE,
+      surfaceGuideContinuousAlpha: SURFACE_GUIDE_CONTINUOUS_ALPHA,
     };
   }
 
@@ -1857,6 +1857,8 @@ export class Course implements ICourse {
       const recovery = this.playerRecoveryRoute === routeIndex ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
       visual.ribbon.uniforms.uRecovery.value = recovery;
       visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
+      if (recovery > 0) visual.ribbonMesh.layers.disable(LAYER_ENERGY);
+      else visual.ribbonMesh.layers.enable(LAYER_ENERGY);
       visual.recoveryArrows.visible = recovery > 0.04;
       visual.recoveryArrowMaterial.opacity = 0.68 * recovery;
       if (recovery > 0) {
@@ -2027,16 +2029,10 @@ export class Course implements ICourse {
           color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
-          float latticePhase = abs(fract(vUv.y * 18.0 - uTime * 0.52) - 0.5);
-          float crossbar = (1.0 - smoothstep(0.045, 0.095, latticePhase)) *
-            smoothstep(0.025, 0.12, vUv.x) * (1.0 - smoothstep(0.88, 0.975, vUv.x));
-          float centerSpine = 1.0 - smoothstep(0.018, 0.052, abs(vUv.x - 0.5));
-          float alpha = ${FLIGHT_GUIDE_CONTINUOUS_ALPHA.toFixed(1)};
-          alpha += edge * (0.14 + turnZone * 0.04);
-          alpha += crossbar * (0.11 + turnZone * (0.13 + packet * 0.04));
-          alpha += centerSpine * packet * 0.12;
-          alpha += flow * (0.32 + ready * 0.08 + turnZone * 0.05);
-          alpha *= 1.0 + uWarn * 0.28;
+          float virtualPanel = (1.0 - edge) * (0.075 + step(0.72, fract(vUv.y * 22.0 - uTime * 0.8)) * 0.055);
+          float centerVeil = 1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5));
+          float alpha = virtualPanel + centerVeil * 0.045 + edge * 0.2 + flow * (0.34 + ready * 0.08);
+          alpha += turnZone * (0.04 + packet * 0.04);
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);
           float recoveryHalf = mix(0.48, 0.14, recoveryT);
@@ -2048,22 +2044,18 @@ export class Course implements ICourse {
           vec3 recoveryColor = mix(uInk, uRecoveryColor, 0.82 + recoveryCore * 0.18);
           color = mix(color, recoveryColor, uRecovery * recoveryVisible);
           alpha = mix(alpha, recoveryAlpha * recoveryVisible * uRecovery, uRecovery);
-          if (alpha < 0.012) discard;
           gl_FragColor = vec4(color, alpha);
         }
       `,
       transparent: true,
-      blending: THREE.NormalBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-    // Transparent DoubleSide materials otherwise receive a back/front pass.
-    // One pass preserves the authored alpha instead of visually doubling it.
-    ribbonMat.forceSinglePass = true;
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbon.name = `${def.id}-ribbon`;
     ribbon.renderOrder = 3;
+    ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);
 
     // Directional handoff markers appear only after the scoring portal. They

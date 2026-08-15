@@ -858,12 +858,10 @@ async function verifyFlightContract(page) {
   assert.ok(state.flightAirBrake > 0.7, `air brake envelope must attack immediately: ${state.flightAirBrake}`);
 
   let routeGuidance = await page.evaluate(() => window.__harness.guidance());
-  assert.equal(routeGuidance.flightGuideStyle, 'virtual-lattice',
-    'all seven branches must share the open holographic route language');
-  assert.equal(routeGuidance.flightGuideContinuousAlpha, 0,
-    'the cyan route must not regain a continuous tinted floor');
-  assert.equal(routeGuidance.flightGuideEnergyBloom, false,
-    'the broad route mesh must stay out of bloom so transparency survives compositing');
+  assert.equal(routeGuidance.surfaceGuideStyle, 'open-lattice',
+    'the full-lap water guide must use the open route language seen from GO');
+  assert.equal(routeGuidance.surfaceGuideContinuousAlpha, 0,
+    'the water guide must not regain the solid road-like core visible at the start line');
   assert.equal(routeGuidance.actionCue, 'turn');
   assert.equal(routeGuidance.actionRouteIndex, 1);
   assert.equal(routeGuidance.actionDirection, 'left');

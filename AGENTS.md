@@ -69,9 +69,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   visual guide while the passed branch still owns validation. That transition
   must never snap the boat, clear horizontal momentum, preload a surface warning,
   or show more than one flight branch.
-- Flight branches use one open cyan virtual-lattice language: no continuous
-  tinted floor and no broad-ribbon bloom. Authored sharp bends carry warm
-  transverse cells plus lane-width triple chevrons inside that lattice; flight
+- The full-lap green surface guide uses an open water-following lattice with no
+  filled core. Flight branches retain their translucent cyan virtual-ribbon
+  treatment. Authored sharp bends carry lane-width warm triple chevrons; flight
   five's buoy signs are secondary and do not create another target.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
