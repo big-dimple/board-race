@@ -865,6 +865,7 @@ const SURFACE_GUIDE_ARROW_SPEED_MPS = 10;
 const SURFACE_GUIDE_ARROW_START_M = 16;
 const SURFACE_GUIDE_ARROW_COUNT = Math.ceil((170 - SURFACE_GUIDE_ARROW_START_M) / SURFACE_GUIDE_ARROW_CADENCE_M);
 const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
+const SURFACE_GUIDE_LAUNCH_ALIGN_M = 40;
 const LAUNCH_GATE_PREVIEW_M = 140;
 const LAUNCH_GATE_FOCUS_M = 30;
 
@@ -883,6 +884,7 @@ function createSurfaceGuideUniforms() {
     uFinalApproach: { value: 0 },
     uLaunchGateActive: { value: 0 },
     uLaunchGateS: { value: 0 },
+    uLaunchGateEndS: { value: 0 },
   };
 }
 
@@ -924,6 +926,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       uniform float uFinalApproach;
       uniform float uLaunchGateActive;
       uniform float uLaunchGateS;
+      uniform float uLaunchGateEndS;
       varying float vS;
       varying float vSide;
       varying float vDist;
@@ -932,8 +935,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        float afterLaunch = mod(vS - uLaunchGateS + uLapLength, uLapLength);
-        if (uLaunchGateActive > 0.5 && afterLaunch < 22.0) discard;
+        if (uLaunchGateActive > 0.5 && vS >= uLaunchGateS && vS <= uLaunchGateEndS) discard;
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
         float packetPhase = fract(vS / 21.0 - uTime * 0.42);
@@ -1054,6 +1056,7 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false):
       uniform float uFinalApproach;
       uniform float uLaunchGateActive;
       uniform float uLaunchGateS;
+      uniform float uLaunchGateEndS;
       varying float vS;
       varying float vTurn;
       varying float vPhase;
@@ -1063,8 +1066,7 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false):
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
         if (ahead > 170.0 && behind > 12.0) discard;
         if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        float afterLaunch = mod(vS - uLaunchGateS + uLapLength, uLapLength);
-        if (uLaunchGateActive > 0.5 && afterLaunch < 22.0) discard;
+        if (uLaunchGateActive > 0.5 && vS >= uLaunchGateS && vS <= uLaunchGateEndS) discard;
         // Actual instance motion carries direction; the phase sweep keeps a
         // readable front-to-back rhythm without making arrows blink off.
         float travel = fract(uTime * 0.65 - vPhase);
@@ -1324,6 +1326,7 @@ export class Course implements ICourse {
   private playerLaunchGateDistanceM = -1;
   private playerLaunchGateDiamondCount = 0;
   private surfaceGuideTurnArrowCount = 0;
+  private surfaceGuideLaunchTurnArrowCount = 0;
   private activeGuideRoute = -1;
   private playerRecoveryRoute = -1;
   private playerRecoveryElapsed = 0;
@@ -1625,7 +1628,18 @@ export class Course implements ICourse {
       surfaceGuideArrowSpeedMps: SURFACE_GUIDE_ARROW_SPEED_MPS,
       surfaceGuideArrowCount: this.surfaceGuideArrowCount,
       surfaceGuideTurnArrowCount: this.surfaceGuideTurnArrowCount,
+      surfaceGuideLaunchTurnArrowCount: this.surfaceGuideLaunchTurnArrowCount,
       surfaceGuideTurnChevronCount: SURFACE_GUIDE_TURN_CHEVRON_COUNT,
+      surfaceGuideMaskStartU: this.activeGuideRoute >= 0
+        ? this.ribbonMat.uniforms.uMaskStart.value / LAP_LENGTH
+        : -1,
+      surfaceGuideMaskEndU: this.activeGuideRoute >= 0
+        ? this.ribbonMat.uniforms.uMaskEnd.value / LAP_LENGTH
+        : -1,
+      surfaceGuideAfterLaunchMeters: this.activeGuideRoute >= 0
+        ? Math.max(0, this.ribbonMat.uniforms.uMaskStart.value -
+          FLIGHT_ROUTES[this.activeGuideRoute].launchFromU * LAP_LENGTH)
+        : 0,
     };
   }
 
@@ -2031,13 +2045,17 @@ export class Course implements ICourse {
     const active = next >= 0 ? FLIGHT_ROUTES[next] : null;
     const recovering = next >= 0 && (this.playerRecoveryRoute === next || this.flightVisuals[next].recoveryFade > 0);
     this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
-    this.ribbonMat.uniforms.uMaskStart.value = active ? Math.max(0, active.entryU * LAP_LENGTH - 4) : 0;
+    // The launch aperture is the sole handoff from water to air. Once the
+    // surface spine reaches it, it must never reappear underneath the active
+    // flight branch; waves and camera pitch otherwise make the two routes look
+    // probabilistically interchangeable.
+    this.ribbonMat.uniforms.uMaskStart.value = active ? active.launchFromU * LAP_LENGTH : 0;
     this.ribbonMat.uniforms.uMaskEnd.value = active
       ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
       : 0;
     for (const floater of this.floaters) {
       floater.obj.visible = !active || floater.routeU === undefined ||
-        floater.routeU <= active.entryU + 0.002 || floater.routeU > active.exitU;
+        floater.routeU < active.launchFromU || floater.routeU > active.exitU;
     }
   }
 
@@ -2046,7 +2064,12 @@ export class Course implements ICourse {
     const travel = (t * SURFACE_GUIDE_ARROW_SPEED_MPS) % SURFACE_GUIDE_ARROW_CADENCE_M;
     const postThirdFromU = FLIGHT_ROUTES[2].exitU - 0.003;
     const postThirdToU = FLIGHT_ROUTES[2].exitU + 0.012;
+    const launchRoute = this.activeGuideRoute >= 0 ? FLIGHT_ROUTES[this.activeGuideRoute] : undefined;
+    const launchRuntime = this.activeGuideRoute >= 0 ? FLIGHT_RUNTIME[this.activeGuideRoute] : undefined;
+    const launchTurn = launchRoute?.navigation?.turn;
+    const launchS = launchRoute ? launchRoute.launchFromU * LAP_LENGTH : -1;
     this.surfaceGuideTurnArrowCount = 0;
+    this.surfaceGuideLaunchTurnArrowCount = 0;
     for (let i = 0; i < this.surfaceGuideArrowCount; i++) {
       const station = (playerS + SURFACE_GUIDE_ARROW_START_M +
         i * SURFACE_GUIDE_ARROW_CADENCE_M + travel) % LAP_LENGTH;
@@ -2055,13 +2078,32 @@ export class Course implements ICourse {
       this.surfaceGuideArrowStations.setX(i, station);
       this.surfaceGuideArrowPhases.setX(i, phase);
       const authoredPostThirdTurn = u >= postThirdFromU && u <= postThirdToU;
-      const turn = authoredPostThirdTurn || Math.abs(surfaceTurnAhead(station)) >= THREE.MathUtils.degToRad(16);
+      const metersToLaunch = launchRoute
+        ? (launchS - station + LAP_LENGTH) % LAP_LENGTH
+        : Number.POSITIVE_INFINITY;
+      const authoredLaunchTurn = Boolean(launchTurn) && metersToLaunch <= SURFACE_GUIDE_LAUNCH_ALIGN_M;
+      const turn = authoredLaunchTurn || authoredPostThirdTurn ||
+        Math.abs(surfaceTurnAhead(station)) >= THREE.MathUtils.degToRad(16);
       const lookAheadS = station + (turn ? 18 : 6);
       CURVE.getPointAt(u, _surfaceArrowCenter);
       CURVE.getPointAt((lookAheadS % LAP_LENGTH) / LAP_LENGTH, _surfaceArrowNext);
       _surfaceArrowForward.subVectors(_surfaceArrowNext, _surfaceArrowCenter).setY(0).normalize();
       if (_surfaceArrowForward.lengthSq() < 0.5) {
         CURVE.getTangentAt(u, _surfaceArrowForward).setY(0).normalize();
+      }
+      if (authoredLaunchTurn && launchTurn && launchRuntime) {
+        const postureU = THREE.MathUtils.lerp(launchTurn.fromU, launchTurn.toU, 0.18);
+        runtimePointAt(launchRuntime, postureU, _surfaceArrowNext);
+        _surfaceArrowNext.sub(_surfaceArrowCenter).setY(0).normalize();
+        if (_surfaceArrowNext.lengthSq() > 0.5) {
+          const alignment = 1 - THREE.MathUtils.clamp(
+            metersToLaunch / SURFACE_GUIDE_LAUNCH_ALIGN_M,
+            0,
+            1,
+          );
+          _surfaceArrowForward.lerp(_surfaceArrowNext, 0.28 + alignment * 0.42).normalize();
+        }
+        this.surfaceGuideLaunchTurnArrowCount++;
       }
       _surfaceArrowQuaternion.setFromAxisAngle(UP, Math.atan2(_surfaceArrowForward.x, _surfaceArrowForward.z));
       const ahead = (station - playerS + LAP_LENGTH) % LAP_LENGTH;
@@ -2088,6 +2130,9 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uLaunchGateActive.value = activeState ? 1 : 0;
     this.ribbonMat.uniforms.uLaunchGateS.value = routeIndex >= 0
       ? FLIGHT_ROUTES[routeIndex].launchFromU * LAP_LENGTH
+      : 0;
+    this.ribbonMat.uniforms.uLaunchGateEndS.value = routeIndex >= 0
+      ? Math.min(LAP_LENGTH, FLIGHT_ROUTES[routeIndex].exitU * LAP_LENGTH + 8)
       : 0;
     for (let i = 0; i < this.launchGateVisuals.length; i++) {
       const visual = this.launchGateVisuals[i];
@@ -2799,6 +2844,7 @@ export class Course implements ICourse {
       vectorEnd,
     );
     const clearances = [1.4, 4, 6.3];
+    group.userData.launchVectorClearances = [...clearances];
     const path = [0, 0.5, 1].map((fraction, index) => {
       const point = vectorCurve.getPoint(fraction);
       point.y = clearances[index];

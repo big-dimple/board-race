@@ -2924,6 +2924,20 @@ function scenario(name: string): void {
       }, 3);
       loop.advance(0.08);
       break;
+    case 'flight-route4-prepare':
+      advanceUntil(() => race.phase === 'racing', 8);
+      course.resetFlightChallenge();
+      placePack(0.488);
+      for (const boat of boats) {
+        boat.state.flightsCleared = 3;
+        boat.state.flightRouteCursor = 3;
+        boat.state.flightRouteIndex = -1;
+        boat.state.flightRouteState = 'idle';
+      }
+      boats[0].state.flightCharges = 1;
+      setHarnessInput({ throttle: 0 });
+      loop.advance(1.55);
+      break;
     case 'flight-route5-prepare':
     case 'flight-route5-launch':
       advanceUntil(() => race.phase === 'racing', 8);
@@ -2944,6 +2958,27 @@ function scenario(name: string): void {
       beginHarnessRouteFlight(4);
       advanceUntil(() => course.guidanceStatus().actionCue === 'turn', 3);
       setHarnessInput({ throttle: 1, steer: 1, airBrake: true });
+      loop.advance(0.16);
+      break;
+    case 'flight-route6-prepare':
+      advanceUntil(() => race.phase === 'racing', 8);
+      course.resetFlightChallenge();
+      placePack(0.745);
+      for (const boat of boats) {
+        boat.state.flightsCleared = 5;
+        boat.state.flightRouteCursor = 5;
+        boat.state.flightRouteIndex = -1;
+        boat.state.flightRouteState = 'idle';
+      }
+      boats[0].state.flightCharges = 1;
+      setHarnessInput({ throttle: 0 });
+      loop.advance(1.55);
+      break;
+    case 'flight-route6-turn':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(5);
+      advanceUntil(() => course.guidanceStatus().actionCue === 'turn', 3);
+      setHarnessInput({ throttle: 1, steer: -1, airBrake: true });
       loop.advance(0.16);
       break;
     case 'flight-combo':

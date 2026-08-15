@@ -337,7 +337,14 @@ export interface CourseGuidanceStatus {
   surfaceGuideArrowSpeedMps: number;
   surfaceGuideArrowCount: number;
   surfaceGuideTurnArrowCount: number;
+  /** Turn arrows currently aligning the boat before an authored launch. */
+  surfaceGuideLaunchTurnArrowCount: number;
   surfaceGuideTurnChevronCount: number;
+  /** Current surface-guide mask in normalized lap coordinates. */
+  surfaceGuideMaskStartU: number;
+  surfaceGuideMaskEndU: number;
+  /** Surface guidance left visible after the current launch point; must stay zero. */
+  surfaceGuideAfterLaunchMeters: number;
 }
 
 /** What the HUD and camera are allowed to know about the race. */

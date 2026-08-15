@@ -52,10 +52,13 @@ const SCENARIOS = {
   'flight-extension-spool': { scenario: 'flight-extension-spool' },
   'flight-extension-descent': { scenario: 'flight-extension-descent' },
   'flight-airbrake': { scenario: 'flight-airbrake' },
+  'flight-route4-prepare': { scenario: 'flight-route4-prepare' },
   'flight-route4-approach': { scenario: 'flight-route4-approach' },
   'flight-route5-prepare': { scenario: 'flight-route5-prepare' },
   'flight-route5-launch': { scenario: 'flight-route5-launch' },
   'flight-route5-turn': { scenario: 'flight-route5-turn' },
+  'flight-route6-prepare': { scenario: 'flight-route6-prepare' },
+  'flight-route6-turn': { scenario: 'flight-route6-turn' },
   'flight-combo': { scenario: 'flight-combo', freeCamDynamic: { back: 7, up: 1.55, lookUp: 0.4 } },
   'flight-descent': { scenario: 'flight-descent' },
   'flight-miss': { scenario: 'flight-miss', settleMs: 760 },
@@ -154,6 +157,10 @@ async function verifySurfaceGuideVisualContract(page) {
     'the outline must be geometry-backed rather than a blurred glow');
   assert.match(visual.inkFragmentShader, /vec3 color = uInk/,
     'the arrow outline must use the shared ink palette');
+  assert.match(visual.ribbonFragmentShader, /vS >= uLaunchGateS && vS <= uLaunchGateEndS/,
+    'the launch aperture must own one continuous surface-guide cut through the flight exit');
+  assert.match(visual.arrowFragmentShader, /vS >= uLaunchGateS && vS <= uLaunchGateEndS/,
+    'surface arrows must use the same continuous launch ownership as the route veil');
 
   const launchGateTopology = await page.evaluate(() => Array.from({ length: 7 }, (_, routeIndex) => {
     const id = `flight-${routeIndex + 1}`;
@@ -1128,6 +1135,18 @@ async function verifyFlightContract(page) {
 
   await verifySurfaceGuideVisualContract(page);
 
+  await page.evaluate(() => window.__harness.scenario('flight-route4-prepare'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.activeRouteIndex, 3);
+  assert.equal(routeGuidance.launchGateState, 'armed');
+  assert.equal(routeGuidance.actionDirection, 'left');
+  assert.ok(routeGuidance.surfaceGuideLaunchTurnArrowCount >= 2,
+    `flight four needs multiple water-bound posture beats before launch: ${JSON.stringify(routeGuidance)}`);
+  assert.ok(Math.abs(routeGuidance.surfaceGuideMaskStartU - 0.503) <= 1e-6,
+    `flight four surface ownership must end at launch, not entry: ${JSON.stringify(routeGuidance)}`);
+  assert.equal(routeGuidance.surfaceGuideAfterLaunchMeters, 0,
+    'the surface route must not reappear between the fourth launch aperture and flight corridor');
+
   await page.evaluate(() => window.__harness.scenario('flight-route4-approach'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
   assert.equal(routeGuidance.actionCue, 'turn');
@@ -1137,6 +1156,28 @@ async function verifyFlightContract(page) {
     'the wave-obscured fourth-flight bend must announce itself on the flight ribbon');
   assert.equal(routeGuidance.visibleRouteCount, 1,
     'fourth-flight chevrons must remain part of the single player-owned branch');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route6-prepare'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.activeRouteIndex, 5);
+  assert.equal(routeGuidance.visibleRouteCount, 1);
+  assert.equal(routeGuidance.launchGateState, 'armed');
+  assert.ok(Math.abs(routeGuidance.surfaceGuideMaskStartU - 0.76) <= 1e-6,
+    `flight six must hand surface ownership to the launch aperture: ${JSON.stringify(routeGuidance)}`);
+  assert.ok(routeGuidance.surfaceGuideMaskEndU >= 0.855,
+    `flight six surface mask must stay continuous through its authored exit: ${JSON.stringify(routeGuidance)}`);
+  assert.equal(routeGuidance.surfaceGuideAfterLaunchMeters, 0,
+    'flight six must never show a green-water segment beneath the active air route');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route6-turn'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.activeRouteIndex, 5);
+  assert.equal(routeGuidance.launchGateState, 'committed');
+  assert.equal(routeGuidance.actionDirection, 'left');
+  assert.ok(Math.abs(routeGuidance.surfaceGuideMaskStartU - 0.76) <= 1e-6,
+    `committing flight six must preserve launch ownership: ${JSON.stringify(routeGuidance)}`);
+  assert.equal(routeGuidance.surfaceGuideAfterLaunchMeters, 0,
+    'flight six surface guidance must stay hidden after the launch facility retires');
 
   await page.evaluate(() => window.__harness.scenario('flight-route5-prepare'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -1164,6 +1205,7 @@ async function verifyFlightContract(page) {
       launchVectorDirection: group?.userData?.launchVectorDirection ?? 'missing',
       launchVectorPathLengthM: group?.userData?.launchVectorPathLengthM ?? -1,
       launchVectorHeadingDeltaDeg: group?.userData?.launchVectorHeadingDeltaDeg ?? 0,
+      launchVectorClearances: group?.userData?.launchVectorClearances ?? [],
       corridorAlpha: {
         panel: corridor?.material?.uniforms?.uPanelAlpha?.value ?? -1,
         center: corridor?.material?.uniforms?.uCenterAlpha?.value ?? -1,
@@ -1209,7 +1251,8 @@ async function verifyFlightContract(page) {
     'launch preparation must be communicated by the world object rather than an in-world text sign');
   const firstDiamond = unarmedLaunchGate.diamondPositions[0];
   const lastDiamond = unarmedLaunchGate.diamondPositions[2];
-  assert.ok(lastDiamond[1] - firstDiamond[1] >= 4.5,
+  assert.ok(unarmedLaunchGate.launchVectorClearances[2] -
+    unarmedLaunchGate.launchVectorClearances[0] >= 4.5,
     `the three beats must unmistakably rise out of the water: ${JSON.stringify(unarmedLaunchGate)}`);
   assert.ok(Math.hypot(lastDiamond[0] - firstDiamond[0], lastDiamond[2] - firstDiamond[2]) >= 20,
     `the ascent beats must preview the first airborne heading, not form a vertical stack: ${JSON.stringify(unarmedLaunchGate)}`);
