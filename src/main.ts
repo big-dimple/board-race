@@ -3056,6 +3056,13 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 1, steer: -1, airBrake: true });
       loop.advance(0.24);
       break;
+    case 'flight-route3-turn':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(2);
+      advanceUntil(() => course.guidanceStatus().actionCue === 'turn', 4);
+      setHarnessInput({ throttle: 1, steer: -1, airBrake: true });
+      loop.advance(0.16);
+      break;
     case 'flight-route4-approach':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight(3);
@@ -3130,6 +3137,12 @@ function scenario(name: string): void {
       advanceUntil(() => course.guidanceStatus().actionCue === 'turn', 3);
       setHarnessInput({ throttle: 1, steer: -1, airBrake: true });
       loop.advance(0.16);
+      break;
+    case 'flight-route7-cruise':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(6);
+      advanceUntil(() => boats[0].state.flightRouteState === 'active', 3);
+      loop.advance(0.32);
       break;
     case 'flight-combo':
       advanceUntil(() => race.phase === 'racing', 8);

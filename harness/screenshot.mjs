@@ -52,6 +52,7 @@ const SCENARIOS = {
   'flight-extension-spool': { scenario: 'flight-extension-spool' },
   'flight-extension-descent': { scenario: 'flight-extension-descent' },
   'flight-airbrake': { scenario: 'flight-airbrake' },
+  'flight-route3-turn': { scenario: 'flight-route3-turn' },
   'flight-route4-prepare': { scenario: 'flight-route4-prepare' },
   'flight-route4-approach': { scenario: 'flight-route4-approach' },
   'flight-route5-prepare': { scenario: 'flight-route5-prepare' },
@@ -60,6 +61,7 @@ const SCENARIOS = {
   'flight-route5-counter': { scenario: 'flight-route5-counter' },
   'flight-route6-prepare': { scenario: 'flight-route6-prepare' },
   'flight-route6-turn': { scenario: 'flight-route6-turn' },
+  'flight-route7-cruise': { scenario: 'flight-route7-cruise' },
   'flight-combo': { scenario: 'flight-combo', freeCamDynamic: { back: 7, up: 1.55, lookUp: 0.4 } },
   'flight-descent': { scenario: 'flight-descent' },
   'flight-miss': { scenario: 'flight-miss', settleMs: 760 },
@@ -346,7 +348,9 @@ async function verifySurfaceGuideVisualContract(page) {
     `the third-flight exit must expose an advance left-turn sequence: ${JSON.stringify(postThird.guidance)}`);
   assert.match(postThird.recoveryFragmentShader, /recoveryVeil/,
     'the pre-water recovery tail must use the same soft veil language as the surface route');
-  assert.doesNotMatch(postThird.recoveryFragmentShader, /recoveryEdge|recoveryDash/,
+  assert.match(postThird.recoveryFragmentShader, /recoveryEdge/,
+    'the pre-water recovery tail must retain the same cel edge hierarchy as active flight');
+  assert.doesNotMatch(postThird.recoveryFragmentShader, /recoveryDash/,
     'the retired dashed recovery funnel must not reappear before water contact');
   assert.equal(postThird.recoveryArrowVertices, 12,
     'pre-water recovery arrows and surface arrows must share the same open-chevron geometry');
@@ -423,6 +427,151 @@ async function verifySurfaceGuideVisualContract(page) {
   assert.equal(routeFourRecovery.arrowColor, routeFourRecovery.flightColor);
   assert.ok(routeFourRecovery.recoverySurfaceBlend < 0.05 && routeFourRecovery.arrowSurfaceBlend < 0.05,
     `flight four must retain the authored aerial tail until water contact: ${JSON.stringify(routeFourRecovery)}`);
+}
+
+async function verifyFlightGuideVisualContract(page) {
+  const materialContract = await page.evaluate(() => Array.from({ length: 7 }, (_, index) => {
+    const ribbon = window.__scene.getObjectByName(`flight-${index + 1}-ribbon`);
+    const material = ribbon?.material;
+    return {
+      route: index + 1,
+      exists: Boolean(ribbon?.isMesh),
+      style: ribbon?.userData?.guideStyle ?? 'missing',
+      deep: material?.uniforms?.uFlightDeep?.value?.getHex?.() ?? -1,
+      cyan: material?.uniforms?.uFlight?.value?.getHex?.() ?? -1,
+      panel: material?.uniforms?.uPanelAlpha?.value ?? -1,
+      panelBeat: material?.uniforms?.uPanelBeatAlpha?.value ?? -1,
+      center: material?.uniforms?.uCenterAlpha?.value ?? -1,
+      edge: material?.uniforms?.uEdgeAlpha?.value ?? -1,
+      flow: material?.uniforms?.uFlowAlpha?.value ?? -1,
+      farStart: material?.uniforms?.uFarStart?.value ?? -1,
+      farEnd: material?.uniforms?.uFarEnd?.value ?? -1,
+      transparent: Boolean(material?.transparent),
+      depthTest: Boolean(material?.depthTest),
+      depthWrite: Boolean(material?.depthWrite),
+      forceSinglePass: Boolean(material?.forceSinglePass),
+      vertexShader: material?.vertexShader ?? '',
+      fragmentShader: material?.fragmentShader ?? '',
+    };
+  }));
+  assert.equal(materialContract.length, 7);
+  for (const route of materialContract) {
+    assert.equal(route.exists, true, `flight ${route.route} needs a rendered corridor mesh`);
+    assert.equal(route.style, 'cel-virtual-corridor');
+    assert.notEqual(route.deep, route.cyan,
+      `flight ${route.route} must separate its deep panel from cyan structure`);
+    assert.ok(route.panel >= 0.165 && route.panel <= 0.18 &&
+      route.panelBeat >= 0.08 && route.panelBeat <= 0.09 &&
+      route.center >= 0.085 && route.center <= 0.1 &&
+      route.edge >= 0.4 && route.edge <= 0.45 &&
+      route.flow >= 0.6 && route.flow <= 0.65,
+    `flight ${route.route} needs the readable translucent hierarchy: ${JSON.stringify(route)}`);
+    assert.deepEqual({
+      farStart:route.farStart,
+      farEnd:route.farEnd,
+      transparent:route.transparent,
+      depthTest:route.depthTest,
+      depthWrite:route.depthWrite,
+      forceSinglePass:route.forceSinglePass,
+    }, {
+      farStart:55,
+      farEnd:145,
+      transparent:true,
+      depthTest:true,
+      depthWrite:false,
+      forceSinglePass:true,
+    }, `flight ${route.route} must preserve the ocean and avoid a transparent double pass`);
+    assert.match(route.vertexShader, /vViewDepth = max\(0\.0, -viewPosition\.z\)/,
+      `flight ${route.route} must measure real view depth for distant structure`);
+    assert.match(route.fragmentShader, /float uvPixel = max\(fwidth\(vUv\.x\), 0\.0005\)/,
+      `flight ${route.route} must keep its lines screen-readable at distance`);
+    assert.match(route.fragmentShader, /float packetHead =/,
+      `flight ${route.route} needs a directional head and fading tail`);
+    assert.match(route.fragmentShader, /float recoveryEdge =/,
+      `flight ${route.route} recovery must retain the same cel edge hierarchy`);
+  }
+  assert.equal(new Set(materialContract.map((route) => route.fragmentShader)).size, 1,
+    'all seven flights and their recovery tails must share one visual grammar');
+
+  const beats = [
+    ['flight-cruise', 0],
+    ['flight-airbrake', 1],
+    ['flight-route3-turn', 2],
+    ['flight-route4-approach', 3],
+    ['flight-route5-turn', 4],
+    ['flight-route6-turn', 5],
+    ['flight-route7-cruise', 6],
+  ];
+  for (const [scenario, routeIndex] of beats) {
+    await page.evaluate((name) => window.__harness.scenario(name), scenario);
+    const pixels = await page.evaluate((index) => {
+      const canvas = document.querySelector('#app > canvas');
+      const ribbon = window.__scene.getObjectByName(`flight-${index + 1}-ribbon`);
+      if (!(canvas instanceof HTMLCanvasElement) || !ribbon?.isMesh) return null;
+      const read = () => {
+        window.__harness.render();
+        const copy = document.createElement('canvas');
+        copy.width = canvas.width;
+        copy.height = canvas.height;
+        const context = copy.getContext('2d', { willReadFrequently:true });
+        context.drawImage(canvas, 0, 0);
+        return context.getImageData(0, 0, copy.width, copy.height).data;
+      };
+      const compare = (before, after, threshold = 2) => {
+        let changed = 0;
+        let deltaSum = 0;
+        let beforeSum = 0;
+        let afterSum = 0;
+        let beforeSq = 0;
+        let afterSq = 0;
+        const deltas = [];
+        for (let i = 0; i < after.length; i += 4) {
+          const delta = Math.abs(after[i] - before[i]) +
+            Math.abs(after[i + 1] - before[i + 1]) + Math.abs(after[i + 2] - before[i + 2]);
+          if (delta <= threshold) continue;
+          changed++;
+          deltaSum += delta;
+          deltas.push(delta);
+          const beforeLuma = before[i] * 0.2126 + before[i + 1] * 0.7152 + before[i + 2] * 0.0722;
+          const afterLuma = after[i] * 0.2126 + after[i + 1] * 0.7152 + after[i + 2] * 0.0722;
+          beforeSum += beforeLuma;
+          afterSum += afterLuma;
+          beforeSq += beforeLuma * beforeLuma;
+          afterSq += afterLuma * afterLuma;
+        }
+        deltas.sort((a, b) => a - b);
+        const beforeVariance = changed > 0 ? beforeSq / changed - (beforeSum / changed) ** 2 : 0;
+        const afterVariance = changed > 0 ? afterSq / changed - (afterSum / changed) ** 2 : 0;
+        return {
+          changed,
+          meanDelta:deltaSum / Math.max(1, changed),
+          p95Delta:deltas[Math.floor(deltas.length * 0.95)] ?? 0,
+          varianceRetention:afterVariance / Math.max(1, beforeVariance),
+        };
+      };
+      const wasVisible = ribbon.visible;
+      ribbon.visible = false;
+      const withoutGuide = read();
+      ribbon.visible = true;
+      const withGuide = read();
+      const visibility = compare(withoutGuide, withGuide);
+      const time = ribbon.material.uniforms.uTime.value;
+      ribbon.material.uniforms.uTime.value = time + 0.25;
+      const movedGuide = read();
+      ribbon.material.uniforms.uTime.value = time;
+      ribbon.visible = wasVisible;
+      window.__harness.render();
+      return { visibility, motion:compare(withGuide, movedGuide, 4) };
+    }, routeIndex);
+    assert.ok(pixels, `${scenario} needs a live WebGL pixel probe`);
+    assert.ok(pixels.visibility.changed >= 2500 && pixels.visibility.meanDelta >= 18 &&
+      pixels.visibility.p95Delta >= 45,
+    `${scenario} corridor must be findable in the actual frame: ${JSON.stringify(pixels.visibility)}`);
+    assert.ok(pixels.visibility.varianceRetention >= 0.42,
+      `${scenario} must preserve cel-water variation instead of becoming a solid road: ${JSON.stringify(pixels.visibility)}`);
+    assert.ok(pixels.motion.changed >= 120,
+      `${scenario} flow packets must visibly advance instead of only changing uniforms: ${JSON.stringify(pixels.motion)}`);
+  }
 }
 
 async function verifyFlightContract(page) {
@@ -1216,6 +1365,7 @@ async function verifyFlightContract(page) {
     'the second-flight bend must use the same three-chevron route language');
 
   await verifySurfaceGuideVisualContract(page);
+  await verifyFlightGuideVisualContract(page);
 
   await page.evaluate(() => window.__harness.scenario('flight-route4-prepare'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -1373,10 +1523,10 @@ async function verifyFlightContract(page) {
     'right-facing posture chevrons must mirror local +X toward starboard');
   assert.ok(unarmedLaunchGate.postureDirectionDots.every((dot) => dot > 0.9),
     `the two upper beats must point toward the actual right side of their ascent vector: ${JSON.stringify(unarmedLaunchGate)}`);
-  assert.ok(unarmedLaunchGate.corridorAlpha.panel >= 0.11 &&
-    unarmedLaunchGate.corridorAlpha.center >= 0.065 &&
-    unarmedLaunchGate.corridorAlpha.edge >= 0.28 &&
-    unarmedLaunchGate.corridorAlpha.flow >= 0.45,
+  assert.ok(unarmedLaunchGate.corridorAlpha.panel >= 0.165 &&
+    unarmedLaunchGate.corridorAlpha.center >= 0.085 &&
+    unarmedLaunchGate.corridorAlpha.edge >= 0.4 &&
+    unarmedLaunchGate.corridorAlpha.flow >= 0.6,
     `the airborne corridor must stay translucent but readable: ${JSON.stringify(unarmedLaunchGate)}`);
   assert.equal(unarmedLaunchGate.allEnergyDepthIndependent, true,
     'the virtual ascent aperture must survive wave occlusion without changing collision geometry');

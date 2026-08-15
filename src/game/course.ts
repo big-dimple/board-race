@@ -898,6 +898,14 @@ const SURFACE_GUIDE_ARROW_START_M = 16;
 const SURFACE_GUIDE_ARROW_COUNT = Math.ceil((170 - SURFACE_GUIDE_ARROW_START_M) / SURFACE_GUIDE_ARROW_CADENCE_M);
 const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
 const SURFACE_GUIDE_LAUNCH_ALIGN_M = 40;
+const FLIGHT_GUIDE_STYLE = 'cel-virtual-corridor' as const;
+const FLIGHT_GUIDE_PANEL_ALPHA = 0.17;
+const FLIGHT_GUIDE_PANEL_BEAT_ALPHA = 0.085;
+const FLIGHT_GUIDE_CENTER_ALPHA = 0.09;
+const FLIGHT_GUIDE_EDGE_ALPHA = 0.42;
+const FLIGHT_GUIDE_FLOW_ALPHA = 0.62;
+const FLIGHT_GUIDE_FAR_START_M = 55;
+const FLIGHT_GUIDE_FAR_END_M = 145;
 const LAUNCH_GATE_PREVIEW_M = 140;
 const LAUNCH_GATE_FOCUS_M = 30;
 
@@ -1680,6 +1688,14 @@ export class Course implements ICourse {
       surfaceGuideTurnArrowCount: this.surfaceGuideTurnArrowCount,
       surfaceGuideLaunchTurnArrowCount: this.surfaceGuideLaunchTurnArrowCount,
       surfaceGuideTurnChevronCount: SURFACE_GUIDE_TURN_CHEVRON_COUNT,
+      flightGuideStyle: FLIGHT_GUIDE_STYLE,
+      flightGuidePanelAlpha: FLIGHT_GUIDE_PANEL_ALPHA,
+      flightGuidePanelBeatAlpha: FLIGHT_GUIDE_PANEL_BEAT_ALPHA,
+      flightGuideCenterAlpha: FLIGHT_GUIDE_CENTER_ALPHA,
+      flightGuideEdgeAlpha: FLIGHT_GUIDE_EDGE_ALPHA,
+      flightGuideFlowAlpha: FLIGHT_GUIDE_FLOW_ALPHA,
+      flightGuideFarStartM: FLIGHT_GUIDE_FAR_START_M,
+      flightGuideFarEndM: FLIGHT_GUIDE_FAR_END_M,
       surfaceGuideMaskStartU: this.activeGuideRoute >= 0
         ? this.ribbonMat.uniforms.uMaskStart.value / LAP_LENGTH
         : -1,
@@ -2390,8 +2406,8 @@ export class Course implements ICourse {
       visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
       visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
       visual.rail.opacity = recovery > 0
-        ? 0.24 * (1 - visual.recoverySurfaceBlend)
-        : warn > 0.5 ? 0.72 : 0.24 + (upcoming ? readyStep * 0.08 : 0);
+        ? 0.34 * (1 - visual.recoverySurfaceBlend)
+        : warn > 0.5 ? 0.72 : 0.34 + (upcoming ? readyStep * 0.08 : 0);
       visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + (upcoming ? readyStep * 0.2 : 0);
       for (let i = 0; i < visual.gates.length; i++) {
         const gate = visual.gates[i];
@@ -2493,18 +2509,21 @@ export class Course implements ICourse {
         uRecoveryProgress: { value: flightVisualT(def, def.gateUs[def.gateUs.length - 1]) },
         uGateF: { value: flightVisualT(def, def.gateUs[def.gateUs.length - 1]) },
         uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
+        uFlightDeep: { value: new THREE.Color().setHex(PALETTE.flightDeep, THREE.NoColorSpace) },
         uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
         uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
         uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
         uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
-        // The flight corridor is the primary high-speed sightline. Preserve
-        // the virtual material, but keep enough body contrast for phone use.
-        uPanelAlpha: { value: 0.115 },
-        uPanelBeatAlpha: { value: 0.075 },
-        uCenterAlpha: { value: 0.07 },
-        uEdgeAlpha: { value: 0.29 },
-        uFlowAlpha: { value: 0.46 },
+        // A cel-shaded virtual corridor: the deep translucent body preserves
+        // the ocean, while cyan/foam structure carries distance and motion.
+        uPanelAlpha: { value: FLIGHT_GUIDE_PANEL_ALPHA },
+        uPanelBeatAlpha: { value: FLIGHT_GUIDE_PANEL_BEAT_ALPHA },
+        uCenterAlpha: { value: FLIGHT_GUIDE_CENTER_ALPHA },
+        uEdgeAlpha: { value: FLIGHT_GUIDE_EDGE_ALPHA },
+        uFlowAlpha: { value: FLIGHT_GUIDE_FLOW_ALPHA },
+        uFarStart: { value: FLIGHT_GUIDE_FAR_START_M },
+        uFarEnd: { value: FLIGHT_GUIDE_FAR_END_M },
         // Warm color belongs to the authored chevrons. A low ceiling keeps
         // the corridor unmistakably cyan instead of mixing into surface green.
         uTurnTintMax: { value: 0.14 },
@@ -2516,6 +2535,7 @@ export class Course implements ICourse {
         uniform float uGateF;
         uniform float uEntryF;
         varying vec2 vUv;
+        varying float vViewDepth;
         ${WAVES_GLSL}
         void main() {
           vUv = uv;
@@ -2524,7 +2544,9 @@ export class Course implements ICourse {
           p.y = mix(p.y, waveHeight(p.xz, uTime) + 0.22, approach);
           float recoveryTail = uRecovery * uRecoverySurface * step(uGateF - 0.003, uv.y);
           p.y = mix(p.y, waveHeight(p.xz, uTime) + 0.22, recoveryTail);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+          vec4 viewPosition = modelViewMatrix * vec4(p, 1.0);
+          vViewDepth = max(0.0, -viewPosition.z);
+          gl_Position = projectionMatrix * viewPosition;
         }
       `,
       fragmentShader: /* glsl */ `
@@ -2539,6 +2561,7 @@ export class Course implements ICourse {
         uniform float uRecoveryProgress;
         uniform float uGateF;
         uniform vec3 uFlight;
+        uniform vec3 uFlightDeep;
         uniform vec3 uRecoveryColor;
         uniform vec3 uInk;
         uniform vec3 uFoam;
@@ -2549,60 +2572,107 @@ export class Course implements ICourse {
         uniform float uCenterAlpha;
         uniform float uEdgeAlpha;
         uniform float uFlowAlpha;
+        uniform float uFarStart;
+        uniform float uFarEnd;
         uniform float uTurnTintMax;
         varying vec2 vUv;
+        varying float vViewDepth;
         void main() {
-          float wave = sin(vUv.y * 52.0 - uTime * 5.5) * 0.026;
-          float flowA = 1.0 - smoothstep(0.014, 0.034, abs(vUv.x - (0.43 + wave)));
-          float flowB = 1.0 - smoothstep(0.014, 0.034, abs(vUv.x - (0.57 - wave)));
-          float packetPhase = fract(vUv.y * 13.0 - uTime * 1.9);
-          float packet = smoothstep(0.02, 0.16, packetPhase) * (1.0 - smoothstep(0.55, 0.82, packetPhase));
-          float flow = max(flowA, flowB) * (0.3 + packet * 0.7);
+          float farBoost = smoothstep(uFarStart, uFarEnd, vViewDepth);
+          float uvPixel = max(fwidth(vUv.x), 0.0005);
+          float side = min(vUv.x, 1.0 - vUv.x);
+          float inkWidth = max(0.009, uvPixel * 1.05);
+          float edgeWidth = max(0.032, uvPixel * 2.2);
+          float inkEdge = 1.0 - smoothstep(inkWidth * 0.25, inkWidth, side);
+          float edgeBand = (1.0 - smoothstep(inkWidth * 0.7, edgeWidth, side)) *
+            (1.0 - inkEdge * 0.82);
+
+          float wave = sin(vUv.y * 46.0 - uTime * 4.2) * 0.011;
+          float flowWidth = max(0.018, uvPixel * 1.2);
+          float flowA = 1.0 - smoothstep(flowWidth * 0.35, flowWidth,
+            abs(vUv.x - (0.42 + wave)));
+          float flowB = 1.0 - smoothstep(flowWidth * 0.35, flowWidth,
+            abs(vUv.x - (0.58 - wave)));
+          float packetPhase = fract(vUv.y * 12.0 - uTime * 1.72);
+          float packetTail = smoothstep(0.02, 0.18, packetPhase) *
+            (1.0 - smoothstep(0.58, 0.96, packetPhase));
+          float packetHead = 1.0 - smoothstep(0.035, 0.13, abs(packetPhase - 0.18));
+          float packet = max(packetTail * 0.58, packetHead);
+          float flow = max(flowA, flowB) * (0.34 + packet * 0.66);
           float turnIn = smoothstep(uTurnFrom, min(uTurnFrom + 0.025, uTurnTo), vUv.y);
           float turnOut = 1.0 - smoothstep(max(uTurnFrom, uTurnTo - 0.025), uTurnTo, vUv.y);
           float turnZone = uHasTurn * turnIn * turnOut;
-          float foamBeat = 0.08 + packet * 0.2;
-          vec3 airColor = mix(uFlight, uFoam, foamBeat);
+          float panelCell = smoothstep(0.04, 0.13, fract(vUv.y * 18.0)) *
+            (1.0 - smoothstep(0.82, 0.96, fract(vUv.y * 18.0)));
+          float scan = step(0.78, fract(vUv.y * 22.0 - uTime * 0.8));
+          vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12);
+          vec3 edgeColor = mix(uFlight, uFoam, 0.28 + farBoost * 0.14);
+          vec3 flowColor = mix(uFlight, uFoam, 0.68 + packet * 0.2);
+          vec3 color = panelColor;
+          color = mix(color, edgeColor, edgeBand * (0.72 + farBoost * 0.16));
+          color = mix(color, flowColor, flow * (0.76 + farBoost * 0.14));
+          color = mix(color, uInk, inkEdge * (0.72 + farBoost * 0.12));
           float brakeInk = turnZone * (0.32 + packet * 0.14);
           float turnTint = min(uTurnTintMax, brakeInk * 0.34 + uTurn * turnZone * 0.06);
-          vec3 color = mix(airColor, uTurnColor, turnTint);
+          color = mix(color, uTurnColor, turnTint);
           color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
-          float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
-          float virtualPanel = (1.0 - edge) * (uPanelAlpha +
-            step(0.72, fract(vUv.y * 22.0 - uTime * 0.8)) * uPanelBeatAlpha);
+          float virtualPanel = (1.0 - inkEdge) *
+            (uPanelAlpha * mix(0.76, 1.0, panelCell) + scan * uPanelBeatAlpha + farBoost * 0.04);
           float centerVeil = 1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5));
-          float alpha = virtualPanel + centerVeil * uCenterAlpha + edge * uEdgeAlpha +
-            flow * (uFlowAlpha + ready * 0.08);
+          float alpha = virtualPanel + centerVeil * uCenterAlpha +
+            edgeBand * (uEdgeAlpha + farBoost * 0.15) +
+            inkEdge * (0.3 + farBoost * 0.12) +
+            flow * (uFlowAlpha + farBoost * 0.14 + ready * 0.08);
           alpha += turnZone * (0.055 + packet * 0.05);
+
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);
           float recoveryHalf = mix(0.48, 0.14, recoveryT);
           float recoveryNorm = recoverySide / max(0.001, recoveryHalf);
-          float recoveryVeil = 1.0 - smoothstep(0.7, 1.0, recoveryNorm);
+          float recoveryPixel = uvPixel / max(0.15, recoveryHalf * 2.0);
+          float recoveryInkWidth = max(0.024, recoveryPixel * 1.05);
+          float recoveryEdgeWidth = max(0.09, recoveryPixel * 2.2);
+          float recoveryInk = smoothstep(1.0 - recoveryInkWidth, 1.0, recoveryNorm) *
+            (1.0 - smoothstep(1.0, 1.0 + recoveryInkWidth, recoveryNorm));
+          float recoveryEdge = smoothstep(1.0 - recoveryEdgeWidth, 1.0 - recoveryInkWidth * 0.5,
+            recoveryNorm) * (1.0 - recoveryInk * 0.8);
+          float recoveryVeil = 1.0 - smoothstep(0.78, 1.02, recoveryNorm);
           float recoveryCenter = 1.0 - smoothstep(0.08, 0.7, recoveryNorm);
-          float recoveryFlow = (1.0 - smoothstep(0.025, 0.07,
-            abs(recoverySide - recoveryHalf * 0.28))) * (0.46 + packet * 0.54);
-          float recoveryAlpha = recoveryVeil * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} + packet * 0.045) +
-            recoveryCenter * 0.052 + recoveryFlow * 0.25;
-          recoveryAlpha = min(recoveryAlpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
+          float recoveryFlowWidth = max(0.022, uvPixel * 1.2);
+          float recoveryFlow = (1.0 - smoothstep(recoveryFlowWidth * 0.35, recoveryFlowWidth,
+            abs(recoverySide - recoveryHalf * 0.3))) * (0.34 + packet * 0.66);
+          float recoveryAlpha = recoveryVeil *
+            (uPanelAlpha * mix(0.78, 1.0, panelCell) + farBoost * 0.04) +
+            recoveryCenter * uCenterAlpha +
+            recoveryEdge * (uEdgeAlpha + farBoost * 0.15) +
+            recoveryInk * (0.3 + farBoost * 0.12) +
+            recoveryFlow * (uFlowAlpha * 0.9 + farBoost * 0.14);
+          recoveryAlpha = min(recoveryAlpha, 0.82);
           float recoveryVisible = step(max(uGateF - 0.003, uRecoveryProgress - 0.035), vUv.y);
-          vec3 recoveryColor = mix(uRecoveryColor, uFoam, 0.15 + recoveryFlow * 0.34 + packet * 0.05);
-          color = mix(color, recoveryColor, uRecovery * recoveryVisible);
-          alpha = mix(alpha, recoveryAlpha * recoveryVisible * uRecovery, uRecovery);
-          gl_FragColor = vec4(color, alpha);
+          vec3 recoveryColor = panelColor;
+          recoveryColor = mix(recoveryColor, edgeColor, recoveryEdge * (0.72 + farBoost * 0.16));
+          recoveryColor = mix(recoveryColor, flowColor, recoveryFlow * (0.76 + farBoost * 0.14));
+          recoveryColor = mix(recoveryColor, uInk, recoveryInk * (0.72 + farBoost * 0.12));
+          float recoveryMode = step(0.001, uRecovery);
+          color = mix(color, recoveryColor, recoveryMode * recoveryVisible);
+          alpha = mix(min(alpha, 0.82), recoveryAlpha * recoveryVisible * uRecovery, recoveryMode);
+          gl_FragColor = vec4(color, min(alpha, 0.82));
         }
       `,
       transparent: true,
+      depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
+    ribbonMat.forceSinglePass = true;
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbon.name = `${def.id}-ribbon`;
     ribbon.userData.visualStartU = visualFromU;
     ribbon.userData.authoredEntryU = def.entryU;
     ribbon.userData.turnTintMax = ribbonMat.uniforms.uTurnTintMax.value;
+    ribbon.userData.guideStyle = FLIGHT_GUIDE_STYLE;
     ribbon.renderOrder = 3;
     ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);

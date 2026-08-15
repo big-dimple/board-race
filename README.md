@@ -180,7 +180,9 @@ physically travel forward at 10m/s; sharp turns enlarge and warm at least three
 consecutive markers. A passed branch keeps its cyan virtual tail and moving chevrons
 before landing and after water contact, until its authored handoff. The tail follows
 the authored flight height in air and only blends onto the live swell after contact;
-it never borrows the green surface route's identity.
+it never borrows the green surface route's identity. Every airborne branch uses the
+same cel-virtual material: a translucent deep-cyan body, cyan-white directional
+traces, and a thin ink edge that stays readable at distance without hiding the ocean.
 At each launch point the water route terminates at the three-diamond ascent aperture;
 the cyan flight branch remains a separate aerial layer after launch. Neither guide nor
 the aperture changes route validation or boat physics.

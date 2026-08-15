@@ -360,6 +360,16 @@ export interface CourseGuidanceStatus {
   /** Turn arrows currently aligning the boat before an authored launch. */
   surfaceGuideLaunchTurnArrowCount: number;
   surfaceGuideTurnChevronCount: number;
+  /** Shared cel-shaded material contract for every airborne branch and recovery tail. */
+  flightGuideStyle: 'cel-virtual-corridor';
+  flightGuidePanelAlpha: number;
+  flightGuidePanelBeatAlpha: number;
+  flightGuideCenterAlpha: number;
+  flightGuideEdgeAlpha: number;
+  flightGuideFlowAlpha: number;
+  /** View-space interval where structural lines gain contrast without making the panel opaque. */
+  flightGuideFarStartM: number;
+  flightGuideFarEndM: number;
   /** Current surface-guide mask in normalized lap coordinates. */
   surfaceGuideMaskStartU: number;
   surfaceGuideMaskEndU: number;
