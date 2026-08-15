@@ -87,6 +87,12 @@ export interface FlightRouteNavigation {
     toU: number;
     direction: RouteTurnDirection;
   };
+  /** Optional opposite steering beat after the main bend, used to arrest over-rotation. */
+  counterTurn?: {
+    fromU: number;
+    toU: number;
+    direction: RouteTurnDirection;
+  };
   /** Keep the scoring curve intact, but author a tangent-matched tail after its final gate. */
   postGateRecovery?: {
     handoffMarginM: number;

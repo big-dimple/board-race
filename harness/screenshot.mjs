@@ -57,6 +57,7 @@ const SCENARIOS = {
   'flight-route5-prepare': { scenario: 'flight-route5-prepare' },
   'flight-route5-launch': { scenario: 'flight-route5-launch' },
   'flight-route5-turn': { scenario: 'flight-route5-turn' },
+  'flight-route5-counter': { scenario: 'flight-route5-counter' },
   'flight-route6-prepare': { scenario: 'flight-route6-prepare' },
   'flight-route6-turn': { scenario: 'flight-route6-turn' },
   'flight-combo': { scenario: 'flight-combo', freeCamDynamic: { back: 7, up: 1.55, lookUp: 0.4 } },
@@ -67,6 +68,7 @@ const SCENARIOS = {
   'first-failure-offer': { scenario: 'first-failure-offer', settleMs: 180 },
   'flight-route': { scenario: 'flight-route' },
   'flight-recovery-air': { scenario: 'flight-recovery-air' },
+  'flight-route4-recovery-air': { scenario: 'flight-route4-recovery-air' },
   'flight-recovery-surface': { scenario: 'flight-recovery-surface' },
   'third-recovery-air': { scenario: 'third-recovery-air' },
   'third-recovery-surface': { scenario: 'third-recovery-surface' },
@@ -320,8 +322,13 @@ async function verifySurfaceGuideVisualContract(page) {
         guidance: window.__harness.guidance(),
         ribbonVisible: Boolean(route?.visible),
         ribbonShader: route?.material?.fragmentShader ?? '',
+        flightColor: route?.material?.uniforms?.uFlight?.value?.getHex?.() ?? -1,
+        recoveryColor: route?.material?.uniforms?.uRecoveryColor?.value?.getHex?.() ?? -1,
+        recoverySurfaceBlend: route?.material?.uniforms?.uRecoverySurface?.value ?? -1,
         arrowVisible: Boolean(arrows?.visible),
         arrowShader: arrows?.material?.fragmentShader ?? '',
+        arrowColor: arrows?.material?.uniforms?.uColor?.value?.getHex?.() ?? -1,
+        arrowSurfaceBlend: arrows?.material?.uniforms?.uSurfaceBlend?.value ?? -1,
       };
     }));
   }
@@ -335,13 +342,45 @@ async function verifySurfaceGuideVisualContract(page) {
     assert.equal(beat.guidance.visibleRouteCount, 1);
     assert.equal(beat.ribbonVisible, true);
     assert.equal(beat.arrowVisible, true);
+    assert.equal(beat.recoveryColor, beat.flightColor,
+      'a certified flight must stay cyan until the branch hands off');
+    assert.equal(beat.arrowColor, beat.flightColor,
+      'recovery direction markers must remain part of the cyan flight branch');
     assert.match(beat.arrowShader, /fract\(uTime \* 0\.65 - vPhase\)/,
       'recovery arrows must share the moving phase rhythm used by the surface route');
   }
   assert.notEqual(airRecovery.state.flightPhase, 'surface');
   assert.equal(surfaceRecovery.state.flightPhase, 'surface');
+  assert.ok(airRecovery.recoverySurfaceBlend < 0.05 && airRecovery.arrowSurfaceBlend < 0.05,
+    `the airborne recovery must keep its authored flight height: ${JSON.stringify(airRecovery)}`);
+  assert.ok(surfaceRecovery.recoverySurfaceBlend > 0.2 && surfaceRecovery.arrowSurfaceBlend > 0.2,
+    `the same cyan recovery may settle onto the swell only after contact: ${JSON.stringify(surfaceRecovery)}`);
   assert.equal(airRecovery.ribbonShader, surfaceRecovery.ribbonShader,
     'the third-flight route must keep one material language across water contact');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route4-recovery-air'));
+  const routeFourRecovery = await page.evaluate(() => {
+    const route = window.__scene.getObjectByName('flight-4-ribbon');
+    const arrows = window.__scene.getObjectByName('flight-4-recovery-arrows');
+    return {
+      state: window.__harness.playerState(),
+      guidance: window.__harness.guidance(),
+      flightColor: route?.material?.uniforms?.uFlight?.value?.getHex?.() ?? -1,
+      recoveryColor: route?.material?.uniforms?.uRecoveryColor?.value?.getHex?.() ?? -1,
+      recoverySurfaceBlend: route?.material?.uniforms?.uRecoverySurface?.value ?? -1,
+      arrowColor: arrows?.material?.uniforms?.uColor?.value?.getHex?.() ?? -1,
+      arrowSurfaceBlend: arrows?.material?.uniforms?.uSurfaceBlend?.value ?? -1,
+    };
+  });
+  assert.equal(routeFourRecovery.state.flightRouteState, 'passed');
+  assert.notEqual(routeFourRecovery.state.flightPhase, 'surface');
+  assert.equal(routeFourRecovery.guidance.activeRouteIndex, 3);
+  assert.equal(routeFourRecovery.guidance.visibleRouteCount, 1);
+  assert.equal(routeFourRecovery.recoveryColor, routeFourRecovery.flightColor,
+    `flight four must not turn into the green water guide after its portal: ${JSON.stringify(routeFourRecovery)}`);
+  assert.equal(routeFourRecovery.arrowColor, routeFourRecovery.flightColor);
+  assert.ok(routeFourRecovery.recoverySurfaceBlend < 0.05 && routeFourRecovery.arrowSurfaceBlend < 0.05,
+    `flight four must retain the authored aerial tail until water contact: ${JSON.stringify(routeFourRecovery)}`);
 }
 
 async function verifyFlightContract(page) {
@@ -1318,6 +1357,39 @@ async function verifyFlightContract(page) {
   assert.match(routeFiveWarning, /→/);
   assert.doesNotMatch(routeFiveWarning, /A\s*\/\s*D/,
     'the right-turn combo must not ask players to translate a generic A/D label');
+  const routeFiveMarkers = await page.evaluate(() => {
+    const group = window.__scene.getObjectByName('flight-5-marine-chevrons-right');
+    const supports = [1, 2, 3, 4, 5].map((index) =>
+      window.__scene.getObjectByName(`flight-5-chevron-buoy-${index}`));
+    return {
+      entryCount: group?.userData?.entryMarkerCount ?? -1,
+      counterCount: group?.userData?.counterMarkerCount ?? -1,
+      counterDirection: group?.userData?.counterDirection ?? 'missing',
+      supportCount: supports.filter(Boolean).length,
+      lateRoles: supports.slice(3).map((support) => support?.userData?.turnRole ?? 'missing'),
+      lateDirections: supports.slice(3).map((support) => support?.userData?.turnDirection ?? 'missing'),
+    };
+  });
+  assert.equal(routeFiveMarkers.entryCount, 3);
+  assert.equal(routeFiveMarkers.counterCount, 2,
+    `flight five needs two explicit exit corrections after its hard bend: ${JSON.stringify(routeFiveMarkers)}`);
+  assert.equal(routeFiveMarkers.supportCount, 5);
+  assert.equal(routeFiveMarkers.counterDirection, 'left');
+  assert.deepEqual(routeFiveMarkers.lateRoles, ['counter', 'counter']);
+  assert.deepEqual(routeFiveMarkers.lateDirections, ['left', 'left'],
+    'the final two signs must oppose the entry rotation instead of encouraging more oversteer');
+
+  await page.evaluate(() => window.__harness.scenario('flight-route5-counter'));
+  routeGuidance = await page.evaluate(() => window.__harness.guidance());
+  assert.equal(routeGuidance.actionCue, 'turn');
+  assert.equal(routeGuidance.actionRouteIndex, 4);
+  assert.equal(routeGuidance.actionDirection, 'left');
+  assert.equal(routeGuidance.actionMarkerCount, 2,
+    `the exit correction must transfer authority to exactly two opposite signs: ${JSON.stringify(routeGuidance)}`);
+  const routeFiveCounterWarning = await page.locator('.hud-turn-warning').textContent() ?? '';
+  assert.match(routeFiveCounterWarning, /急左航道/);
+  assert.match(routeFiveCounterWarning, /SHIFT/);
+  assert.match(routeFiveCounterWarning, /←/);
 
   await page.evaluate(() => window.__harness.scenario('overtake'));
   state = await page.evaluate(() => window.__harness.playerState());

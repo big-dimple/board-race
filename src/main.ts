@@ -3011,6 +3011,15 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 1, steer: 1, airBrake: true });
       loop.advance(0.16);
       break;
+    case 'flight-route5-counter':
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight(4);
+      harnessForceAirBrake = true;
+      advanceUntil(() => course.guidanceStatus().actionCue === 'turn' &&
+        course.guidanceStatus().actionDirection === 'left', 6);
+      harnessForceAirBrake = false;
+      loop.advance(1 / 60);
+      break;
     case 'flight-route6-prepare':
       advanceUntil(() => race.phase === 'racing', 8);
       course.resetFlightChallenge();
@@ -3138,6 +3147,10 @@ function scenario(name: string): void {
     case 'flight-recovery-air':
       advanceUntil(() => race.phase === 'racing', 8);
       stageHarnessFlightRecovery(5, 'air');
+      break;
+    case 'flight-route4-recovery-air':
+      advanceUntil(() => race.phase === 'racing', 8);
+      stageHarnessFlightRecovery(3, 'air');
       break;
     case 'flight-recovery-surface':
       advanceUntil(() => race.phase === 'racing', 8);

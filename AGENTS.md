@@ -66,10 +66,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   pulses and route only to the most recently active device.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. Water contact is not a visual ownership edge: the same
-  green, wave-following recovery veil and moving chevrons remain visible before
-  and after contact. The next cyan branch may deploy only after handoff. That
-  transition must never snap the boat, clear horizontal momentum, preload a
-  surface warning, or show more than one flight branch.
+  cyan virtual recovery tail remains visible before and after contact. It keeps
+  authored aerial height while airborne, then settles onto the swell without
+  turning into the green surface route. The next cyan branch may deploy only
+  after handoff. That transition must never snap the boat, clear horizontal
+  momentum, preload a surface warning, or show more than one flight branch.
 - The full-lap green surface guide is a tessellated translucent wake: it bends
   with the local swell, has no hard rails or filled road core, and carries only
   a bounded 170m lookahead of open chevrons spaced 10m apart and moving forward
@@ -77,8 +78,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   Each launch entrance traces a curved three-diamond ascent vector from the
   surface tangent toward the first airborne decision; authored turns add two
   directional posture chevrons. Flight branches retain a translucent cyan
-  treatment with explicit panel, edge, and flow contrast floors before the
-  scoring portal; flight five's buoy signs remain secondary.
+  treatment with explicit panel, edge, and flow contrast floors through the
+  scoring portal and recovery; flight five uses three entry-turn buoy signs and
+  two opposite exit-correction signs as secondary landmarks.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.

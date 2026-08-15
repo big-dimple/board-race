@@ -315,6 +315,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     turnWarningToU: 0.694,
     navigation: {
       turn: { fromU: 0.645, toU: 0.694, direction: 'right' },
+      // The route returns toward its exit after the hard initial turn. Two
+      // opposite chevrons tell the player when to arrest that rotation.
+      counterTurn: { fromU: 0.672, toU: 0.696, direction: 'left' },
     },
   },
   {
@@ -1109,6 +1112,7 @@ function buildSurfaceCueMaterial(
   color: number,
   opacity: number,
   flowing = false,
+  surfaceBlendUniform: THREE.IUniform<number> = { value: 1 },
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     name: 'SurfaceActionChevron',
@@ -1117,9 +1121,11 @@ function buildSurfaceCueMaterial(
       uColor: { value: new THREE.Color().setHex(color, THREE.NoColorSpace) },
       uOpacity: { value: opacity },
       uFlowing: { value: flowing ? 1 : 0 },
+      uSurfaceBlend: surfaceBlendUniform,
     },
     vertexShader: /* glsl */ `
       uniform float uTime;
+      uniform float uSurfaceBlend;
       attribute float aPhase;
       varying float vPhase;
       ${WAVES_GLSL}
@@ -1129,7 +1135,7 @@ function buildSurfaceCueMaterial(
           local = instanceMatrix * local;
         #endif
         vec4 world = modelMatrix * local;
-        world.y = waveHeight(world.xz, uTime) + 0.205;
+        world.y = mix(world.y + 0.205, waveHeight(world.xz, uTime) + 0.205, uSurfaceBlend);
         vPhase = aPhase;
         gl_Position = projectionMatrix * viewMatrix * world;
       }
@@ -1198,6 +1204,7 @@ interface FlightRouteVisual {
   deployTime: number;
   recoveryFade: number;
   recoveryProgress: number;
+  recoverySurfaceBlend: number;
 }
 
 interface LaunchGateDiamond {
@@ -1344,6 +1351,7 @@ export class Course implements ICourse {
   private surfaceGuideLaunchTurnArrowCount = 0;
   private activeGuideRoute = -1;
   private playerRecoveryRoute = -1;
+  private playerRecoverySurface = false;
   private playerRecoveryElapsed = 0;
   private playerRecoveryLimit = 0;
   private startGantry: THREE.Group | null = null;
@@ -1520,6 +1528,7 @@ export class Course implements ICourse {
     this.playerLaunchGateDiamondCount = 0;
     this.activeGuideRoute = -1;
     this.playerRecoveryRoute = -1;
+    this.playerRecoverySurface = false;
     this.playerRecoveryElapsed = 0;
     this.playerRecoveryLimit = 0;
     this.finalArmed = false;
@@ -1540,6 +1549,7 @@ export class Course implements ICourse {
       visual.deployTime = 0;
       visual.recoveryFade = 0;
       visual.recoveryProgress = visual.runtime.gateFraction;
+      visual.recoverySurfaceBlend = 0;
       for (const gate of visual.gates) {
         gate.deploy = 0;
         gate.pulse = 0;
@@ -1791,14 +1801,20 @@ export class Course implements ICourse {
           (surfaceU >= flightGuideFromU(def) && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
-      if (id === 0 && !this.finalArmed && def.navigation?.turn &&
-          flightActive && st.flightRouteState === 'active' &&
-          near.u >= def.navigation.turn.fromU && near.u <= def.navigation.turn.toU) {
-          this.playerActionCue = 'turn';
-          this.playerActionRouteIndex = routeIndex;
-          this.playerActionDirection = def.navigation.turn.direction;
-          this.playerActionTargetU = Math.min(def.navigation.turn.toU, near.u + 0.008);
-          this.playerActionMarkerCount = this.flightVisuals[routeIndex]?.turnChevronCount ?? 3;
+      const primaryTurn = def.navigation?.turn;
+      const counterTurn = def.navigation?.counterTurn;
+      const activeTurn = counterTurn && near.u >= counterTurn.fromU && near.u <= counterTurn.toU
+        ? counterTurn
+        : primaryTurn && near.u >= primaryTurn.fromU && near.u <= primaryTurn.toU
+          ? primaryTurn
+          : null;
+      if (id === 0 && !this.finalArmed && activeTurn &&
+          flightActive && st.flightRouteState === 'active') {
+        this.playerActionCue = 'turn';
+        this.playerActionRouteIndex = routeIndex;
+        this.playerActionDirection = activeTurn.direction;
+        this.playerActionTargetU = Math.min(activeTurn.toU, near.u + 0.008);
+        this.playerActionMarkerCount = activeTurn === counterTurn ? 2 : 3;
       }
 
       if (jump) {
@@ -1823,6 +1839,7 @@ export class Course implements ICourse {
         this.flightRecoveryLimit[id] = limit;
         if (id === 0) {
           this.playerRecoveryRoute = routeIndex;
+          this.playerRecoverySurface = !flightActive;
           this.playerRecoveryElapsed = elapsed;
           this.playerRecoveryLimit = limit;
           visual.recoveryProgress = flightCurveT(def, near.u);
@@ -1925,6 +1942,7 @@ export class Course implements ICourse {
                     runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
                 if (id === 0) {
                   this.playerRecoveryRoute = routeIndex;
+                  this.playerRecoverySurface = false;
                   this.playerRecoveryElapsed = 0;
                   this.playerRecoveryLimit = this.flightRecoveryLimit[id];
                 }
@@ -2263,7 +2281,15 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uReady.value = upcoming && this.playerFlightReady ? 1 : 0;
       visual.ribbon.uniforms.uTurn.value = upcoming && this.flightTurnWarn[0] ? 1 : 0;
       const recovery = this.playerRecoveryRoute === routeIndex ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
+      const recoveryOnSurface = this.playerRecoveryRoute === routeIndex
+        ? this.playerRecoverySurface
+        : visual.recoveryFade > 0;
+      const surfaceTarget = recovery > 0 && recoveryOnSurface ? 1 : 0;
+      const surfaceResponse = Math.min(1, dt / 0.16);
+      visual.recoverySurfaceBlend += (surfaceTarget - visual.recoverySurfaceBlend) * surfaceResponse;
+      if (recovery <= 0.001) visual.recoverySurfaceBlend = 0;
       visual.ribbon.uniforms.uRecovery.value = recovery;
+      visual.ribbon.uniforms.uRecoverySurface.value = visual.recoverySurfaceBlend;
       visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
       if (recovery > 0) visual.ribbonMesh.layers.disable(LAYER_ENERGY);
       else visual.ribbonMesh.layers.enable(LAYER_ENERGY);
@@ -2291,9 +2317,11 @@ export class Course implements ICourse {
         }
         visual.recoveryArrows.instanceMatrix.needsUpdate = true;
       }
-      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
-      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : recovery > 0 ? PALETTE.racingLine : PALETTE.flight, THREE.NoColorSpace);
-      visual.rail.opacity = recovery > 0 ? 0 : warn > 0.5 ? 0.72 : 0.24 + (upcoming ? readyStep * 0.08 : 0);
+      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
+      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
+      visual.rail.opacity = recovery > 0
+        ? 0.24 * (1 - visual.recoverySurfaceBlend)
+        : warn > 0.5 ? 0.72 : 0.24 + (upcoming ? readyStep * 0.08 : 0);
       visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + (upcoming ? readyStep * 0.2 : 0);
       for (let i = 0; i < visual.gates.length; i++) {
         const gate = visual.gates[i];
@@ -2388,10 +2416,11 @@ export class Course implements ICourse {
         uTurnFrom: { value: def.navigation?.turn ? flightCurveT(def, def.navigation.turn.fromU) : 0 },
         uTurnTo: { value: def.navigation?.turn ? flightCurveT(def, def.navigation.turn.toU) : 1 },
         uRecovery: { value: 0 },
+        uRecoverySurface: { value: 0 },
         uRecoveryProgress: { value: runtime.gateFraction },
         uGateF: { value: runtime.gateFraction },
         uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
-        uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
+        uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
         uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
         uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
         uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
@@ -2407,13 +2436,14 @@ export class Course implements ICourse {
       vertexShader: /* glsl */ `
         uniform float uTime;
         uniform float uRecovery;
+        uniform float uRecoverySurface;
         uniform float uGateF;
         varying vec2 vUv;
         ${WAVES_GLSL}
         void main() {
           vUv = uv;
           vec3 p = position;
-          float recoveryTail = uRecovery * step(uGateF - 0.003, uv.y);
+          float recoveryTail = uRecovery * uRecoverySurface * step(uGateF - 0.003, uv.y);
           p.y = mix(p.y, waveHeight(p.xz, uTime) + 0.22, recoveryTail);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
@@ -2494,14 +2524,15 @@ export class Course implements ICourse {
     routeGroup.add(ribbon);
 
     // Directional handoff markers appear only after the scoring portal. They
-    // share the surface guide's open, wave-following visual language so water
-    // contact never looks like a switch to a different kind of track.
+    // stay cyan and follow the authored flight height until the hull actually
+    // reaches water; contact then blends the same markers onto the swell.
     const arrowGeo = buildSurfaceChevronGeometry();
     const recoveryArrowMaterial = buildSurfaceCueMaterial(
       this.ribbonMat.uniforms.uTime,
-      PALETTE.racingLine,
+      PALETTE.flight,
       0,
       true,
+      ribbonMat.uniforms.uRecoverySurface,
     );
     const recoveryArrows = new THREE.InstancedMesh(arrowGeo, recoveryArrowMaterial, 7);
     recoveryArrows.name = `${def.id}-recovery-arrows`;
@@ -2533,9 +2564,23 @@ export class Course implements ICourse {
     let turnChevronCount = 0;
     const turn = def.navigation?.turn;
     if (turn) {
-      turnChevronCount = 3;
+      const markerSpecs: Array<{
+        cue: { fromU: number; toU: number; direction: 'left' | 'right' };
+        f: number;
+        role: 'entry' | 'counter';
+      }> = [0.16, 0.31, 0.46].map((f) => ({ cue: turn, f, role: 'entry' }));
+      if (def.navigation?.counterTurn) {
+        markerSpecs.push(
+          { cue: def.navigation.counterTurn, f: 0.28, role: 'counter' },
+          { cue: def.navigation.counterTurn, f: 0.7, role: 'counter' },
+        );
+      }
+      turnChevronCount = markerSpecs.length;
       turnChevronGroup = new THREE.Group();
       turnChevronGroup.name = `${def.id}-marine-chevrons-${turn.direction}`;
+      turnChevronGroup.userData.entryMarkerCount = 3;
+      turnChevronGroup.userData.counterMarkerCount = markerSpecs.length - 3;
+      turnChevronGroup.userData.counterDirection = def.navigation?.counterTurn?.direction ?? 'none';
       const backingMaterial = new THREE.MeshBasicMaterial({
         color: PALETTE.ink,
         transparent: true,
@@ -2560,16 +2605,16 @@ export class Course implements ICourse {
       fill.renderOrder = 6;
       const marker = new THREE.Object3D();
       const fillMarker = new THREE.Object3D();
-      for (let i = 0; i < turnChevronCount; i++) {
+      for (let i = 0; i < markerSpecs.length; i++) {
+        const spec = markerSpecs[i];
         // Keep the three road-grade chevrons together near the decision point.
         // A compact, lane-width cluster reads through waves and perspective;
         // small markers spread across the whole bend disappear one by one.
-        const f = 0.16 + i * 0.15;
-        const u = THREE.MathUtils.lerp(turn.fromU, turn.toU, f);
+        const u = THREE.MathUtils.lerp(spec.cue.fromU, spec.cue.toU, spec.f);
         runtimePointAt(runtime, u, p);
         runtimeTangentAt(runtime, u, t).setY(0).normalize();
         marker.position.set(p.x, p.y + 0.17, p.z);
-        marker.rotation.set(0, Math.atan2(t.x, t.z) + (turn.direction === 'left' ? Math.PI : 0), 0);
+        marker.rotation.set(0, Math.atan2(t.x, t.z) + (spec.cue.direction === 'left' ? Math.PI : 0), 0);
         marker.scale.set(Math.min(4.5, Math.max(3.4, HALF_W * 0.62)), 1.08, 1.85);
         marker.updateMatrix();
         backing.setMatrixAt(i, marker.matrix);
@@ -2598,14 +2643,16 @@ export class Course implements ICourse {
           side: THREE.DoubleSide,
           toneMapped: false,
         });
-        for (let i = 0; i < turnChevronCount; i++) {
-          const f = (i + 0.75) / (turnChevronCount + 0.5);
-          const u = THREE.MathUtils.lerp(turn.fromU, turn.toU, f);
+        for (let i = 0; i < markerSpecs.length; i++) {
+          const spec = markerSpecs[i];
+          const u = THREE.MathUtils.lerp(spec.cue.fromU, spec.cue.toU, spec.f);
           runtimePointAt(runtime, u, p);
           runtimeTangentAt(runtime, u, t).setY(0).normalize();
-          const outside = turn.direction === 'right' ? 1 : -1;
+          const outside = spec.cue.direction === 'right' ? 1 : -1;
           const support = new THREE.Group();
           support.name = `${def.id}-chevron-buoy-${i + 1}`;
+          support.userData.turnRole = spec.role;
+          support.userData.turnDirection = spec.cue.direction;
           support.position.set(p.x + t.z * (HALF_W + 1.75) * outside, 0, p.z - t.x * (HALF_W + 1.75) * outside);
           const buoy = new THREE.Mesh(buoyGeometry, buoyMaterial);
           buoy.position.y = 0.24;
@@ -2625,7 +2672,7 @@ export class Course implements ICourse {
           sign.renderOrder = 6;
           support.add(buoy, foam, mast, signInk, sign);
           turnChevronGroup.add(support);
-          const yaw = Math.atan2(-t.x, -t.z) + (turn.direction === 'left' ? Math.PI : 0);
+          const yaw = Math.atan2(-t.x, -t.z) + (spec.cue.direction === 'left' ? Math.PI : 0);
           this.floaters.push({
             obj: support,
             x: support.position.x,
@@ -2830,6 +2877,7 @@ export class Course implements ICourse {
       deployTime: 0,
       recoveryFade: 0,
       recoveryProgress: runtime.gateFraction,
+      recoverySurfaceBlend: 0,
     };
   }
 
