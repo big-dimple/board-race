@@ -1959,6 +1959,54 @@ async function verifyFlightContract(page) {
     }
   }
 
+  // Keep this after pixel-sensitive guide checks: harness world time is
+  // intentionally monotonic, so extra fixed steps before those probes would
+  // change their authored wave phase. Fullscreen/focus transitions may clear
+  // the initial keydown while physical Shift remains held, after which Chrome
+  // resumes with repeat events. Run that PC-only boundary through flight
+  // four's real recovery and require the recovered hold to reach BANK-ready.
+  await page.evaluate(() => {
+    window.__harness.scenario('flight-route4-recovery-air');
+    window.__harness.usePlayerInput(true);
+    window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      code: 'ShiftLeft', key: 'Shift', repeat: true, bubbles: true,
+    }));
+  });
+  const routeFourRepeatWaterContact = await advanceToControlledWaterContact(page);
+  assert.equal(routeFourRepeatWaterContact.after.drifting, true,
+    `a repeated physical Shift must recover after focus loss before flight-four landing: ${JSON.stringify(routeFourRepeatWaterContact)}`);
+  assert.ok(routeFourRepeatWaterContact.after.boostCharge > 0,
+    `flight-four water contact must start a real drift charge: ${JSON.stringify(routeFourRepeatWaterContact)}`);
+  await page.evaluate(() => {
+    for (let i = 0; i < 60 && !window.__harness.playerState().driftReleaseReady; i++) {
+      window.__harness.advance(1 / 60);
+    }
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.driftReleaseReady, true,
+    `the recovered flight-four hold must reach the yellow BANK line: ${JSON.stringify(state)}`);
+  assert.equal(state.flightRouteCursor, 4, 'the regression must remain the real fourth-to-fifth handoff');
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      code: 'Space', key: ' ', repeat: true, bubbles: true,
+    }));
+    window.__harness.advance(1 / 60);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightPhase, 'surface',
+    'a recovered repeat may restore held controls but must never recreate a Space launch edge');
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keyup', {
+      code: 'Space', key: ' ', bubbles: true,
+    }));
+    window.dispatchEvent(new KeyboardEvent('keyup', {
+      code: 'ShiftLeft', key: 'Shift', bubbles: true,
+    }));
+    window.__harness.advance(1 / 60);
+    window.__harness.usePlayerInput(false);
+  });
+
   console.log('gameplay contract: OK');
 }
 

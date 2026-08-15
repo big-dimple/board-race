@@ -16,10 +16,14 @@ export class Input {
 
   constructor(target: Window = window) {
     target.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
+      const wasHeld = this.keys.has(e.code);
       this.keys.add(e.code);
-      this.pressed.add(e.code);
-      if (['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
+      // A fullscreen/focus transition can clear our held set while the
+      // physical key remains down. Browsers then resume with repeat events,
+      // so repeats must restore held controls without recreating one-shot
+      // edges such as Space.
+      if (!e.repeat) this.pressed.add(e.code);
+      if (!wasHeld && ['KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
         this.activitySerialValue++;
       }
       if (['ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) e.preventDefault();

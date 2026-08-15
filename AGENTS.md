@@ -30,6 +30,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Mobile steering modes may change only the left-thumb zone; keep drift/
   air-brake and flight fixed in the same right-thumb positions.
 - Preserve the unified `BoatInput` contract and fixed-step simulation.
+- Treat action edges and physical holds as separate keyboard contracts. Focus,
+  fullscreen, or system UI may erase the first keydown; repeat events must
+  restore held steering/drift without recreating edge actions such as flight.
 - Keep flight guidance player-owned: at most one active branch may be visible.
 - End-to-end flight-route tests must run gate crossing through descent, landing,
   and route handoff without teleporting or resetting the boat; gate-only helpers
@@ -76,7 +79,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Normal water contact atomically hands a held contextual air-brake to surface
   drift on that exact fixed step, starts only one step of charge, and clears
   the air-brake envelope. Final Station is the sole exception: Shift remains
-  its non-charging return brake.
+  its non-charging return brake. PC coverage includes a fourth-flight descent
+  where focus clears the first keydown and a repeated physical Shift must still
+  recover, land, and continuously reach the BANK threshold.
 - The full-lap green surface guide is a tessellated translucent wake: it bends
   with the local swell, has no hard rails or filled road core, and carries only
   a bounded 170m lookahead of open chevrons spaced 10m apart and moving forward

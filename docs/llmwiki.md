@@ -396,7 +396,26 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
   必须反向证明 Shift 仍是 return-brake、包络保留、漂移与 charge 都为零。
 - 键盘 Shift、标准手柄 X / Square 和真实移动 pointer 都要在
   `descending -> surface` 的相邻 fixed-step 上断言交接；只在落水一秒后检查
-  `drifting=true` 属于假阳性，不能作为这条生命周期合同。
+  `drifting=true` 属于假阳性，不能作为这条生命周期合同。落水帧也不是终点：
+  持有动作必须继续累计到 `driftReleaseReady=true`，否则浪面微跳、输入所有权切换或
+  下一帧清理仍可能让玩家看见“一帧漂移”却无法真正入库。
+
+### 动作游戏键盘输入：边沿不等于持有
+
+- `keydown` 的首次边沿和“物理键仍按住”是两个合同。Space 起飞、确认等一次性动作只
+  接受非 repeat 边沿；Shift 漂移 / 空刹和方向键属于持续动作，必须允许 repeat 恢复
+  held state，但 repeat 绝不能重新制造 Space 边沿。
+- 浏览器进入全屏、切焦点、系统弹层或窗口短暂 blur 时，输入层会主动清 held state，
+  而物理键可能从未松开。焦点恢复后浏览器可能只继续发送 `repeat=true` 的 keydown；
+  若代码在写入 held set 之前直接 `return`，PC 玩家会一直按着 Shift，但游戏永久读到
+  `false`。触控 pointer 不经过键盘 repeat，所以手机正常不能证明 PC 合同成立。
+- 持续动作的 keydown 处理顺序必须是：先恢复 held set，再按是否 repeat 决定是否生成
+  edge；keyup 始终清 held。设备活跃序列可在一个此前未记录的 repeat 恢复 held 时更新，
+  但不能每个 repeat 都抖动设备来源。
+- 回归必须使用真实关卡和浏览器事件：第四飞通过后处于下降阶段，触发 blur 清理初始
+  Shift，再发送 repeat Shift；随后逐 fixed-step 跑过真实水接触，断言当帧开始 charge、
+  空刹包络归零、持续持有不掉帧并到达黄色 BANK 线。单独调用 Boat、只测普通下降夹具、
+  只看接触一帧，或随后交给 AI 漂移，都不能覆盖这类 PC 体验故障。
 
 教学相关的最低回归集：
 
