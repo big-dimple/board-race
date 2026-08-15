@@ -599,6 +599,8 @@ const _surfaceArrowForward = new THREE.Vector3();
 const _surfaceArrowScale = new THREE.Vector3(1, 1, 1);
 const _surfaceArrowQuaternion = new THREE.Quaternion();
 const _surfaceArrowMatrix = new THREE.Matrix4();
+const _launchPacketForward = new THREE.Vector3(0, 0, 1);
+const _launchPacketDirection = new THREE.Vector3();
 
 /** Central-difference span for tangents (~0.6m of arc). */
 const TAN_DU = 0.6 / LAP_LENGTH;
@@ -1185,6 +1187,8 @@ interface LaunchGateDiamond {
   root: THREE.Group;
   ink: THREE.MeshBasicMaterial;
   energy: THREE.MeshBasicMaterial;
+  postureInk: THREE.MeshBasicMaterial | null;
+  postureFill: THREE.MeshBasicMaterial | null;
   x: number;
   z: number;
   clearance: number;
@@ -2120,6 +2124,14 @@ export class Course implements ICourse {
         diamond.ink.opacity = 0.82 * deploy;
         diamond.energy.color.setHex(energyColor, THREE.NoColorSpace);
         diamond.energy.opacity = (armed ? 0.78 + sequence * 0.18 : 0.58 + sequence * 0.16) * deploy;
+        if (diamond.postureInk) diamond.postureInk.opacity = 0.84 * deploy;
+        if (diamond.postureFill) {
+          diamond.postureFill.color.setHex(
+            armed ? PALETTE.foam : PALETTE.sunFlare,
+            THREE.NoColorSpace,
+          );
+          diamond.postureFill.opacity = (armed ? 0.9 : 0.72 + sequence * 0.12) * deploy;
+        }
       }
       visual.packetMaterial.color.setHex(armed ? PALETTE.foam : PALETTE.sunFlare, THREE.NoColorSpace);
       visual.packetMaterial.opacity = (armed ? 0.94 : 0.62) * deploy;
@@ -2137,7 +2149,11 @@ export class Course implements ICourse {
         );
         const packetScale = deploy * (armed ? 1 + focus * 0.35 : 0.72);
         packet.scale.setScalar(packetScale);
-        packet.rotation.y = t * 2.4 + packetIndex;
+        _launchPacketDirection.subVectors(
+          visual.diamonds[segment + 1].root.position,
+          visual.diamonds[segment].root.position,
+        ).normalize();
+        packet.quaternion.setFromUnitVectors(_launchPacketForward, _launchPacketDirection);
       }
     }
   }
@@ -2318,6 +2334,13 @@ export class Course implements ICourse {
         uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
         uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
+        // The flight corridor is the primary high-speed sightline. Preserve
+        // the virtual material, but keep enough body contrast for phone use.
+        uPanelAlpha: { value: 0.115 },
+        uPanelBeatAlpha: { value: 0.075 },
+        uCenterAlpha: { value: 0.07 },
+        uEdgeAlpha: { value: 0.29 },
+        uFlowAlpha: { value: 0.46 },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
@@ -2350,6 +2373,11 @@ export class Course implements ICourse {
         uniform vec3 uFoam;
         uniform vec3 uTurnColor;
         uniform vec3 uWarnColor;
+        uniform float uPanelAlpha;
+        uniform float uPanelBeatAlpha;
+        uniform float uCenterAlpha;
+        uniform float uEdgeAlpha;
+        uniform float uFlowAlpha;
         varying vec2 vUv;
         void main() {
           float wave = sin(vUv.y * 52.0 - uTime * 5.5) * 0.026;
@@ -2368,10 +2396,12 @@ export class Course implements ICourse {
           color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float edge = 1.0 - smoothstep(0.0, 0.08, min(vUv.x, 1.0 - vUv.x));
-          float virtualPanel = (1.0 - edge) * (0.075 + step(0.72, fract(vUv.y * 22.0 - uTime * 0.8)) * 0.055);
+          float virtualPanel = (1.0 - edge) * (uPanelAlpha +
+            step(0.72, fract(vUv.y * 22.0 - uTime * 0.8)) * uPanelBeatAlpha);
           float centerVeil = 1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5));
-          float alpha = virtualPanel + centerVeil * 0.045 + edge * 0.2 + flow * (0.34 + ready * 0.08);
-          alpha += turnZone * (0.04 + packet * 0.04);
+          float alpha = virtualPanel + centerVeil * uCenterAlpha + edge * uEdgeAlpha +
+            flow * (uFlowAlpha + ready * 0.08);
+          alpha += turnZone * (0.055 + packet * 0.05);
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);
           float recoveryHalf = mix(0.48, 0.14, recoveryT);
@@ -2751,14 +2781,39 @@ export class Course implements ICourse {
     this.object.add(group);
     const launch = this.pointAt(def.launchFromU, new THREE.Vector3());
     const launchTangent = this.tangentAt(def.launchFromU, new THREE.Vector3()).setY(0).normalize();
-    const climbU = THREE.MathUtils.lerp(def.entryU, def.gateUs[0], 0.18);
-    const climb = runtimePointAt(runtime, climbU, new THREE.Vector3());
-    const riseDirection = new THREE.Vector3(climb.x - launch.x, 0, climb.z - launch.z).normalize();
-    const path = [
-      new THREE.Vector3(launch.x, 1.4, launch.z),
-      new THREE.Vector3(launch.x + riseDirection.x * 3.5, 4, launch.z + riseDirection.z * 3.5),
-      new THREE.Vector3(launch.x + riseDirection.x * 7, Math.max(7, climb.y), launch.z + riseDirection.z * 7),
-    ];
+    const postureU = def.navigation?.turn?.fromU ?? THREE.MathUtils.lerp(def.entryU, def.gateUs[0], 0.18);
+    const postureTarget = runtimePointAt(runtime, postureU, new THREE.Vector3());
+    const postureDirection = new THREE.Vector3(
+      postureTarget.x - launch.x,
+      0,
+      postureTarget.z - launch.z,
+    ).normalize();
+    if (postureDirection.lengthSq() < 0.5) postureDirection.copy(launchTangent);
+    const vectorControl = launch.clone().addScaledVector(launchTangent, 8.5);
+    vectorControl.y = 0;
+    const vectorEnd = launch.clone().addScaledVector(postureDirection, 22);
+    vectorEnd.y = 0;
+    const vectorCurve = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(launch.x, 0, launch.z),
+      vectorControl,
+      vectorEnd,
+    );
+    const clearances = [1.4, 4, 6.3];
+    const path = [0, 0.5, 1].map((fraction, index) => {
+      const point = vectorCurve.getPoint(fraction);
+      point.y = clearances[index];
+      return point;
+    });
+    const firstVector = new THREE.Vector3().subVectors(path[1], path[0]).setY(0).normalize();
+    const finalVector = new THREE.Vector3().subVectors(path[2], path[1]).setY(0).normalize();
+    const headingDelta = Math.atan2(
+      firstVector.x * finalVector.z - firstVector.z * finalVector.x,
+      firstVector.x * finalVector.x + firstVector.z * finalVector.z,
+    );
+    group.userData.launchVectorDirection = def.navigation?.turn?.direction ?? 'straight';
+    group.userData.launchVectorPathLengthM = path.slice(1).reduce((sum, point, index) =>
+      sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
+    group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);
 
     const projectorBody = new THREE.CylinderGeometry(0.34, 0.43, 0.62, 8);
     const projectorFloat = new THREE.TorusGeometry(0.48, 0.14, 8, 16);
@@ -2796,17 +2851,20 @@ export class Course implements ICourse {
 
     const inkGeometry = new THREE.RingGeometry(0.72, 1.12, 4);
     const energyGeometry = new THREE.RingGeometry(0.68, 1.02, 4);
+    const postureGeometry = makeVerticalChevronGeometry(0);
     const diamonds: LaunchGateDiamond[] = [];
     const forward = new THREE.Vector3(0, 0, 1);
-    const clearances = [1.4, 4, Math.max(7, climb.y)];
     const waveWeights = [1, 0.42, 0];
+    const turnDirection = def.navigation?.turn?.direction ?? 'none';
+    const bankDirection = turnDirection === 'left' ? 1 : turnDirection === 'right' ? -1 : 0;
     for (let i = 0; i < path.length; i++) {
       const root = new THREE.Group();
       root.name = `${def.id}-launch-diamond-${i + 1}`;
       const direction = i < path.length - 1
         ? new THREE.Vector3().subVectors(path[i + 1], path[i]).setY(0).normalize()
-        : runtimeTangentAt(runtime, climbU, new THREE.Vector3()).setY(0).normalize();
+        : postureDirection;
       root.quaternion.setFromUnitVectors(forward, direction);
+      if (bankDirection !== 0) root.rotateZ(bankDirection * THREE.MathUtils.degToRad(7 + i * 6));
       const ink = new THREE.MeshBasicMaterial({
         color: PALETTE.ink,
         transparent: true,
@@ -2832,12 +2890,49 @@ export class Course implements ICourse {
       energyRing.renderOrder = 8;
       energyRing.layers.enable(LAYER_ENERGY);
       root.add(inkRing, energyRing);
+      let postureInk: THREE.MeshBasicMaterial | null = null;
+      let postureFill: THREE.MeshBasicMaterial | null = null;
+      if (turnDirection !== 'none' && i > 0) {
+        postureInk = new THREE.MeshBasicMaterial({
+          color: PALETTE.ink,
+          transparent: true,
+          opacity: 0.84,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+        postureFill = new THREE.MeshBasicMaterial({
+          color: PALETTE.foam,
+          transparent: true,
+          opacity: 0.9,
+          depthTest: false,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          toneMapped: false,
+        });
+        const postureSign = turnDirection === 'left' ? -1 : 1;
+        const postureInkMesh = new THREE.Mesh(postureGeometry, postureInk);
+        postureInkMesh.name = `${def.id}-launch-posture-ink-${i}`;
+        postureInkMesh.position.z = 0.055;
+        postureInkMesh.scale.set(postureSign * 0.66, 0.66, 0.66);
+        postureInkMesh.renderOrder = 9;
+        const postureFillMesh = new THREE.Mesh(postureGeometry, postureFill);
+        postureFillMesh.name = `${def.id}-launch-posture-${i}`;
+        postureFillMesh.position.z = 0.075;
+        postureFillMesh.scale.set(postureSign * 0.52, 0.52, 0.52);
+        postureFillMesh.renderOrder = 10;
+        postureFillMesh.layers.enable(LAYER_ENERGY);
+        root.add(postureInkMesh, postureFillMesh);
+      }
       root.position.set(path[i].x, clearances[i], path[i].z);
       group.add(root);
       diamonds.push({
         root,
         ink,
         energy,
+        postureInk,
+        postureFill,
         x: path[i].x,
         z: path[i].z,
         clearance: clearances[i],
@@ -2853,7 +2948,11 @@ export class Course implements ICourse {
       depthWrite: false,
       toneMapped: false,
     });
-    const packetGeometry = new THREE.OctahedronGeometry(0.2, 0);
+    // These are directional packets, not generic sparkles: their forward
+    // motion makes the required launch posture legible before takeoff.
+    const packetGeometry = makeOpenChevronGeometry(0);
+    packetGeometry.rotateY(-Math.PI / 2);
+    packetGeometry.scale(0.62, 0.62, 0.62);
     const packets: THREE.Mesh[] = [];
     for (let i = 0; i < 3; i++) {
       const packet = new THREE.Mesh(packetGeometry, packetMaterial);

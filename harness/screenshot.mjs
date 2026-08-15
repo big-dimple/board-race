@@ -163,12 +163,26 @@ async function verifySurfaceGuideVisualContract(page) {
       projectors: ['left', 'right'].filter((side) => group?.getObjectByName(`${id}-launch-projector-${side}`)).length,
       diamonds: [1, 2, 3].filter((index) => group?.getObjectByName(`${id}-launch-diamond-${index}`)).length,
       packets: [1, 2, 3].filter((index) => group?.getObjectByName(`${id}-launch-energy-packet-${index}`)).length,
+      packetVertices: group?.getObjectByName(`${id}-launch-energy-packet-1`)?.geometry?.attributes?.position?.count ?? 0,
+      postureMarkers: [1, 2].filter((index) => group?.getObjectByName(`${id}-launch-posture-${index}`)).length,
+      vectorPathLengthM: group?.userData?.launchVectorPathLengthM ?? -1,
     };
   }));
   assert.equal(launchGateTopology.length, 7);
   for (const [routeIndex, topology] of launchGateTopology.entries()) {
-    assert.deepEqual(topology, { exists: true, projectors: 2, diamonds: 3, packets: 3 },
+    const postureMarkers = routeIndex === 0 || routeIndex === 6 ? 0 : 2;
+    const { vectorPathLengthM, ...staticTopology } = topology;
+    assert.deepEqual(staticTopology, {
+      exists: true,
+      projectors: 2,
+      diamonds: 3,
+      packets: 3,
+      packetVertices: 12,
+      postureMarkers,
+    },
       `flight ${routeIndex + 1} must use the same authored launch-gate grammar`);
+    assert.ok(vectorPathLengthM >= 20 && vectorPathLengthM <= 26,
+      `flight ${routeIndex + 1} must preview a readable launch vector: ${JSON.stringify(topology)}`);
   }
 
   const arrowMotion = await page.evaluate(() => {
@@ -1138,6 +1152,7 @@ async function verifyFlightContract(page) {
     `the unarmed launch gate must appear with a useful reaction distance: ${JSON.stringify(routeGuidance)}`);
   const unarmedLaunchGate = await page.evaluate(() => {
     const group = window.__scene.getObjectByName('flight-5-launch-gate');
+    const corridor = window.__scene.getObjectByName('flight-5-ribbon');
     const diamonds = [1, 2, 3].map((index) => window.__scene.getObjectByName(`flight-5-launch-diamond-${index}`));
     const projectors = ['left', 'right'].map((side) => window.__scene.getObjectByName(`flight-5-launch-projector-${side}`));
     const packets = [1, 2, 3].map((index) => window.__scene.getObjectByName(`flight-5-launch-energy-packet-${index}`));
@@ -1146,6 +1161,21 @@ async function verifyFlightContract(page) {
       projectorCount: projectors.filter(Boolean).length,
       packetCount: packets.filter(Boolean).length,
       diamondPositions: diamonds.map((diamond) => diamond?.position.toArray() ?? []),
+      launchVectorDirection: group?.userData?.launchVectorDirection ?? 'missing',
+      launchVectorPathLengthM: group?.userData?.launchVectorPathLengthM ?? -1,
+      launchVectorHeadingDeltaDeg: group?.userData?.launchVectorHeadingDeltaDeg ?? 0,
+      corridorAlpha: {
+        panel: corridor?.material?.uniforms?.uPanelAlpha?.value ?? -1,
+        center: corridor?.material?.uniforms?.uCenterAlpha?.value ?? -1,
+        edge: corridor?.material?.uniforms?.uEdgeAlpha?.value ?? -1,
+        flow: corridor?.material?.uniforms?.uFlowAlpha?.value ?? -1,
+      },
+      postureCount: [1, 2].filter((index) =>
+        group?.getObjectByName(`flight-5-launch-posture-${index}`)).length,
+      postureInkCount: [1, 2].filter((index) =>
+        group?.getObjectByName(`flight-5-launch-posture-ink-${index}`)).length,
+      postureDirections: [1, 2].map((index) =>
+        group?.getObjectByName(`flight-5-launch-posture-${index}`)?.scale?.x ?? 0),
       energyColor: diamonds[0]?.children?.[1]?.material?.color?.getHex() ?? -1,
       allEnergyDepthIndependent: diamonds.every((diamond) => diamond?.children?.[1]?.material?.depthTest === false),
       containsTextGeometry: Boolean(group?.getObjectByProperty('type', 'Sprite')),
@@ -1157,6 +1187,22 @@ async function verifyFlightContract(page) {
     'the launch marker must be projected by two small waterborne fixtures, not a floating billboard');
   assert.equal(unarmedLaunchGate.packetCount, 3);
   assert.equal(unarmedLaunchGate.diamondPositions.length, 3);
+  assert.equal(unarmedLaunchGate.launchVectorDirection, 'right',
+    'the fifth-flight launch aperture must communicate the authored entry posture');
+  assert.ok(unarmedLaunchGate.launchVectorPathLengthM >= 20 &&
+    unarmedLaunchGate.launchVectorPathLengthM <= 26,
+    `the launch aperture must preview a readable airborne vector: ${JSON.stringify(unarmedLaunchGate)}`);
+  assert.ok(Math.abs(unarmedLaunchGate.launchVectorHeadingDeltaDeg) >= 4,
+    `the launch vector must visibly bend instead of stacking vertically: ${JSON.stringify(unarmedLaunchGate)}`);
+  assert.equal(unarmedLaunchGate.postureCount, 2);
+  assert.equal(unarmedLaunchGate.postureInkCount, 2);
+  assert.ok(unarmedLaunchGate.postureDirections.every((direction) => direction > 0),
+    'the two upper beats must carry right-facing posture chevrons for flight five');
+  assert.ok(unarmedLaunchGate.corridorAlpha.panel >= 0.11 &&
+    unarmedLaunchGate.corridorAlpha.center >= 0.065 &&
+    unarmedLaunchGate.corridorAlpha.edge >= 0.28 &&
+    unarmedLaunchGate.corridorAlpha.flow >= 0.45,
+    `the airborne corridor must stay translucent but readable: ${JSON.stringify(unarmedLaunchGate)}`);
   assert.equal(unarmedLaunchGate.allEnergyDepthIndependent, true,
     'the virtual ascent aperture must survive wave occlusion without changing collision geometry');
   assert.equal(unarmedLaunchGate.containsTextGeometry, false,
@@ -1165,8 +1211,8 @@ async function verifyFlightContract(page) {
   const lastDiamond = unarmedLaunchGate.diamondPositions[2];
   assert.ok(lastDiamond[1] - firstDiamond[1] >= 4.5,
     `the three beats must unmistakably rise out of the water: ${JSON.stringify(unarmedLaunchGate)}`);
-  assert.ok(Math.hypot(lastDiamond[0] - firstDiamond[0], lastDiamond[2] - firstDiamond[2]) <= 8,
-    `the ascent beats must read as one compact gate, not scattered route furniture: ${JSON.stringify(unarmedLaunchGate)}`);
+  assert.ok(Math.hypot(lastDiamond[0] - firstDiamond[0], lastDiamond[2] - firstDiamond[2]) >= 20,
+    `the ascent beats must preview the first airborne heading, not form a vertical stack: ${JSON.stringify(unarmedLaunchGate)}`);
   await page.evaluate(() => window.__harness.advance(0.25));
   const movedPackets = await page.evaluate(() => [1, 2, 3].map((index) =>
     window.__scene.getObjectByName(`flight-5-launch-energy-packet-${index}`)?.position.toArray() ?? []));
