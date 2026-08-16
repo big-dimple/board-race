@@ -75,7 +75,10 @@ automatically; players steer, drift/air-brake, and trigger flight.
   held pointers; selector and dossier surfaces do not. A relative standalone
   manifest supports optional Home Screen launch without a Service Worker;
   automatic Chrome install promotion stays suppressed, and rejected supported
-  fullscreen requests remain eligible for the next real control gesture.
+  fullscreen requests remain eligible for the next real control gesture. In
+  standalone mode the root owns the full `100vh` viewport, the renderer follows
+  the measured `#app` container, and only controls consume safe-area insets; do
+  not size the scene from `visualViewport.height` or a cached `innerHeight`.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. Water contact is not a visual ownership edge: the same
   cyan virtual recovery tail remains visible before and after contact. It keeps

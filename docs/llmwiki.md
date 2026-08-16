@@ -207,6 +207,11 @@
   手势必须恢复重试资格；只有真正进入 fullscreen 或明确不支持 API 才消费一次性资格。
   `GO` 始终保留自己的同步请求，测试必须区分“调用过”与“失败后能够重试”。
   已从主屏幕以 standalone 启动时本身就是沉浸窗口，不得再嵌套请求 fullscreen。
+- iOS standalone 的全屏根层必须使用 `100vh` 覆盖 Home Indicator 区，不能用 `svh`、
+  `visualViewport.height` 或一次性的 `innerHeight` 猜高度。Three.js Stage 以 `#app` 的实际
+  `getBoundingClientRect()` 为尺寸真相，并由 `ResizeObserver` 跟随；场景铺满整屏，只有 HUD
+  与触控按钮通过 `env(safe-area-inset-*)` 避开不可操作区。移动合同必须验证 app、Canvas
+  与 renderer viewport 同边界，并模拟容器高度与 `innerHeight` 不一致后的恢复。
 - Safari 防误缩放只监听 `gesturestart / gesturechange`，并且必须同时满足移动控制已启用、
   横屏、`activation === ready`、control phase 非 inactive、资料片覆盖层未隐藏控制。选角和
   资料片继续由浏览器拥有手势；不得追加 `user-scalable=no`、全局 `touchmove` 拦截或缩放重置。

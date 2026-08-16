@@ -2264,6 +2264,64 @@ async function verifyGamepadContract(page) {
 async function verifyMobileControls(page) {
   const start = page.locator('.mobile-start');
   const contractGo = page.locator('.driver-select-go');
+  const viewportFill = async () => page.evaluate(() => {
+    const box = (node) => {
+      const rect = node?.getBoundingClientRect();
+      return rect && { left:rect.left, top:rect.top, right:rect.right, bottom:rect.bottom,
+        width:rect.width, height:rect.height };
+    };
+    return {
+      innerWidth,
+      innerHeight,
+      app:box(document.querySelector('#app')),
+      canvas:box(document.querySelector('#app > canvas')),
+      htmlHeight:getComputedStyle(document.documentElement).height,
+      bodyHeight:getComputedStyle(document.body).height,
+      stats:window.__harness.stats(),
+    };
+  });
+  let fill = await viewportFill();
+  assert.deepEqual(fill.app, fill.canvas,
+    `the WebGL canvas must share the app viewport instead of ending above the Home indicator: ${JSON.stringify(fill)}`);
+  assert.ok(fill.app && Math.abs(fill.app.width - fill.innerWidth) <= 1 &&
+    Math.abs(fill.app.height - fill.innerHeight) <= 1,
+  `the normal mobile root must fill the visible viewport: ${JSON.stringify(fill)}`);
+
+  // WebKit standalone mode can report a JavaScript viewport height that omits
+  // the bottom safe-area strip. Prove that Stage follows its actual app
+  // container (ResizeObserver), not window.innerHeight, then restore the real
+  // edge-to-edge standalone root before any gameplay assertion.
+  await page.evaluate(() => {
+    document.documentElement.classList.add('ios-standalone');
+    const app = document.querySelector('#app');
+    app.style.setProperty('min-height', '0', 'important');
+    app.style.setProperty('height', 'calc(100vh - 31px)', 'important');
+  });
+  await page.waitForFunction(() => {
+    const app = document.querySelector('#app')?.getBoundingClientRect();
+    const canvas = document.querySelector('#app > canvas')?.getBoundingClientRect();
+    const stats = window.__harness.stats();
+    return app && canvas && Math.abs(app.height - (innerHeight - 31)) <= 1 &&
+      Math.abs(canvas.height - app.height) <= 1 && Math.abs(Number(stats.viewportHeight) - app.height) <= 1;
+  });
+  fill = await viewportFill();
+  assert.equal(Number(fill.stats.viewportHeight), Math.round(fill.app.height),
+    `renderer sizing must be container-owned when standalone metrics disagree: ${JSON.stringify(fill)}`);
+  await page.evaluate(() => {
+    const app = document.querySelector('#app');
+    app.style.removeProperty('height');
+    app.style.removeProperty('min-height');
+  });
+  await page.waitForFunction(() => {
+    const app = document.querySelector('#app')?.getBoundingClientRect();
+    const canvas = document.querySelector('#app > canvas')?.getBoundingClientRect();
+    return app && canvas && Math.abs(app.height - innerHeight) <= 1 &&
+      Math.abs(canvas.height - app.height) <= 1 &&
+      Math.abs(Number(window.__harness.stats().viewportHeight) - app.height) <= 1;
+  });
+  fill = await viewportFill();
+  assert.deepEqual(fill.app, fill.canvas,
+    `iOS standalone restore must leave no bottom background strip: ${JSON.stringify(fill)}`);
   const repairedCoach = await page.evaluate(() => ({
     records:window.__harness.recordsState(),
     coach:window.__harness.coachState(),

@@ -56,18 +56,22 @@ export class Stage {
   private readonly desktopClarity: boolean;
   private readonly mobileClarity: boolean;
   private readonly effectiveMinPixelRatio: number;
+  private readonly container: HTMLElement;
+  private readonly resizeObserver: ResizeObserver | null;
   private readonly resizeCbs: Array<(w: number, h: number, pr: number) => void> = [];
 
   constructor(container: HTMLElement, mode: RenderQualityMode = 'auto') {
+    this.container = container;
+    const initialSize = this.viewportSize();
     this.quality = PROFILES[mode];
     this.desktopClarity = mode === 'auto' &&
-      window.innerWidth >= 1000 &&
+      initialSize.width >= 1000 &&
       !window.matchMedia('(pointer: coarse)').matches;
     this.mobileClarity = mode === 'auto' && (
       window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0
     );
     const initialBudgetRatio = Math.sqrt(this.quality.pixelBudget /
-      Math.max(1, window.innerWidth * window.innerHeight));
+      Math.max(1, initialSize.width * initialSize.height));
     this.effectiveMinPixelRatio = this.mobileClarity
       ? Math.min(AUTO_MOBILE_MIN_PIXEL_RATIO, initialBudgetRatio)
       : this.quality.minPixelRatio;
@@ -86,17 +90,20 @@ export class Stage {
     this.camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 6000);
     this.camera.position.set(0, 8, 20);
 
-    this.pixelRatio = this.baseBudgetRatio(window.innerWidth, window.innerHeight);
+    this.pixelRatio = this.baseBudgetRatio(initialSize.width, initialSize.height);
     this.lastBaseRatio = this.pixelRatio;
     const schedule = (): void => this.scheduleResize();
     window.addEventListener('resize', schedule, { passive: true });
     document.addEventListener('fullscreenchange', schedule);
+    this.resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    this.resizeObserver?.observe(container);
     this.applySize();
   }
 
   onResize(cb: (w: number, h: number, pr: number) => void): void {
     this.resizeCbs.push(cb);
-    cb(window.innerWidth, window.innerHeight, this.pixelRatio);
+    const { width, height } = this.viewportSize();
+    cb(width, height, this.pixelRatio);
   }
 
   updatePerf(frameMs: number): void {
@@ -123,7 +130,8 @@ export class Stage {
       this.adjustmentCooldown = 2;
       this.applySize();
     } else if (this.goodFrameSeconds >= 4) {
-      const ceiling = this.clarityCeilingRatio(window.innerWidth, window.innerHeight);
+      const { width, height } = this.viewportSize();
+      const ceiling = this.clarityCeilingRatio(width, height);
       if (this.pixelRatio < ceiling) {
         this.pixelRatio = Math.min(ceiling, this.pixelRatio + 0.1);
         this.applySize();
@@ -166,7 +174,8 @@ export class Stage {
       // governor may then restore desktop clarity only after sustained headroom.
       // Preserve a real performance penalty, but do not strand a small window
       // at the ratio required by the previous 4K viewport.
-      const nextBase = this.baseBudgetRatio(window.innerWidth, window.innerHeight);
+      const { width, height } = this.viewportSize();
+      const nextBase = this.baseBudgetRatio(width, height);
       const perfScale = Math.min(1, this.pixelRatio / Math.max(this.effectiveMinPixelRatio, this.lastBaseRatio));
       this.pixelRatio = Math.max(this.effectiveMinPixelRatio, nextBase * perfScale);
       this.lastBaseRatio = nextBase;
@@ -175,8 +184,7 @@ export class Stage {
   }
 
   private applySize(count = true): void {
-    const w = Math.max(1, window.innerWidth);
-    const h = Math.max(1, window.innerHeight);
+    const { width: w, height: h } = this.viewportSize();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(Math.floor(w * this.pixelRatio), Math.floor(h * this.pixelRatio), false);
@@ -186,9 +194,16 @@ export class Stage {
     for (const cb of this.resizeCbs) cb(w, h, this.pixelRatio);
   }
 
+  private viewportSize(): { width: number; height: number } {
+    const rect = this.container.getBoundingClientRect();
+    return {
+      width: Math.max(1, Math.round(rect.width || this.container.clientWidth || window.innerWidth)),
+      height: Math.max(1, Math.round(rect.height || this.container.clientHeight || window.innerHeight)),
+    };
+  }
+
   stats(): Record<string, number | string> {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { width: w, height: h } = this.viewportSize();
     return {
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
@@ -202,6 +217,8 @@ export class Stage {
       desktopClarity: this.desktopClarity ? 1 : 0,
       mobileClarity: this.mobileClarity ? 1 : 0,
       resizeCount: this.resizeCount,
+      viewportWidth: w,
+      viewportHeight: h,
     };
   }
 }
