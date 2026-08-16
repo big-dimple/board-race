@@ -1125,6 +1125,10 @@ export class HUD {
     return this.battleTimer > 0 || this.impactTimer > 0;
   }
 
+  flightPromptVisible(): boolean {
+    return this.flightPromptMode !== 'hidden';
+  }
+
   showPcControlPrimer(presentation: PcControlPrimerPresentation | null, dismissible = false): void {
     if (!presentation) {
       this.primerOwnsFlight = false;
@@ -1142,7 +1146,9 @@ export class HUD {
     this.pcPrimerDetail.textContent = presentation.detail;
     this.pcPrimerEl.setAttribute('aria-label', `键盘操作：${presentation.title}。${presentation.detail}`);
     this.pcPrimerClose.hidden = !dismissible;
-    this.primerOwnsFlight = presentation.key === 'SPACE';
+    // A first-run keyboard sequence owns the complete SHIFT -> SPACE handoff.
+    // Never flash a second prompt in the opposite corner while it is active.
+    this.primerOwnsFlight = true;
     this.root.classList.toggle('primer-meter', presentation.step === 'charging' || presentation.step === 'release');
     this.pcPrimerEl.classList.add('on');
   }

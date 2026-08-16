@@ -12,8 +12,30 @@
 .race-tower-place { text-align:center; color:var(--racer-color); font:italic 900 13px/1 'Arial Black',Impact,sans-serif; }
 .race-tower-name { overflow:hidden; padding-left:6px; font:italic 900 12px/1 'Arial Black',Impact,sans-serif; text-overflow:ellipsis; white-space:nowrap; }
 .race-tower-gap { padding-right:6px; color:rgba(244,254,255,.7); font:800 9px/1 system-ui,sans-serif; text-align:right; }
-.race-radio { display:none; margin-top:7px; padding:9px 10px; border:1px solid rgba(85,231,255,.55); border-left:4px solid #55e7ff; background:rgba(4,7,20,.92); font:800 11px/1.25 system-ui,sans-serif; }
+.race-radio {
+  --radio-color:#55e7ff;
+  display:none;
+  grid-template-columns:32px minmax(0,1fr);
+  gap:9px;
+  width:252px;
+  margin-top:7px;
+  padding:9px 10px 10px 9px;
+  border:1px solid rgba(85,231,255,.42);
+  border-left:4px solid var(--radio-color);
+  background:rgba(4,7,20,.94);
+  box-shadow:0 8px 22px rgba(0,0,0,.2);
+  font-family:system-ui,'PingFang SC','Microsoft YaHei',sans-serif;
+  letter-spacing:0;
+}
 .race-radio.on { display:block; animation:race-radio-in .18s ease-out; }
+.race-radio.on { display:grid; }
+.race-radio-avatar { position:relative; width:32px; height:32px; overflow:hidden; border:1px solid var(--radio-color); background:rgba(16,23,58,.96); }
+.race-radio-avatar img { width:100%; height:100%; object-fit:cover; }
+.race-radio-mark { display:grid; width:100%; height:100%; place-items:center; color:var(--radio-color); font:italic 900 15px/1 'Arial Black',Impact,sans-serif; }
+.race-radio-copy { min-width:0; }
+.race-radio-meta { margin-bottom:4px; color:var(--radio-color); font:italic 900 9px/1 'Arial Black',Impact,system-ui,sans-serif; }
+.race-radio-body { color:#f4feff; font-size:13.5px; font-weight:700; line-height:1.38; text-wrap:pretty; }
+.race-radio-body strong { color:var(--radio-color); font-weight:900; }
 @keyframes race-radio-in { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:none} }
 @media (max-width:900px),(max-height:520px) {
   .race-tower { top:max(103px,calc(env(safe-area-inset-top) + 96px)); left:max(8px,env(safe-area-inset-left)); width:168px; }
@@ -23,7 +45,11 @@
   .race-tower-row img { width:21px; height:21px; }
   .race-tower-place,.race-tower-name { font-size:8px; }
   .race-tower-gap { padding-right:3px; font-size:6px; }
-  .race-radio { margin-top:4px; padding:5px 6px; font-size:8px; }
+  .race-radio { grid-template-columns:24px minmax(0,1fr); gap:6px; width:188px; margin-top:4px; padding:6px; }
+  .race-radio-avatar { width:24px; height:24px; }
+  .race-radio-mark { font-size:11px; }
+  .race-radio-meta { margin-bottom:3px; font-size:7.5px; }
+  .race-radio-body { font-size:10.5px; line-height:1.35; }
 }
 @media (max-height:340px) and (orientation:landscape) {
   /* On very short phones the left thumb owns the lower band. Team radio is

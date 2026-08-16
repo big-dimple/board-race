@@ -1,4 +1,5 @@
 import type { AudioSettings, GameAudio } from './audio';
+import type { CameraImpactLevel } from '../game/chaseCamera';
 import './mixerControls.css';
 
 const ROWS: ReadonlyArray<{ key: keyof Pick<AudioSettings, 'master' | 'music' | 'sfx' | 'ambience'>; label: string }> = [
@@ -15,6 +16,7 @@ export class MixerControls {
   private readonly inputs = new Map<string, HTMLInputElement>();
   private readonly values = new Map<string, HTMLOutputElement>();
   private hapticsButton: HTMLButtonElement | null = null;
+  private cameraImpactButton: HTMLButtonElement | null = null;
 
   constructor(parent: HTMLElement, private readonly audio: GameAudio) {
     const root = document.createElement('div');
@@ -100,6 +102,26 @@ export class MixerControls {
     this.syncHaptics(getEnabled());
   }
 
+  attachCameraImpact(
+    getLevel: () => CameraImpactLevel,
+    setLevel: (level: CameraImpactLevel) => void,
+  ): void {
+    if (this.cameraImpactButton) return;
+    const levels: readonly CameraImpactLevel[] = ['standard', 'weak', 'off'];
+    const button = document.createElement('button');
+    button.className = 'audio-mixer-camera-impact';
+    button.type = 'button';
+    button.addEventListener('click', () => {
+      const current = getLevel();
+      const next = levels[(levels.indexOf(current) + 1) % levels.length];
+      setLevel(next);
+      this.syncCameraImpact(next);
+    });
+    this.root.querySelector('.audio-mixer-panel')?.appendChild(button);
+    this.cameraImpactButton = button;
+    this.syncCameraImpact(getLevel());
+  }
+
   setVisible(visible: boolean): void {
     this.root.classList.toggle('visible', visible);
     if (!visible) {
@@ -125,6 +147,14 @@ export class MixerControls {
     this.hapticsButton.textContent = enabled ? '体感反馈 · 开' : '体感反馈 · 关';
     this.hapticsButton.classList.toggle('off', !enabled);
     this.hapticsButton.setAttribute('aria-pressed', String(enabled));
+  }
+
+  private syncCameraImpact(level: CameraImpactLevel): void {
+    if (!this.cameraImpactButton) return;
+    const label = level === 'standard' ? '标准' : level === 'weak' ? '弱' : '关';
+    this.cameraImpactButton.textContent = `镜头冲击 · ${label}`;
+    this.cameraImpactButton.classList.toggle('off', level === 'off');
+    this.cameraImpactButton.setAttribute('aria-label', `镜头冲击，当前${label}`);
   }
 }
 

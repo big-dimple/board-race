@@ -13,7 +13,8 @@
 .audio-mixer input { pointer-events: auto; touch-action: manipulation; }
 .audio-mixer-toggle,
 .audio-mixer-mute,
-.audio-mixer-haptics {
+.audio-mixer-haptics,
+.audio-mixer-camera-impact {
   min-height: 38px;
   padding: 7px 12px;
   border: 1px solid rgba(85, 231, 255, 0.45);
@@ -42,6 +43,8 @@
 .audio-mixer-mute.muted { color: #ff3d7f; }
 .audio-mixer-haptics { width: 100%; margin-top: 7px; color: #55e7ff; }
 .audio-mixer-haptics.off { color: rgba(244, 254, 255, 0.56); }
+.audio-mixer-camera-impact { width: 100%; margin-top: 7px; color: #55e7ff; }
+.audio-mixer-camera-impact.off { color: rgba(244, 254, 255, 0.56); }
 @media (max-height: 520px) and (orientation: landscape) {
   .audio-mixer { top: max(7px, env(safe-area-inset-top)); right: max(7px, env(safe-area-inset-right)); }
   .audio-mixer-toggle { min-height: 32px; padding: 4px 9px; font-size: 10px; }

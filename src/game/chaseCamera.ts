@@ -62,8 +62,11 @@ const BLEND_TIME = 0.8; // mode-switch blend duration (s)
 const SHAKE_AMP = 0.35; // meters of positional noise at strength 1
 const SHAKE_W = 88; // ≈ 14 Hz in rad/s
 const SHAKE_DECAY = 5; // /s exponential decay
+const CAMERA_IMPACT_STORAGE_KEY = 'board-race.camera-impact.v1';
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
+
+export type CameraImpactLevel = 'standard' | 'weak' | 'off';
 
 export class CameraRig {
   mode: CameraMode = 'orbit';
@@ -88,8 +91,11 @@ export class CameraRig {
   private impactFov = 0;
   private impactBack = 0;
   private impactDip = 0;
+  private collisionSide = 0;
+  private collisionRoll = 0;
   private shakeAmp = 0;
   private noiseT = 0;
+  private collisionImpactLevel: CameraImpactLevel = loadCameraImpactLevel();
 
   // mode-blend snapshot
   private blendT = 1;
@@ -170,12 +176,52 @@ export class CameraRig {
     }
   }
 
-  collisionKick(strength: number): void {
-    if (this.reducedMotion) return;
+  collisionKick(strength: number, side = 0): void {
+    const amount = this.reducedMotion || this.collisionImpactLevel === 'off'
+      ? 0
+      : this.collisionImpactLevel === 'weak' ? 0.45 : 1;
+    if (amount <= 0) return;
     const n = clamp(strength / 16, 0.08, 1);
-    this.shake(0.08 + n * 0.26);
-    this.impactFov = Math.min(this.impactFov, -0.7 - n * 1.6);
-    this.impactBack = Math.min(this.impactBack, -0.12 - n * 0.32);
+    // Collision readability comes primarily from the real impact side. Keep
+    // random shake subordinate so the horizon and steering reference survive.
+    this.shake((0.04 + n * 0.08) * amount);
+    this.impactFov = Math.min(this.impactFov, (-0.55 - n * 1.25) * amount);
+    this.impactBack = Math.min(this.impactBack, (-0.1 - n * 0.24) * amount);
+    const signedSide = clamp(side, -1, 1);
+    this.collisionSide = clamp(
+      this.collisionSide + signedSide * (0.05 + n * 0.13) * amount,
+      -0.2,
+      0.2,
+    );
+    this.collisionRoll = clamp(
+      this.collisionRoll - signedSide * (0.002 + n * 0.012) * amount,
+      -0.017,
+      0.017,
+    );
+  }
+
+  setCollisionImpactLevel(level: CameraImpactLevel): void {
+    this.collisionImpactLevel = level;
+    try { localStorage.setItem(CAMERA_IMPACT_STORAGE_KEY, level); } catch { /* optional preference */ }
+    if (level === 'off') {
+      this.collisionSide = 0;
+      this.collisionRoll = 0;
+    }
+  }
+
+  getCollisionImpactLevel(): CameraImpactLevel {
+    return this.collisionImpactLevel;
+  }
+
+  collisionImpactStatus(): Record<string, number | string | boolean> {
+    return {
+      level: this.collisionImpactLevel,
+      effectiveLevel: this.reducedMotion ? 'off' : this.collisionImpactLevel,
+      side: this.collisionSide,
+      roll: this.collisionRoll,
+      fov: this.impactFov,
+      back: this.impactBack,
+    };
   }
 
   /** Freeze the desktop READY stage on one authored orbit pose. */
@@ -197,6 +243,8 @@ export class CameraRig {
     this.fov = BASE_FOV - 3;
     this.roll = 0;
     this.shakeAmp = 0;
+    this.collisionSide = 0;
+    this.collisionRoll = 0;
     this.blendT = 1;
     this.camera.position.copy(this.pos);
     this.camera.up.set(0, 1, 0);
@@ -216,6 +264,8 @@ export class CameraRig {
     this.impactFov *= Math.exp(-7.5 * dt);
     this.impactBack *= Math.exp(-9 * dt);
     this.impactDip *= Math.exp(-8 * dt);
+    this.collisionSide *= Math.exp(-10 * dt);
+    this.collisionRoll *= Math.exp(-12 * dt);
 
     // ---- mode switch: snapshot current state, restart the 0.8s blend ---------
     if (this.mode !== this.activeMode) {
@@ -267,6 +317,8 @@ export class CameraRig {
         by + CHASE_UP - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,
         bz - fz * dist - fx * driftSide,
       );
+      target.x += fz * this.collisionSide;
+      target.z -= fx * this.collisionSide;
 
       // look ~4m ahead of the bow, at water height
       const ax = bx + fx * LOOK_AHEAD;
@@ -300,6 +352,7 @@ export class CameraRig {
             -ROLL_MAX * (driftRoll + st.flightAirBrake * 0.8),
             ROLL_MAX * (driftRoll + st.flightAirBrake * 0.8),
           );
+      rollTarget += this.collisionRoll;
     } else {
       // cinematic orbits around the helm
       boat.riderMount.getWorldPosition(this.helm);
@@ -414,4 +467,14 @@ export class CameraRig {
       cam.updateProjectionMatrix();
     }
   }
+}
+
+function loadCameraImpactLevel(): CameraImpactLevel {
+  try {
+    const stored = localStorage.getItem(CAMERA_IMPACT_STORAGE_KEY);
+    if (stored === 'standard' || stored === 'weak' || stored === 'off') return stored;
+  } catch {
+    // Storage is optional; the default remains deterministic.
+  }
+  return 'standard';
 }

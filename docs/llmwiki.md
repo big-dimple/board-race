@@ -491,6 +491,9 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
 - 玩家碰撞同一 fixed-step 只呈现最大一次音效/镜头/触觉；物理层仍保留所有碰撞对。
   音频有短 cooldown、active one-shot 上限和事件环形审计（`audioEventLog()`），
   同一噪声 buffer 使用确定性偏移，避免相位重叠变成白噪墙。
+- `CollisionHit` 必须携带真实接触法线和世界接触点。镜头冲击以玩家艇坐标中的左右侧为
+  主信息，只做受限横移、滚转和短 FOV 回弹；随机 shake 是次级。`SOUND` 中保留
+  `标准 / 弱 / 关`，`prefers-reduced-motion` 等效为关，不得靠增加晃动制造撞击感。
 - 只有玩家落水播放 splash/thud；对手落水保持视觉反馈，直到有空间化环境样本并经
   用户审核。环境事件不等于持续海浪。
 - 漂移 / 空刹 / 起飞等 control-lane 触觉拥有约几十毫秒保护窗。碰撞与 landing 进入
@@ -498,6 +501,23 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
   最近活动的设备输出，不能双震。`Haptics.update()` 在 fixed-step 中冲刷队列。
 - 触觉只使用短促分级脉冲，不做持续震动；任何调参必须同时覆盖移动端、标准/未知
   手柄、多手柄、断连和控制中碰撞的 harness。
+
+### 对手追赶与赛道电台
+
+- 开局接触只是一种按 run seed 决定的偶发 pack pressure：最多一名相邻、非 clean 对手
+  稍微收向玩家的 authored lane；避碰仍生效，不保证接触，也不修改碰撞物理。
+- 玩家完成至少一飞并拉开真实距离后，主 rival 才可收到 technique pressure；第二名只
+  在部分 run 出现且强度更低。它必须通过标准 `AIController -> BoatInput -> Boat.update`
+  按住漂移、达到真实 `driftReleaseReady`、松开得到 BOOST，再按既有飞行/空刹逻辑追赶。
+  禁止 teleport、位置插值、免碰撞、强制追上或超出既有 pace 上下限。玩家受撞与超车
+  窗口继续触发 grace / hysteresis，避免连续夹击。
+- 电台是纯 `RadioDirector` 单槽仲裁，优先级为 `critical > tactical > flavor`；危险警告、
+  键位引导、飞行提示和表现层冻结时暂停，不与它们争屏。每条消息有 run key、TTL、
+  duration，可选 session key；不得用多个独立 timer 叠出一排 toast。
+- TEAM 用短、专业、可诊断的句子；碰撞只在有用强度下按左舷/右舷/艇尾解释。选手口吻
+  只偶发出现，粗口最多每页面会话一次，不能连续刷。SOL 技巧固定为
+  `最近摸到门道了：边飞边刹 + 转向，线路才咬得住。`，其中动作词放大/提色，但不加
+  彩色 emoji、不新增配音，也不把 radio 变成教程墙。
 
 Final 自由接近与桌面选角舞台不改变 records 结构，不升 schema，也不触发存档迁移。
 

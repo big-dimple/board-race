@@ -16,6 +16,13 @@ export interface CollisionHit {
   strength: number;
   toi: number;
   correction: number;
+  /** Contact normal points from boat b toward boat a. */
+  nx: number;
+  nz: number;
+  /** Approximate world-space contact point after the swept hit. */
+  x: number;
+  y: number;
+  z: number;
 }
 
 interface PairContact {
@@ -99,12 +106,27 @@ export class BoatCollisionSystem {
     const correction = Math.min(MAX_PAIR_CORRECTION, Math.max(0.04, (DIAMETER - distance) * 0.52));
     const cx = contact.nx * correction * 0.5;
     const cz = contact.nz * correction * 0.5;
+    const ax = a.state.position.x + Math.sin(a.state.heading) * contact.aOffset;
+    const az = a.state.position.z + Math.cos(a.state.heading) * contact.aOffset;
+    const bx = b.state.position.x + Math.sin(b.state.heading) * contact.bOffset;
+    const bz = b.state.position.z + Math.cos(b.state.heading) * contact.bOffset;
     a.applyCollisionResponse(cx, cz, (contact.nx * j + tx * frictionJ) * aTake, (contact.nz * j + tz * frictionJ) * aTake);
     b.applyCollisionResponse(-cx, -cz, (-contact.nx * j - tx * frictionJ) * bTake, (-contact.nz * j - tz * frictionJ) * bTake);
     this.maxCorrection = Math.max(this.maxCorrection, correction);
     const pairKey = this.pairKey(a.id, b.id);
     if (this.cooldowns[pairKey] <= 0 && closing > 0.35) {
-      this.hits.push({ a: a.id, b: b.id, strength: Math.max(0, closing) * Math.max(aTake, bTake), toi: contact.toi, correction });
+      this.hits.push({
+        a: a.id,
+        b: b.id,
+        strength: Math.max(0, closing) * Math.max(aTake, bTake),
+        toi: contact.toi,
+        correction,
+        nx: contact.nx,
+        nz: contact.nz,
+        x: (ax + bx) * 0.5,
+        y: (a.state.position.y + b.state.position.y) * 0.5,
+        z: (az + bz) * 0.5,
+      });
       this.cooldowns[pairKey] = 0.32;
     }
   }

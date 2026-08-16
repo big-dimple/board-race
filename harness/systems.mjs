@@ -539,6 +539,50 @@ try {
   assert.ok(rival.duringGrace.every((value) => Math.abs(value - 1) < 1e-6), `impact grace: ${rival.duringGrace}`);
   assert.ok(rival.afterGrace.every((value) => value > 1 && value < 1.02), `pace must ramp after grace: ${rival.afterGrace}`);
   assert.equal(rival.nonRivalPace, 1, 'non-elite racers must keep authored pace');
+  assert.ok(rival.techniqueChase[0] > 0.9,
+    `the primary rival must arm a real technique attempt after the player opens a flight gap: ${rival.techniqueChase}`);
+  assert.ok(rival.techniqueChase.slice(1).every((value) => value === 0 || value <= 0.63),
+    `at most one secondary rival may receive a bounded technique opportunity: ${rival.techniqueChase}`);
+  assert.ok(rival.techniqueRelease.every((value) => value < 0.02),
+    `technique pressure must release after the rival closes to the player: ${rival.techniqueRelease}`);
+  assert.ok(rival.openingRuns.some((run) => run.id >= 0 && run.pressure > 0.8),
+    `some seeded starts must create one opening contact opportunity: ${JSON.stringify(rival.openingRuns)}`);
+  assert.ok(rival.openingRuns.some((run) => run.id < 0),
+    `opening pressure must remain occasional rather than guaranteed: ${JSON.stringify(rival.openingRuns)}`);
+  assert.equal(rival.pursuit.sawPursuit, true,
+    `the selected opponent must physically hold drift: ${JSON.stringify(rival.pursuit)}`);
+  assert.equal(rival.pursuit.sawReady, true,
+    `the selected opponent must reach the real release threshold: ${JSON.stringify(rival.pursuit)}`);
+  assert.equal(rival.pursuit.boostCycles, 1,
+    `the selected opponent must release exactly one accepted BOOST cycle: ${JSON.stringify(rival.pursuit)}`);
+  assert.equal(rival.pursuit.sawBoost, true,
+    `the catch attempt must come from the real boat BOOST state: ${JSON.stringify(rival.pursuit)}`);
+
+  const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());
+  assert.equal(radio.blockedVisible, false,
+    'radio must yield while an actionable HUD presentation owns attention');
+  assert.equal(radio.blockedQueued, 1,
+    'yielding must preserve a still-relevant technique line instead of dropping it');
+  assert.equal(radio.first.visible, true);
+  assert.match(radio.first.speaker, /SOL/);
+  assert.equal(radio.first.text, '最近摸到门道了：边飞边刹 + 转向，线路才咬得住。');
+  assert.equal(radio.first.emphasis, '边飞边刹 + 转向');
+  assert.ok(radio.first.fontSize >= 13,
+    `desktop driver radio must remain legible and less mechanical: ${JSON.stringify(radio.first)}`);
+  assert.match(radio.first.ariaLabel, /SOL.*边飞边刹/);
+  assert.equal(radio.secondVisible, false, 'the same personality tip must not repeat in one page session');
+  assert.equal(radio.secondQueued, 0);
+
+  await recordsPage.evaluate(() => window.__harness.scenario('ready'));
+  const cameraButton = recordsPage.locator('.audio-mixer-camera-impact');
+  assert.equal(await cameraButton.textContent(), '镜头冲击 · 标准');
+  await recordsPage.locator('.audio-mixer-toggle').click();
+  await cameraButton.waitFor({ state:'visible' });
+  await cameraButton.click();
+  assert.equal(await cameraButton.textContent(), '镜头冲击 · 弱');
+  await cameraButton.click();
+  assert.equal(await cameraButton.textContent(), '镜头冲击 · 关');
+  assert.equal(await cameraButton.getAttribute('aria-label'), '镜头冲击，当前关');
   await recordsContext.close();
 
   const enduranceContext = await browser.newContext({ viewport: { width: 844, height: 390 } });

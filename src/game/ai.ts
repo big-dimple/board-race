@@ -137,6 +137,9 @@ export class AIController {
   private flightWantsRoute = false;
   private qualifyingFlight = false;
   private upcomingFlightIndex = -1;
+  private pursuitDrifting = false;
+  private pursuitCooldown = 0;
+  private pursuitBoostCycles = 0;
 
   // curvature / speed tables, built once from the course
   private tableN = 0;
@@ -180,6 +183,9 @@ export class AIController {
     this.flightWantsRoute = false;
     this.qualifyingFlight = false;
     this.upcomingFlightIndex = -1;
+    this.pursuitDrifting = false;
+    this.pursuitCooldown = 0;
+    this.pursuitBoostCycles = 0;
   }
 
   private buildTables(): void {
@@ -234,6 +240,8 @@ export class AIController {
     myProgress: number,
     playerProgress: number,
     rivalryPace = 1,
+    techniquePressure = 0,
+    openingPressure = 0,
   ): BoatInput {
     const tune = this.tune;
     this.t += dt;
@@ -262,6 +270,20 @@ export class AIController {
       // Releasing here pays out the unchanged drift boost and earns flight exactly
       // as it does for the player.
       this.qualifyingFlight = false;
+    }
+    this.pursuitCooldown = Math.max(0, this.pursuitCooldown - dt);
+    const canStartPursuitDrift = techniquePressure > 0.35 && this.pursuitCooldown <= 0 &&
+      !flightWindow && me.state.flightPhase === 'surface' && speed > 14 && !me.state.boosting &&
+      !this.drifting && !this.qualifyingFlight;
+    if (!this.pursuitDrifting && canStartPursuitDrift) {
+      this.pursuitDrifting = true;
+    } else if (this.pursuitDrifting && (
+      me.state.flightPhase !== 'surface' || flightWindow || techniquePressure <= 0.05 ||
+      me.state.driftReleaseReady || me.state.boostCharge >= 0.38
+    )) {
+      if (me.state.driftReleaseReady) this.pursuitBoostCycles++;
+      this.pursuitDrifting = false;
+      this.pursuitCooldown = 6 + (1 - clamp01(techniquePressure)) * 6;
     }
     if (!flightWindow) {
       this.flightWindowSeen = false;
@@ -314,6 +336,7 @@ export class AIController {
     }
     // hug the apex: offset toward the inside of the upcoming corner
     if (!flightRoute) lateral += Math.sign(kAvg) * tune.apexHug * Math.min(1, Math.abs(kAvg) / 0.02);
+    if (!flightRoute && openingPressure > 0) lateral *= 1 - clamp01(openingPressure) * 0.72;
     lateral = clamp(lateral, -5.5, 5.5);
     _tp.x += -_tt.z * lateral; // left normal of the tangent
     _tp.z += _tt.x * lateral;
@@ -370,8 +393,12 @@ export class AIController {
       if (aheadness < 0.25) continue;
       const cross = fx * oz - fz * ox; // <0: they are on my left (boat frame)
       const w = (1 - d / AVOID_DIST) * aheadness;
-      steer = clamp(steer - 0.55 * Math.sign(cross) * w, -1, 1);
-      if (d < 3.1 && aheadness > 0.72) throttle = Math.min(throttle, this.elite ? 0.72 : 0.35);
+      const pressure = clamp01(openingPressure);
+      steer = clamp(steer - 0.55 * (1 - pressure * 0.2) * Math.sign(cross) * w, -1, 1);
+      if (d < 3.1 && aheadness > 0.72) {
+        const throttleCeiling = Math.max(this.elite ? 0.72 : 0.35, 0.35 + pressure * 0.3);
+        throttle = Math.min(throttle, throttleCeiling);
+      }
     }
 
     // --- seeded mistakes: a short burst of degraded steering (late turn-in / overshoot)
@@ -389,12 +416,20 @@ export class AIController {
     const out = this.input;
     out.throttle = throttle;
     out.steer = steer;
-    out.drift = me.state.flightPhase === 'surface' && (this.drifting || this.qualifyingFlight);
+    out.drift = me.state.flightPhase === 'surface' && (this.drifting || this.qualifyingFlight || this.pursuitDrifting);
     out.flightTrigger = launchNow || extendNow;
     // The authored air route has a hard first bend. AI uses the same vector
     // air-brake available to the player, without changing water handling.
     out.airBrake = flightRoute && me.state.flightPhase !== 'surface' &&
       speed > 27 && (Math.abs(err) > 0.075 || this.course.flightTurnWarning(me.id));
     return out;
+  }
+
+  debugPursuit(): Record<string, number | boolean> {
+    return {
+      active: this.pursuitDrifting,
+      cooldown: this.pursuitCooldown,
+      boostCycles: this.pursuitBoostCycles,
+    };
   }
 }

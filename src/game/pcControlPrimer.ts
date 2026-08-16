@@ -12,7 +12,7 @@ export type PcControlPrimerStep =
   | 'dismissed';
 
 export interface PcControlPrimerPresentation {
-  step: Exclude<PcControlPrimerStep, 'off' | 'waiting-launch' | 'dismissed'>;
+  step: Exclude<PcControlPrimerStep, 'off' | 'dismissed'>;
   key: string;
   kicker: string;
   title: string;
@@ -98,7 +98,11 @@ export class PcControlPrimer {
       if (frame.guideActive && state.flightPhase === 'surface' && state.flightCharges > 0) {
         this.current = 'launch';
       } else {
-        return null;
+        if (!frame.keyboardActive || frame.presentationBlocked) return null;
+        return {
+          step: 'waiting-launch', key: 'SPACE', kicker: '第二步 · 已有飞行库存',
+          title: '等青色升空向量亮起', detail: '保持线路 · 入口出现时按 SPACE', tone: 'flight',
+        };
       }
     }
 

@@ -59,10 +59,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
 
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
 - First-run onboarding remains non-modal. A brand-new desktop keyboard run gets
-  one dismissible lower-left `Shift -> bank -> Space` primer driven only by
-  accepted boat-state edges; mobile never renders it. Only the first real
-  failure may invite the persistent spotlight guide. Schema v8 still owns that
-  full guide's eligibility, progress, and disable state.
+  one dismissible lower-left `Shift -> bank -> Space` navigation console driven
+  only by accepted boat-state edges; it stays in the same slot through the
+  actionable launch handoff, while later runs use the matching upper-right
+  flight prompt. Mobile never renders it. Only the first real failure may
+  invite the persistent spotlight guide. Schema v8 still owns that full
+  guide's eligibility, progress, and disable state.
 - Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use restrained
   ticks only. `GO` uses exactly one deterministic non-verbal synthesized start
   signal; voice assets, speech fetches, and announcement buses are removed. If
@@ -71,7 +73,15 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Continuous water/air white-noise loops are disabled pending owner approval of
   an environment recording. Landing splash is a player-only, rate-limited
   event. Collision and landing haptics queue behind drift/air-brake control
-  pulses and route only to the most recently active device.
+  pulses and route only to the most recently active device. Player collision
+  presentation coalesces per fixed step and uses the real contact side/point;
+  directional camera impact is bounded and offers `standard / weak / off`.
+- Opening contact pressure is seeded and occasional. Later catch attempts are
+  limited to the existing primary rivals and must use real drift-release BOOST,
+  launch, and air-brake input; no teleport or guaranteed catch is allowed. Race
+  radio is one prioritized slot, yields to action guidance, and session-limits
+  personality/profanity lines. SOL's first-flight technique line remains the
+  concise authored hint for air-brake plus steering.
 - iPhone browser play remains capability-detected rather than fake-fullscreen.
   Active game controls suppress Safari page-pinch defaults without releasing
   held pointers; selector and dossier surfaces do not. A relative standalone

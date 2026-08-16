@@ -62,6 +62,22 @@ try {
     `collision feedback must use the impact lane: ${feedback.hapticLane}`);
   assert.equal(feedback.radioVisible, true, 'a player collision must reach the race-radio UI');
   assert.match(feedback.radioText, /接触|碰撞/, 'radio copy must explain the physical event');
+  assert.equal(feedback.collisionFxBursts, 1,
+    'same-frame player contacts must create one pooled world-space spray burst');
+  assert.equal(feedback.cameraImpactLevel, 'standard');
+  assert.ok(Math.abs(feedback.cameraImpactSide) > 0.04,
+    `collision feedback must preserve the physical impact side: ${JSON.stringify(feedback)}`);
+  assert.ok(Math.abs(feedback.cameraImpactRoll) > 0.001,
+    `directional impact must include a restrained roll cue: ${JSON.stringify(feedback)}`);
+  assert.equal(feedback.radioPriority, 'critical');
+
+  const cameraImpact = await page.evaluate(() => window.__harness.cameraImpactCase());
+  assert.ok(Math.abs(cameraImpact.standard.side) > Math.abs(cameraImpact.weak.side) * 1.9,
+    `weak camera impact must be materially calmer: ${JSON.stringify(cameraImpact)}`);
+  assert.ok(Math.abs(cameraImpact.weak.side) > 0,
+    `weak camera impact must retain side information: ${JSON.stringify(cameraImpact)}`);
+  assert.equal(cameraImpact.off.side, 0);
+  assert.equal(cameraImpact.off.roll, 0);
 
   const side = await run('side-boost');
   assert.equal(side.finite, true);

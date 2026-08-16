@@ -49,8 +49,8 @@ import {
 import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
-import { BoatCollisionSystem } from './game/collision';
-import { CameraRig } from './game/chaseCamera';
+import { BoatCollisionSystem, type CollisionHit } from './game/collision';
+import { CameraRig, type CameraImpactLevel } from './game/chaseCamera';
 import { HUD } from './hud/hud';
 import { GameAudio } from './audio/audio';
 import { MixerControls } from './audio/mixerControls';
@@ -204,6 +204,10 @@ let lastMobileActivity = mobileInput.activitySerial;
 let coachPresentation: CoachPresentation | null = null;
 let pcPrimerPresentation: PcControlPrimerPresentation | null = null;
 mixer.attachHaptics(() => haptics.enabled, (enabled) => haptics.setEnabled(enabled));
+mixer.attachCameraImpact(
+  () => cameraRig.getCollisionImpactLevel(),
+  (level) => cameraRig.setCollisionImpactLevel(level),
+);
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
 stage.onResize((w, h, pr) => {
   pipeline.setSize(w, h, pr);
@@ -264,6 +268,7 @@ let harnessLastBattleCount = 0;
 let harnessLastBattleStreak = 0;
 let harnessCheckpointEvents = 0;
 let harnessCourseWarningEvents = 0;
+let harnessCollisionFxBursts = 0;
 const harnessRoutePasses = new Array<number>(boats.length).fill(0);
 const harnessRouteFails = new Array<number>(boats.length).fill(0);
 const harnessPrevRouteStates: FlightRouteState[] = boats.map((boat) => boat.state.flightRouteState);
@@ -442,6 +447,8 @@ function startFreshCountdown(): void {
   pcPrimerPresentation = null;
   hud.showPcControlPrimer(null);
   currentRun = records.beginRun();
+  rivalDirector.beginRun(currentRun);
+  tower.resetRun(currentRun);
   input.reset();
   gamepadInput.reset();
   mobileInput.reset();
@@ -669,6 +676,7 @@ function resetRace(): void {
   }
   race.reset();
   currentRun = records.data.runs + 1;
+  tower.resetRun(currentRun);
   prevFlightCharges = boats[0].state.flightCharges;
   prevDriftReleaseReady = boats[0].state.driftReleaseReady;
   prevFlightGateProgress = boats[0].state.flightGateProgress;
@@ -687,6 +695,7 @@ function resetRace(): void {
   harnessLastBattleStreak = 0;
   harnessCheckpointEvents = 0;
   harnessCourseWarningEvents = 0;
+  harnessCollisionFxBursts = 0;
   for (let i = 0; i < boats.length; i++) {
     harnessRoutePasses[i] = 0;
     harnessRouteFails[i] = 0;
@@ -886,7 +895,7 @@ function step(dt: number, _t: number): void {
   if (!retryLessonActive) mobileInput.consumeAnyPress();
   if (!racing) input.consumePress('Space'); // never buffer a flight press through the countdown
   worldTime += dt;
-  rivalDirector.update(dt, race.racers);
+  rivalDirector.update(dt, race.racers, boats[0].state.flightsCleared);
   if (racing) collisions.capture(boats);
   for (let i = 0; i < boats.length && racing; i++) {
     if (i > 0) boats[i].setOpponentEffectDistance(boats[i].state.position.distanceTo(boats[0].state.position));
@@ -907,6 +916,8 @@ function step(dt: number, _t: number): void {
         race.racers[i].progress,
         race.racers[0].progress,
         rivalDirector.paceFor(i),
+        rivalDirector.techniqueFor(i),
+        rivalDirector.openingFor(i),
       );
     }
     if (i === 0 && harnessForceAirBrake && boats[0].state.flightPhase !== 'surface') {
@@ -972,7 +983,10 @@ function step(dt: number, _t: number): void {
     const pass = records.recordFlightPass(flights, selectedDriverId);
     newBestThisRun ||= pass.newBest;
     hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
-    tower.announceFlight(flights, pass.bestFlights);
+    const noviceAirBrakeTip = flights === 1 && pass.bestFlights < 2 &&
+      !drivingCoach.progress.mastery.airBrakedInTurn;
+    if (noviceAirBrakeTip) tower.announceTechniqueTip();
+    else tower.announceFlight(flights, pass.bestFlights);
     if (flights === 3 && race.challengeTier === 'unqualified') {
       drivingCoach.markExpert();
       syncDrivingCoachUi();
@@ -1113,7 +1127,13 @@ function step(dt: number, _t: number): void {
   jetTrail.update(dt);
 
   const ps = boats[0].state;
-  tower.update(dt, race, ps.flightPhase !== 'surface');
+  tower.update(
+    dt,
+    race,
+    ps.flightPhase !== 'surface',
+    turnWarning || coachPresentation !== null || pcPrimerPresentation !== null || hud.flightPromptVisible() ||
+      hud.coachPresentationBlocked(),
+  );
   hud.update(dt, race, boats[0], boats);
   const routeGuidance = course.guidanceStatus();
   mobileInput.setActionState(
@@ -1343,6 +1363,8 @@ interface Harness {
   recordsImport(raw: string): { selectedDriverId: string | null };
   recordsCase(name: string): Record<string, unknown>;
   rivalCase(): Record<string, unknown>;
+  radioTechniqueCase(): Record<string, unknown>;
+  cameraImpactCase(): Record<string, unknown>;
   enduranceCase(flights: number): Record<string, unknown>;
   collisionFeedbackCase(): Record<string, unknown>;
 }
@@ -2543,22 +2565,41 @@ function stagePositionLoss(): void {
   battleFrame(base + 0.003, after);
 }
 
-function presentPlayerCollisions(hits: readonly { a: number; b: number; strength: number }[]): void {
+const collisionFxPoint = new THREE.Vector3();
+
+function presentPlayerCollisions(hits: readonly CollisionHit[]): void {
   const playerHits = hits.filter((hit) => (hit.a === 0 || hit.b === 0) && hit.strength >= 0.8);
   if (playerHits.length === 0) return;
   const hit = playerHits.reduce((best, candidate) => candidate.strength > best.strength ? candidate : best);
   const opponentId = hit.a === 0 ? hit.b : hit.a;
   const strength = hit.strength;
+  const forceX = hit.a === 0 ? hit.nx : -hit.nx;
+  const forceZ = hit.a === 0 ? hit.nz : -hit.nz;
+  const playerHeading = boats[0].state.heading;
+  const contactX = hit.x - boats[0].state.position.x;
+  const contactZ = hit.z - boats[0].state.position.z;
+  const contactDistance = Math.hypot(contactX, contactZ);
+  // Prefer the actual hull contact point. The collision normal is a fallback
+  // force pushing the player away, so its sign must be inverted. + is port.
+  const rawSide = contactDistance > 0.15
+    ? (contactX * Math.cos(playerHeading) - contactZ * Math.sin(playerHeading)) / contactDistance
+    : -(forceX * Math.cos(playerHeading) - forceZ * Math.sin(playerHeading));
+  const side = Math.max(-1, Math.min(1, rawSide));
   audio.collision(strength);
-  cameraRig.collisionKick(strength);
+  cameraRig.collisionKick(strength, side);
   pipeline.pulse('collision', Math.min(1.1, 0.3 + strength / 20));
+  if (boats[0].state.flightPhase === 'surface' && boats[opponentId]?.state.flightPhase === 'surface') {
+    collisionFxPoint.set(hit.x, hit.y + 0.15, hit.z);
+    spray.burst(collisionFxPoint, 4 + Math.min(8, Math.round(strength * 0.3)), 2.5 + Math.min(4, strength * 0.15));
+    if (HARNESS) harnessCollisionFxBursts++;
+  }
   haptics.impact(
     strength > 10 ? 'collision-heavy' : 'collision-light',
     Math.min(1, 0.45 + strength / 16),
     boats[0].state.drifting || boats[0].state.flightAirBrake > 0.28,
   );
   rivalDirector.notifyPlayerImpact();
-  tower.announceCollision(race.racers[opponentId]?.name ?? '对手');
+  tower.announceCollision(roster[opponentId], strength, side);
 }
 
 function runCollisionCase(name: string): Record<string, number | string | boolean> {
@@ -2846,6 +2887,7 @@ function runCollisionFeedbackCase(): Record<string, unknown> {
   presentPlayerCollisions(hits.length > 0 ? [...hits, { ...hits[0], strength: hits[0].strength * 0.72 }] : hits);
   const radio = document.querySelector<HTMLElement>('.race-radio');
   const afterAudioEvents = audio.audioEventLog();
+  tower.update(1 / 60, race, false, false);
   return {
     hits: hits.length,
     strength: hits[0]?.strength ?? 0,
@@ -2853,10 +2895,66 @@ function runCollisionFeedbackCase(): Record<string, unknown> {
     collisionAudioEvents: afterAudioEvents.slice(beforeAudioEvents).filter((event) => event.source === 'collision').length,
     hapticLane: haptics.status().lastLane,
     hapticQueuedImpacts: haptics.status().queuedImpacts,
+    cameraImpactLevel: cameraRig.collisionImpactStatus().level,
+    cameraImpactSide: cameraRig.collisionImpactStatus().side,
+    cameraImpactRoll: cameraRig.collisionImpactStatus().roll,
+    collisionFxBursts: harnessCollisionFxBursts,
     radioVisible: radio?.classList.contains('on') ?? false,
     radioText: radio?.textContent?.trim() ?? '',
+    radioPriority: tower.radioStatus().priority,
     finite: boats.every((boat) => [boat.state.position.x, boat.state.position.y, boat.state.position.z, boat.state.speed]
       .every(Number.isFinite)),
+  };
+}
+
+function runCameraImpactCase(): Record<string, unknown> {
+  const previous = cameraRig.getCollisionImpactLevel();
+  const sample = (level: CameraImpactLevel): Record<string, number | string | boolean> => {
+    cameraRig.setCollisionImpactLevel(level);
+    cameraRig.snapOrbit(boats[0], presentationTime);
+    cameraRig.collisionKick(16, 0.8);
+    return cameraRig.collisionImpactStatus();
+  };
+  const standard = sample('standard');
+  const weak = sample('weak');
+  const off = sample('off');
+  cameraRig.setCollisionImpactLevel(previous);
+  cameraRig.snapOrbit(boats[0], presentationTime);
+  return { standard, weak, off };
+}
+
+function runRadioTechniqueCase(): Record<string, unknown> {
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  pcControlPrimer.stop();
+  pcPrimerPresentation = null;
+  hud.showPcControlPrimer(null, false);
+  tower.resetRun(7103);
+  tower.announceTechniqueTip();
+  tower.update(0.5, race, false, true);
+  const blockedVisible = document.querySelector<HTMLElement>('.race-radio')?.classList.contains('on') ?? false;
+  const blockedQueued = tower.radioStatus().queued;
+  tower.update(1 / 60, race, false, false);
+  const radio = document.querySelector<HTMLElement>('.race-radio');
+  const body = radio?.querySelector<HTMLElement>('.race-radio-body');
+  const first = {
+    visible: radio?.classList.contains('on') ?? false,
+    text: body?.textContent?.trim() ?? '',
+    emphasis: body?.querySelector('strong')?.textContent?.trim() ?? '',
+    speaker: radio?.querySelector<HTMLElement>('.race-radio-meta')?.textContent?.trim() ?? '',
+    fontSize: Number.parseFloat(body ? getComputedStyle(body).fontSize : '0'),
+    ariaLabel: radio?.getAttribute('aria-label') ?? '',
+  };
+  tower.resetRun(7104);
+  tower.announceTechniqueTip();
+  tower.update(1 / 60, race, false, false);
+  return {
+    first,
+    blockedVisible,
+    blockedQueued,
+    secondVisible: radio?.classList.contains('on') ?? false,
+    secondQueued: tower.radioStatus().queued,
   };
 }
 
@@ -2876,8 +2974,15 @@ function runRecordsCase(name: string): Record<string, unknown> {
 
 function runRivalCase(): Record<string, unknown> {
   const makeRacers = () => race.racers.map((racer) => ({ ...racer }));
-  const advanceDirector = (director: RivalDirector, racers: ReturnType<typeof makeRacers>, seconds: number): void => {
-    for (let elapsed = 0; elapsed < seconds; elapsed += 1 / 60) director.update(1 / 60, racers);
+  const advanceDirector = (
+    director: RivalDirector,
+    racers: ReturnType<typeof makeRacers>,
+    seconds: number,
+    playerFlightsCleared = 0,
+  ): void => {
+    for (let elapsed = 0; elapsed < seconds; elapsed += 1 / 60) {
+      director.update(1 / 60, racers, playerFlightsCleared);
+    }
   };
 
   const boundsDirector = new RivalDirector();
@@ -2919,6 +3024,35 @@ function runRivalCase(): Record<string, unknown> {
   advanceDirector(graceDirector, graceRacers, 1.25);
   const afterGrace = rivalIds.map((id) => graceDirector.paceFor(id));
 
+  const techniqueDirector = new RivalDirector();
+  techniqueDirector.setRoster(roster);
+  techniqueDirector.beginRun(19);
+  const techniqueRacers = makeRacers();
+  const techniquePlayer = techniqueRacers.find((racer) => racer.isPlayer)!;
+  techniquePlayer.progress = 100;
+  for (const id of rivalIds) techniqueRacers[id].progress = 60;
+  advanceDirector(techniqueDirector, techniqueRacers, 1, 1);
+  const techniqueChase = rivalIds.map((id) => techniqueDirector.techniqueFor(id));
+  for (const id of rivalIds) techniqueRacers[id].progress = 90;
+  advanceDirector(techniqueDirector, techniqueRacers, 1, 1);
+  const techniqueRelease = rivalIds.map((id) => techniqueDirector.techniqueFor(id));
+
+  const openingRuns = Array.from({ length: 15 }, (_, index) => index + 1).map((seed) => {
+    const director = new RivalDirector();
+    director.setRoster(roster);
+    director.beginRun(seed);
+    const openingRacers = makeRacers();
+    advanceDirector(director, openingRacers, 1.5);
+    const status = director.debugState();
+    return {
+      seed,
+      id: status.openingPressureId,
+      pressure: status.openingPressureId >= 0 ? director.openingFor(status.openingPressureId) : 0,
+    };
+  });
+
+  const pursuit = runRivalPursuitProbe(rivalIds[0]);
+
   return {
     rivalIds,
     chase,
@@ -2927,8 +3061,49 @@ function runRivalCase(): Record<string, unknown> {
     duringLock,
     duringGrace,
     afterGrace,
+    techniqueChase,
+    techniqueRelease,
+    openingRuns,
+    pursuit,
     nonRivalId: nonRival.id,
     nonRivalPace: boundsDirector.paceFor(nonRival.id),
+  };
+}
+
+function runRivalPursuitProbe(rivalId: number): Record<string, number | boolean> {
+  resetRace();
+  const controller = ais[rivalId];
+  const boat = boats[rivalId];
+  controller.reset();
+  course.pointAt(0.16, tmpP);
+  course.tangentAt(0.16, tmpT);
+  const heading = Math.atan2(tmpT.x, tmpT.z);
+  boat.teleport(tmpP.x, tmpP.z, heading);
+  boat.setCollisionTestMotion(tmpP.x, tmpP.z, heading, tmpT.x * 24, tmpT.z * 24);
+  for (let i = 0; i < boats.length; i++) {
+    if (i === rivalId) continue;
+    boats[i].setCollisionTestMotion(300 + i * 20, 300, 0, 0, 0);
+  }
+  let sawPursuit = false;
+  let sawReady = false;
+  let sawBoost = false;
+  let elapsed = 0;
+  while (elapsed < 2.5 && controller.debugPursuit().boostCycles === 0) {
+    const aiInput = controller.update(1 / 60, boat, boats, 0, 30, 1, 1, 0);
+    sawPursuit ||= Boolean(controller.debugPursuit().active);
+    sawReady ||= boat.state.driftReleaseReady;
+    boat.update(1 / 60, aiInput, elapsed, 'drift');
+    sawBoost ||= boat.state.boosting;
+    elapsed += 1 / 60;
+  }
+  return {
+    sawPursuit,
+    sawReady,
+    sawBoost,
+    boostCycles: Number(controller.debugPursuit().boostCycles),
+    charges: boat.state.flightCharges,
+    elapsed,
+    speed: boat.state.speed,
   };
 }
 
@@ -3678,6 +3853,7 @@ if (HARNESS) {
     resumeInterruption,
     collisionCase: runCollisionCase,
     collisionFeedbackCase: runCollisionFeedbackCase,
+    cameraImpactCase: runCameraImpactCase,
     recordsState: recordsSnapshot,
     recordsExport: () => records.exportJson(selectedDriverId),
     recordsImport: (raw) => {
@@ -3687,6 +3863,7 @@ if (HARNESS) {
     },
     recordsCase: runRecordsCase,
     rivalCase: runRivalCase,
+    radioTechniqueCase: runRadioTechniqueCase,
     enduranceCase: runEnduranceCase,
     perfSample: (frames) => new Promise((resolve) => {
       const times: number[] = [];
