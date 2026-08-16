@@ -106,10 +106,8 @@ export class FinaleOverlay {
 
   setCaptureReady(ready: boolean): void {
     this.saveButton.disabled = !ready;
-    this.saveButton.textContent = ready ? '截图' : '截图生成中';
+    this.saveButton.textContent = ready ? '预览截图' : '截图生成中';
   }
-
-  setSaveLabel(label: string): void { this.saveButton.textContent = label; }
 
   hide(): void {
     this.root.classList.remove('on', 'impact', 'crown', 'hero', 'settled', 'reveal');

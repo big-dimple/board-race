@@ -933,7 +933,7 @@ export class HUD {
     this.medalCanvas.clear();
   }
 
-  setMedalCaptureReady(ready: boolean, label = '保存勋章截图'): void {
+  setMedalCaptureReady(ready: boolean, label = '预览勋章截图'): void {
     this.medalSave.disabled = !ready;
     this.medalSave.textContent = ready ? label : '生成截图中';
   }
@@ -1128,6 +1128,7 @@ export class HUD {
   showPcControlPrimer(presentation: PcControlPrimerPresentation | null, dismissible = false): void {
     if (!presentation) {
       this.primerOwnsFlight = false;
+      this.root.classList.remove('primer-meter');
       this.pcPrimerEl.classList.remove('on');
       this.pcPrimerEl.removeAttribute('data-step');
       this.pcPrimerEl.removeAttribute('data-tone');
@@ -1142,6 +1143,7 @@ export class HUD {
     this.pcPrimerEl.setAttribute('aria-label', `键盘操作：${presentation.title}。${presentation.detail}`);
     this.pcPrimerClose.hidden = !dismissible;
     this.primerOwnsFlight = presentation.key === 'SPACE';
+    this.root.classList.toggle('primer-meter', presentation.step === 'charging' || presentation.step === 'release');
     this.pcPrimerEl.classList.add('on');
   }
 

@@ -225,19 +225,23 @@
 
 ### 首局 PC 键盘提示
 
-- 资格只在 `startFreshCountdown()` 调用 `records.beginRun()` 之前，用
-  `records.data.runs === 0`、desktop fine pointer、非 mobile、当前键盘输入和
-  `coach.status === 'dormant'` 一次性判定。它不增加存档字段，也不修改 schema。
-- READY 和倒计时不显示，进入 racing 后才出现左下角非模态字幕。第一条必须是
-  `按住 SHIFT 漂移`，不能先讲菱形或 Space；提示本体不截获驾驶输入，`Esc` 或
-  可见的关闭按钮只结束本局提示，不会顺带永久关闭完整 coach。
+- 资格在 `startFreshCountdown()` 调用 `records.beginRun()` 之前判定，但绝不能使用
+  `records.data.runs` 猜玩家是否会漂移。当前条件是 fine-pointer 非 mobile、最近活动
+  输入为键盘、coach 仍为 `dormant + automaticEligible`，并且真实入库 mastery 与
+  `bankRule` knowledge 都未完成。它复用 v8 coach knowledge，不增加 schema 字段。
+- fresh countdown 第一帧就显示左下角非模态字幕，让玩家在得到控制前读到
+  `按住 SHIFT 漂移蓄能`；不能先讲菱形或 Space。提示本体不截获驾驶输入，`Esc` 或
+  可见关闭按钮持久写入 `knowledge.bankRule=true`，但必须保留
+  `mastery.bankedCharge=false` 和 `automaticEligible=true`，不能顺带关闭首败 coach。
 - 进度只认 `BoatState` 成功边沿：`driftReleaseReady` 后才提示松开；随后真实
   `flightCharges` 上升才确认入库；有库存且青色分支展开才提示 Space；
   `surface -> spool` 且库存下降才算起飞成功并收起。只按过 Shift 不算完成。
 - 入库确认必须明确“黄线后松开 = 入库”，不能暗示漂移时长决定飞行时长。
   Space 未可用时不提前催按，也不能缓冲起飞。
-- 实际手柄输入会隐藏键盘字幕；返回键盘可继续当前动作。首局失败、勋章、重开、
-  结果和完整 coach 接管时立即停止。移动端 DOM 可以存在，但 CSS 必须始终不可见。
+- 实际手柄输入会隐藏键盘字幕；返回键盘可继续当前动作。真正入库或主动关闭后，
+  retry / reload 不再重复基础字幕；未完成也未关闭的 novice 可以在后续 fresh countdown
+  再看到。失败、勋章、结果和完整 coach 接管时立即停止。移动端 DOM 可以存在，但
+  JS 与 CSS 都必须保持不可见。
 - 纯观察状态机在 `src/game/pcControlPrimer.ts`。桌面锚点在 `src/hud/hud.ts/.css`；
   首败 coach 的键盘漂移步骤复用同一锚点，不再聚光卡片内部的自指假键帽。
 
@@ -289,6 +293,10 @@ DriverSelect / READY
 - frozen finale 的唯一主动作是 `神秘资料片`，默认键盘/手柄确认必须打开它；`截图` 与
   `继续游戏` 是角落里的紧凑 utility。终局和 dossier 都隐藏移动端开始、模式、转向、
   漂移和飞行控件；从 dossier 返回终局仍保持隐藏，只有继续游戏或 reset 才恢复。
+- 勋章和终局截图按钮只负责生成 PNG 并打开冻结预览，不能直接调用含义模糊的系统
+  share sheet。桌面显示明确的保存/下载与复制；Android 显示下载 PNG 与分享；iOS
+  显示系统“存储图像”/分享与下载到“文件”备用路径。取消、unsupported 或 failed
+  必须留在预览并显示准确状态；只有确认成功的非 share-opened 导出才计入终局截图记录。
 - 七张资料片图只按当前页请求，不在构造阶段或翻页后预取相邻页。网络未完成时显示明确
   loading，锁住翻页以避免并发拉图；失败时保留返回结算并提供重试。
 
@@ -322,7 +330,7 @@ DriverSelect / READY
 ## 视觉与可访问性边界
 
 - 支持桌面和横屏手机；竖屏保持阻断式旋转提示，不设计第二套竖屏玩法。
-- 同一时刻最多一个教育提示。PC 首局字幕固定在 `1366x768` 以上桌面的左下静区，
+- 同一时刻最多一个教育提示。PC 基础字幕固定在 fine-pointer 桌面的左下静区，
   与底中能量条保持间隔；它不能出现在 coarse/mobile。guide 不能遮挡船边仪表、右拇指技能区、急弯警告、
   medal、Final 或 interruption gate。
 - 提示标题先写动作，副行写结果；每次只讲一个当前有意义的概念。READY `?` 默认
@@ -359,6 +367,12 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 `github-operator` 的 checked publisher，并一次完成确定性洁癖检查、全部 release gates、
 commit、push、remote SHA 与 Pages live marker 校验。没有发现新事实、冲突或清理候选时，
 不得再把这套固定流程拆成多轮大模型交互。
+
+用户明确要求“不等 Pages”时，使用
+`npm run release:checked -- --no-wait-pages "type: message"`。该参数从版本化合同临时派生
+一个只移除 `pages` 的 `.git` 内合同副本；全部 closeout / build / gameplay / mobile /
+collision / audio / systems / performance 门禁、commit、push 和 remote SHA 校验仍然执行。
+它不是跳过测试或跳过远端确认的开关。
 
 `npm run verify:closeout` 会拒绝未暂存 / 未跟踪残留、备份类文件、tracked `.env` 中的
 异常键，以及本仓库仍在运行的人工 Vite 服务。它已经是发布合同的第一道 gate；只有

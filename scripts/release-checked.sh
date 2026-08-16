@@ -3,15 +3,24 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="--execute"
+wait_pages=1
 
-if [[ "${1:-}" == "--plan" ]]; then
-  mode=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --plan) mode="" ;;
+    --no-wait-pages) wait_pages=0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
   shift
-fi
+done
 
 commit_message="${1:-}"
 if [[ -z "$commit_message" ]]; then
-  echo "usage: npm run release:checked -- [--plan] 'type: commit message'" >&2
+  echo "usage: npm run release:checked -- [--plan] [--no-wait-pages] 'type: commit message'" >&2
+  exit 2
+fi
+if [[ $# -gt 1 ]]; then
+  echo "commit message must be supplied as one quoted argument" >&2
   exit 2
 fi
 
@@ -39,6 +48,15 @@ fi
 args=(--repo "$repo_root" --commit-message "$commit_message")
 if [[ -n "$mode" ]]; then args+=("$mode"); fi
 
+contract_copy=''
+if [[ $wait_pages -eq 0 ]]; then
+  command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 2; }
+  contract_copy="$repo_root/.git/codex-publish-no-pages.$$.json"
+  jq 'del(.pages)' "$repo_root/.github/codex-publish.json" > "$contract_copy"
+  args+=(--contract "$contract_copy")
+  trap 'rm -f "$contract_copy"' EXIT
+fi
+
 set +e
 "$publisher" "${args[@]}"
 publish_status=$?
@@ -46,6 +64,7 @@ set -e
 
 if [[ $publish_status -eq 0 ]]; then exit 0; fi
 if [[ -z "$mode" ]]; then exit "$publish_status"; fi
+if [[ $wait_pages -eq 0 ]]; then exit "$publish_status"; fi
 
 if [[ -n "$(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)" ]]; then
   exit "$publish_status"

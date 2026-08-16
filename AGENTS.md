@@ -12,6 +12,8 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - After staging only reviewed files, `npm run release:checked -- "type: message"`
   runs deterministic knowledge/workspace closeout, all release gates, commit,
   push, remote-SHA verification, and Pages verification as one operation.
+  When the user explicitly says not to wait for Pages, add `--no-wait-pages`;
+  all gates, commit, push, and remote-SHA verification still run.
 
 ## Stack And Layout
 

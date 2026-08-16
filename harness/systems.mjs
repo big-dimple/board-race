@@ -43,6 +43,180 @@ async function replaceStorage(page, entries) {
   await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
 }
 
+async function verifyPcPrimerPersistence(browser) {
+  const context = await browser.newContext({ viewport: { width:1366, height:650 } });
+  const page = await context.newPage();
+  await load(page);
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('board-race:challenge:v8', JSON.stringify({
+      version:8, runs:1, ordinaryUnlocked:false, manMedalsTotal:0, excellentCount:0,
+      bestQualificationTime:null, bestExcellentTime:null, bestFlights:0,
+      bestRouteProgress:0, closestMissM:null, bestFlightsByDriver:{},
+      farSeaDossierUnlocked:false, rivalWins:0, finaleCompletions:0,
+      expansionSeenMask:0, finaleScreenshotCount:0,
+      coach:{
+        status:'dormant', automaticEligible:true,
+        mastery:{ steered:false, bankedCharge:false, launched:false, passedRoute:false, airBrakedInTurn:false, extendedFlight:false },
+        knowledge:{ bankRule:false, inventory:false, flightGauge:false, extension:false },
+      },
+    }));
+  });
+  await page.reload({ waitUntil:'load', timeout:60000 });
+  await page.waitForFunction(() => window.__harness?.ready);
+  await page.evaluate(() => {
+    window.__harness.scenario('countdown');
+    window.__harness.advance(1 / 60);
+  });
+  const first = await page.evaluate(() => ({
+    state:window.__harness.pcPrimerState(),
+    visible:document.querySelector('.hud-pc-primer')?.classList.contains('on'),
+    title:document.querySelector('.hud-pc-primer-title')?.textContent,
+  }));
+  assert.equal(first.state.presentationStep, 'drift',
+    `an incomplete run must not suppress the next Shift lesson: ${JSON.stringify(first)}`);
+  assert.equal(first.visible, true, 'the primer must fit a real 1366px laptop content viewport');
+  assert.match(first.title ?? '', /SHIFT.*漂移蓄能/);
+  await page.locator('.hud-pc-primer-close').click();
+  await page.evaluate(() => window.__harness.advance(1 / 60));
+  let coach = await page.evaluate(() => window.__harness.coachState());
+  assert.equal(coach.mastery.bankedCharge, false);
+  assert.equal(coach.knowledge.bankRule, true);
+  assert.equal(coach.automaticEligible, true);
+  await page.reload({ waitUntil:'load', timeout:60000 });
+  await page.waitForFunction(() => window.__harness?.ready);
+  await page.evaluate(() => {
+    window.__harness.scenario('countdown');
+    window.__harness.advance(1 / 60);
+  });
+  coach = await page.evaluate(() => window.__harness.coachState());
+  assert.equal(await page.locator('.hud-pc-primer.on').count(), 0,
+    'an explicitly dismissed legend must stay dismissed after reload');
+  assert.equal(coach.mastery.bankedCharge, false);
+  assert.equal(coach.automaticEligible, true);
+  await context.close();
+}
+
+async function verifyCaptureContract(browser, desktopPage) {
+  await desktopPage.evaluate(() => {
+    window.__captureProbe = { names:[], writes:[], closes:0, copies:0 };
+    Object.defineProperty(window, 'showSaveFilePicker', {
+      configurable:true,
+      value:async (options) => {
+        window.__captureProbe.names.push(options.suggestedName);
+        return { createWritable:async () => ({
+          write:async (blob) => window.__captureProbe.writes.push({ type:blob.type, size:blob.size }),
+          close:async () => { window.__captureProbe.closes++; },
+        }) };
+      },
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable:true,
+      value:{ write:async (items) => { window.__captureProbe.copies += items.length; } },
+    });
+    if (typeof window.ClipboardItem === 'undefined') {
+      window.ClipboardItem = class { constructor(data) { this.data = data; } };
+    }
+    window.__harness.scenario('countdown');
+  });
+  const beforePreview = await desktopPage.evaluate(() => window.__harness.playerState());
+  const png = await desktopPage.evaluate(() => window.__harness.openCapturePreview('finale'));
+  assert.equal(png.type, 'image/png');
+  assert.ok(png.size > 10000, `capture must contain a real rendered frame: ${JSON.stringify(png)}`);
+  assert.deepEqual(png.signature, [137,80,78,71,13,10,26,10]);
+  await desktopPage.waitForFunction(() => {
+    const image = document.querySelector('.capture-preview img');
+    return image?.complete && image.naturalWidth > 0;
+  });
+  const desktopUi = await desktopPage.evaluate(() => ({
+    visible:document.querySelector('.capture-preview')?.classList.contains('on'),
+    primary:document.querySelector('.capture-preview-primary')?.textContent,
+    secondary:document.querySelector('.capture-preview-secondary')?.textContent,
+    title:document.querySelector('#capture-preview-title')?.textContent,
+  }));
+  assert.deepEqual(desktopUi, { visible:true, primary:'保存 PNG', secondary:'复制图片', title:'Final 截图' });
+  await desktopPage.evaluate(() => window.__harness.advance(1));
+  const frozenPreview = await desktopPage.evaluate(() => window.__harness.playerState());
+  assert.equal(frozenPreview.phase, beforePreview.phase, 'capture preview must freeze the countdown lifecycle');
+  assert.equal(frozenPreview.worldTime, beforePreview.worldTime);
+  await desktopPage.locator('.capture-preview-primary').click();
+  await desktopPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('PNG 已保存'));
+  let probe = await desktopPage.evaluate(() => window.__captureProbe);
+  assert.equal(probe.names[0], 'board-race-finale-contract.png');
+  assert.equal(probe.writes.length, 1);
+  assert.equal(probe.writes[0].type, 'image/png');
+  assert.ok(probe.writes[0].size > 10000);
+  assert.equal(probe.closes, 1);
+  await desktopPage.locator('.capture-preview-secondary').click();
+  await desktopPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('剪贴板'));
+  probe = await desktopPage.evaluate(() => window.__captureProbe);
+  assert.equal(probe.copies, 1, 'desktop copy must use the image clipboard API');
+  await desktopPage.locator('.capture-preview-close').click();
+
+  await desktopPage.evaluate(async () => {
+    Object.defineProperty(window, 'showSaveFilePicker', {
+      configurable:true,
+      value:async () => { throw new DOMException('cancelled', 'AbortError'); },
+    });
+    await window.__harness.openCapturePreview('medal');
+  });
+  await desktopPage.locator('.capture-preview-primary').click();
+  await desktopPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('已取消'));
+  assert.equal(await desktopPage.locator('.capture-preview.on').count(), 1,
+    'cancelling the picker must keep the generated preview available');
+  await desktopPage.keyboard.press('Escape');
+  await desktopPage.evaluate(() => window.__harness.advance(1 / 60));
+  assert.equal(await desktopPage.locator('.capture-preview.on').count(), 0);
+
+  const androidContext = await browser.newContext({
+    viewport:{ width:844, height:390 }, hasTouch:true, isMobile:true,
+    userAgent:'Mozilla/5.0 (Linux; Android 16; Pixel 9) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
+  });
+  const androidPage = await androidContext.newPage();
+  await load(androidPage);
+  await androidPage.evaluate(() => {
+    window.__captureProbe = { shares:0 };
+    Object.defineProperty(navigator, 'canShare', { configurable:true, value:() => true });
+    Object.defineProperty(navigator, 'share', {
+      configurable:true, value:async () => { window.__captureProbe.shares++; },
+    });
+  });
+  await androidPage.evaluate(() => window.__harness.openCapturePreview('finale'));
+  assert.equal(await androidPage.locator('.capture-preview-primary').textContent(), '下载 PNG');
+  assert.equal(await androidPage.locator('.capture-preview-secondary').textContent(), '分享');
+  assert.match(await androidPage.locator('.capture-preview-hint').textContent() ?? '', /“下载”目录/);
+  const downloadPromise = androidPage.waitForEvent('download');
+  await androidPage.locator('.capture-preview-primary').click();
+  const download = await downloadPromise;
+  assert.equal(download.suggestedFilename(), 'board-race-finale-contract.png');
+  await androidPage.locator('.capture-preview-secondary').click();
+  await androidPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('系统面板'));
+  assert.equal(await androidPage.evaluate(() => window.__captureProbe.shares), 1);
+  await androidContext.close();
+
+  const iosContext = await browser.newContext({
+    viewport:{ width:844, height:390 }, hasTouch:true, isMobile:true,
+    userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 Version/18.6 Mobile/15E148 Safari/604.1',
+  });
+  const iosPage = await iosContext.newPage();
+  await load(iosPage);
+  await iosPage.evaluate(() => {
+    window.__captureProbe = { shares:0 };
+    Object.defineProperty(navigator, 'canShare', { configurable:true, value:() => true });
+    Object.defineProperty(navigator, 'share', {
+      configurable:true, value:async () => { window.__captureProbe.shares++; },
+    });
+  });
+  await iosPage.evaluate(() => window.__harness.openCapturePreview('medal'));
+  assert.equal(await iosPage.locator('.capture-preview-primary').textContent(), '存储 / 分享');
+  assert.equal(await iosPage.locator('.capture-preview-secondary').textContent(), '下载到“文件”');
+  assert.match(await iosPage.locator('.capture-preview-hint').textContent() ?? '', /“存储图像”/);
+  await iosPage.locator('.capture-preview-primary').click();
+  await iosPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('系统面板'));
+  assert.equal(await iosPage.evaluate(() => window.__captureProbe.shares), 1);
+  await iosContext.close();
+}
+
 try {
   await waitForServer();
   const browser = await chromium.launch({
@@ -50,6 +224,8 @@ try {
     ...(chrome ? { executablePath: chrome } : {}),
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-gpu-sandbox'],
   });
+
+  await verifyPcPrimerPersistence(browser);
 
   const recordsContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const recordsPage = await recordsContext.newPage();
@@ -154,6 +330,8 @@ try {
         `${id} radar must print every live handling modifier: ${radar}`);
     }
   }
+
+  await verifyCaptureContract(browser, recordsPage);
 
   await replaceStorage(recordsPage, {
     'board-race:challenge:v3': {

@@ -194,6 +194,13 @@ export class DrivingCoach {
     this.setStatus('disabled');
   }
 
+  /** Dismiss the lightweight PC legend without claiming the action was mastered. */
+  dismissPcPrimer(): void {
+    if (this.progress.knowledge.bankRule) return;
+    this.progress.knowledge.bankRule = true;
+    this.persist(this.progress);
+  }
+
   markExpert(): void {
     if (this.progress.status === 'dormant' || this.progress.status === 'active') this.setStatus('expert');
   }

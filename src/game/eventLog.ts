@@ -3,7 +3,7 @@ export type GameEventName =
   | 'final_station_crossed'
   | 'finale_shown'
   | 'screenshot_created'
-  | 'screenshot_saved'
+  | 'screenshot_exported'
   | 'expansion_view_open'
   | 'expansion_page_view'
   | 'expansion_return_game'

@@ -58,7 +58,12 @@ import { DriverSelect } from './hud/driverSelect';
 import { RaceTower } from './hud/raceTower';
 import { FinaleOverlay } from './hud/finaleOverlay';
 import { ExpansionGallery } from './hud/expansionGallery';
-import { CaptureService } from './core/capture';
+import {
+  CaptureService,
+  type CaptureExportAction,
+  type CaptureExportOutcome,
+} from './core/capture';
+import { CapturePreview, type CaptureKind } from './hud/capturePreview';
 import { trackGameEvent } from './game/eventLog';
 import type { BoatInput, BoatState, ChallengeTier, CourseGuidanceStatus, CourseSample, FlightRouteState } from './contracts';
 import { deriveAbilityHudState } from './core/abilityTelemetry';
@@ -140,6 +145,7 @@ app.appendChild(hudLayer);
 const capture = new CaptureService(stage.renderer.domElement);
 let medalCapture: Blob | null = null;
 let finaleCapture: Blob | null = null;
+let finaleCaptureRecorded = false;
 const mobileInput = new MobileControls(app, () => {
   audio.resume();
   audio.startReadyMusic();
@@ -151,7 +157,7 @@ const hud = new HUD(
   records.data.bestFlights,
   resumeInterruption,
   stage.camera,
-  saveMedalCapture,
+  openMedalCapturePreview,
   disableDrivingCoach,
   dismissPcControlPrimer,
 );
@@ -175,7 +181,8 @@ const driverSelect = new DriverSelect(
   },
   toggleDrivingCoach,
 );
-const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, saveFinaleCapture);
+const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, openFinaleCapturePreview);
+const capturePreview = new CapturePreview(hudLayer, capture, handleCaptureOutcome);
 const expansionGallery = new ExpansionGallery(
   hudLayer,
   (index) => records.markExpansionSeen(index),
@@ -354,6 +361,7 @@ function toggleDrivingCoach(): void {
 
 function dismissPcControlPrimer(): void {
   pcControlPrimer.dismiss();
+  drivingCoach.dismissPcPrimer();
   pcPrimerPresentation = null;
   hud.showPcControlPrimer(null);
 }
@@ -425,9 +433,10 @@ function resumeInterruption(): void {
 
 function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
+  const coach = drivingCoach.progress;
   pcControlPrimer.arm(
-    records.data.runs === 0 && DESKTOP_DRIVER_STAGE.matches && !mobileInput.enabled &&
-      activeInputDevice === 'keyboard' && drivingCoach.progress.status === 'dormant',
+    !mobileInput.enabled && activeInputDevice === 'keyboard' && coach.status === 'dormant' &&
+      coach.automaticEligible && !coach.mastery.bankedCharge && !coach.knowledge.bankRule,
     boats[0].state,
   );
   pcPrimerPresentation = null;
@@ -486,33 +495,27 @@ function openExpansionGallery(): void {
   expansionGallery.show(0);
 }
 
-async function saveMedalCapture(): Promise<void> {
+function openMedalCapturePreview(): void {
   if (!medalCapture) return;
-  hud.setMedalCaptureReady(false, '保存中');
-  try {
-    const outcome = await capture.saveOrShare(medalCapture, `board-race-macho-${currentRun}.png`);
-    hud.setMedalCaptureReady(true, outcome === 'cancelled' ? '再次保存' : '已保存');
-    if (outcome !== 'cancelled') trackGameEvent('screenshot_saved', { kind: 'medal', run: currentRun });
-  } catch {
-    hud.setMedalCaptureReady(true, '再次保存');
-  }
+  capturePreview.show('medal', medalCapture, `board-race-macho-${currentRun}.png`);
 }
 
-async function saveFinaleCapture(): Promise<void> {
+function openFinaleCapturePreview(): void {
   if (!finaleCapture) return;
-  finale.setCaptureReady(false);
-  finale.setSaveLabel('保存中');
-  try {
-    const outcome = await capture.saveOrShare(finaleCapture, `board-race-final-${currentRun}.png`);
-    finale.setCaptureReady(true);
-    finale.setSaveLabel(outcome === 'cancelled' ? '再次保存' : '已保存');
-    if (outcome !== 'cancelled') {
-      records.recordFinaleScreenshot();
-      trackGameEvent('screenshot_saved', { kind: 'finale', run: currentRun });
-    }
-  } catch {
-    finale.setCaptureReady(true);
-    finale.setSaveLabel('再次保存');
+  capturePreview.show('finale', finaleCapture, `board-race-final-${currentRun}.png`);
+}
+
+function handleCaptureOutcome(
+  kind: CaptureKind,
+  action: CaptureExportAction,
+  outcome: CaptureExportOutcome,
+): void {
+  audio.resume();
+  if (outcome === 'cancelled' || outcome === 'unsupported' || outcome === 'failed') return;
+  trackGameEvent('screenshot_exported', { kind, run: currentRun, action, outcome });
+  if (kind === 'finale' && outcome !== 'share-opened' && !finaleCaptureRecorded) {
+    finaleCaptureRecorded = true;
+    records.recordFinaleScreenshot();
   }
 }
 
@@ -637,6 +640,7 @@ function resetRace(): void {
   finaleElapsed = 0;
   medalCapture = null;
   finaleCapture = null;
+  finaleCaptureRecorded = false;
   medalCapturePending = false;
   finaleCapturePending = false;
   course.resetFlightChallenge();
@@ -656,6 +660,7 @@ function resetRace(): void {
   pcPrimerPresentation = null;
   hud.showPcControlPrimer(null);
   finale.hide();
+  capturePreview.hide(false);
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
     boats[i].object.visible = true;
@@ -737,6 +742,14 @@ function step(dt: number, _t: number): void {
   const spaceConfirmPressed = race.phase === 'racing' ? false : input.consumePress('Space');
   const gamepadConfirm = gamepadInput.consumeConfirm();
   const coachDismissed = input.consumePress('Escape') || gamepadInput.consumeDismiss();
+
+  if (capturePreview.visible()) {
+    if (coachDismissed) capturePreview.hide();
+    input.clearTransient();
+    gamepadInput.clearTransient();
+    mobileInput.consumeAnyPress();
+    return;
+  }
 
   if (coachDismissed && pcControlPrimer.active && pcPrimerPresentation) dismissPcControlPrimer();
   else if (coachDismissed && drivingCoach.progress.status === 'active') disableDrivingCoach();
@@ -826,6 +839,16 @@ function step(dt: number, _t: number): void {
     }
     tower.update(dt, race);
     hud.update(dt, race, boats[0], boats);
+    if (!resuming) {
+      pcPrimerPresentation = pcControlPrimer.update(dt, {
+        state: boats[0].state,
+        racing: false,
+        guideActive: false,
+        keyboardActive: activeInputDevice === 'keyboard',
+        presentationBlocked: false,
+      });
+      hud.showPcControlPrimer(pcPrimerPresentation, pcPrimerPresentation !== null);
+    }
     pipeline.update(dt, worldTime, boats[0].state, race.phase);
     audio.update(dt);
     return;
@@ -1161,6 +1184,7 @@ function step(dt: number, _t: number): void {
         finaleElapsed = 0;
         finalePresentation = true;
         finaleCapture = null;
+        finaleCaptureRecorded = false;
         finaleCapturePending = true;
         retryLessonFrozenT = worldTime;
         input.reset();
@@ -1232,12 +1256,18 @@ function handleVisibility(hidden: boolean): void {
     stopInterruptionPadPoll();
     pageWasHidden = true;
     interruptionNeedsCountdown = race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown';
-    interruptionActive = race.phase !== 'ready';
+    interruptionActive = race.phase !== 'ready' && !capturePreview.visible();
     if (!HARNESS) loop.stop();
     return;
   }
   if (!pageWasHidden) return;
   pageWasHidden = false;
+  if (capturePreview.visible()) {
+    interruptionActive = false;
+    audio.resume();
+    if (!HARNESS) loop.start();
+    return;
+  }
   if (race.phase === 'ready') {
     if (!HARNESS) loop.start();
     return;
@@ -1288,6 +1318,7 @@ interface Harness {
   coachState(): Record<string, unknown>;
   pcPrimerState(): Record<string, unknown>;
   pcPrimerCase(): Record<string, unknown>;
+  openCapturePreview(kind: CaptureKind): Promise<Record<string, unknown>>;
   playerState(): Record<string, number | string | boolean | null>;
   stats(): Record<string, number | string>;
   guidance(): CourseGuidanceStatus;
@@ -3459,6 +3490,19 @@ if (HARNESS) {
       activeInputDevice,
     }),
     pcPrimerCase: harnessPcPrimerCase,
+    openCapturePreview: async (kind) => {
+      stage.renderer.info.reset();
+      pipeline.render();
+      const blob = await capture.create({
+        kind,
+        title: kind === 'medal' ? '猛男' : '七飞认证',
+        kicker: kind === 'medal' ? '三飞达成' : 'FINAL STATION',
+        lines: ['导出合同', 'PNG PREVIEW'],
+      });
+      const signature = Array.from(new Uint8Array(await blob.slice(0, 8).arrayBuffer()));
+      capturePreview.show(kind, blob, `board-race-${kind}-contract.png`);
+      return { type: blob.type, size: blob.size, signature };
+    },
     playerState: () => {
       const s = boats[0].state;
       const handling = boats[0].debugDriverHandling();

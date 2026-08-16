@@ -2756,7 +2756,7 @@
 /* First-run keyboard legend and the desktop coach's real Shift anchor. */
 .hud-pc-primer { display: none; }
 
-@media (pointer: fine) and (min-width: 1366px) and (min-height: 768px) {
+@media (pointer: fine) {
   .hud-pc-primer {
     --primer-color: var(--boost);
     position: absolute;
@@ -2847,6 +2847,11 @@
   .hud.results-on .hud-pc-primer,
   .hud.medal-on .hud-pc-primer,
   .hud.interrupted .hud-pc-primer { display: none; }
+  .hud.primer-meter .hud-driver-power.on {
+    opacity: 1;
+    filter: drop-shadow(0 0 7px rgba(255, 207, 74, .7));
+  }
+  .hud.primer-meter .hud-driver-rail-left.on { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

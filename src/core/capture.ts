@@ -9,6 +9,32 @@ export interface CaptureCard {
   overlayCanvas?: HTMLCanvasElement;
 }
 
+export type CaptureExportAction = 'save' | 'download' | 'copy' | 'share';
+export type CaptureExportOutcome =
+  | 'saved'
+  | 'downloaded'
+  | 'copied'
+  | 'share-opened'
+  | 'cancelled'
+  | 'unsupported'
+  | 'failed';
+
+interface WritableFileLike {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface FileHandleLike {
+  createWritable(): Promise<WritableFileLike>;
+}
+
+interface SavePickerWindow extends Window {
+  showSaveFilePicker?: (options: {
+    suggestedName: string;
+    types: Array<{ description: string; accept: Record<string, string[]> }>;
+  }) => Promise<FileHandleLike>;
+}
+
 export class CaptureService {
   private readonly medal = new Image();
 
@@ -76,24 +102,76 @@ export class CaptureService {
     });
   }
 
-  async saveOrShare(blob: Blob, filename: string): Promise<'shared' | 'downloaded' | 'cancelled'> {
-    const file = new File([blob], filename, { type: 'image/png' });
-    const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean };
-    if (nav.share && nav.canShare?.({ files: [file] })) {
-      try {
-        await nav.share({ files: [file], title: 'Board Race' });
-        return 'shared';
-      } catch (error) {
-        if ((error as DOMException).name !== 'AbortError') throw error;
-        return 'cancelled';
-      }
+  supports(action: CaptureExportAction, blob?: Blob, filename = 'board-race.png'): boolean {
+    if (action === 'save') return typeof (window as SavePickerWindow).showSaveFilePicker === 'function';
+    if (action === 'download') return true;
+    if (action === 'copy') {
+      const clipboard = (navigator as unknown as { clipboard?: { write?: unknown } }).clipboard;
+      return typeof clipboard?.write === 'function' && typeof ClipboardItem !== 'undefined';
     }
+    const nav = navigator as unknown as {
+      share?: (data: ShareData) => Promise<void>;
+      canShare?: (data: ShareData) => boolean;
+    };
+    if (!blob) return typeof nav.share === 'function';
+    const file = new File([blob], filename, { type: 'image/png' });
+    return typeof nav.share === 'function' && nav.canShare?.({ files: [file] }) === true;
+  }
+
+  async export(action: CaptureExportAction, blob: Blob, filename: string): Promise<CaptureExportOutcome> {
+    if (action === 'save') return this.save(blob, filename);
+    if (action === 'download') return this.download(blob, filename);
+    if (action === 'copy') return this.copy(blob);
+    return this.share(blob, filename);
+  }
+
+  private async save(blob: Blob, filename: string): Promise<CaptureExportOutcome> {
+    const picker = (window as SavePickerWindow).showSaveFilePicker;
+    if (!picker) return this.download(blob, filename);
+    try {
+      const handle = await picker({
+        suggestedName: filename,
+        types: [{ description: 'PNG 图片', accept: { 'image/png': ['.png'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return 'saved';
+    } catch (error) {
+      if ((error as DOMException).name === 'AbortError') return 'cancelled';
+      return this.download(blob, filename);
+    }
+  }
+
+  private async download(blob: Blob, filename: string): Promise<CaptureExportOutcome> {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
     link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
     return 'downloaded';
+  }
+
+  private async copy(blob: Blob): Promise<CaptureExportOutcome> {
+    if (!this.supports('copy')) return 'unsupported';
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return 'copied';
+  }
+
+  private async share(blob: Blob, filename: string): Promise<CaptureExportOutcome> {
+    if (!this.supports('share', blob, filename)) return 'unsupported';
+    const file = new File([blob], filename, { type: 'image/png' });
+    const nav = navigator as unknown as { share: (data: ShareData) => Promise<void> };
+    try {
+      await nav.share({ files: [file], title: 'Board Race' });
+      return 'share-opened';
+    } catch (error) {
+      if ((error as DOMException).name === 'AbortError') return 'cancelled';
+      throw error;
+    }
   }
 }

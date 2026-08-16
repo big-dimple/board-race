@@ -629,6 +629,17 @@ async function verifyFlightContract(page) {
   assert.equal(await page.locator('.hud-countdown-light.on').count(), 3,
     'the countdown must begin with all three remaining lights on');
   assert.equal(await page.locator('.hud-countdown-label').textContent(), '3');
+  const countdownPrimer = await page.evaluate(() => ({
+    primer:window.__harness.pcPrimerState(),
+    title:document.querySelector('.hud-pc-primer-title')?.textContent ?? '',
+    detail:document.querySelector('.hud-pc-primer-detail')?.textContent ?? '',
+  }));
+  assert.equal(countdownPrimer.primer.presentationStep, 'drift',
+    `the first gameplay instruction must be visible during 3-2-1: ${JSON.stringify(countdownPrimer)}`);
+  assert.match(`${countdownPrimer.title} ${countdownPrimer.detail}`, /SHIFT.*黄线.*松开.*1 格/,
+    'the first instruction must teach the complete Shift -> yellow line -> release -> one stock rule');
+  assert.doesNotMatch(`${countdownPrimer.title} ${countdownPrimer.detail}`, /SPACE/,
+    'Space must not be taught before a flight stock exists');
   await page.evaluate(() => window.__harness.advance(4.3));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'racing');
@@ -668,8 +679,9 @@ async function verifyFlightContract(page) {
   assert.equal(await page.locator('.hud-coach.on').count(), 0,
     'the first-run primer must remain non-modal and must not arm the failure coach');
   for (const viewport of [
-    { width:1366, height:768 },
-    { width:1920, height:1080 },
+    { width:1366, height:650 },
+    { width:1536, height:700 },
+    { width:1920, height:900 },
     { width:2560, height:1440 },
     { width:3440, height:1440 },
   ]) {
@@ -705,9 +717,18 @@ async function verifyFlightContract(page) {
   const dismissedPrimer = await page.evaluate(() => window.__harness.pcPrimerState());
   assert.equal(dismissedPrimer.step, 'dismissed', 'the first-run hint must be dismissible immediately');
   assert.equal(dismissedPrimer.visible, false);
+  const dismissedCoach = await page.evaluate(() => window.__harness.coachState());
+  assert.equal(dismissedCoach.mastery.bankedCharge, false,
+    'closing the legend must never claim that a real charge was banked');
+  assert.equal(dismissedCoach.knowledge.bankRule, true,
+    'closing the legend must persist its acknowledgement');
+  assert.equal(dismissedCoach.automaticEligible, true,
+    'closing the lightweight legend must not disable the first-failure coach');
 
   await page.evaluate(() => window.__harness.scenario('countdown'));
   state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(await page.locator('.hud-pc-primer.on').count(), 0,
+    'a deliberately dismissed primer must not revive on the next fresh countdown');
   assert.equal(state.place, 4, 'player must start fourth');
   assert.equal(state.totalRacers, 6, 'the challenge must field six racers');
   assert.equal(await page.locator('.hud-countdown-light').count(), 3);
