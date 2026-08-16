@@ -44,6 +44,8 @@ const SCENARIOS = {
   'opponent-drift': { scenario: 'opponent-drift', freeCamDynamic: { back: 6.5, up: 1.8, lookUp: 0.55, target: 'opponent' } },
   'boost-burst': { scenario: 'boost-burst', freeCamDynamic: { back: 8.5, up: 2.3, lookUp: 0.55 } },
   'flight-ready': { scenario: 'flight-ready' },
+  'flight-prompt': { scenario: 'flight-prompt', settleMs: 180 },
+  'radio-technique': { scenario: 'radio-technique', settleMs: 900 },
   interrupted: { scenario: 'interrupted' },
   'flight-rule': { scenario: 'flight-rule' },
   'flight-spool': { scenario: 'flight-spool', freeCamDynamic: { back: 7, up: 1.45, lookUp: 0.3 } },
@@ -300,6 +302,12 @@ async function verifySurfaceGuideVisualContract(page) {
       let onSum = 0;
       let offSq = 0;
       let onSq = 0;
+      let softCount = 0;
+      let softDeltaSum = 0;
+      let softOffSum = 0;
+      let softOnSum = 0;
+      let softOffSq = 0;
+      let softOnSq = 0;
       const deltas = [];
       for (let i = 0; i < on.length; i += 4) {
         const delta = Math.abs(on[i] - off[i]) + Math.abs(on[i + 1] - off[i + 1]) +
@@ -315,6 +323,17 @@ async function verifySurfaceGuideVisualContract(page) {
           onSum += onLuma;
           offSq += offLuma * offLuma;
           onSq += onLuma * onLuma;
+          // The same mesh intentionally contains a high-contrast navigation
+          // spine. Keep the broad water veil's translucency contract separate
+          // from that readable centerline instead of averaging both away.
+          if (delta <= 100) {
+            softCount++;
+            softDeltaSum += delta;
+            softOffSum += offLuma;
+            softOnSum += onLuma;
+            softOffSq += offLuma * offLuma;
+            softOnSq += onLuma * onLuma;
+          }
         }
       }
       deltas.sort((a, b) => a - b);
@@ -324,11 +343,21 @@ async function verifySurfaceGuideVisualContract(page) {
       const onVariance = includeVariance && changed > 0
         ? onSq / changed - (onSum / changed) ** 2
         : 0;
+      const softOffVariance = includeVariance && softCount > 0
+        ? softOffSq / softCount - (softOffSum / softCount) ** 2
+        : 0;
+      const softOnVariance = includeVariance && softCount > 0
+        ? softOnSq / softCount - (softOnSum / softCount) ** 2
+        : 0;
       return {
         changed,
         meanDelta: deltaSum / Math.max(1, changed),
+        p90Delta: deltas[Math.floor(deltas.length * 0.9)] ?? 0,
         p95Delta: deltas[Math.floor(deltas.length * 0.95)] ?? 0,
         varianceRetention: includeVariance ? onVariance / Math.max(1, offVariance) : 0,
+        softShare: softCount / Math.max(1, changed),
+        softMeanDelta: softDeltaSum / Math.max(1, softCount),
+        softVarianceRetention: includeVariance ? softOnVariance / Math.max(1, softOffVariance) : 0,
       };
     };
     return {
@@ -341,10 +370,12 @@ async function verifySurfaceGuideVisualContract(page) {
     `the water veil must be visible in a real rendered frame: ${JSON.stringify(pixels.veil)}`);
   assert.ok(pixels.veil.meanDelta >= 27,
     `the water route must remain immediately findable against the ocean: ${JSON.stringify(pixels.veil)}`);
-  assert.ok(pixels.veil.meanDelta < 55 && pixels.veil.p95Delta < 125,
-    `the water veil must remain translucent rather than repainting the ocean: ${JSON.stringify(pixels.veil)}`);
-  assert.ok(pixels.veil.varianceRetention >= 0.72,
-    `ocean bands must remain legible through the guide: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.softShare >= 0.72 && pixels.veil.softMeanDelta >= 30 && pixels.veil.softMeanDelta < 55,
+    `most guide pixels must remain a translucent water veil: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.softVarianceRetention >= 0.68,
+    `ocean bands must remain legible through the translucent part of the guide: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.p90Delta >= 90 && pixels.veil.p95Delta < 185,
+    `the center navigation spine must be readable without becoming a solid slab: ${JSON.stringify(pixels.veil)}`);
   assert.ok(pixels.arrows.changed > 200,
     `open-chevron geometry must produce visible pixels in the driving view: ${JSON.stringify(pixels.arrows)}`);
 
@@ -636,7 +667,7 @@ async function verifyFlightContract(page) {
   }));
   assert.equal(countdownPrimer.primer.presentationStep, 'drift',
     `the first gameplay instruction must be visible during 3-2-1: ${JSON.stringify(countdownPrimer)}`);
-  assert.match(`${countdownPrimer.title} ${countdownPrimer.detail}`, /SHIFT.*黄线.*松开.*1 格/,
+  assert.match(`${countdownPrimer.title} ${countdownPrimer.detail}`, /SHIFT.*黄线.*松开.*飞行/,
     'the first instruction must teach the complete Shift -> yellow line -> release -> one stock rule');
   assert.doesNotMatch(`${countdownPrimer.title} ${countdownPrimer.detail}`, /SPACE/,
     'Space must not be taught before a flight stock exists');
@@ -671,10 +702,10 @@ async function verifyFlightContract(page) {
   assert.equal(primer.state.visible, true);
   assert.equal(primer.role, 'note');
   assert.equal(primer.key, 'SHIFT');
-  assert.match(`${primer.title} ${primer.label}`, /SHIFT.*漂移/,
-    'the first keyboard hint must make Shift drift explicit');
+  assert.match(`${primer.title} ${primer.label}`, /SHIFT.*不放/,
+    'the first keyboard hint must make the physical hold explicit');
   assert.equal(primer.pointerEvents, 'none', 'the primer body must never intercept driving input');
-  assert.ok(primer.rect.left >= 0 && primer.rect.right < 430 && primer.rect.bottom <= 900,
+  assert.ok(primer.rect.left >= 0 && primer.rect.right < 480 && primer.rect.bottom <= 900,
     `the keyboard primer must stay in the quiet lower-left lane: ${JSON.stringify(primer)}`);
   assert.equal(await page.locator('.hud-coach.on').count(), 0,
     'the first-run primer must remain non-modal and must not arm the failure coach');
@@ -709,9 +740,15 @@ async function verifyFlightContract(page) {
   await page.emulateMedia({ reducedMotion:'no-preference' });
   const primerSequence = await page.evaluate(() => window.__harness.pcPrimerCase());
   assert.deepEqual(primerSequence.steps,
-    ['drift', 'charging', 'release', 'banked', 'waiting-launch', 'launch', 'success', 'off'],
+    ['drift', 'charging', 'release', 'banked', 'banked', 'waiting-launch', 'launch', 'success', 'off'],
     `primer progress must follow accepted bank and launch state edges: ${JSON.stringify(primerSequence)}`);
   assert.equal(primerSequence.active, false);
+  assert.equal(primerSequence.comboStep, 'success',
+    'same-frame Shift release + Space launch must use accepted spool state, not the net inventory count');
+  assert.equal(primerSequence.coachComboLaunched, true,
+    'the contextual coach must learn the same accepted combo launch without requiring a net inventory drop');
+  assert.equal(primerSequence.coachLaunchStep, 'launch',
+    'the contextual coach must teach SPACE at the authored launch cue, before the branch is already airborne');
   await page.locator('.hud-pc-primer-close').click();
   await page.evaluate(() => window.__harness.advance(1 / 30));
   const dismissedPrimer = await page.evaluate(() => window.__harness.pcPrimerState());
@@ -954,6 +991,9 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightFailureTargetGateRaw, null);
   assert.equal(state.challengeGate, 0);
 
+  await page.evaluate(() => window.__harness.scenario('flight-stock-away'));
+  assert.equal(await page.locator('.hud-flight-prompt.on').count(), 0,
+    'banking a stock away from a launch cue must not flash an upper-right SPACE prompt');
   await page.evaluate(() => window.__harness.scenario('flight-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightReady, true, 'a qualifying Shift release must earn a flight charge');
@@ -984,6 +1024,12 @@ async function verifyFlightContract(page) {
     });
   });
   assert.deepEqual(promptOverlaps, [], `flight prompt overlap: ${promptOverlaps.join(', ')}`);
+  await page.evaluate(() => window.__harness.advance(2.2));
+  assert.equal(await page.locator('.hud-flight-prompt.on').count(), 0,
+    'one launch cue may create only one bounded SPACE presentation');
+  await page.evaluate(() => window.__harness.advance(0.35));
+  assert.equal(await page.locator('.hud-flight-prompt.on').count(), 0,
+    'the same still-actionable launch cue must not restart the prompt after its reading window');
 
   await page.evaluate(() => window.__harness.scenario('drift-charge'));
   const driftAudio = await page.evaluate(() => window.__harness.audioState());
@@ -1085,6 +1131,8 @@ async function verifyFlightContract(page) {
   assert.equal(state.flightCharges, 1);
   assert.equal(state.flightExtensionReady, true);
   assert.equal(state.flightExtensionUsed, false);
+  assert.equal(await page.locator('.hud-flight-prompt.on').count(), 1,
+    'the first actionable extension window must own exactly one SPACE prompt');
   assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /SPACE.*续航.*\+2\.4/,
     'desktop HUD must make the airborne use of the spare cell explicit');
   const remainingBeforeExtension = state.flightRemaining;
@@ -3008,6 +3056,31 @@ async function verifyMobileControls(page) {
   await page.waitForTimeout(120);
   assert.equal(await page.locator('.mobile-orientation').isVisible(), false, 'rotating back must dismiss the blocker');
   assert.equal(await page.locator('[data-mobile-action="flight"]').isVisible(), true, 'landscape controls must recover after rotation');
+
+  await page.evaluate(() => window.__harness.scenario('radio-technique'));
+  const mobileBroadcast = await page.evaluate(() => {
+    const radio = document.querySelector('.race-radio.broadcast.on')?.getBoundingClientRect();
+    const controls = [...document.querySelectorAll('[data-mobile-action]')].map((node) => ({
+      name:node.dataset.mobileAction,
+      rect:node.getBoundingClientRect(),
+    }));
+    const collisions = radio ? controls.flatMap(({ name, rect }) => {
+      const width = Math.min(radio.right, rect.right) - Math.max(radio.left, rect.left);
+      const height = Math.min(radio.bottom, rect.bottom) - Math.max(radio.top, rect.top);
+      return width > 1 && height > 1 ? [`${name}:${width.toFixed(1)}x${height.toFixed(1)}`] : [];
+    }) : ['missing'];
+    return {
+      rect:radio && { left:radio.left, right:radio.right, top:radio.top, bottom:radio.bottom },
+      collisions,
+      text:document.querySelector('.race-radio-body')?.textContent ?? '',
+    };
+  });
+  assert.ok(mobileBroadcast.rect && mobileBroadcast.rect.left >= 0 && mobileBroadcast.rect.right <= 844 &&
+    mobileBroadcast.rect.top >= 0 && mobileBroadcast.rect.bottom <= 390,
+  `mobile technique radio must remain inside the landscape viewport: ${JSON.stringify(mobileBroadcast)}`);
+  assert.deepEqual(mobileBroadcast.collisions, [],
+    `mobile technique radio must not cover any touch target: ${JSON.stringify(mobileBroadcast)}`);
+  assert.match(mobileBroadcast.text, /边飞边刹.*转向.*咬得住/);
 
   const mobileFinal = await page.evaluate(() => window.__harness.finalApproachCase());
   assert.ok(mobileFinal.maxBrakeEnvelope >= 0.9,

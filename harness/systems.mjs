@@ -76,11 +76,29 @@ async function verifyPcPrimerPersistence(browser) {
   assert.equal(first.state.presentationStep, 'drift',
     `an incomplete run must not suppress the next Shift lesson: ${JSON.stringify(first)}`);
   assert.equal(first.visible, true, 'the primer must fit a real 1366px laptop content viewport');
-  assert.match(first.title ?? '', /SHIFT.*漂移蓄能/);
+  assert.match(first.title ?? '', /SHIFT.*不放/);
+  await page.evaluate(() => {
+    window.__harness.scenario('flight-stock-away');
+    window.__harness.scenario('countdown');
+    window.__harness.advance(1 / 60);
+  });
+  const afterBankOnly = await page.evaluate(() => ({
+    state:window.__harness.pcPrimerState(),
+    coach:window.__harness.coachState(),
+    visible:document.querySelector('.hud-pc-primer')?.classList.contains('on'),
+  }));
+  assert.equal(afterBankOnly.coach.mastery.bankedCharge, true,
+    `a real yellow-line release must still record action mastery: ${JSON.stringify(afterBankOnly)}`);
+  assert.equal(afterBankOnly.coach.knowledge.bankRule, false,
+    'banking without passing flight one must not silently acknowledge the whole primer');
+  assert.equal(afterBankOnly.state.presentationStep, 'drift');
+  assert.equal(afterBankOnly.visible, true,
+    'the primer must return on the next fresh run until flight one is actually passed');
   await page.locator('.hud-pc-primer-close').click();
   await page.evaluate(() => window.__harness.advance(1 / 60));
   let coach = await page.evaluate(() => window.__harness.coachState());
-  assert.equal(coach.mastery.bankedCharge, false);
+  assert.equal(coach.mastery.bankedCharge, true,
+    'dismissing after a real bank must preserve the accepted mastery edge');
   assert.equal(coach.knowledge.bankRule, true);
   assert.equal(coach.automaticEligible, true);
   await page.reload({ waitUntil:'load', timeout:60000 });
@@ -92,9 +110,45 @@ async function verifyPcPrimerPersistence(browser) {
   coach = await page.evaluate(() => window.__harness.coachState());
   assert.equal(await page.locator('.hud-pc-primer.on').count(), 0,
     'an explicitly dismissed legend must stay dismissed after reload');
-  assert.equal(coach.mastery.bankedCharge, false);
+  assert.equal(coach.mastery.bankedCharge, true);
   assert.equal(coach.automaticEligible, true);
   await context.close();
+
+  const passContext = await browser.newContext({ viewport: { width:1366, height:768 } });
+  const passPage = await passContext.newPage();
+  await load(passPage);
+  await passPage.evaluate(() => localStorage.clear());
+  await passPage.reload({ waitUntil:'load', timeout:60000 });
+  await passPage.waitForFunction(() => window.__harness?.ready);
+  await passPage.evaluate(() => {
+    window.__harness.scenario('flight-ready');
+    window.__harness.advance(1.9);
+  });
+  const atFirstLaunch = await passPage.evaluate(() => ({
+    primer:window.__harness.pcPrimerState(),
+    title:document.querySelector('.hud-pc-primer-title')?.textContent ?? '',
+    ordinaryPrompt:document.querySelectorAll('.hud-flight-prompt.on').length,
+  }));
+  assert.equal(atFirstLaunch.primer.presentationStep, 'launch',
+    `the live launch cue must advance the primer before takeoff: ${JSON.stringify(atFirstLaunch)}`);
+  assert.match(atFirstLaunch.title, /SPACE.*起飞/);
+  assert.equal(atFirstLaunch.ordinaryPrompt, 0,
+    'the first-flight primer must remain the sole owner of the launch instruction');
+  await passPage.evaluate(() => {
+    window.__harness.passFlight(0);
+    window.__harness.scenario('countdown');
+    window.__harness.advance(1 / 60);
+  });
+  const afterFirstPass = await passPage.evaluate(() => ({
+    bestFlights:window.__harness.playerState().bestFlights,
+    primer:window.__harness.pcPrimerState(),
+  }));
+  assert.ok(afterFirstPass.bestFlights >= 1,
+    `the pass fixture must record a real first flight: ${JSON.stringify(afterFirstPass)}`);
+  assert.equal(afterFirstPass.primer.active, false,
+    'passing flight one must retire the fresh-run PC primer');
+  assert.equal(await passPage.locator('.hud-pc-primer.on').count(), 0);
+  await passContext.close();
 }
 
 async function verifyCaptureContract(browser, desktopPage) {
@@ -533,18 +587,16 @@ try {
 
   const rival = await recordsPage.evaluate(() => window.__harness.rivalCase());
   assert.equal(rival.rivalIds.length, 2, 'exactly two elite rivals may receive director pacing');
-  assert.ok(rival.chase.every((value) => value >= 1.044 && value <= 1.0451), `bounded chase: ${rival.chase}`);
-  assert.ok(rival.release.every((value) => value >= 0.9649 && value <= 0.966), `bounded release: ${rival.release}`);
+  assert.ok(rival.chase.every((value) => value >= 1.074 && value <= 1.076), `bounded early formation chase: ${rival.chase}`);
+  assert.ok(rival.release.every((value) => value >= 0.799 && value <= 0.801), `bounded real-input formation release: ${rival.release}`);
   assert.deepEqual(rival.duringLock, rival.beforeLock, 'battle hysteresis must prevent an instant pace reversal');
   assert.ok(rival.duringGrace.every((value) => Math.abs(value - 1) < 1e-6), `impact grace: ${rival.duringGrace}`);
-  assert.ok(rival.afterGrace.every((value) => value > 1 && value < 1.02), `pace must ramp after grace: ${rival.afterGrace}`);
+  assert.ok(rival.afterGrace.every((value) => value > 1 && value <= 1.0751), `pace must ramp after grace: ${rival.afterGrace}`);
   assert.equal(rival.nonRivalPace, 1, 'non-elite racers must keep authored pace');
   assert.ok(rival.techniqueChase[0] > 0.9,
     `the primary rival must arm a real technique attempt after the player opens a flight gap: ${rival.techniqueChase}`);
-  assert.ok(rival.techniqueChase.slice(1).every((value) => value === 0 || value <= 0.63),
-    `at most one secondary rival may receive a bounded technique opportunity: ${rival.techniqueChase}`);
-  assert.ok(rival.techniqueRelease.every((value) => value < 0.02),
-    `technique pressure must release after the rival closes to the player: ${rival.techniqueRelease}`);
+  assert.ok(rival.techniqueChase[1] >= 0.81 && rival.techniqueChase[1] <= 0.83,
+    `the second protected rival must visibly chain real drift releases before flight two: ${rival.techniqueChase}`);
   assert.ok(rival.openingRuns.some((run) => run.id >= 0 && run.pressure > 0.8),
     `some seeded starts must create one opening contact opportunity: ${JSON.stringify(rival.openingRuns)}`);
   assert.ok(rival.openingRuns.some((run) => run.id < 0),
@@ -557,6 +609,23 @@ try {
     `the selected opponent must release exactly one accepted BOOST cycle: ${JSON.stringify(rival.pursuit)}`);
   assert.equal(rival.pursuit.sawBoost, true,
     `the catch attempt must come from the real boat BOOST state: ${JSON.stringify(rival.pursuit)}`);
+  const pass2 = rival.formation.passes.find((pass) => pass.flight === 2);
+  const pass3 = rival.formation.passes.find((pass) => pass.flight === 3);
+  assert.ok(pass2?.ahead >= 2, `two opponents must still be ahead at the player's second pass: ${JSON.stringify(rival.formation)}`);
+  assert.ok(pass3?.ahead >= 1, `one opponent must still be ahead at the player's third pass: ${JSON.stringify(rival.formation)}`);
+  assert.ok(rival.formation.boostCycles.every((cycles) => cycles >= 6),
+    `protected rivals must visibly chain accepted drift-release BOOST cycles: ${JSON.stringify(rival.formation)}`);
+  assert.ok(rival.formation.driftFrames.every((frames) => frames >= 120),
+    `protected rivals must spend readable time in the real drifting state: ${JSON.stringify(rival.formation)}`);
+  assert.ok(rival.formation.maxStep < 1.7,
+    `the continuous GO-to-third-flight benchmark must never teleport a rival: ${JSON.stringify(rival.formation)}`);
+  assert.equal(rival.formation.formationFlights, 3);
+  assert.deepEqual(rival.formation.paceAtThird, [1, 1],
+    'player-gap formation pacing must end on the exact third-pass frame');
+  assert.deepEqual(rival.formation.techniqueAtThird, [0, 0],
+    'dynamic technique pressure must end on the exact third-pass frame');
+  assert.ok(rival.formation.chainAfterThird[0] === 1 && rival.formation.chainAfterThird[1] > 0.8,
+    'fixed driver style may remain after flight three without reading the player gap');
 
   const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radio.blockedVisible, false,
@@ -565,12 +634,20 @@ try {
     'yielding must preserve a still-relevant technique line instead of dropping it');
   assert.equal(radio.first.visible, true);
   assert.match(radio.first.speaker, /SOL/);
-  assert.equal(radio.first.text, '最近摸到门道了：边飞边刹 + 转向，线路才咬得住。');
+  assert.equal(radio.first.text, '边飞边刹 + 转向，线路才咬得住');
   assert.equal(radio.first.emphasis, '边飞边刹 + 转向');
-  assert.ok(radio.first.fontSize >= 13,
-    `desktop driver radio must remain legible and less mechanical: ${JSON.stringify(radio.first)}`);
+  assert.equal(radio.first.presentation, 'broadcast');
+  assert.ok(radio.first.fontSize >= 32,
+    `the authored technique must be readable without staring at the race tower: ${JSON.stringify(radio.first)}`);
+  assert.match(radio.first.animationName, /race-radio-broadcast/);
+  assert.ok(radio.first.animationDuration >= 5.64,
+    `the slide-in, hold, and slide-out must have a real reading budget: ${JSON.stringify(radio.first)}`);
+  assert.ok(radio.first.width >= 640, `the desktop broadcast must own a readable center lane: ${JSON.stringify(radio.first)}`);
   assert.match(radio.first.ariaLabel, /SOL.*边飞边刹/);
-  assert.equal(radio.secondVisible, false, 'the same personality tip must not repeat in one page session');
+  assert.equal(radio.timerAfterPause, radio.timerBeforePause,
+    'hard gameplay presentations must pause the broadcast reading clock');
+  assert.equal(radio.sameRunQueued, 0, 'the technique broadcast may appear only once in one run');
+  assert.equal(radio.secondVisible, true, 'an unmastered technique may be taught again in a later run');
   assert.equal(radio.secondQueued, 0);
 
   await recordsPage.evaluate(() => window.__harness.scenario('ready'));

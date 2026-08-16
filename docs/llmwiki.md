@@ -226,21 +226,25 @@
 ### 首局 PC 键盘提示
 
 - 资格在 `startFreshCountdown()` 调用 `records.beginRun()` 之前判定，但绝不能使用
-  `records.data.runs` 猜玩家是否会漂移。当前条件是 fine-pointer 非 mobile、最近活动
-  输入为键盘、coach 仍为 `dormant + automaticEligible`，并且真实入库 mastery 与
-  `bankRule` knowledge 都未完成。它复用 v8 coach knowledge，不增加 schema 字段。
+  `records.data.runs` 猜玩家是否会漂移。当前条件是非 mobile、最近活动输入为键盘、
+  `bestFlights < 1` 且 `knowledge.bankRule=false`。它复用 v8 coach knowledge，不增加
+  schema 字段；单纯入库只写真实 mastery，不得替玩家确认已理解整条首飞因果。
 - fresh countdown 第一帧就显示左下角非模态字幕，让玩家在得到控制前读到
-  `按住 SHIFT 漂移蓄能`；不能先讲菱形或 Space。提示本体不截获驾驶输入，`Esc` 或
+  `按住 SHIFT 不放`；不能先讲菱形或 Space。提示本体不截获驾驶输入，`Esc` 或
   可见关闭按钮持久写入 `knowledge.bankRule=true`，但必须保留
-  `mastery.bankedCharge=false` 和 `automaticEligible=true`，不能顺带关闭首败 coach。
+  `mastery.bankedCharge` 的真实原值（未入库时仍为 false）与 `automaticEligible=true`，
+  不能伪造动作掌握，也不能顺带关闭首败 coach。
 - 进度只认 `BoatState` 成功边沿：`driftReleaseReady` 后才提示松开；随后真实
-  `flightCharges` 上升才确认入库；有库存且青色分支展开才提示 Space；
-  `surface -> spool` 且库存下降才算起飞成功并收起。只按过 Shift 不算完成。
+  `flightCharges` 上升才确认入库并至少停留 `1.8s`；有库存且
+  `CourseGuidanceStatus.actionCue==='launch'` 才提示 Space；真实 `surface -> spool`
+  就算起飞成功，包括松 Shift + 按 Space 同 fixed-step 后库存净值仍为 0 的组合动作。
+  只按过 Shift 不算完成。
 - 入库确认必须明确“黄线后松开 = 入库”，不能暗示漂移时长决定飞行时长。
   Space 未可用时不提前催按，也不能缓冲起飞。
-- 实际手柄输入会隐藏键盘字幕；返回键盘可继续当前动作。真正入库或主动关闭后，
-  retry / reload 不再重复基础字幕；未完成也未关闭的 novice 可以在后续 fresh countdown
-  再看到。失败、勋章、结果和完整 coach 接管时立即停止。移动端 DOM 可以存在，但
+- 普通右上角 flight prompt 与首飞 console 是两个互斥 owner：前者只在真实 launch cue
+  与库存同时有效时消费一次 token，extension window 另有一次 token；库存上升本身不能
+  触发。实际手柄输入会隐藏键盘字幕；返回键盘可继续当前动作。只有首飞真实通过或
+  主动关闭后，retry / reload 才不再重复基础字幕。失败、勋章、结果和完整 coach 接管时立即停止。移动端 DOM 可以存在，但
   JS 与 CSS 都必须保持不可见。
 - 纯观察状态机在 `src/game/pcControlPrimer.ts`。桌面锚点在 `src/hud/hud.ts/.css`；
   首败 coach 的键盘漂移步骤复用同一锚点，不再聚光卡片内部的自指假键帽。
@@ -270,7 +274,7 @@
 | 自动油门 / 转向 | 确实没有有效转向时 | 有速度时产生显著 steer |
 | 漂移到黄线并松开 | 未成功入库且库存未满 | 先达到 `driftReleaseReady`，随后库存上升 |
 | 黄线、库存与固定飞行规则 | 第一次真实入库后的短反馈 | 反馈被安排后写入 knowledge；不是按过 Shift |
-| 起飞并跟青线穿门 | 有库存且当前分支展开 | surface -> spool 且库存下降；route passed |
+| 起飞并跟青线穿门 | 有库存且当前分支展开 | `surface -> spool`；route passed。组合动作不依赖库存净下降 |
 | 急弯空刹 | 第二飞以后进入真实急弯警告 | 警告中空刹介入并转向，随后过门 |
 | 备用格续航 | 真实出现可续航窗口时 | `flightExtended` 成功脉冲 |
 
@@ -410,7 +414,9 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
   青色、仍保持 authored 空中高度。通用
   `flight-recovery-air/surface` 继续覆盖其它路线和紧凑横屏。
 - 整圈绿色水面主线采用随浪薄雾 + 导航脊：base alpha 约 `.17`、峰值不超过 `.58`，
-  像素合同仍须保留海面色带方差。前方只保留 15-17 枚带墨边的流动开放尖角；第三门
+  像素合同必须分开测柔和水幕与高对比中央主脊：大多数低差值像素保留海面色带方差，
+  高分位差值则证明主脊肉眼可发现，不能再把两者平均后误判为“整片涂死”。前方只保留
+  15-17 枚带墨边的流动开放尖角；第三门
   后的真实 medal recovery 在落水前后都必须看到至少三枚放大的暖色转弯尖角。七个
   起飞入口都必须各有两只投影浮漂、三枚弧线上升菱形和三枚流动开放尖角；弧线平面
   长度保持约 20-26m，第二至第六飞各有两枚与 authored 方向一致的姿态尖角。至少分别
@@ -506,18 +512,23 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
 
 - 开局接触只是一种按 run seed 决定的偶发 pack pressure：最多一名相邻、非 clean 对手
   稍微收向玩家的 authored lane；避碰仍生效，不保证接触，也不修改碰撞物理。
-- 玩家完成至少一飞并拉开真实距离后，主 rival 才可收到 technique pressure；第二名只
-  在部分 run 出现且强度更低。它必须通过标准 `AIController -> BoatInput -> Boat.update`
-  按住漂移、达到真实 `driftReleaseReady`、松开得到 BOOST，再按既有飞行/空刹逻辑追赶。
-  禁止 teleport、位置插值、免碰撞、强制追上或超出既有 pace 上下限。玩家受撞与超车
-  窗口继续触发 grace / hysteresis，避免连续夹击。
+- 两名最强 rival 在开局承担短编队职责：玩家第二飞计分时至少两名对手仍在前方；随后
+  只保护第一名，玩家第三飞计分时至少一名仍在前方。目标差距只改变有界 AI pace
+  (`0.8..1.075`) 与 technique pressure，并且必须通过标准
+  `AIController -> BoatInput -> Boat.update` 按住漂移、达到真实
+  `driftReleaseReady`、松开得到 BOOST，再按既有飞行 / 空刹逻辑行驶。第三飞计分同一
+  fixed-step 调用 `releaseFormation()`，player-gap pace 与动态 technique pressure 精确归零；
+  两名角色固有的连漂风格可以保留，但不得再读取玩家差距。禁止 teleport、位置插值、
+  假 progress、免碰撞或玩家减速。玩家受撞与超车窗口继续触发 grace / hysteresis。
 - 电台是纯 `RadioDirector` 单槽仲裁，优先级为 `critical > tactical > flavor`；危险警告、
   键位引导、飞行提示和表现层冻结时暂停，不与它们争屏。每条消息有 run key、TTL、
   duration，可选 session key；不得用多个独立 timer 叠出一排 toast。
-- TEAM 用短、专业、可诊断的句子；碰撞只在有用强度下按左舷/右舷/艇尾解释。选手口吻
-  只偶发出现，粗口最多每页面会话一次，不能连续刷。SOL 技巧固定为
-  `最近摸到门道了：边飞边刹 + 转向，线路才咬得住。`，其中动作词放大/提色，但不加
-  彩色 emoji、不新增配音，也不把 radio 变成教程墙。
+- 第 `1/2/4/5/6` 飞和轻碰撞保持静默，不再播“艇况正常”等填充句。重碰只播有明确
+  对手人格的短句，每局最多两次且间隔至少 `8s`；粗口仍由 session key 限一次。
+  SOL 技巧固定为 `SOL // 最近摸到门道了` / `边飞边刹 + 转向，线路才咬得住`，未掌握
+  空刹时每局最多一次。桌面用约 `0.55s` 右侧滑入、`4.2s` 中心停留、`0.9s` 左侧退出
+  的 32px 半透明广播；移动端在左侧赛事槽放大呈现，出现时名次列表让位，绝不能盖住
+  任一触控热区。危险或教学遮挡期间 active timer 与 CSS animation 一起暂停。
 
 Final 自由接近与桌面选角舞台不改变 records 结构，不升 schema，也不触发存档迁移。
 

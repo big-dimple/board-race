@@ -14,6 +14,8 @@ export interface RadioNotice {
   speaker: RadioSpeaker;
   message: string;
   emphasis?: string;
+  meta?: string;
+  presentation?: 'compact' | 'broadcast';
   priority: RadioPriority;
   duration: number;
   ttl: number;

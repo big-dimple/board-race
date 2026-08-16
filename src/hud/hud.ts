@@ -124,9 +124,10 @@ export class HUD {
   private controlDevice: CoachInputDevice = 'keyboard';
   private controlLabels = { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
   private flightPromptHitTimer = 0;
-  private lastFlightExtensionReady = false;
+  private readonly shownFlightPromptTokens = new Set<string>();
   private readonly pcPrimerEl: HTMLDivElement;
   private readonly pcPrimerKey: HTMLDivElement;
+  private readonly pcPrimerMeter: HTMLDivElement;
   private readonly pcPrimerKicker: HTMLDivElement;
   private readonly pcPrimerTitle: HTMLDivElement;
   private readonly pcPrimerDetail: HTMLDivElement;
@@ -416,8 +417,12 @@ export class HUD {
     this.flightPromptRule = h('div', 'hud-flight-prompt-rule', promptCopy, '下一飞已就绪');
     this.pcPrimerEl = h('div', 'hud-pc-primer', this.root);
     this.pcPrimerEl.setAttribute('role', 'note');
-    this.pcPrimerKey = h('div', 'hud-pc-primer-key', this.pcPrimerEl, 'SHIFT');
+    const primerControl = h('div', 'hud-pc-primer-control', this.pcPrimerEl);
+    this.pcPrimerKey = h('div', 'hud-pc-primer-key', primerControl, 'SHIFT');
     this.pcPrimerKey.setAttribute('aria-hidden', 'true');
+    this.pcPrimerMeter = h('div', 'hud-pc-primer-meter', primerControl);
+    h('i', '', this.pcPrimerMeter);
+    h('b', '', this.pcPrimerMeter);
     const primerCopy = h('div', 'hud-pc-primer-copy', this.pcPrimerEl);
     this.pcPrimerKicker = h('div', 'hud-pc-primer-kicker', primerCopy, 'PC 漂移');
     this.pcPrimerTitle = h('div', 'hud-pc-primer-title', primerCopy, '按住 SHIFT 漂移');
@@ -693,23 +698,32 @@ export class HUD {
       this.lastFlightPips = flightPips;
       for (let i = 0; i < FLIGHT_PIPS; i++) this.flightPipEls[i].classList.toggle('on', i < flightPips);
     }
+    const routeGuidance = this.course.guidanceStatus();
     if (st.flightCharges !== this.lastFlightCharges) {
-      if (race.phase === 'racing' && st.flightCharges > this.lastFlightCharges) {
-        this.flightPromptHitTimer = 1.2;
-        this.flightPrompt.classList.remove('acquired');
-        void this.flightPrompt.offsetWidth;
-        this.flightPrompt.classList.add('acquired');
-      }
       this.lastFlightCharges = st.flightCharges;
       this.flightChargeCount.textContent = `x${st.flightCharges}`;
       for (let i = 0; i < this.flightTokens.length; i++) {
         this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
       }
     }
-    if (st.flightExtensionReady && !this.lastFlightExtensionReady) this.flightPromptHitTimer = 1.2;
+    const launchPromptToken = routeGuidance.actionCue === 'launch' && routeGuidance.actionRouteIndex >= 0 &&
+        !flightActive && st.flightCharges > 0
+      ? `launch:${st.flightRouteCursor}:${routeGuidance.actionRouteIndex}`
+      : '';
+    const extensionPromptToken = st.flightExtensionReady
+      ? `extend:${st.flightRouteCursor}:${st.flightsCleared}`
+      : '';
+    const newPromptToken = extensionPromptToken || launchPromptToken;
+    if (race.phase === 'racing' && newPromptToken && !this.shownFlightPromptTokens.has(newPromptToken)) {
+      this.shownFlightPromptTokens.add(newPromptToken);
+      this.flightPromptHitTimer = 2.15;
+      this.flightPrompt.classList.remove('acquired');
+      void this.flightPrompt.offsetWidth;
+      this.flightPrompt.classList.add('acquired');
+    }
     const availablePrompt: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
       ? 'extend'
-      : !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
+      : routeGuidance.actionCue === 'launch' && !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
     const promptMode: 'hidden' | 'launch' | 'extend' = this.primerOwnsFlight
       ? 'hidden'
       : this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
@@ -737,7 +751,6 @@ export class HUD {
       this.flightPromptHitTimer -= dt;
       if (this.flightPromptHitTimer <= 0) this.flightPrompt.classList.remove('acquired');
     }
-    this.lastFlightExtensionReady = st.flightExtensionReady;
     if (flightActive !== this.lastFlightActive) {
       this.lastFlightActive = flightActive;
       for (const token of this.flightTokens) token.classList.toggle('active', flightActive);
@@ -790,7 +803,6 @@ export class HUD {
       this.powerPanel.classList.remove('flight-alert');
     }
 
-    const routeGuidance = this.course.guidanceStatus();
     const authoredTurn = routeGuidance.actionCue === 'turn' ? routeGuidance.actionDirection : 'none';
     this.syncTurnWarningCopy(authoredTurn);
     if (race.phase === 'racing' && st.flightRouteState === 'active' && this.course.flightTurnWarning(player.id)) {
@@ -1129,9 +1141,20 @@ export class HUD {
     return this.flightPromptMode !== 'hidden';
   }
 
-  showPcControlPrimer(presentation: PcControlPrimerPresentation | null, dismissible = false): void {
+  beginFreshRunGuidance(): void {
+    this.flightPromptHitTimer = 0;
+    this.shownFlightPromptTokens.clear();
+    this.flightPromptMode = 'hidden';
+    this.flightPrompt.classList.remove('on', 'extend', 'acquired');
+  }
+
+  showPcControlPrimer(
+    presentation: PcControlPrimerPresentation | null,
+    dismissible = false,
+    ownsFlight = false,
+  ): void {
+    this.primerOwnsFlight = ownsFlight;
     if (!presentation) {
-      this.primerOwnsFlight = false;
       this.root.classList.remove('primer-meter');
       this.pcPrimerEl.classList.remove('on');
       this.pcPrimerEl.removeAttribute('data-step');
@@ -1144,11 +1167,10 @@ export class HUD {
     this.pcPrimerKicker.textContent = presentation.kicker;
     this.pcPrimerTitle.textContent = presentation.title;
     this.pcPrimerDetail.textContent = presentation.detail;
+    this.pcPrimerEl.style.setProperty('--primer-progress', String(Math.max(0, Math.min(1, presentation.progress))));
+    this.pcPrimerMeter.classList.toggle('ready', presentation.ready);
     this.pcPrimerEl.setAttribute('aria-label', `键盘操作：${presentation.title}。${presentation.detail}`);
     this.pcPrimerClose.hidden = !dismissible;
-    // A first-run keyboard sequence owns the complete SHIFT -> SPACE handoff.
-    // Never flash a second prompt in the opposite corner while it is active.
-    this.primerOwnsFlight = true;
     this.root.classList.toggle('primer-meter', presentation.step === 'charging' || presentation.step === 'release');
     this.pcPrimerEl.classList.add('on');
   }

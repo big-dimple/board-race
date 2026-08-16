@@ -54,7 +54,7 @@ export interface CoachPresentation {
 export interface CoachFrame {
   state: BoatState;
   input: BoatInput;
-  guideActive: boolean;
+  launchCueActive: boolean;
   turnWarning: boolean;
   presentationBlocked: boolean;
 }
@@ -231,8 +231,7 @@ export class DrivingCoach {
       this.reinforcementTimer = 3.8;
       dirty = true;
     }
-    if (!this.progress.mastery.launched && state.flightPhase === 'spool' && this.previousPhase === 'surface' &&
-        state.flightCharges < this.previousCharges) {
+    if (!this.progress.mastery.launched && state.flightPhase === 'spool' && this.previousPhase === 'surface') {
       this.progress.mastery.launched = true;
       dirty = true;
     }
@@ -307,7 +306,7 @@ export class DrivingCoach {
         detail: '备用格可留到下一飞 · 或在空中续航', tone: 'info',
       };
     }
-    if (this.progress.mastery.bankedCharge && !this.progress.knowledge.bankRule &&
+    if (this.progress.status === 'active' && this.progress.mastery.bankedCharge && !this.progress.knowledge.bankRule &&
         state.flightPhase === 'surface' && state.speed > 12) {
       this.progress.knowledge.bankRule = true;
       this.progress.knowledge.inventory = true;
@@ -345,7 +344,7 @@ export class DrivingCoach {
         detail: '船边左条会开始蓄力 · 黄线后才够 1 格', tone: 'surface',
       };
     }
-    if (!this.progress.mastery.launched && state.flightCharges > 0 && frame.guideActive && state.flightPhase === 'surface') {
+    if (!this.progress.mastery.launched && state.flightCharges > 0 && frame.launchCueActive && state.flightPhase === 'surface') {
       return {
         id: 'launch', focus: 'flight-control', stage: '起飞', control: controls.flight,
         kicker: '青色飞行分支已展开', title: `按 ${controls.flight} 起飞`,

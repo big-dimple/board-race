@@ -18,18 +18,21 @@ export interface PcControlPrimerPresentation {
   title: string;
   detail: string;
   tone: 'drift' | 'flight' | 'success' | 'warning';
+  /** Live BANK progress. Presentation only; the simulation remains authoritative. */
+  progress: number;
+  ready: boolean;
 }
 
 export interface PcControlPrimerFrame {
   state: BoatState;
   racing: boolean;
-  guideActive: boolean;
+  launchCueActive: boolean;
   keyboardActive: boolean;
   presentationBlocked: boolean;
 }
 
-const BANK_CONFIRM_S = 0.62;
-const LAUNCH_CONFIRM_S = 0.48;
+const BANK_CONFIRM_S = 1.8;
+const LAUNCH_CONFIRM_S = 0.9;
 
 /**
  * Presentation-only keyboard primer. Progress comes exclusively from
@@ -67,8 +70,7 @@ export class PcControlPrimer {
 
     if (frame.racing && state.driftReleaseReady) this.sawBankReady = true;
     const banked = frame.racing && state.flightCharges > this.previousCharges && this.sawBankReady;
-    const launched = frame.racing && this.previousPhase === 'surface' && state.flightPhase === 'spool' &&
-      state.flightCharges < this.previousCharges;
+    const launched = frame.racing && this.previousPhase === 'surface' && state.flightPhase === 'spool';
 
     if (launched) {
       this.current = 'success';
@@ -95,13 +97,14 @@ export class PcControlPrimer {
     }
 
     if (this.current === 'waiting-launch') {
-      if (frame.guideActive && state.flightPhase === 'surface' && state.flightCharges > 0) {
+      if (frame.launchCueActive && state.flightPhase === 'surface' && state.flightCharges > 0) {
         this.current = 'launch';
       } else {
         if (!frame.keyboardActive || frame.presentationBlocked) return null;
         return {
           step: 'waiting-launch', key: 'SPACE', kicker: '第二步 · 已有飞行库存',
-          title: '等青色升空向量亮起', detail: '保持线路 · 入口出现时按 SPACE', tone: 'flight',
+          title: '看到升空入口，按 SPACE', detail: '先稳住线路 · 菱形入口亮起时起飞', tone: 'flight',
+          progress: 1, ready: true,
         };
       }
     }
@@ -110,34 +113,40 @@ export class PcControlPrimer {
 
     if (this.current === 'banked') return {
       step: 'banked', key: '◇ +1', kicker: '飞行库存 +1',
-      title: '已存入 1 格飞行', detail: '青色入口出现时再按 SPACE', tone: 'success',
+      title: '已存入 1 格飞行', detail: '保持线路 · 看到升空入口再按 SPACE', tone: 'success',
+      progress: 1, ready: true,
     };
     if (this.current === 'launch') return {
       step: 'launch', key: 'SPACE', kicker: '青色入口出现',
       title: '按 SPACE 起飞', detail: '消耗 1 格 ◇ · 对准两杆中间', tone: 'flight',
+      progress: 1, ready: true,
     };
     if (this.current === 'success') return {
       step: 'success', key: '✓', kicker: 'FLIGHT ACCEPTED',
       title: '起飞成功', detail: '沿青线穿过两杆', tone: 'success',
+      progress: 1, ready: true,
     };
     if (state.driftReleaseReady) {
       this.current = 'release';
       return {
         step: 'release', key: 'SHIFT', kicker: '黄线 = 已够 1 格',
         title: '现在松开 SHIFT', detail: '松开才会存入飞行库存 ◇', tone: 'drift',
+        progress: state.driftBankProgress, ready: true,
       };
     }
     if (state.drifting) {
       this.current = 'charging';
       return {
         step: 'charging', key: 'SHIFT', kicker: '第一步 · 先存飞行',
-        title: '按住 SHIFT 到黄线', detail: '松开后才会存入 1 格飞行 ◇', tone: 'drift',
+        title: '继续按住 · 蓄到黄线', detail: '黄线亮起后再松开 · 存入 1 格 ◇', tone: 'drift',
+        progress: state.driftBankProgress, ready: false,
       };
     }
     this.current = 'drift';
     return {
       step: 'drift', key: 'SHIFT', kicker: '第一步 · 先存飞行',
-      title: '按住 SHIFT 漂移蓄能', detail: '船边左条到黄线就松开 · 存入 1 格 ◇', tone: 'drift',
+      title: '按住 SHIFT 不放', detail: '漂移蓄到黄线后松开 · 才能存入飞行 ◇', tone: 'drift',
+      progress: state.driftBankProgress, ready: false,
     };
   }
 

@@ -62,6 +62,9 @@ try {
     `collision feedback must use the impact lane: ${feedback.hapticLane}`);
   assert.equal(feedback.radioVisible, true, 'a player collision must reach the race-radio UI');
   assert.match(feedback.radioText, /接触|碰撞/, 'radio copy must explain the physical event');
+  assert.doesNotMatch(feedback.radioText, /艇况正常/, 'heavy contact must not fall back to mechanical status filler');
+  assert.equal(feedback.lightRadioVisible, false, 'light contact must stay out of the radio slot');
+  assert.equal(feedback.lightRadioQueued, 0, 'light contact must not queue delayed chatter');
   assert.equal(feedback.collisionFxBursts, 1,
     'same-frame player contacts must create one pooled world-space spray burst');
   assert.equal(feedback.cameraImpactLevel, 'standard');

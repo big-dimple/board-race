@@ -38,6 +38,7 @@ import {
 import { RecordsStore } from './game/records';
 import {
   DrivingCoach,
+  freshCoachProgress,
   type CoachInputDevice,
   type CoachControls,
   type CoachPresentation,
@@ -440,12 +441,13 @@ function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
   const coach = drivingCoach.progress;
   pcControlPrimer.arm(
-    !mobileInput.enabled && activeInputDevice === 'keyboard' && coach.status === 'dormant' &&
-      coach.automaticEligible && !coach.mastery.bankedCharge && !coach.knowledge.bankRule,
+    !mobileInput.enabled && activeInputDevice === 'keyboard' && records.data.bestFlights < 1 &&
+      !coach.knowledge.bankRule,
     boats[0].state,
   );
   pcPrimerPresentation = null;
-  hud.showPcControlPrimer(null);
+  hud.beginFreshRunGuidance();
+  hud.showPcControlPrimer(null, false, pcControlPrimer.active);
   currentRun = records.beginRun();
   rivalDirector.beginRun(currentRun);
   tower.resetRun(currentRun);
@@ -852,11 +854,11 @@ function step(dt: number, _t: number): void {
       pcPrimerPresentation = pcControlPrimer.update(dt, {
         state: boats[0].state,
         racing: false,
-        guideActive: false,
+        launchCueActive: false,
         keyboardActive: activeInputDevice === 'keyboard',
         presentationBlocked: false,
       });
-      hud.showPcControlPrimer(pcPrimerPresentation, pcPrimerPresentation !== null);
+      hud.showPcControlPrimer(pcPrimerPresentation, pcPrimerPresentation !== null, pcControlPrimer.active);
     }
     pipeline.update(dt, worldTime, boats[0].state, race.phase);
     audio.update(dt);
@@ -918,6 +920,7 @@ function step(dt: number, _t: number): void {
         rivalDirector.paceFor(i),
         rivalDirector.techniqueFor(i),
         rivalDirector.openingFor(i),
+        rivalDirector.chainFor(i),
       );
     }
     if (i === 0 && harnessForceAirBrake && boats[0].state.flightPhase !== 'surface') {
@@ -980,6 +983,7 @@ function step(dt: number, _t: number): void {
   let enteredMedal = false;
   if (playerPassedFlight && race.phase === 'racing') {
     const flights = boats[0].state.flightsCleared;
+    if (flights >= 3) rivalDirector.releaseFormation();
     const pass = records.recordFlightPass(flights, selectedDriverId);
     newBestThisRun ||= pass.newBest;
     hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
@@ -1074,7 +1078,7 @@ function step(dt: number, _t: number): void {
   coachPresentation = drivingCoach.update(dt, {
     state: playerState,
     input: HARNESS && harnessPlayerInput ? harnessPlayerInput : playerInput,
-    guideActive: course.guidanceStatus().activeRouteIndex >= 0,
+    launchCueActive: course.guidanceStatus().actionCue === 'launch',
     turnWarning,
     presentationBlocked: hud.coachPresentationBlocked() || turnWarning,
   }, controls);
@@ -1082,7 +1086,7 @@ function step(dt: number, _t: number): void {
   pcPrimerPresentation = pcControlPrimer.update(dt, {
     state: playerState,
     racing: race.phase === 'racing',
-    guideActive: course.guidanceStatus().activeRouteIndex >= 0,
+    launchCueActive: course.guidanceStatus().actionCue === 'launch',
     keyboardActive: activeInputDevice === 'keyboard',
     presentationBlocked: hud.coachPresentationBlocked() || turnWarning || coachPresentation !== null,
   });
@@ -1096,9 +1100,15 @@ function step(dt: number, _t: number): void {
         title: coachPresentation.title,
         detail: coachPresentation.detail,
         tone: coachPresentation.tone === 'warning' ? 'warning' as const : 'drift' as const,
+        progress: playerState.driftBankProgress,
+        ready: playerState.driftReleaseReady,
       }
     : null;
-  hud.showPcControlPrimer(coachPrimerPresentation ?? pcPrimerPresentation, pcPrimerPresentation !== null);
+  hud.showPcControlPrimer(
+    coachPrimerPresentation ?? pcPrimerPresentation,
+    pcPrimerPresentation !== null,
+    pcControlPrimer.active || coachPresentation?.focus === 'flight-control',
+  );
 
   // Landing feedback: camera shake + thud on slams, splash on soft landings.
   for (let i = 0; i < boats.length; i++) {
@@ -1435,11 +1445,11 @@ function harnessPcPrimerCase(): Record<string, unknown> {
     ...overrides,
   });
   const steps: string[] = [];
-  const run = (dt: number, current: BoatState, guideActive = false): void => {
+  const run = (dt: number, current: BoatState, launchCueActive = false): void => {
     const presentation = primer.update(dt, {
       state: current,
       racing: true,
-      guideActive,
+      launchCueActive,
       keyboardActive: true,
       presentationBlocked: false,
     });
@@ -1451,11 +1461,68 @@ function harnessPcPrimerCase(): Record<string, unknown> {
   run(1 / 60, state({ drifting: true }));
   run(1 / 60, state({ drifting: true, driftReleaseReady: true }));
   run(1 / 60, state({ flightCharges: 1 }));
-  run(0.7, state({ flightCharges: 1 }));
+  run(0.9, state({ flightCharges: 1 }));
+  run(0.95, state({ flightCharges: 1 }));
   run(1 / 60, state({ flightCharges: 1 }), true);
   run(1 / 60, state({ flightCharges: 0, flightPhase: 'spool' }), true);
-  run(0.5, state({ flightCharges: 0, flightPhase: 'spool' }), true);
-  return { steps, finalStep: primer.step, active: primer.active };
+  run(0.95, state({ flightCharges: 0, flightPhase: 'spool' }), true);
+  const comboPrimer = new PcControlPrimer();
+  comboPrimer.arm(true, initial);
+  comboPrimer.update(1 / 60, {
+    state: state({ drifting: true, driftReleaseReady: true }),
+    racing: true,
+    launchCueActive: true,
+    keyboardActive: true,
+    presentationBlocked: false,
+  });
+  const combo = comboPrimer.update(1 / 60, {
+    state: state({ flightCharges: 0, flightPhase: 'spool' }),
+    racing: true,
+    launchCueActive: true,
+    keyboardActive: true,
+    presentationBlocked: false,
+  });
+  const comboCoach = new DrivingCoach(freshCoachProgress('active', false), () => undefined);
+  comboCoach.resetRun(initial);
+  comboCoach.update(1 / 60, {
+    state: initial,
+    input: ZERO_INPUT,
+    launchCueActive: true,
+    turnWarning: false,
+    presentationBlocked: false,
+  }, { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
+  comboCoach.update(1 / 60, {
+    // A qualifying release and the accepted launch cancel out in inventory;
+    // the simulation phase edge remains the authoritative success signal.
+    state: state({ flightCharges: 0, flightPhase: 'spool' }),
+    input: { ...ZERO_INPUT, flightTrigger: true },
+    launchCueActive: true,
+    turnWarning: false,
+    presentationBlocked: false,
+  }, { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
+  const launchProgress = freshCoachProgress('active', false);
+  launchProgress.mastery.steered = true;
+  launchProgress.mastery.bankedCharge = true;
+  launchProgress.knowledge.bankRule = true;
+  launchProgress.knowledge.inventory = true;
+  const launchCoach = new DrivingCoach(launchProgress, () => undefined);
+  const launchReady = state({ flightCharges: 1 });
+  launchCoach.resetRun(launchReady);
+  const launchPresentation = launchCoach.update(1.5, {
+    state: launchReady,
+    input: ZERO_INPUT,
+    launchCueActive: true,
+    turnWarning: false,
+    presentationBlocked: false,
+  }, { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
+  return {
+    steps,
+    finalStep: primer.step,
+    active: primer.active,
+    comboStep: combo?.step ?? comboPrimer.step,
+    coachComboLaunched: comboCoach.progress.mastery.launched,
+    coachLaunchStep: launchPresentation?.id ?? 'none',
+  };
 }
 
 function tapHarnessFlight(throttle = 1): void {
@@ -1474,9 +1541,20 @@ function pulseHarnessFlightOverAi(): void {
 /** Earn through the real Space path; used to guard the core drift→flight contract. */
 function earnHarnessFlight(combo = false): void {
   setHarnessInput({ throttle: 1 });
-  advanceUntil(() => boats[0].state.speed >= 18, 5);
+  let elapsed = 0;
+  while (boats[0].state.speed < 18 && elapsed < 5) {
+    loop.advance(1 / 60);
+    elapsed += 1 / 60;
+  }
   setHarnessInput({ throttle: 1, drift: true });
-  loop.advance(0.62);
+  elapsed = 0;
+  while (!boats[0].state.driftReleaseReady && elapsed < 1.5) {
+    loop.advance(1 / 60);
+    elapsed += 1 / 60;
+  }
+  if (!boats[0].state.driftReleaseReady) {
+    throw new Error('Harness drift never reached the real bank threshold');
+  }
   setHarnessInput({ throttle: 1, flightTrigger: combo });
   loop.advance(1 / 60);
   setHarnessInput(null);
@@ -2888,6 +2966,13 @@ function runCollisionFeedbackCase(): Record<string, unknown> {
   const radio = document.querySelector<HTMLElement>('.race-radio');
   const afterAudioEvents = audio.audioEventLog();
   tower.update(1 / 60, race, false, false);
+  const heavyRadioVisible = radio?.classList.contains('on') ?? false;
+  const heavyRadioText = radio?.textContent?.trim() ?? '';
+  const heavyRadioPriority = tower.radioStatus().priority;
+  tower.resetRun(9901);
+  tower.update(1 / 60, race, false, false);
+  tower.announceCollision(roster[1], 5, 0.8);
+  tower.update(1 / 60, race, false, false);
   return {
     hits: hits.length,
     strength: hits[0]?.strength ?? 0,
@@ -2899,9 +2984,11 @@ function runCollisionFeedbackCase(): Record<string, unknown> {
     cameraImpactSide: cameraRig.collisionImpactStatus().side,
     cameraImpactRoll: cameraRig.collisionImpactStatus().roll,
     collisionFxBursts: harnessCollisionFxBursts,
-    radioVisible: radio?.classList.contains('on') ?? false,
-    radioText: radio?.textContent?.trim() ?? '',
-    radioPriority: tower.radioStatus().priority,
+    radioVisible: heavyRadioVisible,
+    radioText: heavyRadioText,
+    radioPriority: heavyRadioPriority,
+    lightRadioVisible: radio?.classList.contains('on') ?? false,
+    lightRadioQueued: tower.radioStatus().queued,
     finite: boats.every((boat) => [boat.state.position.x, boat.state.position.y, boat.state.position.z, boat.state.speed]
       .every(Number.isFinite)),
   };
@@ -2944,8 +3031,18 @@ function runRadioTechniqueCase(): Record<string, unknown> {
     emphasis: body?.querySelector('strong')?.textContent?.trim() ?? '',
     speaker: radio?.querySelector<HTMLElement>('.race-radio-meta')?.textContent?.trim() ?? '',
     fontSize: Number.parseFloat(body ? getComputedStyle(body).fontSize : '0'),
+    presentation: radio?.classList.contains('broadcast') ? 'broadcast' : 'compact',
+    animationName: radio ? getComputedStyle(radio).animationName : '',
+    animationDuration: Number.parseFloat(radio ? getComputedStyle(radio).animationDuration : '0'),
+    width: radio?.getBoundingClientRect().width ?? 0,
     ariaLabel: radio?.getAttribute('aria-label') ?? '',
   };
+  const timerBeforePause = Number(tower.radioStatus().timer);
+  tower.update(1, race, false, true);
+  const timerAfterPause = Number(tower.radioStatus().timer);
+  tower.update(1 / 60, race, false, false);
+  tower.announceTechniqueTip();
+  const sameRunQueued = tower.radioStatus().queued;
   tower.resetRun(7104);
   tower.announceTechniqueTip();
   tower.update(1 / 60, race, false, false);
@@ -2953,6 +3050,9 @@ function runRadioTechniqueCase(): Record<string, unknown> {
     first,
     blockedVisible,
     blockedQueued,
+    timerBeforePause,
+    timerAfterPause,
+    sameRunQueued,
     secondVisible: radio?.classList.contains('on') ?? false,
     secondQueued: tower.radioStatus().queued,
   };
@@ -3033,9 +3133,6 @@ function runRivalCase(): Record<string, unknown> {
   for (const id of rivalIds) techniqueRacers[id].progress = 60;
   advanceDirector(techniqueDirector, techniqueRacers, 1, 1);
   const techniqueChase = rivalIds.map((id) => techniqueDirector.techniqueFor(id));
-  for (const id of rivalIds) techniqueRacers[id].progress = 90;
-  advanceDirector(techniqueDirector, techniqueRacers, 1, 1);
-  const techniqueRelease = rivalIds.map((id) => techniqueDirector.techniqueFor(id));
 
   const openingRuns = Array.from({ length: 15 }, (_, index) => index + 1).map((seed) => {
     const director = new RivalDirector();
@@ -3052,6 +3149,7 @@ function runRivalCase(): Record<string, unknown> {
   });
 
   const pursuit = runRivalPursuitProbe(rivalIds[0]);
+  const formation = runRivalFormationProbe(rivalIds);
 
   return {
     rivalIds,
@@ -3062,12 +3160,66 @@ function runRivalCase(): Record<string, unknown> {
     duringGrace,
     afterGrace,
     techniqueChase,
-    techniqueRelease,
     openingRuns,
     pursuit,
+    formation,
     nonRivalId: nonRival.id,
     nonRivalPace: boundsDirector.paceFor(nonRival.id),
   };
+}
+
+function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unknown> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = true;
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  const previousPositions = boats.map((boat) => boat.state.position.clone());
+  const driftFrames = rivalIds.map(() => 0);
+  const boostFrames = rivalIds.map(() => 0);
+  const passes: Array<{ flight: number; ahead: number; place: number; rivalGaps: number[] }> = [];
+  let previousFlights = boats[0].state.flightsCleared;
+  let maxStep = 0;
+  let frames = 0;
+  while (race.phase === 'racing' && boats[0].state.flightsCleared < 3 && frames++ < 60 * 70) {
+    loop.advance(1 / 60);
+    for (let i = 0; i < boats.length; i++) {
+      maxStep = Math.max(maxStep, previousPositions[i].distanceTo(boats[i].state.position));
+      previousPositions[i].copy(boats[i].state.position);
+    }
+    for (let role = 0; role < rivalIds.length; role++) {
+      const state = boats[rivalIds[role]].state;
+      if (state.drifting) driftFrames[role]++;
+      if (state.boosting) boostFrames[role]++;
+    }
+    const flights = boats[0].state.flightsCleared;
+    if (flights > previousFlights) {
+      const player = race.racers[0];
+      passes.push({
+        flight: flights,
+        ahead: race.racers.filter((racer) => !racer.isPlayer && racer.progress > player.progress).length,
+        place: player.place,
+        rivalGaps: rivalIds.map((id) => race.racers[id].progress - player.progress),
+      });
+      previousFlights = flights;
+    }
+  }
+  const director = rivalDirector.debugState();
+  const result = {
+    phase: race.phase,
+    passes,
+    driftFrames,
+    boostFrames,
+    boostCycles: rivalIds.map((id) => Number(ais[id].debugPursuit().boostCycles)),
+    maxStep,
+    formationFlights: director.formationFlights,
+    paceAtThird: rivalIds.map((id) => rivalDirector.paceFor(id)),
+    techniqueAtThird: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
+    chainAfterThird: rivalIds.map((id) => rivalDirector.chainFor(id)),
+  };
+  resetRace();
+  harnessEndlessMode = previousEndlessMode;
+  return result;
 }
 
 function runRivalPursuitProbe(rivalId: number): Record<string, number | boolean> {
@@ -3203,14 +3355,53 @@ function scenario(name: string): void {
       break;
     case 'flight-ready':
       advanceUntil(() => race.phase === 'racing', 8);
+      placePack(0);
       earnHarnessFlight(false);
-      loop.advance(0.12);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => course.guidanceStatus().actionCue === 'launch', 5);
+      loop.advance(0.05);
+      break;
+    case 'flight-prompt':
+      advanceUntil(() => race.phase === 'racing', 8);
+      placePack(0);
+      earnHarnessFlight(false);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => course.guidanceStatus().actionCue === 'launch', 5);
+      pcControlPrimer.stop();
+      pcPrimerPresentation = null;
+      hud.showPcControlPrimer(null, false, false);
+      hud.beginFreshRunGuidance();
+      loop.advance(1 / 60);
+      break;
+    case 'flight-stock-away':
+      advanceUntil(() => race.phase === 'racing', 8);
+      course.resetFlightChallenge();
+      placePack(0.15);
+      for (const boat of boats) {
+        boat.state.flightsCleared = 1;
+        boat.state.flightRouteCursor = 1;
+        boat.state.flightRouteIndex = -1;
+        boat.state.flightRouteState = 'idle';
+      }
+      earnHarnessFlight(false);
+      setHarnessInput({ throttle: 1 });
+      loop.advance(0.05);
       break;
     case 'interrupted':
       advanceUntil(() => race.phase === 'racing', 8);
       loop.advance(1.2);
       handleVisibility(true);
       handleVisibility(false);
+      break;
+    case 'radio-technique':
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(2.2);
+      pcControlPrimer.stop();
+      pcPrimerPresentation = null;
+      hud.showPcControlPrimer(null, false, false);
+      tower.resetRun(7105);
+      tower.announceTechniqueTip();
+      tower.update(1 / 60, race, false, false);
       break;
     case 'flight-rule':
       advanceUntil(() => race.phase === 'racing', 8);

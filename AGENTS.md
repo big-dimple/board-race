@@ -58,11 +58,13 @@ automatically; players steer, drift/air-brake, and trigger flight.
 ## Current State
 
 - Seven-flight Final Station and the frozen dossier viewer are implemented.
-- First-run onboarding remains non-modal. A brand-new desktop keyboard run gets
-  one dismissible lower-left `Shift -> bank -> Space` navigation console driven
-  only by accepted boat-state edges; it stays in the same slot through the
-  actionable launch handoff, while later runs use the matching upper-right
-  flight prompt. Mobile never renders it. Only the first real failure may
+- First-run onboarding remains non-modal. Every fresh desktop keyboard run before
+  the first passed flight gets one dismissible lower-left `Shift -> yellow BANK ->
+  release -> Space` console driven only by accepted boat-state and launch-cue
+  edges; banking alone does not retire it. An explicit close or the first pass
+  does. Later launch/extension windows use one tokenized upper-right prompt per
+  actionable cue, never per inventory increase. Mobile never renders the PC
+  console. Only the first real failure may
   invite the persistent spotlight guide. Schema v8 still owns that full
   guide's eligibility, progress, and disable state.
 - Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use restrained
@@ -76,12 +78,15 @@ automatically; players steer, drift/air-brake, and trigger flight.
   pulses and route only to the most recently active device. Player collision
   presentation coalesces per fixed step and uses the real contact side/point;
   directional camera impact is bounded and offers `standard / weak / off`.
-- Opening contact pressure is seeded and occasional. Later catch attempts are
-  limited to the existing primary rivals and must use real drift-release BOOST,
-  launch, and air-brake input; no teleport or guaranteed catch is allowed. Race
-  radio is one prioritized slot, yields to action guidance, and session-limits
-  personality/profanity lines. SOL's first-flight technique line remains the
-  concise authored hint for air-brake plus steering.
+- Opening contact pressure is seeded and occasional. The two strongest rivals use
+  real pace and drift-release BOOST input to keep two boats ahead through pass two
+  and one through pass three; `releaseFormation()` removes all player-gap assistance
+  on the exact third-pass frame. Fixed chain-drift personality may remain afterward,
+  but teleport, fake progress, collision immunity, and player slowdown are forbidden.
+  Race radio is one prioritized slot and yields to action guidance. Routine passes
+  and light contact stay silent; heavy personality reactions are capped per run.
+  SOL's unmastered air-brake technique is a once-per-run desktop broadcast and a
+  mobile race-slot message, with its reading clock paused by higher-priority play.
 - iPhone browser play remains capability-detected rather than fake-fullscreen.
   Active game controls suppress Safari page-pinch defaults without releasing
   held pointers; selector and dossier surfaces do not. A relative standalone
