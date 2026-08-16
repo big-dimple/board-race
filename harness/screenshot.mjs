@@ -2445,6 +2445,19 @@ async function verifyMobileControls(page) {
   let status = await page.evaluate(() => window.__harness.mobileStatus());
   assert.equal(status.activation, 'idle');
   assert.equal(status.mode, 'touch', 'mobile must expose touch steering before the first GO');
+  const inactiveGesture = await page.evaluate(() => {
+    const before = window.__harness.mobileStatus();
+    const event = new Event('gesturestart', { bubbles:true, cancelable:true });
+    document.querySelector('[data-mobile-action="drift"]')?.dispatchEvent(event);
+    return {
+      prevented:event.defaultPrevented,
+      before:Number(before.gestureSuppressions),
+      after:Number(window.__harness.mobileStatus().gestureSuppressions),
+    };
+  });
+  assert.equal(inactiveGesture.prevented, false,
+    'Safari gestures must remain browser-owned while the driver selector is active');
+  assert.equal(inactiveGesture.after, inactiveGesture.before);
   assert.equal(await page.locator('.mobile-mode').textContent(), '转向 · 触控');
   assert.ok(Number(status.fullscreenRequests) >= 1,
     `any real driver-selector click may request fullscreen: ${JSON.stringify(status)}`);
@@ -2683,6 +2696,46 @@ async function verifyMobileControls(page) {
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('start'));
+  status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.controlPhase, 'racing', 'racing must activate the scoped game-surface gesture guard');
+  const activeGestures = await page.evaluate(() => {
+    const target = document.querySelector('[data-mobile-action="drift"]');
+    const before = window.__harness.mobileStatus();
+    const prevented = ['gesturestart', 'gesturechange'].map((type) => {
+      const event = new Event(type, { bubbles:true, cancelable:true });
+      target?.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    const after = window.__harness.mobileStatus();
+    return {
+      prevented,
+      before:Number(before.gestureSuppressions),
+      after:Number(after.gestureSuppressions),
+      scale:Number(after.pageScale),
+    };
+  });
+  assert.deepEqual(activeGestures.prevented, [true, true],
+    'active two-thumb play must suppress Safari pinch gesture defaults');
+  assert.equal(activeGestures.after, activeGestures.before + 2);
+  assert.ok(Math.abs(activeGestures.scale - 1) < 1e-6,
+    `gesture suppression must not mutate viewport scale: ${JSON.stringify(activeGestures)}`);
+  const hiddenOverlayGesture = await page.evaluate(() => {
+    const root = document.querySelector('.mobile-controls');
+    root?.classList.add('overlay-hidden');
+    const before = window.__harness.mobileStatus();
+    const event = new Event('gesturestart', { bubbles:true, cancelable:true });
+    document.querySelector('[data-mobile-action="drift"]')?.dispatchEvent(event);
+    const after = window.__harness.mobileStatus();
+    root?.classList.remove('overlay-hidden');
+    return {
+      prevented:event.defaultPrevented,
+      before:Number(before.gestureSuppressions),
+      after:Number(after.gestureSuppressions),
+    };
+  });
+  assert.equal(hiddenOverlayGesture.prevented, false,
+    'a full-screen dossier/gallery overlay must retain browser gesture ownership');
+  assert.equal(hiddenOverlayGesture.after, hiddenOverlayGesture.before);
   const geometry = await readMobileControlGeometry(page);
   for (const [name, r] of Object.entries(geometry.controls)) {
     assert.ok(r.width >= 140 && r.height >= 100, `${name} touch target is too small: ${r.width}x${r.height}`);
@@ -2714,6 +2767,24 @@ async function verifyMobileControls(page) {
   }
   assert.deepEqual(await page.locator('.held').evaluateAll((els) => els.map((el) => el.dataset.mobileAction).sort()),
     ['drift', 'flight', 'left'], 'multi-touch actions must be tracked independently');
+  const heldGesture = await page.evaluate(() => {
+    const before = window.__harness.mobileStatus();
+    const target = document.querySelector('[data-mobile-action="drift"]');
+    const events = ['gesturestart', 'gesturechange'].map((type) => {
+      const event = new Event(type, { bubbles:true, cancelable:true });
+      target?.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    return {
+      events,
+      before:Number(before.gestureSuppressions),
+      after:Number(window.__harness.mobileStatus().gestureSuppressions),
+    };
+  });
+  assert.deepEqual(heldGesture.events, [true, true]);
+  assert.equal(heldGesture.after, heldGesture.before + 2);
+  assert.deepEqual(await page.locator('.held').evaluateAll((els) => els.map((el) => el.dataset.mobileAction).sort()),
+    ['drift', 'flight', 'left'], 'Safari gesture suppression must not release or merge owned pointers');
   await page.locator('[data-mobile-action="left"]').dispatchEvent('pointercancel', { pointerId: 31, pointerType: 'touch' });
   await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointercancel', { pointerId: 32, pointerType: 'touch' });
   await page.locator('[data-mobile-action="flight"]').dispatchEvent('pointercancel', { pointerId: 33, pointerType: 'touch' });

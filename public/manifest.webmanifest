@@ -1,0 +1,27 @@
+{
+  "id": "./",
+  "name": "是男人就飞三次",
+  "short_name": "三飞",
+  "description": "海上漂移蓄能，冲击七飞终点站。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "theme_color": "#0b1030",
+  "background_color": "#0b1030",
+  "icons": [
+    {
+      "src": "icons/board-race-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/board-race-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

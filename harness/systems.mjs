@@ -54,6 +54,41 @@ try {
   const recordsContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const recordsPage = await recordsContext.newPage();
   await load(recordsPage);
+  const installSurface = await recordsPage.evaluate(async () => {
+    const manifestLink = document.querySelector('link[rel="manifest"]');
+    if (!(manifestLink instanceof HTMLLinkElement)) throw new Error('manifest link missing');
+    const manifestResponse = await fetch(manifestLink.href);
+    if (!manifestResponse.ok) throw new Error(`manifest fetch failed: ${manifestResponse.status}`);
+    const manifest = await manifestResponse.json();
+    const imageSize = (src) => new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve([image.naturalWidth, image.naturalHeight]);
+      image.onerror = () => reject(new Error(`icon decode failed: ${src}`));
+      image.src = src;
+    });
+    const icons = await Promise.all(manifest.icons.map(async (icon) => ({
+      ...icon,
+      naturalSize:await imageSize(new URL(icon.src, manifestLink.href).href),
+    })));
+    const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    const appleSize = appleIcon instanceof HTMLLinkElement ? await imageSize(appleIcon.href) : null;
+    const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') ?? null;
+    return { manifest, icons, appleSize, appleCapable:meta('apple-mobile-web-app-capable'),
+      appleTitle:meta('apple-mobile-web-app-title'), appleStatus:meta('apple-mobile-web-app-status-bar-style') };
+  });
+  assert.equal(installSurface.manifest.id, './');
+  assert.equal(installSurface.manifest.start_url, './');
+  assert.equal(installSurface.manifest.scope, './');
+  assert.equal(installSurface.manifest.display, 'standalone');
+  assert.equal(installSurface.manifest.orientation, 'landscape');
+  assert.deepEqual(installSurface.icons.map((icon) => [icon.sizes, icon.naturalSize]), [
+    ['192x192', [192, 192]],
+    ['512x512', [512, 512]],
+  ], 'manifest icons must resolve under the relative GitHub Pages base');
+  assert.deepEqual(installSurface.appleSize, [180, 180]);
+  assert.equal(installSurface.appleCapable, 'yes');
+  assert.equal(installSurface.appleTitle, '是男人就飞三次');
+  assert.equal(installSurface.appleStatus, 'black-translucent');
   const freshRecords = await recordsPage.evaluate(() => window.__harness.recordsState());
   assert.equal(freshRecords.version, 8);
   assert.equal(freshRecords.coach.status, 'dormant');

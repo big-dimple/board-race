@@ -61,6 +61,7 @@ export class MobileControls {
   private fullscreenGoGestures = 0;
   private fullscreenRequestPending = false;
   private firstImmersiveGestureHandled = false;
+  private gestureSuppressions = 0;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
   private finalMode = false;
@@ -158,6 +159,8 @@ export class MobileControls {
     window.addEventListener('orientationchange', () => this.orientationChanged());
     screen.orientation?.addEventListener?.('change', () => this.orientationChanged());
     window.addEventListener('blur', () => this.releaseAll());
+    document.addEventListener('gesturestart', this.suppressPageGesture, { capture: true, passive: false });
+    document.addEventListener('gesturechange', this.suppressPageGesture, { capture: true, passive: false });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.releaseAll();
       else if (this.mode === 'tilt' && this.tiltAuthorized) this.startCalibration();
@@ -372,6 +375,9 @@ export class MobileControls {
     fullscreenRequests: number;
     fullscreenRequestSource: 'none' | 'go' | 'control';
     fullscreenGoGestures: number;
+    gestureSuppressions: number;
+    pageScale: number;
+    overlayHidden: boolean;
   } {
     return {
       mode: this.mode,
@@ -383,7 +389,21 @@ export class MobileControls {
       fullscreenRequests: this.fullscreenRequests,
       fullscreenRequestSource: this.fullscreenRequestSource,
       fullscreenGoGestures: this.fullscreenGoGestures,
+      gestureSuppressions: this.gestureSuppressions,
+      pageScale: window.visualViewport?.scale ?? 1,
+      overlayHidden: this.root?.classList.contains('overlay-hidden') ?? false,
     };
+  }
+
+  private readonly suppressPageGesture = (event: Event): void => {
+    if (!this.shouldSuppressPageGesture() || !event.cancelable) return;
+    event.preventDefault();
+    this.gestureSuppressions++;
+  };
+
+  private shouldSuppressPageGesture(): boolean {
+    return this.enabled && this.landscape && this.activation === 'ready' &&
+      this.controlPhase !== 'inactive' && !this.root?.classList.contains('overlay-hidden');
   }
 
   private async activateTilt(): Promise<void> {

@@ -198,6 +198,14 @@
   倾斜 / 触控切换只允许改变左拇指区，右侧漂移与飞行位置不能移动。触控转向的
   两块命中区固定为各 140px，不随大屏手机继续外扩；右转可见圆钮向左内收 22px，
   但不得缩小或移动它背后的命中区。
+- iPhone 普通网页没有可依赖的 element fullscreen；继续按能力检测请求即可，失败后保留
+  浏览器托管形态，禁止伪造滚动全屏。`manifest.webmanifest` 只负责玩家主动“添加到主屏幕”
+  后的 `standalone + landscape` 启动，不新增安装弹窗或 Service Worker。
+- Safari 防误缩放只监听 `gesturestart / gesturechange`，并且必须同时满足移动控制已启用、
+  横屏、`activation === ready`、control phase 非 inactive、资料片覆盖层未隐藏控制。选角和
+  资料片继续由浏览器拥有手势；不得追加 `user-scalable=no`、全局 `touchmove` 拦截或缩放重置。
+  捕获阶段只取消浏览器默认 gesture，不能清理/合并 PointerEvent ownership，三指转向、漂移、
+  起飞仍须独立持有。
 - 教学文案使用最近真实活动的设备，不以“浏览器支持触控”或“有手柄连接”猜测。
 - 未知手柄映射继续走 READY 校准。涉及手柄的任何改动都要覆盖首次边沿、多手柄、
   未知映射、断连释放和有界震动。

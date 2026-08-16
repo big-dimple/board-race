@@ -29,6 +29,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   rotate prompt, not a separately designed gameplay layout.
 - Mobile steering modes may change only the left-thumb zone; keep drift/
   air-brake and flight fixed in the same right-thumb positions.
+- Mobile browser zoom prevention must stay scoped to active landscape play and
+  preserve independent PointerEvent ownership. Do not add viewport scaling
+  locks, global touchmove cancellation, zoom-reset hacks, or fake fullscreen.
 - Preserve the unified `BoatInput` contract and fixed-step simulation.
 - Treat action edges and physical holds as separate keyboard contracts. Focus,
   fullscreen, or system UI may erase the first keydown; repeat events must
@@ -67,6 +70,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   an environment recording. Landing splash is a player-only, rate-limited
   event. Collision and landing haptics queue behind drift/air-brake control
   pulses and route only to the most recently active device.
+- iPhone browser play remains capability-detected rather than fake-fullscreen.
+  Active game controls suppress Safari page-pinch defaults without releasing
+  held pointers; selector and dossier surfaces do not. A relative standalone
+  manifest supports optional Home Screen launch without an install prompt or
+  Service Worker.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. Water contact is not a visual ownership edge: the same
   cyan virtual recovery tail remains visible before and after contact. It keeps
