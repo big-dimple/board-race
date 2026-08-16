@@ -2442,7 +2442,46 @@ async function verifyMobileControls(page) {
   renderStats = await page.evaluate(() => window.__harness.stats());
   assert.ok(Number(renderStats.pixelRatio) > reducedRatio && Number(renderStats.pixelRatio) <= 2.5,
     `stable frames must restore mobile clarity: ${reducedRatio} -> ${renderStats.pixelRatio}`);
+  await page.evaluate(async () => {
+    if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+    const calls = [];
+    let rejectNext = true;
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable:true,
+      value:(options) => {
+        calls.push(options ?? null);
+        if (rejectNext) {
+          rejectNext = false;
+          return Promise.reject(new DOMException('fixture rejection', 'NotAllowedError'));
+        }
+        return Promise.resolve();
+      },
+    });
+    Object.defineProperty(window, '__fullscreenFixture', {
+      configurable:true,
+      value:{ calls:() => calls.length },
+    });
+  });
+  const fullscreenFailuresBefore = Number((await page.evaluate(() => window.__harness.mobileStatus())).fullscreenFailures);
+  await page.locator('.driver-switch-next').click();
+  await page.waitForFunction((before) => {
+    const status = window.__harness.mobileStatus();
+    return status.fullscreenOutcome === 'rejected' && Number(status.fullscreenFailures) === before + 1;
+  }, fullscreenFailuresBefore);
+  const attemptsAfterRejection = await page.evaluate(() => window.__fullscreenFixture.calls());
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', {
+    pointerId:901, pointerType:'touch', isPrimary:true,
+  });
+  await page.waitForFunction((before) =>
+    window.__harness.mobileStatus().fullscreenOutcome === 'entered' && window.__fullscreenFixture.calls() === before + 1,
+  attemptsAfterRejection);
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', {
+    pointerId:901, pointerType:'touch', isPrimary:true,
+  });
   let status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.fullscreenOutcome, 'entered',
+    'a rejected supported-browser fullscreen attempt must retry on the next real control gesture');
+  assert.equal(Number(status.fullscreenFailures), fullscreenFailuresBefore + 1);
   assert.equal(status.activation, 'idle');
   assert.equal(status.mode, 'touch', 'mobile must expose touch steering before the first GO');
   const inactiveGesture = await page.evaluate(() => {

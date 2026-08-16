@@ -73,14 +73,18 @@ try {
     const appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
     const appleSize = appleIcon instanceof HTMLLinkElement ? await imageSize(appleIcon.href) : null;
     const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') ?? null;
+    const installPromotion = new Event('beforeinstallprompt', { cancelable:true });
+    window.dispatchEvent(installPromotion);
     return { manifest, icons, appleSize, appleCapable:meta('apple-mobile-web-app-capable'),
-      appleTitle:meta('apple-mobile-web-app-title'), appleStatus:meta('apple-mobile-web-app-status-bar-style') };
+      appleTitle:meta('apple-mobile-web-app-title'), appleStatus:meta('apple-mobile-web-app-status-bar-style'),
+      installPromotionPrevented:installPromotion.defaultPrevented };
   });
   assert.equal(installSurface.manifest.id, './');
   assert.equal(installSurface.manifest.start_url, './');
   assert.equal(installSurface.manifest.scope, './');
   assert.equal(installSurface.manifest.display, 'standalone');
   assert.equal(installSurface.manifest.orientation, 'landscape');
+  assert.equal(installSurface.manifest.short_name, '是男人就飞三次');
   assert.deepEqual(installSurface.icons.map((icon) => [icon.sizes, icon.naturalSize]), [
     ['192x192', [192, 192]],
     ['512x512', [512, 512]],
@@ -89,6 +93,8 @@ try {
   assert.equal(installSurface.appleCapable, 'yes');
   assert.equal(installSurface.appleTitle, '是男人就飞三次');
   assert.equal(installSurface.appleStatus, 'black-translucent');
+  assert.equal(installSurface.installPromotionPrevented, true,
+    'Chrome install promotion must never interrupt the first game interaction');
   const freshRecords = await recordsPage.evaluate(() => window.__harness.recordsState());
   assert.equal(freshRecords.version, 8);
   assert.equal(freshRecords.coach.status, 'dormant');

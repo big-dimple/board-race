@@ -6,6 +6,7 @@ type ControlMode = 'tilt' | 'touch';
 type ActivationState = 'idle' | 'requesting' | 'calibrating' | 'ready';
 type ControlPhase = 'inactive' | 'presentation' | 'preparing' | 'racing';
 type PointerAction = 'left' | 'right' | 'drift' | 'flight';
+type FullscreenOutcome = 'idle' | 'unsupported' | 'standalone' | 'pending' | 'entered' | 'rejected';
 
 const ZERO: BoatInput = {
   throttle: 0,
@@ -60,6 +61,8 @@ export class MobileControls {
   private fullscreenRequestSource: 'none' | 'go' | 'control' = 'none';
   private fullscreenGoGestures = 0;
   private fullscreenRequestPending = false;
+  private fullscreenOutcome: FullscreenOutcome = 'idle';
+  private fullscreenFailures = 0;
   private firstImmersiveGestureHandled = false;
   private gestureSuppressions = 0;
   private activitySerialValue = 0;
@@ -266,7 +269,6 @@ export class MobileControls {
   requestImmersiveFromGesture(force = false): void {
     this.onFirstGesture();
     if (this.firstImmersiveGestureHandled && !force) return;
-    this.firstImmersiveGestureHandled = true;
     this.enterImmersiveMode('control');
   }
 
@@ -375,6 +377,8 @@ export class MobileControls {
     fullscreenRequests: number;
     fullscreenRequestSource: 'none' | 'go' | 'control';
     fullscreenGoGestures: number;
+    fullscreenOutcome: FullscreenOutcome;
+    fullscreenFailures: number;
     gestureSuppressions: number;
     pageScale: number;
     overlayHidden: boolean;
@@ -389,6 +393,8 @@ export class MobileControls {
       fullscreenRequests: this.fullscreenRequests,
       fullscreenRequestSource: this.fullscreenRequestSource,
       fullscreenGoGestures: this.fullscreenGoGestures,
+      fullscreenOutcome: this.fullscreenOutcome,
+      fullscreenFailures: this.fullscreenFailures,
       gestureSuppressions: this.gestureSuppressions,
       pageScale: window.visualViewport?.scale ?? 1,
       overlayHidden: this.root?.classList.contains('overlay-hidden') ?? false,
@@ -434,21 +440,63 @@ export class MobileControls {
     }
   }
 
-  private requestFullscreen(source: 'go' | 'control'): Promise<void> {
-    if (document.fullscreenElement || !document.documentElement.requestFullscreen) return Promise.resolve();
-    if (this.fullscreenRequestPending) return Promise.resolve();
+  private requestFullscreen(source: 'go' | 'control'): Promise<'entered' | 'unsupported' | 'standalone' | 'busy'> {
+    if (this.isStandaloneDisplay()) {
+      this.fullscreenOutcome = 'standalone';
+      return Promise.resolve('standalone');
+    }
+    if (document.fullscreenElement) {
+      this.fullscreenOutcome = 'entered';
+      return Promise.resolve('entered');
+    }
+    if (!document.documentElement.requestFullscreen) {
+      this.fullscreenOutcome = 'unsupported';
+      return Promise.resolve('unsupported');
+    }
+    if (this.fullscreenRequestPending) return Promise.resolve('busy');
     this.fullscreenRequests++;
     this.fullscreenRequestSource = source;
     this.fullscreenRequestPending = true;
-    return document.documentElement.requestFullscreen({ navigationUI: 'hide' })
-      .then(() => undefined)
+    this.fullscreenOutcome = 'pending';
+    let request: Promise<void>;
+    try {
+      request = document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    } catch (error: unknown) {
+      this.fullscreenRequestPending = false;
+      this.fullscreenOutcome = 'rejected';
+      this.fullscreenFailures++;
+      return Promise.reject(error);
+    }
+    return request
+      .then(() => {
+        this.fullscreenOutcome = 'entered';
+        return 'entered' as const;
+      })
+      .catch((error: unknown) => {
+        this.fullscreenOutcome = 'rejected';
+        this.fullscreenFailures++;
+        throw error;
+      })
       .finally(() => { this.fullscreenRequestPending = false; });
   }
 
   private enterImmersiveMode(source: 'go' | 'control'): void {
     void this.requestFullscreen(source)
-      .then(() => this.lockLandscape())
-      .catch(() => this.lockLandscape());
+      .then((outcome) => {
+        if (outcome === 'entered' || outcome === 'unsupported' || outcome === 'standalone') {
+          this.firstImmersiveGestureHandled = true;
+        }
+        return this.lockLandscape();
+      })
+      .catch(() => {
+        this.firstImmersiveGestureHandled = false;
+        return this.lockLandscape();
+      });
+  }
+
+  private isStandaloneDisplay(): boolean {
+    const iosNavigator = navigator as Navigator & { standalone?: boolean };
+    return matchMedia('(display-mode: standalone)').matches || iosNavigator.standalone === true;
   }
 
   private async lockLandscape(): Promise<void> {

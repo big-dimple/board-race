@@ -200,7 +200,13 @@
   但不得缩小或移动它背后的命中区。
 - iPhone 普通网页没有可依赖的 element fullscreen；继续按能力检测请求即可，失败后保留
   浏览器托管形态，禁止伪造滚动全屏。`manifest.webmanifest` 只负责玩家主动“添加到主屏幕”
-  后的 `standalone + landscape` 启动，不新增安装弹窗或 Service Worker。
+  后的 `standalone + landscape` 启动，不新增 Service Worker。页面必须在 head 阶段取消
+  `beforeinstallprompt` 默认行为，禁止 Chrome 自动推广安装；玩家仍可从浏览器菜单主动安装。
+  launcher 名称使用完整产品名，不能再用脱离品牌语境的缩写。
+- 支持 Fullscreen API 的浏览器若因系统 UI / 安装推广竞争而拒绝一次请求，下一次真实控件
+  手势必须恢复重试资格；只有真正进入 fullscreen 或明确不支持 API 才消费一次性资格。
+  `GO` 始终保留自己的同步请求，测试必须区分“调用过”与“失败后能够重试”。
+  已从主屏幕以 standalone 启动时本身就是沉浸窗口，不得再嵌套请求 fullscreen。
 - Safari 防误缩放只监听 `gesturestart / gesturechange`，并且必须同时满足移动控制已启用、
   横屏、`activation === ready`、control phase 非 inactive、资料片覆盖层未隐藏控制。选角和
   资料片继续由浏览器拥有手势；不得追加 `user-scalable=no`、全局 `touchmove` 拦截或缩放重置。

@@ -73,8 +73,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - iPhone browser play remains capability-detected rather than fake-fullscreen.
   Active game controls suppress Safari page-pinch defaults without releasing
   held pointers; selector and dossier surfaces do not. A relative standalone
-  manifest supports optional Home Screen launch without an install prompt or
-  Service Worker.
+  manifest supports optional Home Screen launch without a Service Worker;
+  automatic Chrome install promotion stays suppressed, and rejected supported
+  fullscreen requests remain eligible for the next real control gesture.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. Water contact is not a visual ownership edge: the same
   cyan virtual recovery tail remains visible before and after contact. It keeps
