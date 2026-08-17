@@ -17,7 +17,7 @@
  * allocation; stable at fixed dt = 1/60.
  */
 import * as THREE from 'three';
-import { markInk, type BoatState } from '../contracts';
+import { LAYER_INK, markInk, type BoatState } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { createToonMaterial } from '../cel/toonMaterial';
 import { addOutline } from '../cel/outline';
@@ -247,6 +247,19 @@ export class Rider {
       bone(shoulderR, elbowR, 0.065, suit);
       ball(head, 0.15, white, 0, 0.1, 0.02);
       box(head, 0.21, 0.065, 0.07, ink, 0, 0.1, 0.14).userData.noOutline = true;
+
+      // One coarse, prepass-only body volume keeps portal energy behind the
+      // animated rider. It replaces seven extra per-part prepass draws and is
+      // never rendered into the beauty scene.
+      const inkProxy = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.23, 0.62, 2, 8),
+        new THREE.MeshBasicMaterial(),
+      );
+      inkProxy.name = 'rider-ink-proxy';
+      inkProxy.position.set(0, 0.35, 0.12);
+      inkProxy.layers.set(LAYER_INK);
+      inkProxy.frustumCulled = false;
+      hips.add(inkProxy);
     } else {
     // Pelvis + wetsuit torso in rider color (slim — no bell silhouette).
     // Rounded pelvis: a square box read as a mecha "butt-pack" from behind.
@@ -302,8 +315,8 @@ export class Rider {
     strap.userData.noOutline = true;
     ball(head, 0.05, ink, 0, 0.02, 0.1); // chin guard
 
-      markInk(root);
       addOutline(root);
+      markInk(root);
     }
     this.object = root;
   }

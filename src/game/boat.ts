@@ -17,7 +17,7 @@
  * update() runs on the fixed 1/60 sim step and allocates nothing per frame.
  */
 import * as THREE from 'three';
-import { LAYER_ENERGY, markInk } from '../contracts';
+import { LAYER_ENERGY, LAYER_INK, markInk } from '../contracts';
 import type {
   BoatInput,
   BoatState,
@@ -154,11 +154,7 @@ const _fxScale = new THREE.Vector3();
 const _fxIdentityQ = new THREE.Quaternion();
 const _fxQBoost = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const _fxAxisY = new THREE.Vector3(0, 1, 0);
-const _driftLineDirection = new THREE.Vector3();
 const _driftBurstDirection = new THREE.Vector3();
-const _driftBurstSpriteOrigin = new THREE.Vector3();
-const _driftBurstSpriteTip = new THREE.Vector3();
-const _driftBurstSpriteQ = new THREE.Quaternion();
 const _fxAxisZ = new THREE.Vector3(0, 0, 1);
 const _fxFlowDir = new THREE.Vector3();
 const _fxFlowQ = new THREE.Quaternion();
@@ -259,115 +255,13 @@ interface ThrustVisual {
   rings: THREE.InstancedMesh;
 }
 
-const DRIFT_SMOKE_CAPACITY = 32;
-const DRIFT_SMOKE_HOLD_PERIOD = 0.12;
-const DRIFT_SMOKE_RELEASE_TIME = 0.62;
-const DRIFT_SMOKE_BODY_DARK = 0x465461;
-const DRIFT_SMOKE_BODY_LIGHT = 0xaeb9c1;
-const DRIFT_BURST_TIME = 0.34;
-const DRIFT_TECHNIQUE_LINE_LAYOUT = [
-  [0.26, 1.08, -2.02, 0.82, 0.46, -0.30, 0.62],
-  [0.10, 1.34, -2.12, 0.36, 0.88, -0.14, 0.54],
-  [0.44, 1.52, -1.86, 0.86, 0.22, 0.04, 0.48],
-  [0.18, 0.92, -2.32, 0.56, -0.02, -0.66, 0.44],
-] as const;
-
-let _driftSmokeTex: THREE.CanvasTexture | null = null;
-function driftSmokeTexture(): THREE.CanvasTexture {
-  if (_driftSmokeTex) return _driftSmokeTex;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 128;
-  const context = canvas.getContext('2d')!;
-  const lobes = [
-    [29, 72, 26, 0.48],
-    [43, 52, 33, 0.7],
-    [65, 66, 40, 0.82],
-    [82, 43, 29, 0.62],
-    [101, 60, 25, 0.54],
-    [88, 82, 28, 0.5],
-    [57, 91, 24, 0.4],
-  ] as const;
-  for (const [x, y, radius, alpha] of lobes) {
-    const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
-    gradient.addColorStop(0, `rgba(255,255,255,${alpha})`);
-    gradient.addColorStop(0.42, `rgba(255,255,255,${alpha * 0.72})`);
-    gradient.addColorStop(0.76, `rgba(255,255,255,${alpha * 0.24})`);
-    gradient.addColorStop(1, 'rgba(255,255,255,0)');
-    context.fillStyle = gradient;
-    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-  }
-  _driftSmokeTex = new THREE.CanvasTexture(canvas);
-  _driftSmokeTex.colorSpace = THREE.NoColorSpace;
-  return _driftSmokeTex;
-}
-
-interface DriftSmokeVisual {
-  points: THREE.Points;
-  position: THREE.BufferAttribute;
-  tint: THREE.BufferAttribute;
-  size: THREE.BufferAttribute;
-  opacity: THREE.BufferAttribute;
-  rotation: THREE.BufferAttribute;
-  velocity: THREE.BufferAttribute;
-  stretch: THREE.BufferAttribute;
-}
-
-interface DriftTechniqueLines {
-  group: THREE.Group;
-  lines: THREE.Mesh[];
-}
-
-// A compact comic-style callout used only during a real rival drift hold.
-function buildDriftTechniqueLines(): DriftTechniqueLines {
-  const group = new THREE.Group();
-  group.name = 'opponent-drift-technique-lines';
-  group.visible = false;
-  const geometry = new THREE.CylinderGeometry(0.028, 0.028, 1, 6, 1, false);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.92,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  const lines: THREE.Mesh[] = [];
-  for (let i = 0; i < 4; i++) {
-    const line = new THREE.Mesh(geometry, material);
-    line.renderOrder = 10;
-    line.frustumCulled = false;
-    group.add(line);
-    lines.push(line);
-  }
-  return { group, lines };
-}
+const DRIFT_BURST_TIME = 0.55;
+const DRIFT_BURST_LOBES = 12;
 
 interface DriftBurstVisual {
   group: THREE.Group;
-  flame: THREE.Mesh;
+  lobes: THREE.InstancedMesh;
   material: THREE.ShaderMaterial;
-}
-
-function orientDriftBurstPlane(flame: THREE.Mesh): void {
-  flame.onBeforeRender = (_renderer, _scene, camera) => {
-    const direction = flame.userData.driftDirection as THREE.Vector3 | undefined;
-    const parent = flame.parent;
-    if (!direction || !parent) return;
-    flame.getWorldPosition(_driftBurstSpriteOrigin);
-    parent.getWorldQuaternion(_driftBurstSpriteQ);
-    _driftBurstSpriteTip.copy(direction).applyQuaternion(_driftBurstSpriteQ)
-      .add(_driftBurstSpriteOrigin);
-    _driftBurstSpriteTip.sub(_driftBurstSpriteOrigin).normalize();
-    _driftBurstSpriteOrigin.copy(camera.position).sub(flame.getWorldPosition(_v1)).normalize();
-    _v2.copy(_driftBurstSpriteTip).addScaledVector(_driftBurstSpriteOrigin,
-      -_driftBurstSpriteTip.dot(_driftBurstSpriteOrigin));
-    if (_v2.lengthSq() < 0.000001) return;
-    _v2.normalize();
-    _v3.crossVectors(_v2, _driftBurstSpriteOrigin).normalize();
-    _fxMatrix.makeBasis(_v3, _v2, _driftBurstSpriteOrigin);
-    _driftBurstSpriteQ.setFromRotationMatrix(_fxMatrix);
-    parent.getWorldQuaternion(_blobQ).invert();
-    flame.quaternion.copy(_blobQ.multiply(_driftBurstSpriteQ));
-  };
 }
 
 function buildDriftBurstVisual(): DriftBurstVisual {
@@ -379,7 +273,7 @@ function buildDriftBurstVisual(): DriftBurstVisual {
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    depthTest: false,
+    depthTest: true,
     side: THREE.DoubleSide,
     toneMapped: false,
     vertexShader: /* glsl */ `
@@ -389,9 +283,12 @@ function buildDriftBurstVisual(): DriftBurstVisual {
         vUv = uv;
         vec3 displaced = position;
         float envelope = 1.0 - smoothstep(0.0, 0.88, uv.y);
-        displaced.x += sin(uv.y * 17.0 + uTime * 9.0 + uv.x * 4.0) * 0.025 * envelope;
-        displaced.z += cos(uv.y * 13.0 - uTime * 7.0) * 0.035 * envelope;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
+        displaced.x += sin(uv.y * 17.0 + uTime * 9.0 + uv.x * 4.0) * 0.055 * envelope;
+        vec4 center = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        float sx = length(instanceMatrix[0].xyz);
+        float sy = length(instanceMatrix[1].xyz);
+        center.xy += displaced.xy * vec2(sx, sy);
+        gl_Position = projectionMatrix * center;
       }
     `,
     fragmentShader: /* glsl */ `
@@ -419,400 +316,73 @@ function buildDriftBurstVisual(): DriftBurstVisual {
         return n;
       }
       void main() {
-        float y = vUv.y;
-        float localTime = uTime * 3.2;
-        float sway = fbm(vec2(y * 5.0, localTime)) - 0.5;
-        float center = 0.5 + sway * (0.11 + y * 0.16);
-        float edgeNoise = fbm(vec2(y * 11.0 - localTime * 0.9, 4.0));
-        float width = mix(0.46, 0.035, pow(y, 0.74));
-        width *= 0.78 + edgeNoise * 0.36;
-        float distanceFromCenter = abs(vUv.x - center);
-        float body = 1.0 - smoothstep(width * 0.12, width, distanceFromCenter);
+        vec2 p = vUv * 2.0 - 1.0;
+        float radius = length(p);
+        float angle = atan(p.y, p.x);
+        float localTime = uTime * 3.6;
+        float edgeNoise = fbm(p * 2.4 + vec2(localTime * 0.34, -localTime * 0.27));
+        float edge = 0.78 + (edgeNoise - 0.5) * 0.28 +
+          sin(angle * 5.0 + uTime * 8.0) * 0.045;
+        float shell = 1.0 - smoothstep(edge - 0.2, edge, radius);
+        float core = 1.0 - smoothstep(0.08, 0.48, radius);
+        float hotCore = 1.0 - smoothstep(0.02, 0.23, radius);
+        float brokenRim = smoothstep(edge - 0.22, edge - 0.08, radius) * shell;
+        float filament = 1.0 - smoothstep(0.035, 0.085,
+          abs(p.x * 0.72 + p.y * 0.28 + sin(p.y * 8.0 - uTime * 11.0) * 0.05));
+        filament *= shell * (1.0 - smoothstep(0.18, 0.76, radius));
 
-        // Two broken tongues keep the pulse from reading as a single flat cone.
-        float tongueLeftCenter = center - 0.12 - 0.07 * sin(y * 14.0 + uTime * 9.0);
-        float tongueRightCenter = center + 0.12 + 0.06 * sin(y * 12.0 - uTime * 8.0);
-        float tongueWidth = mix(0.11, 0.018, y);
-        float tongueLeft = 1.0 - smoothstep(tongueWidth * 0.12, tongueWidth,
-          abs(vUv.x - tongueLeftCenter));
-        float tongueRight = 1.0 - smoothstep(tongueWidth * 0.1, tongueWidth * 0.82,
-          abs(vUv.x - tongueRightCenter));
-        float tongueWindow = smoothstep(0.15, 0.32, y) * (1.0 - smoothstep(0.7, 0.92, y));
-        float tongues = max(tongueLeft, tongueRight) * tongueWindow;
-        float taper = 1.0 - smoothstep(0.88, 1.0, y + sway * 0.18);
-        float breakup = 0.68 + 0.32 * fbm(vec2(vUv.x * 16.0 + localTime, y * 12.0 - localTime));
-        float alpha = max(body * 0.92, tongues * 0.72) * taper * breakup;
-
-        float coreWidth = width * (0.25 - y * 0.08);
-        float core = (1.0 - smoothstep(coreWidth * 0.12, coreWidth, distanceFromCenter)) *
-          (1.0 - smoothstep(0.12, 0.78, y));
-        float filament = 1.0 - smoothstep(0.035, 0.06,
-          abs(vUv.x - (center + 0.055 * sin(y * 19.0 - uTime * 12.0))));
-        filament *= smoothstep(0.18, 0.42, y) * (1.0 - smoothstep(0.58, 0.86, y));
-
-        float pulse = 0.88 + 0.12 * sin(uTime * 17.0 + y * 5.0);
-        float shimmer = 0.75 + 0.25 * fbm(vec2(y * 18.0 - uTime * 6.0, vUv.x * 9.0));
-        vec3 deepBlue = vec3(0.045, 0.16, 0.31);
-        vec3 electricBlue = vec3(0.12, 0.43, 0.72);
-        vec3 outer = mix(deepBlue, electricBlue, 1.0 - y);
-        outer += (edgeNoise - 0.5) * vec3(0.035, 0.08, 0.1);
-        vec3 color = mix(outer, vec3(0.44, 0.78, 0.94), core * shimmer);
-        color = mix(color, vec3(0.9, 0.98, 1.0), filament * 0.64);
-        float glow = (1.0 - smoothstep(width * 1.05, width * 1.55, distanceFromCenter)) *
-          (1.0 - smoothstep(0.36, 0.92, y));
-        float visibleAlpha = max(alpha * 0.92, core * 0.7) * (0.86 + 0.14 * uStrength) * pulse;
-        visibleAlpha += glow * 0.08;
+        float pulse = 0.88 + 0.12 * sin(uTime * 19.0 + angle * 2.0);
+        float shimmer = 0.72 + 0.28 * fbm(p * 4.6 + vec2(-localTime, localTime * 0.6));
+        vec3 deepBlue = vec3(0.025, 0.14, 0.38);
+        vec3 electricBlue = vec3(0.10, 0.55, 0.82);
+        vec3 color = mix(deepBlue, electricBlue, shell - brokenRim * 0.5);
+        color = mix(color, vec3(0.42, 0.82, 0.96), core * shimmer);
+        color = mix(color, vec3(0.9, 0.98, 1.0), max(hotCore, filament * 0.72));
+        float visibleAlpha = shell * (0.68 + core * 0.24 + hotCore * 0.08) *
+          (0.86 + 0.14 * uStrength) * pulse;
+        visibleAlpha += (1.0 - smoothstep(edge, edge + 0.18, radius)) * 0.045;
+        if (visibleAlpha < 0.012) discard;
         gl_FragColor = vec4(color, visibleAlpha);
       }
     `,
   });
-  const flame = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 12, 18), material);
-  flame.renderOrder = 10;
-  flame.frustumCulled = false;
-  flame.userData.driftDirection = new THREE.Vector3();
-  orientDriftBurstPlane(flame);
-  group.add(flame);
-  return { group, flame, material };
+  const lobes = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, DRIFT_BURST_LOBES);
+  lobes.name = 'opponent-drift-pulse-lobes';
+  lobes.renderOrder = 10;
+  lobes.frustumCulled = false;
+  lobes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  lobes.layers.enable(LAYER_ENERGY);
+  const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < DRIFT_BURST_LOBES; i++) lobes.setMatrixAt(i, hidden);
+  lobes.instanceMatrix.needsUpdate = true;
+  group.add(lobes);
+  return { group, lobes, material };
 }
 
-function placeDriftBurstFlame(
-  flame: THREE.Mesh,
+function placeDriftBurstPulse(
+  lobes: THREE.InstancedMesh,
   material: THREE.ShaderMaterial,
   direction: THREE.Vector3,
   strength: number,
   t: number,
 ): void {
-  const length = 1.08 + strength * 0.92;
-  flame.position.copy(direction).multiplyScalar(length * 0.5);
-  flame.position.y += 0.22;
-  flame.position.z -= 2.62;
-  const flicker = 0.93 + 0.07 * Math.sin(t * 42);
-  flame.scale.set((0.72 + strength * 0.5) * flicker, length * flicker, 1);
-  (flame.userData.driftDirection as THREE.Vector3).copy(direction);
+  const length = 3.8 + smooth01(strength) * 1.4;
+  for (let i = 0; i < DRIFT_BURST_LOBES; i++) {
+    const f = (i + 0.35) / DRIFT_BURST_LOBES;
+    const body = Math.sin(Math.PI * f);
+    const flicker = 0.92 + 0.08 * Math.sin(t * 37 + i * 2.17);
+    const radius = (0.24 + body * 0.5) * flicker * (0.86 + strength * 0.14);
+    _fxPos.copy(direction).multiplyScalar(0.18 + f * length);
+    _fxPos.x += Math.sin(i * 2.41 + t * 8.5) * radius * 0.3;
+    _fxPos.y += 0.34 + Math.cos(i * 1.73 - t * 7.2) * radius * 0.11;
+    _fxPos.z -= 2.48;
+    _fxScale.set(radius * (1.08 + body * 0.18), radius, 1);
+    _fxMatrix.compose(_fxPos, _fxIdentityQ, _fxScale);
+    lobes.setMatrixAt(i, _fxMatrix);
+  }
+  lobes.instanceMatrix.needsUpdate = true;
   material.uniforms.uTime.value = t;
   material.uniforms.uStrength.value = strength;
-}
-
-function buildDriftSmokeVisual(): DriftSmokeVisual {
-  const geometry = new THREE.BufferGeometry();
-  const position = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY * 3), 3);
-  const tint = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY * 3), 3);
-  const size = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
-  const opacity = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
-  const rotation = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
-  const velocity = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY * 3), 3);
-  const stretch = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
-  position.setUsage(THREE.DynamicDrawUsage);
-  tint.setUsage(THREE.DynamicDrawUsage);
-  size.setUsage(THREE.DynamicDrawUsage);
-  opacity.setUsage(THREE.DynamicDrawUsage);
-  rotation.setUsage(THREE.DynamicDrawUsage);
-  velocity.setUsage(THREE.DynamicDrawUsage);
-  stretch.setUsage(THREE.DynamicDrawUsage);
-  geometry.setAttribute('position', position);
-  geometry.setAttribute('aTint', tint);
-  geometry.setAttribute('aSize', size);
-  geometry.setAttribute('aOpacity', opacity);
-  geometry.setAttribute('aRotation', rotation);
-  geometry.setAttribute('aVelocity', velocity);
-  geometry.setAttribute('aStretch', stretch);
-  geometry.setDrawRange(0, 0);
-  const material = new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: driftSmokeTexture() } },
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-    toneMapped: false,
-    side: THREE.DoubleSide,
-    vertexShader: /* glsl */ `
-      attribute vec3 aTint;
-      attribute float aSize;
-      attribute float aOpacity;
-      attribute float aRotation;
-      attribute vec3 aVelocity;
-      attribute float aStretch;
-      varying vec3 vColor;
-      varying float vOpacity;
-      varying float vRotation;
-      varying float vStretch;
-      void main() {
-        vec4 center = viewMatrix * vec4(position, 1.0);
-        vec3 direction = length(aVelocity) > 0.001 ? normalize(aVelocity) : vec3(0.0, 0.0, -1.0);
-        vec4 tip = projectionMatrix * (viewMatrix * vec4(position + direction * max(0.4, aSize), 1.0));
-        vec4 centerClip = projectionMatrix * center;
-        vec2 screenDirection = tip.xy / max(0.001, tip.w) -
-          centerClip.xy / max(0.001, centerClip.w);
-        screenDirection.x *= projectionMatrix[1][1] / projectionMatrix[0][0];
-        float distanceAssist = mix(1.0, 1.28, smoothstep(18.0, 70.0, -center.z));
-        gl_PointSize = clamp(
-          aSize * distanceAssist * 980.0 * projectionMatrix[1][1] / max(1.0, -center.z),
-          2.0,
-          180.0
-        );
-        vColor = aTint;
-        vOpacity = aOpacity;
-        vRotation = atan(screenDirection.y, screenDirection.x) + aRotation;
-        vStretch = aStretch;
-        gl_Position = centerClip;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform sampler2D uMap;
-      varying vec3 vColor;
-      varying float vOpacity;
-      varying float vRotation;
-      varying float vStretch;
-      void main() {
-        vec2 point = gl_PointCoord - 0.5;
-        float c = cos(vRotation);
-        float s = sin(vRotation);
-        vec2 oriented = mat2(c, -s, s, c) * point;
-        oriented.y *= vStretch;
-        vec2 smokeUv = oriented + 0.5;
-        float body = texture2D(uMap, smokeUv).a;
-        float alpha = body * vOpacity;
-        if (alpha < 0.012) discard;
-        vec3 color = mix(vColor * 0.58, vColor * 1.08, smoothstep(0.08, 0.72, body));
-        gl_FragColor = vec4(color, alpha);
-        #include <colorspace_fragment>
-      }
-    `,
-  });
-  const points = new THREE.Points(geometry, material);
-  points.name = 'opponent-drift-smoke';
-  points.visible = false;
-  points.renderOrder = 8;
-  points.frustumCulled = false;
-  return { points, position, tint, size, opacity, rotation, velocity, stretch };
-}
-
-class DriftSmokePool {
-  readonly visual = buildDriftSmokeVisual();
-  private readonly age = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly life = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly x = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly y = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly z = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly vx = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly vy = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly vz = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly sizeA = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly sizeB = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly alpha = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly spin = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly spinRate = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly stretch = new Float32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly color = new Uint32Array(DRIFT_SMOKE_CAPACITY);
-  private readonly core = new Uint8Array(DRIFT_SMOKE_CAPACITY);
-  private cursor = 0;
-  private randomState: number;
-  private emitted = 0;
-  private active = 0;
-  private activeCore = 0;
-  private maxOpacity = 0;
-  private maxWorldY = 0;
-
-  constructor(seed: number) {
-    this.randomState = seed >>> 0;
-  }
-
-  private random(): number {
-    this.randomState = (this.randomState + 0x6d2b79f5) | 0;
-    let n = this.randomState;
-    n = Math.imul(n ^ (n >>> 15), 1 | n);
-    n = (n + Math.imul(n ^ (n >>> 7), 61 | n)) ^ n;
-    return ((n ^ (n >>> 14)) >>> 0) / 4294967296;
-  }
-
-  private emit(
-    x: number,
-    y: number,
-    z: number,
-    vx: number,
-    vy: number,
-    vz: number,
-    life: number,
-    sizeA: number,
-    sizeB: number,
-    alpha: number,
-    stretch: number,
-    color: number,
-    core: boolean,
-  ): void {
-    let slot = this.cursor;
-    for (let i = 0; i < DRIFT_SMOKE_CAPACITY; i++) {
-      const candidate = (this.cursor + i) % DRIFT_SMOKE_CAPACITY;
-      if (this.life[candidate] <= 0) {
-        slot = candidate;
-        break;
-      }
-    }
-    this.cursor = (slot + 1) % DRIFT_SMOKE_CAPACITY;
-    this.age[slot] = 0;
-    this.life[slot] = life;
-    this.x[slot] = x;
-    this.y[slot] = y;
-    this.z[slot] = z;
-    this.vx[slot] = vx;
-    this.vy[slot] = vy;
-    this.vz[slot] = vz;
-    this.sizeA[slot] = sizeA;
-    this.sizeB[slot] = sizeB;
-    this.alpha[slot] = alpha;
-    this.stretch[slot] = stretch;
-    this.spin[slot] = (this.random() * 2 - 1) * 0.24;
-    this.spinRate[slot] = (this.random() * 2 - 1) * 0.42;
-    this.color[slot] = color;
-    this.core[slot] = core ? 1 : 0;
-    this.emitted++;
-  }
-
-  emitHold(
-    x: number,
-    y: number,
-    z: number,
-    fwdX: number,
-    fwdZ: number,
-    portX: number,
-    portZ: number,
-    side: number,
-    charge: number,
-    lod: number,
-  ): void {
-    for (let i = 0; i < 3; i++) {
-      const lateral = side * (0.28 + this.random() * 0.72) + (this.random() - 0.5) * 0.22;
-      const stern = 1.85 + i * 0.24 + this.random() * 0.35;
-      const tone = i === 0 || this.random() < 0.45 ? DRIFT_SMOKE_BODY_DARK : DRIFT_SMOKE_BODY_LIGHT;
-      this.emit(
-        x - fwdX * stern + portX * lateral,
-        y + 0.48 + this.random() * 0.32,
-        z - fwdZ * stern + portZ * lateral,
-        -fwdX * (2.7 + this.random() * 1.8) + portX * side * (0.45 + this.random() * 0.7),
-        0.62 + this.random() * 0.58,
-        -fwdZ * (2.7 + this.random() * 1.8) + portZ * side * (0.45 + this.random() * 0.7),
-        0.42 + this.random() * 0.1,
-        0.56 + this.random() * 0.2,
-        1.5 + charge * 0.34 + this.random() * 0.32,
-        (0.76 + this.random() * 0.12) * lod,
-        1.45 + this.random() * 0.55,
-        tone,
-        false,
-      );
-    }
-  }
-
-  emitRelease(
-    x: number,
-    y: number,
-    z: number,
-    fwdX: number,
-    fwdZ: number,
-    portX: number,
-    portZ: number,
-    side: number,
-    lod: number,
-  ): void {
-    for (let i = 0; i < 11; i++) {
-      const isCore = i < 2;
-      const lateral = side * (0.12 + this.random() * 0.58) + (this.random() - 0.5) * 0.78;
-      const stern = 1.72 + this.random() * 0.62;
-      this.emit(
-        x - fwdX * stern + portX * lateral,
-        y + 0.52 + this.random() * 0.42,
-        z - fwdZ * stern + portZ * lateral,
-        -fwdX * (isCore ? 6.2 : 4.6 + this.random() * 3.0) + portX * side * (this.random() * 1.5),
-        isCore ? 0.55 : 0.92 + this.random() * 0.86,
-        -fwdZ * (isCore ? 6.2 : 4.6 + this.random() * 3.0) + portZ * side * (this.random() * 1.5),
-        isCore ? 0.18 : 0.34 + this.random() * 0.09,
-        isCore ? 0.34 : 0.68 + this.random() * 0.22,
-        isCore ? 0.82 : 2.02 + this.random() * 0.56,
-        (isCore ? 0.82 : 0.91 + this.random() * 0.07) * lod,
-        isCore ? 2.35 : 1.38 + this.random() * 0.62,
-        isCore ? PALETTE.boost : (i % 2 === 0 ? DRIFT_SMOKE_BODY_DARK : DRIFT_SMOKE_BODY_LIGHT),
-        isCore,
-      );
-    }
-  }
-
-  update(dt: number): void {
-    const drag = Math.exp(-1.45 * dt);
-    let rendered = 0;
-    let activeCore = 0;
-    let maxOpacity = 0;
-    let maxWorldY = -Infinity;
-    for (let i = 0; i < DRIFT_SMOKE_CAPACITY; i++) {
-      if (this.life[i] <= 0) continue;
-      this.age[i] += dt;
-      if (this.age[i] >= this.life[i]) {
-        this.life[i] = 0;
-        continue;
-      }
-      this.vx[i] *= drag;
-      this.vz[i] *= drag;
-      this.x[i] += this.vx[i] * dt;
-      this.y[i] += this.vy[i] * dt;
-      this.z[i] += this.vz[i] * dt;
-      const p = this.age[i] / this.life[i];
-      const attack = smooth01(Math.min(1, p / 0.08));
-      const fade = 1 - smooth01(Math.max(0, (p - (this.core[i] ? 0.46 : 0.52)) / (this.core[i] ? 0.54 : 0.48)));
-      const opacity = this.alpha[i] * attack * fade;
-      const size = this.sizeA[i] + (this.sizeB[i] - this.sizeA[i]) * smooth01(p);
-      this.visual.position.setXYZ(rendered, this.x[i], this.y[i], this.z[i]);
-      _fxColor.setHex(this.color[i], THREE.NoColorSpace);
-      this.visual.tint.setXYZ(rendered, _fxColor.r, _fxColor.g, _fxColor.b);
-      this.visual.size.setX(rendered, size);
-      this.visual.opacity.setX(rendered, opacity);
-      this.visual.rotation.setX(rendered, this.spin[i] + this.spinRate[i] * this.age[i]);
-      this.visual.velocity.setXYZ(rendered, this.vx[i], this.vy[i], this.vz[i]);
-      this.visual.stretch.setX(rendered, this.stretch[i]);
-      rendered++;
-      if (this.core[i]) activeCore++;
-      maxOpacity = Math.max(maxOpacity, opacity);
-      maxWorldY = Math.max(maxWorldY, this.y[i]);
-    }
-    this.active = rendered;
-    this.activeCore = activeCore;
-    this.maxOpacity = maxOpacity;
-    this.maxWorldY = maxWorldY === -Infinity ? 0 : maxWorldY;
-    this.visual.points.geometry.setDrawRange(0, rendered);
-    this.visual.points.visible = rendered > 0;
-    this.visual.position.needsUpdate = true;
-    this.visual.tint.needsUpdate = true;
-    this.visual.size.needsUpdate = true;
-    this.visual.opacity.needsUpdate = true;
-    this.visual.rotation.needsUpdate = true;
-    this.visual.velocity.needsUpdate = true;
-    this.visual.stretch.needsUpdate = true;
-  }
-
-  clear(): void {
-    this.life.fill(0);
-    this.age.fill(0);
-    this.cursor = 0;
-    this.emitted = 0;
-    this.active = 0;
-    this.activeCore = 0;
-    this.maxOpacity = 0;
-    this.maxWorldY = 0;
-    this.visual.points.geometry.setDrawRange(0, 0);
-    this.visual.points.visible = false;
-  }
-
-  debug(boatY: number): {
-    active: number;
-    core: number;
-    emitted: number;
-    maxOpacity: number;
-    rise: number;
-  } {
-    return {
-      active: this.active,
-      core: this.activeCore,
-      emitted: this.emitted,
-      maxOpacity: this.maxOpacity,
-      rise: this.active > 0 ? this.maxWorldY - boatY : 0,
-    };
-  }
 }
 
 function buildThrustVisual(): ThrustVisual {
@@ -977,6 +547,24 @@ function flatGeometry(pos: number[]): THREE.BufferGeometry {
   return geo;
 }
 
+/** Batch disconnected flat-shaded parts that share one material and transform. */
+function mergeFlatGeometryParts(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  for (const part of parts) {
+    const position = part.getAttribute('position');
+    const normal = part.getAttribute('normal');
+    for (let i = 0; i < position.count; i++) {
+      positions.push(position.getX(i), position.getY(i), position.getZ(i));
+      normals.push(normal.getX(i), normal.getY(i), normal.getZ(i));
+    }
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return merged;
+}
+
 // [z, sheerHalfWidth, chineHalfWidth, keelY, chineY, sheerY]
 // Keel rises to the bow (V entry), dead-flat planing bottom aft, flared sides.
 type HullRow = readonly [number, number, number, number, number, number];
@@ -1114,6 +702,7 @@ function buildBoatVisual(id: number, color: number): {
   root: THREE.Group;
   riderMount: THREE.Object3D;
   hullMaterial: THREE.ShaderMaterial;
+  lowDetailInkSolids: readonly THREE.Mesh[];
 } {
   const root = new THREE.Group();
   root.name = 'hull';
@@ -1151,13 +740,12 @@ function buildBoatVisual(id: number, color: number): {
 
   // hull, deck, sponsons — deck shares the hull color so the racer color
   // wraps over the top and reads from behind/above at gameplay distance
-  add(buildHullGeometry(), hullMat);
-  add(buildDeckGeometry(), hullMat);
+  const hull = add(mergeFlatGeometryParts([buildHullGeometry(), buildDeckGeometry()]), hullMat);
   // sponsons skip the inverted-hull outline: their thin aft tips peek past
   // the transom against the white wake and the ink shell reads as dangling
   // dark hooks; the bare hull-colored wedges fair in cleanly
-  add(buildSponsonGeometry(1), hullMat).userData.noOutline = true;
-  add(buildSponsonGeometry(-1), hullMat).userData.noOutline = true;
+  add(mergeFlatGeometryParts([buildSponsonGeometry(1), buildSponsonGeometry(-1)]), hullMat)
+    .userData.noOutline = true;
   const deckStripe = add(buildDeckStripeGeometry(), inkMat);
   deckStripe.userData.noOutline = true; // painted-on panel line, no ink halo
 
@@ -1236,7 +824,7 @@ function buildBoatVisual(id: number, color: number): {
   riderMount.position.set(0, 0.64, -1.05);
   root.add(riderMount);
 
-  return { root, riderMount, hullMaterial: hullMat };
+  return { root, riderMount, hullMaterial: hullMat, lowDetailInkSolids: [hull] };
 }
 
 // ---------------------------------------------------------------- boat ----
@@ -1287,9 +875,6 @@ export class Boat implements IBoat {
   private opponentFxScale = 1;
   private opponentTechniqueFxScale = 1;
   private driftHoldStarts = 0;
-  private driftVisualSide = 1;
-  private driftSmokeEmitCd = 0;
-  private driftSmokeReleaseTimer = 0;
   private opponentBoostWasActive = false;
   private opponentReleaseBeats = 0;
   private lastT = 0;
@@ -1299,8 +884,6 @@ export class Boat implements IBoat {
   private readonly thrustOuter: THREE.InstancedMesh;
   private readonly thrustCore: THREE.InstancedMesh;
   private readonly thrustRings: THREE.InstancedMesh;
-  private readonly driftSmoke: DriftSmokePool;
-  private readonly driftTechniqueLines: DriftTechniqueLines;
   private readonly driftBurst: DriftBurstVisual;
   private driftBurstTimer = 0;
   private boostFx = 0;
@@ -1331,9 +914,14 @@ export class Boat implements IBoat {
     if (opts.detailedInk !== false) {
       addOutline(this.object);
       markInk(this.object);
+    } else {
+      // Auto quality keeps the batched mesh that defines the full hull silhouette
+      // in the solid prepass. Tagging every cockpit trim piece would add 29
+      // prepass draws per rival without changing the occlusion footprint.
+      for (const solid of visual.lowDetailInkSolids) solid.layers.enable(LAYER_INK);
     }
 
-    // Ink blob shadow — added AFTER outline/ink passes so it stays out of
+    // Ink blob shadow — added AFTER outline/prepass registration so it stays out of
     // both (transparent, world-flat; posed each frame in update()).
     this.blob = buildBlobShadow();
     this.object.add(this.blob);
@@ -1345,16 +933,12 @@ export class Boat implements IBoat {
     this.thrustOuter = thrust.outer;
     this.thrustCore = thrust.core;
     this.thrustRings = thrust.rings;
-    this.driftSmoke = new DriftSmokePool(0x51f15e + opts.id * 0x9e37);
-    this.driftTechniqueLines = buildDriftTechniqueLines();
     this.driftBurst = buildDriftBurstVisual();
     this.object.add(
       this.thrustShell,
       this.thrustOuter,
       this.thrustCore,
       this.thrustRings,
-      this.driftSmoke.visual.points,
-      this.driftTechniqueLines.group,
       this.driftBurst.group,
     );
 
@@ -1523,16 +1107,6 @@ export class Boat implements IBoat {
     // drift charge / boost payout on release
     if (surfaceDrift && !this.wasDrifting) {
       if (this.id > 0) this.driftHoldStarts++;
-      // A chained rival can reverse the real steering input while the hull is
-      // still carrying lateral inertia from the previous payout. At the new
-      // hold edge, a deliberate current input owns the loaded wind side; lateral G
-      // remains the fallback for neutral/noisy steering. This keeps the visual
-      // tied to BoatInput without inventing a cosmetic cycle parity.
-      this.driftVisualSide = this.id > 0 && Math.abs(steer) >= 0.25
-        ? (steer >= 0 ? 1 : -1)
-        : Math.abs(this.lateralG) > 0.5
-          ? (this.lateralG > 0 ? -1 : 1)
-          : (steer >= 0 ? 1 : -1);
     }
     if (surfaceDrift) {
       this.accrueDriftCharge(dt, speedAbs);
@@ -2012,20 +1586,16 @@ export class Boat implements IBoat {
     if (this.id === 0) return;
     if (boostStarted && this.opponentTechniqueFxScale > 0.01) {
       this.driftBurstTimer = DRIFT_BURST_TIME;
-      this.driftSmokeReleaseTimer = DRIFT_BURST_TIME;
     }
     this.driftBurstTimer = Math.max(0, this.driftBurstTimer - dt);
-    this.driftSmokeReleaseTimer = this.driftBurstTimer;
     const strength = clamp(this.driftBurstTimer / DRIFT_BURST_TIME, 0, 1) * this.opponentTechniqueFxScale;
     this.driftBurst.group.visible = strength > 0.01;
-    this.driftSmoke.visual.points.visible = false;
-    this.driftTechniqueLines.group.visible = false;
     if (strength <= 0.01) return;
 
-    // A visible 40 degree stern kick, deliberately distinct from the down-facing flight pads.
-    _driftBurstDirection.set(0, Math.tan(Math.PI * 40 / 180), -1).normalize();
+    // A short aft/up pulse: elevated enough for the chase camera, never a vertical flight plume.
+    _driftBurstDirection.set(0, Math.tan(Math.PI * 28 / 180), -1).normalize();
     const burst = smooth01(strength);
-    placeDriftBurstFlame(this.driftBurst.flame, this.driftBurst.material, _driftBurstDirection, burst, t);
+    placeDriftBurstPulse(this.driftBurst.lobes, this.driftBurst.material, _driftBurstDirection, burst, t);
   }
 
   private setThrustInstance(
@@ -2162,9 +1732,7 @@ export class Boat implements IBoat {
     phase: 'idle' | 'holding' | 'charged' | 'release';
     holdStarts: number;
     burstStrength: number;
-    heatStrength: number;
     burstActive: boolean;
-    smokeSide: number;
     wakeScale: number;
   } {
     const burstStrength = clamp(this.driftBurstTimer / DRIFT_BURST_TIME, 0, 1) * this.opponentTechniqueFxScale;
@@ -2172,16 +1740,14 @@ export class Boat implements IBoat {
       burstScale: this.opponentTechniqueFxScale,
       releaseBeats: this.opponentReleaseBeats,
       boosting: this.state.boosting,
-      phase: this.driftSmokeReleaseTimer > 0
+      phase: this.driftBurstTimer > 0
         ? 'release'
         : this.state.drifting
         ? (this.state.driftReleaseReady ? 'charged' : 'holding')
         : 'idle',
       holdStarts: this.driftHoldStarts,
       burstStrength,
-      heatStrength: burstStrength,
       burstActive: this.driftBurst.group.visible,
-      smokeSide: this.driftVisualSide,
       wakeScale: this.id === 0 ? 1 : TUNING.opponentWakeScale,
     };
   }
@@ -2380,11 +1946,6 @@ export class Boat implements IBoat {
     this.opponentBoostWasActive = false;
     this.opponentReleaseBeats = 0;
     this.driftHoldStarts = 0;
-    this.driftVisualSide = 1;
-    this.driftSmokeEmitCd = 0;
-    this.driftSmokeReleaseTimer = 0;
-    this.driftSmoke.clear();
-    this.driftTechniqueLines.group.visible = false;
     this.driftBurstTimer = 0;
     this.driftBurst.group.visible = false;
     this.boostFx = 0;

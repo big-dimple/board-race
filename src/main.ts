@@ -305,6 +305,7 @@ const race = new Race(course, boats, {
     if (HARNESS) harnessCheckpointEvents++;
   },
   finish: (r) => {
+    course.pulseFinalStation();
     if (r.isPlayer) audio.finishSting();
   },
   courseWarning: (r, warning) => {
@@ -1380,6 +1381,7 @@ interface Harness {
   routeFourCueLaunchCase(): Record<string, number | string | boolean>;
   route45ContinuousCase(): Record<string, number | string | boolean>;
   finalApproachCase(): Record<string, unknown>;
+  finalOrderCase(): Record<string, unknown>;
   surfaceRouteEnforcementCase(): Record<string, unknown>;
   flightBudgetCase(): Record<string, unknown>;
   retry(): void;
@@ -2314,7 +2316,7 @@ function finalPortalGeometryCase(): Record<string, boolean> {
     const current = center.clone()
       .addScaledVector(right, lateral)
       .addScaledVector(forward, span * 0.5 * direction);
-    return course.crossFinalStation(previous, current);
+    return course.crossFinalStation(previous, current) >= 0;
   };
   return {
     centerForward: crossing(0, 1, 2),
@@ -2518,6 +2520,74 @@ function harnessFinalApproachCase(): Record<string, unknown> {
     harnessForceAirBrake = false;
     harnessSuppressAirborneFlightTrigger = false;
     setHarnessInput(null);
+    harnessEndlessMode = previousEndlessMode;
+  }
+}
+
+function harnessFinalOrderCase(): Record<string, unknown> {
+  const previousEndlessMode = harnessEndlessMode;
+  harnessEndlessMode = false;
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  const dt = 1 / 60;
+  const center = course.pointAt(0, new THREE.Vector3());
+  const forward = course.tangentAt(0, new THREE.Vector3());
+  const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+  const laterals = [0, -4.5, -2.25, 0, 2.25, 4.5];
+  const setPlane = (id: number, plane: number): void => {
+    const p = center.clone().addScaledVector(forward, plane).addScaledVector(right, laterals[id]);
+    boats[id].setCollisionTestMotion(
+      p.x,
+      p.z,
+      Math.atan2(forward.x, forward.z),
+      forward.x * 24,
+      forward.z * 24,
+    );
+  };
+
+  try {
+    boats[0].state.flightsCleared = course.flightRoutes.length;
+    if (!race.armFinale()) throw new Error('unable to arm deterministic Final order case');
+    course.armFinalStation();
+
+    // Stage every physical hull before the same visible portal. Two rivals
+    // cross in one fixed step with different sweep fractions to prove that
+    // array order cannot decide a photo finish.
+    for (let id = 0; id < boats.length; id++) setPlane(id, id === 2 ? -2.4 : -0.8);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    setPlane(1, 2.4); // crossing fraction .25
+    setPlane(2, 0.8); // crossing fraction .75
+    race.update(dt);
+    const sameFrameOrder = [...race.racers]
+      .filter((racer) => racer.finished)
+      .sort((a, b) => a.place - b.place)
+      .map((racer) => racer.id);
+
+    for (const id of [3, 4, 5]) {
+      setPlane(id, 0.8);
+      race.update(dt);
+    }
+    const opponentsFinishedBeforePlayer = race.racers.slice(1).every((racer) => racer.finished);
+    const rivalsVisibleBeforePlayer = boats.slice(1).every((boat) => boat.object.visible);
+
+    setPlane(0, 0.8);
+    race.update(dt);
+    const order = [...race.racers].sort((a, b) => a.place - b.place);
+    return {
+      phase: race.phase,
+      sameFrameOrder,
+      order: order.map((racer) => racer.id),
+      finishTimes: order.map((racer) => racer.finishTime),
+      allFinished: order.every((racer) => racer.finished),
+      opponentsFinishedBeforePlayer,
+      rivalsVisibleBeforePlayer,
+      playerPlace: race.racers[0].place,
+      resultPlace: race.challengeResult?.place ?? -1,
+      totalRacers: race.challengeResult?.totalRacers ?? -1,
+    };
+  } finally {
     harnessEndlessMode = previousEndlessMode;
   }
 }
@@ -4947,6 +5017,37 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === 'finished', 8);
       break;
     }
+    case 'final-rival-portal': {
+      harnessEndlessMode = false;
+      advanceUntil(() => race.phase === 'racing', 8);
+      // Let the start slate retire before freezing this visibility scene.
+      loop.advance(1.5);
+      boats[0].state.flightsCleared = course.flightRoutes.length;
+      if (!race.armFinale()) throw new Error('unable to arm Final rival occlusion scene');
+      course.armFinalStation();
+      const center = course.pointAt(0, new THREE.Vector3());
+      const forward = course.tangentAt(0, new THREE.Vector3());
+      const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+      const stageAt = (id: number, plane: number, lateral: number): void => {
+        const p = center.clone().addScaledVector(forward, plane).addScaledVector(right, lateral);
+        boats[id].setCollisionTestMotion(
+          p.x,
+          p.z,
+          Math.atan2(forward.x, forward.z),
+          forward.x * 18,
+          forward.z * 18,
+        );
+      };
+      // The outer legal line is the worst case: the rival overlaps a glowing
+      // column while still passing between the authored portal supports.
+      stageAt(0, -9, 7.0);
+      stageAt(1, -0.35, 7.0);
+      for (let id = 2; id < boats.length; id++) stageAt(id, -45 - id * 4, id * 3);
+      course.syncFlightTrackingAfterCollisions(boats);
+      race.syncCollisionCorrections();
+      for (let i = 0; i < 90; i++) course.update(1 / 60, worldTime + i / 60);
+      break;
+    }
     case 'expansion-gallery': {
       harnessEndlessMode = false;
       advanceUntil(() => race.phase === 'racing', 8);
@@ -5039,9 +5140,7 @@ if (HARNESS) {
         phase: fx.phase,
         holdStarts: fx.holdStarts,
         burstStrength: fx.burstStrength,
-        heatStrength: fx.heatStrength,
         burstActive: fx.burstActive,
-        smokeSide: fx.smokeSide,
         wakeScale: fx.wakeScale,
         boostCycles: Number(ais[id].debugPursuit().boostCycles),
       };
@@ -5061,6 +5160,7 @@ if (HARNESS) {
     routeFourCueLaunchCase: harnessRouteFourCueLaunchCase,
     route45ContinuousCase: harnessRoute45ContinuousCase,
     finalApproachCase: harnessFinalApproachCase,
+    finalOrderCase: harnessFinalOrderCase,
     surfaceRouteEnforcementCase: harnessSurfaceRouteEnforcementCase,
     flightBudgetCase,
     retry: requestRetry,
@@ -5279,8 +5379,6 @@ if (HARNESS) {
         phase: fx.map((item) => item.phase).join(','),
         holdStarts: fx.reduce((sum, item) => sum + item.holdStarts, 0),
         burstStrength: strongestBurst.burstStrength,
-        heatStrength: strongestBurst.heatStrength,
-        smokeSide: strongestBurst.smokeSide,
         wakeScale: Math.max(...fx.map((item) => item.wakeScale)),
       };
     },

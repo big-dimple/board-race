@@ -10,8 +10,8 @@
  *  - ribbon is 2.5 m wide at the transom and spreads with DISTANCE ASTERN
  *    (fixed geometric V angle, speed-independent), capped by a speed-scaled
  *    max width — slow boats leave a narrow V, fast boats a wide one
- *  - silhouette = TWO close-in split foam lanes that diverge into the wake,
- *    with a short turbulent center churn and open water between the lanes
+ *  - silhouette = one broad aerated stern wash; broken Kelvin shoulders peel
+ *    away as secondary detail instead of becoming two continuous rails
  *  - interior variation is a continuous low-frequency flow field; no cell
  *    discard, pixel mosaic, or stamped tread bars are allowed in the foam
  *  - a live Gerstner normal is blended with broad shoulder ripples so the
@@ -127,47 +127,56 @@ void main() {
   }
 
   // ---- silhouette, indexed by METERS ASTERN -------------------------------
-  // A production wake is layered in coverage, not stamped into cells:
-  // one low-opacity body for displaced water, two soft shoulder crests for
-  // the readable V, and a short rounded contact pool under the transom.
-  float rhythm = 0.5 + 0.5 * sin(vAlong / (uStamp * 2.8) - uTime * 0.45);
-  float close = 1.0 - smoothstep(0.0, 10.0, vBehind);
-  float railCenter = mix(0.58, 0.34, exp(-vBehind * 0.032));
-  float laneWob = 0.045 * sin(vAlong * 0.19 + sin(vAlong * 0.045) * 1.8);
-  float lanePulse = 0.92 + 0.08 * rhythm;
-  float laneWidth = mix(0.11, 0.23, close) * lanePulse;
-  float laneCenter = railCenter + laneWob;
-  float laneDistance = abs(lat - laneCenter);
-  float shoulder = 1.0 - smoothstep(laneWidth * 0.52, laneWidth * 1.3, laneDistance);
-  float shoulderHalo = 1.0 - smoothstep(laneWidth * 0.8, laneWidth * 2.5, laneDistance);
-  float lanePresence = 1.0 - smoothstep(28.0, 92.0, vBehind);
+  // The center wash owns the silhouette. Its smooth, overlapping wave beats
+  // imply entrained air without stamped cells or a filled road-shaped core.
+  float centerWidth = mix(0.58, 0.28, smoothstep(0.0, 78.0, vBehind));
+  float center = 1.0 - smoothstep(centerWidth * 0.34, centerWidth, lat);
+  float centerFade = 1.0 - smoothstep(54.0, 138.0, vBehind);
+  float longFlow = 0.5 + 0.28 * sin(vBehind * 0.47 - uTime * 1.35) +
+    0.14 * sin(vBehind * 0.19 + lat * 4.2 + uTime * 0.62) +
+    0.08 * sin(vBehind * 0.91 - lat * 2.7 - uTime * 1.8);
+  float crossFlow = 0.5 + 0.32 * sin(vBehind * 0.31 + lat * 5.1 - uTime * 1.0) +
+    0.18 * sin(vBehind * 0.73 - lat * 3.4 + uTime * 1.55);
+  // Longitudinal peaks open and close whole foam pockets; the cross field
+  // only roughens their edges. Multiplying two hard masks leaves isolated
+  // pinholes, while a continuous baseline turns the ribbon back into a road.
+  float pocket = smoothstep(0.52, 0.71, longFlow);
+  float edgeTurbulence = smoothstep(0.38, 0.68, crossFlow);
+  float churn = pocket * mix(0.48, 1.0, edgeTurbulence);
 
-  // The body is deliberately wide and quiet. It prevents the wake from
-  // reading as three floating rails while keeping the route and hull visible.
-  float bodyWidth = mix(0.68, 0.38, smoothstep(0.0, 62.0, vBehind));
-  float body = 1.0 - smoothstep(bodyWidth * 0.48, bodyWidth, lat);
-  float bodyFade = 1.0 - smoothstep(36.0, 132.0, vBehind);
+  // Broken Kelvin shoulders are readable up close but never form continuous
+  // bright rails. Alternating broad beats leave open-water gaps along the V.
+  float shoulderCenter = mix(0.72, 0.55, smoothstep(0.0, 62.0, vBehind));
+  shoulderCenter += 0.035 * sin(vBehind * 0.16 + sin(vBehind * 0.045) * 1.4);
+  float shoulderDistance = abs(lat - shoulderCenter);
+  float shoulderWidth = mix(0.18, 0.095, smoothstep(0.0, 46.0, vBehind));
+  float shoulderShape = 1.0 - smoothstep(shoulderWidth * 0.42, shoulderWidth, shoulderDistance);
+  float shoulderBeat = 0.5 + 0.32 * sin(vBehind * 0.41 - uTime * 1.1) +
+    0.18 * sin(vBehind * 0.17 + uTime * 0.46);
+  float shoulderBreak = smoothstep(0.46, 0.68, shoulderBeat);
+  float shoulder = shoulderShape * shoulderBreak * (1.0 - smoothstep(34.0, 104.0, vBehind));
 
-  // A rounded pool at the contact point gives the stern a believable push of
-  // water before the shoulder crests peel away into the V.
-  float contact = (1.0 - smoothstep(0.0, 7.5, vBehind)) *
-    (1.0 - smoothstep(0.70, 1.0, lat));
-  float coverage = max(body * bodyFade, max(shoulder * lanePresence, contact));
-  if (coverage < 0.012) discard;
+  // Rounded transom churn joins both sides only at the actual stern. It must
+  // end before it can become a long translucent road under the broken wash.
+  float contactBeat = 0.5 + 0.34 * sin(vBehind * 1.18 - uTime * 1.7 + lat * 3.2) +
+    0.16 * sin(vBehind * 2.3 + uTime * 1.1 - lat * 4.6);
+  float contact = (1.0 - smoothstep(0.4, 4.2, vBehind)) *
+    (1.0 - smoothstep(0.52, 0.92, lat)) * smoothstep(0.34, 0.62, contactBeat);
+  float body = center * centerFade * churn;
+  float coverage = max(body, max(shoulder, contact));
+  float coverageMask = smoothstep(0.12, 0.32, coverage);
+  if (coverageMask < 0.01) discard;
 
-  // Broad, continuous flow modulation replaces cell-discard breakup. It
-  // keeps the wake lively while retaining long coherent foam shoulders.
-  float flow = 0.5 + 0.5 * sin(vBehind * 0.58 - uTime * 0.9 + sin(vBehind * 0.13) * 1.1 + lat * 2.0);
-  float softBreak = mix(0.76, 1.0, smoothstep(0.12, 0.9, flow));
-  float ageFade = 1.0 - smoothstep(52.0, 108.0, vBehind);
+  float ageFade = (1.0 - smoothstep(64.0, 142.0, vBehind)) *
+    (1.0 - smoothstep(0.62, 1.0, f));
 
   // Reconstruct a rounded foam normal from the live ocean normal plus a pair
   // of long, low-amplitude shoulder ripples. The low frequency is deliberate:
   // specular bands stay connected and read as refracted water, never mosaic.
   vec3 waterN = gerstnerNormal(vWorldPos.xz, uTime);
-  float ridge = sin(vBehind * 0.78 - uTime * 1.05 + lat * 2.0);
-  vec3 foamN = normalize(vec3(ridge * 0.095, 1.0, cos(vBehind * 0.52 + uTime * 0.65) * 0.075));
-  vec3 n = normalize(mix(waterN, foamN, 0.56));
+  float ridge = sin(vBehind * 0.62 - uTime * 1.15 + lat * 2.4);
+  vec3 foamN = normalize(vec3(ridge * 0.075, 1.0, cos(vBehind * 0.38 + uTime * 0.72) * 0.065));
+  vec3 n = normalize(mix(waterN, foamN, 0.52));
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   vec3 lightDir = normalize(vec3(-0.34, 0.86, 0.39));
   float ndl = clamp(dot(n, lightDir) * 0.5 + 0.5, 0.0, 1.0);
@@ -176,13 +185,15 @@ void main() {
 
   float freshness = 1.0 - smoothstep(8.0, 30.0, vBehind);
   vec3 baseFoam = mix(uColorAged, uColorFoam, freshness);
-  float crestMix = clamp(0.28 + shoulder * 0.58 + contact * 0.18 + ndl * 0.28 + specular * 0.16 + fresnel * 0.08, 0.0, 1.0);
+  float innerFroth = body * (1.0 - smoothstep(centerWidth * 0.18, centerWidth * 0.62, lat));
+  float crestMix = clamp(0.28 + body * 0.18 + shoulder * 0.28 + contact * 0.2 +
+    innerFroth * 0.34 + ndl * 0.26 + specular * 0.14 + fresnel * 0.08, 0.0, 1.0);
   vec3 col = mix(uColorWash, baseFoam, crestMix);
-  float bodyAlpha = body * bodyFade * (0.052 + 0.065 * freshness + 0.065 * ndl);
-  float haloAlpha = shoulderHalo * lanePresence * (0.055 + 0.06 * freshness);
-  float crestAlpha = shoulder * lanePresence * (0.25 + 0.30 * freshness + 0.16 * ndl + 0.10 * specular);
-  float contactAlpha = contact * (0.10 + 0.18 * freshness + 0.10 * ndl);
-  float a = (bodyAlpha + haloAlpha + crestAlpha + contactAlpha) * softBreak * ageFade;
+  col = mix(col, uColorFoam, innerFroth * 0.24);
+  float bodyAlpha = body * (0.29 + 0.32 * freshness + 0.11 * ndl) + innerFroth * 0.1;
+  float crestAlpha = shoulder * (0.03 + 0.05 * freshness + 0.02 * ndl + 0.015 * specular);
+  float contactAlpha = contact * (0.16 + 0.18 * freshness + 0.08 * ndl);
+  float a = (bodyAlpha + crestAlpha + contactAlpha) * ageFade * coverageMask;
   a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.78, 1.0, uVisualScale);
   gl_FragColor = vec4(col, a);
   #include <colorspace_fragment>

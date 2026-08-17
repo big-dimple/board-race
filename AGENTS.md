@@ -86,8 +86,8 @@ automatically; players steer, drift/air-brake, and trigger flight.
   but its surface auto-throttle may only lift for traffic or recovery and never become
   reverse braking. Teleport, fake progress, collision immunity, and player slowdown are
   forbidden. Drift holds keep a clean stern; the real BOOST rising edge alone adds one
-  short white-core blue flame directed rearward and upward. Do not fake heat distortion
-  with a translucent cone; ordinary rival wake stays subordinate. These visuals must derive from Boat state,
+  short, rear-upward 12-lobe blue-white plasma pulse. Do not restore smoke, comic lines,
+  continuous exhaust, or a translucent heat cone; ordinary rival wake stays subordinate. These visuals must derive from Boat state,
   never a cosmetic loop detached from input, charge, or BOOST payout.
   All continuously moving surface boats and their AI must project inside a bounded
   neighbourhood of the previously accepted spline `u`; a folded course may not swap
@@ -134,13 +134,19 @@ automatically; players steer, drift/air-brake, and trigger flight.
   two opposite exit-correction signs as secondary landmarks.
 - Ocean displacement remains shared with boat physics, while its material uses
   continuous directional normals, broad sun response, near-only ripple detail,
-  and sparse whitecaps tied to high, steep, rising waves. Retired cel-height slabs
-  and graphic sparkle fields must not return or compete with routes and rival technique cues.
+  derivative-filtered mid-distance glint runs, and sparse whitecaps tied to high,
+  steep, rising waves. Retired cel-height slabs and graphic/hash sparkle fields
+  must not return or compete with routes and rival technique cues. Boat wakes use
+  a broken central aerated wash with only faint, discontinuous Kelvin shoulders;
+  they may be neither two continuous rails nor a filled road.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.
   Shift/mobile brake then targets 18m/s with air-brake turn authority and cannot
   drift, boost, charge, spend a cell, reverse, or emit a new feedback cue.
+  Once armed, every physical racer can finish through the same swept portal test;
+  sub-frame crossing time locks global order, finished rivals stay visible, and the
+  player result is created only after all crossings in that fixed step are sorted.
 - Desktop READY uses a frozen three-column driver stage from 1366x768 upward,
   six stable roster destinations, a cancellable clip reveal, and a DPR-backed
   radar. The accepted coarse-pointer mobile portrait composition stays separate.

@@ -119,7 +119,8 @@ export class RaceTower {
       const gap = row.querySelector<HTMLElement>('.race-tower-gap');
       if (place) place.textContent = String(racer.place).padStart(2, '0');
       if (gap) {
-        if (i === 0) gap.textContent = 'LEADER';
+        if (racer.finished) gap.textContent = 'FIN';
+        else if (i === 0) gap.textContent = 'LEADER';
         else gap.textContent = `-${Math.max(0, order[i - 1].progress - racer.progress).toFixed(1)}m`;
       }
     }

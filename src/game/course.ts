@@ -1409,6 +1409,7 @@ export class Course implements ICourse {
   private startGantry: THREE.Group | null = null;
   private finalStation: THREE.Group | null = null;
   private finalStationBlend = 0;
+  private finalCrossingPulse = 0;
   private finalArmed = false;
   private finalCelebrating = false;
   private finalCelebrationTime = 0;
@@ -1659,26 +1660,30 @@ export class Course implements ICourse {
     return this.finalArmed;
   }
 
-  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3): boolean {
+  pulseFinalStation(): void {
+    this.finalCrossingPulse = 1;
+  }
+
+  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3): number {
     const dx = current.x - previous.x;
     const dz = current.z - previous.z;
     const stepSq = dx * dx + dz * dz;
-    if (stepSq <= 1e-8 || stepSq > FINAL_PORTAL_MAX_STEP_M * FINAL_PORTAL_MAX_STEP_M) return false;
+    if (stepSq <= 1e-8 || stepSq > FINAL_PORTAL_MAX_STEP_M * FINAL_PORTAL_MAX_STEP_M) return -1;
     const px = previous.x - this.finalPortalCenter.x;
     const pz = previous.z - this.finalPortalCenter.z;
     const cx = current.x - this.finalPortalCenter.x;
     const cz = current.z - this.finalPortalCenter.z;
     const fromPlane = px * this.finalPortalForward.x + pz * this.finalPortalForward.z;
     const toPlane = cx * this.finalPortalForward.x + cz * this.finalPortalForward.z;
-    if ((fromPlane < 0 && toPlane < 0) || (fromPlane > 0 && toPlane > 0)) return false;
+    if ((fromPlane < 0 && toPlane < 0) || (fromPlane > 0 && toPlane > 0)) return -1;
     const denominator = fromPlane - toPlane;
-    if (Math.abs(denominator) < 1e-6) return false;
+    if (Math.abs(denominator) < 1e-6) return -1;
     const crossingT = fromPlane / denominator;
-    if (crossingT < 0 || crossingT > 1) return false;
+    if (crossingT < 0 || crossingT > 1) return -1;
     const crossX = previous.x + dx * crossingT - this.finalPortalCenter.x;
     const crossZ = previous.z + dz * crossingT - this.finalPortalCenter.z;
     const lateral = crossX * this.finalPortalRight.x + crossZ * this.finalPortalRight.z;
-    return Math.abs(lateral) <= FINAL_PORTAL_HALF_WIDTH_M;
+    return Math.abs(lateral) <= FINAL_PORTAL_HALF_WIDTH_M ? crossingT : -1;
   }
 
   triggerFinaleCelebration(): void {
@@ -1696,6 +1701,7 @@ export class Course implements ICourse {
     this.finalCelebrating = false;
     this.finalCelebrationTime = 0;
     this.finalStationBlend = 0;
+    this.finalCrossingPulse = 0;
     this.ribbonMat.uniforms.uFinalApproach.value = 0;
     if (this.finalStation) this.finalStation.visible = false;
   }
@@ -2389,13 +2395,20 @@ export class Course implements ICourse {
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
     if (this.finalStation) {
       if (this.finalCelebrating) this.finalCelebrationTime += dt;
+      this.finalCrossingPulse = Math.max(0, this.finalCrossingPulse - dt * 3.4);
       const target = this.finalArmed || this.finalCelebrating ? 1 : 0;
       this.finalStationBlend += (target - this.finalStationBlend) * (1 - Math.exp(-dt * 4.5));
       const blend = Math.max(0, Math.min(1, this.finalStationBlend));
       this.finalStation.visible = blend > 0.005;
       const burst = this.finalCelebrating ? Math.max(0, 1 - this.finalCelebrationTime / 1.2) : 0;
-      this.finalStation.scale.set(1 + burst * 0.08, 0.24 + blend * (0.76 + burst * 0.32), 1 + burst * 0.08);
-      const pulse = 0.82 + Math.sin(t * (this.finalCelebrating ? 8.5 : 3.2)) * (this.finalCelebrating ? 0.28 : 0.18) + burst * 0.22;
+      const cross = this.finalCrossingPulse * this.finalCrossingPulse;
+      this.finalStation.scale.set(
+        1 + burst * 0.08 + cross * 0.025,
+        0.24 + blend * (0.76 + burst * 0.32 + cross * 0.08),
+        1 + burst * 0.08 + cross * 0.025,
+      );
+      const pulse = 0.82 + Math.sin(t * (this.finalCelebrating ? 8.5 : 3.2)) *
+        (this.finalCelebrating ? 0.28 : 0.18) + burst * 0.22 + cross * 0.2;
       this.finalStation.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         const material = object.material as THREE.MeshBasicMaterial;

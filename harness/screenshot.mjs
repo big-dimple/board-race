@@ -85,6 +85,7 @@ const SCENARIOS = {
   'endless-four': { scenario: 'endless-four', timeout: 180000, settleMs: 180 },
   'endless-medal-fail': { scenario: 'endless-medal-fail', timeout: 180000, settleMs: 180 },
   'final-station': { scenario: 'final-station', timeout: 180000, settleMs: 180 },
+  'final-rival-portal': { scenario: 'final-rival-portal', freeCamDynamic: { back: 5, up: 3.2, lookUp: 0.6 } },
   'expansion-gallery': { scenario: 'expansion-gallery', timeout: 180000, settleMs: 180 },
   overtake: { scenario: 'overtake', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
   'overtake-chain': { scenario: 'overtake-chain', settleMs: 140, freeCamDynamic: { back: 10, up: 3.2, lookUp: 0.8 } },
@@ -98,6 +99,10 @@ const SCENARIOS = {
   water: {
     scenario: 'airtime',
     freeCamDynamic: { back: 26, up: 3.2, lookUp: 0 },
+  },
+  'wake-close': {
+    scenario: 'sweeper',
+    freeCamDynamic: { back: 6, side: 10, up: 12, lookAhead: -6, lookUp: 0.2 },
   },
 };
 
@@ -510,6 +515,7 @@ async function verifyOceanMaterialContract(page) {
       rippleFade:[uniforms.uRippleFadeStart?.value, uniforms.uRippleFadeEnd?.value],
       crest:[uniforms.uCrestHeight?.value, uniforms.uCrestSlope?.value, uniforms.uCrestRise?.value],
       foamStrength:uniforms.uFoamStrength?.value,
+      glintStrength:uniforms.uGlintStrength?.value,
       fog:[uniforms.uFogStart?.value, uniforms.uFogFar?.value],
     };
   });
@@ -523,6 +529,8 @@ async function verifyOceanMaterialContract(page) {
   assert.ok(ocean.crest[0] >= 0.2 && ocean.crest[0] <= 0.3 &&
     ocean.crest[1] >= 0.008 && ocean.crest[2] >= 0.01 && ocean.foamStrength <= 1,
   `whitecaps must stay sparse and tied to a high, steep, rising face: ${JSON.stringify(ocean)}`);
+  assert.ok(ocean.glintStrength >= 0.35 && ocean.glintStrength <= 0.6,
+    `moving glints must restore surface life without becoming a sparkle field: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.fog[0] >= 200 && ocean.fog[1] >= 2500,
     `ocean detail must collapse continuously into the horizon: ${JSON.stringify(ocean)}`);
   assert.match(ocean.vertexShader, /vWorldPos = disp/);
@@ -530,8 +538,70 @@ async function verifyOceanMaterialContract(page) {
   assert.match(ocean.fragmentShader, /vec3 viewDir = normalize\(cameraPosition - vWorldPos\)/);
   assert.match(ocean.fragmentShader, /float whitecap = crest \* steep \* rising \* foamBreak/);
   assert.match(ocean.fragmentShader, /whitecap \*= 1\.0 - smoothstep\(170\.0, 340\.0, dist\)/);
-  assert.doesNotMatch(ocean.fragmentShader, /uBand|uGlint|vHw|deepToMid|midToCrest|floor\(vH/,
+  assert.match(ocean.fragmentShader, /fwidth\(glintField\)/,
+    'micro glints must be derivative-filtered instead of aliasing across the water');
+  assert.doesNotMatch(ocean.fragmentShader, /uBand|vHw|deepToMid|midToCrest|floor\(vH/,
     'retired height slabs and graphic sparkle fields must not return');
+
+  const temporal = await page.evaluate(() => {
+    const h = window.__harness;
+    const scene = window.__scene;
+    const canvas = document.querySelector('#app > canvas');
+    const oceanMesh = scene.getObjectByName('ocean');
+    if (!(canvas instanceof HTMLCanvasElement) || !oceanMesh) return null;
+    const p = h.playerPose();
+    const fx = Math.sin(p.heading);
+    const fz = Math.cos(p.heading);
+    h.freeCam(p.x - fx * 24, p.y + 5.2, p.z - fz * 24, p.x + fx * 18, p.y, p.z + fz * 18);
+    const visibility = scene.children.map((child) => [child, child.visible]);
+    for (const child of scene.children) child.visible = child === oceanMesh;
+    const read = () => {
+      h.render();
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const context = copy.getContext('2d', { willReadFrequently: true });
+      context.drawImage(canvas, 0, 0);
+      return context.getImageData(0, 0, copy.width, copy.height).data;
+    };
+    const before = read();
+    h.advance(0.24);
+    const after = read();
+    let samples = 0;
+    let changed = 0;
+    let deltaSum = 0;
+    let lumSum = 0;
+    let lumSq = 0;
+    const x0 = Math.floor(canvas.width * 0.24);
+    const x1 = Math.floor(canvas.width * 0.76);
+    const y0 = Math.floor(canvas.height * 0.5);
+    const y1 = Math.floor(canvas.height * 0.84);
+    for (let y = y0; y < y1; y += 2) {
+      for (let x = x0; x < x1; x += 2) {
+        const i = (y * canvas.width + x) * 4;
+        const delta = Math.abs(after[i] - before[i]) + Math.abs(after[i + 1] - before[i + 1]) +
+          Math.abs(after[i + 2] - before[i + 2]);
+        const lum = after[i] * 0.2126 + after[i + 1] * 0.7152 + after[i + 2] * 0.0722;
+        samples++;
+        if (delta > 10) changed++;
+        deltaSum += delta;
+        lumSum += lum;
+        lumSq += lum * lum;
+      }
+    }
+    for (const [child, visible] of visibility) child.visible = visible;
+    h.chaseCam();
+    h.render();
+    const meanLum = lumSum / Math.max(1, samples);
+    return {
+      changedRatio: changed / Math.max(1, samples),
+      meanDelta: deltaSum / Math.max(1, samples),
+      luminanceDeviation: Math.sqrt(Math.max(0, lumSq / Math.max(1, samples) - meanLum * meanLum)),
+    };
+  });
+  assert.ok(temporal && temporal.changedRatio >= 0.08 && temporal.changedRatio <= 0.72 &&
+    temporal.meanDelta >= 3 && temporal.luminanceDeviation >= 6,
+  `the mid-distance ocean must move and sparkle without turning into full-frame noise: ${JSON.stringify(temporal)}`);
 }
 
 async function verifyWakeMaterialContract(page) {
@@ -573,15 +643,98 @@ async function verifyWakeMaterialContract(page) {
     assert.match(wake.fragmentShader, /gerstnerNormal\(vWorldPos\.xz, uTime\)/,
       'wake highlights must use the same live normal field as the ocean');
     assert.match(wake.fragmentShader, /float contact =/);
-    assert.match(wake.fragmentShader, /float shoulderHalo =/);
+    assert.match(wake.fragmentShader, /float center =/);
+    assert.match(wake.fragmentShader, /float shoulderBreak =/);
     assert.match(wake.fragmentShader, /float bodyAlpha =/);
-    assert.doesNotMatch(wake.fragmentShader, /hash12|uGapW|uGapL|floor\(vAlong/,
+    assert.doesNotMatch(wake.fragmentShader, /hash12|uGapW|uGapL|floor\(vAlong|railCenter|shoulderHalo/,
       'wake foam must not regress to hash-cell or stamped-bar breakup');
     assert.ok(wake.life >= 4.8 && wake.life <= 5.6,
       `wake lifetime must preserve a readable near-field trail: ${JSON.stringify(wake)}`);
     assert.ok(wake.visualScale >= 0.75 && wake.visualScale <= 1,
       `wake visual scale must remain a bounded clutter control: ${JSON.stringify(wake)}`);
   }
+
+  const silhouette = await page.evaluate(() => {
+    const h = window.__harness;
+    const scene = window.__scene;
+    h.scenario('sweeper');
+    const canvas = document.querySelector('#app > canvas');
+    const wake = window.__scene.getObjectByName('wake-0');
+    if (!(canvas instanceof HTMLCanvasElement) || !wake) return null;
+    const p = h.playerPose();
+    const fx = Math.sin(p.heading);
+    const fz = Math.cos(p.heading);
+    h.freeCam(
+      p.x - fx * 6 + fz * 10, p.y + 12, p.z - fz * 6 - fx * 10,
+      p.x - fx * 6, p.y + 0.2, p.z - fz * 6,
+    );
+    const isolated = [
+      scene.getObjectByName('racing-line'),
+      scene.getObjectByName('surface-guide-chevrons'),
+      scene.getObjectByName('surface-guide-chevron-ink'),
+      ...Array.from({ length: 5 }, (_, index) => scene.getObjectByName(`wake-${index + 1}`)),
+      ...Array.from({ length: 5 }, (_, index) => scene.getObjectByName(`boat-${index + 1}`)),
+    ].filter(Boolean);
+    const isolatedVisibility = isolated.map((object) => [object, object.visible]);
+    for (const object of isolated) object.visible = false;
+    const read = () => {
+      h.render();
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const context = copy.getContext('2d', { willReadFrequently: true });
+      context.drawImage(canvas, 0, 0);
+      return context.getImageData(0, 0, copy.width, copy.height).data;
+    };
+    const wasVisible = wake.visible;
+    wake.visible = false;
+    const withoutWake = read();
+    wake.visible = true;
+    const withWake = read();
+    wake.visible = wasVisible;
+    for (const [object, visible] of isolatedVisibility) object.visible = visible;
+    h.chaseCam();
+    h.render();
+    const fills = [];
+    let centerRows = 0;
+    let changed = 0;
+    for (let y = Math.floor(canvas.height * 0.42); y < Math.floor(canvas.height * 0.9); y += 2) {
+      const xs = [];
+      for (let x = 0; x < canvas.width; x += 2) {
+        const i = (y * canvas.width + x) * 4;
+        const delta = Math.abs(withWake[i] - withoutWake[i]) +
+          Math.abs(withWake[i + 1] - withoutWake[i + 1]) +
+          Math.abs(withWake[i + 2] - withoutWake[i + 2]);
+        if (delta <= 8) continue;
+        xs.push(x);
+        changed++;
+      }
+      if (xs.length < 5) continue;
+      const lo = xs[0];
+      const hi = xs[xs.length - 1];
+      const slots = Math.floor((hi - lo) / 2) + 1;
+      if (slots < 12) continue;
+      fills.push(xs.length / slots);
+      const center = (lo + hi) * 0.5;
+      const tolerance = Math.max(4, (hi - lo) * 0.12);
+      if (xs.some((x) => Math.abs(x - center) <= tolerance)) centerRows++;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const deviceArea = Math.max(1, (canvas.width / Math.max(1, rect.width)) *
+      (canvas.height / Math.max(1, rect.height)));
+    return {
+      changedCss: changed * 4 / deviceArea,
+      rows: fills.length,
+      meanFill: fills.reduce((sum, value) => sum + value, 0) / Math.max(1, fills.length),
+      meanChangedWidthCss: changed * 2 / Math.max(1, fills.length) /
+        Math.max(1, canvas.width / Math.max(1, rect.width)),
+      centerHitRatio: centerRows / Math.max(1, fills.length),
+    };
+  });
+  assert.ok(silhouette && silhouette.changedCss >= 600 && silhouette.rows >= 20 &&
+    silhouette.meanFill >= 0.22 && silhouette.meanChangedWidthCss >= 18 &&
+    silhouette.meanChangedWidthCss <= 280 && silhouette.centerHitRatio >= 0.45,
+  `wake pixels must form a broken central wash, neither a filled road nor two empty rails: ${JSON.stringify(silhouette)}`);
 }
 
 async function verifyFlightGuideVisualContract(page) {
@@ -1204,8 +1357,7 @@ async function verifyFlightContract(page) {
   const startingCycles = chainFx.boostCycles;
   const startingReleaseBeats = chainFx.releaseBeats;
   const startingHoldStarts = chainFx.holdStarts;
-  const startingSmokeSide = chainFx.smokeSide;
-  assert.ok(chainFx.drifting && chainFx.burstStrength === 0 && Math.abs(startingSmokeSide) === 1,
+  assert.ok(chainFx.drifting && chainFx.burstStrength === 0,
     `the hold frame must remain free of detached exhaust: ${JSON.stringify(chainFx)}`);
   for (let frame = 0; frame < 120 &&
       !(chainFx.releaseBeats > startingReleaseBeats && chainFx.boosting && !chainFx.drifting); frame++) {
@@ -1213,7 +1365,7 @@ async function verifyFlightContract(page) {
     chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
   assert.ok(chainFx.releaseBeats > startingReleaseBeats && chainFx.boosting && !chainFx.drifting &&
-    chainFx.phase === 'release' && chainFx.burstStrength > 0 && chainFx.heatStrength > 0 && chainFx.burstActive,
+    chainFx.phase === 'release' && chainFx.burstStrength > 0 && chainFx.burstActive,
     `a real drift release must create the short stern pulse: ${JSON.stringify(chainFx)}`);
   for (let frame = 0; frame < 150 &&
       !(chainFx.holdStarts > startingHoldStarts && chainFx.drifting && chainFx.burstStrength === 0); frame++) {
@@ -1223,8 +1375,6 @@ async function verifyFlightContract(page) {
   assert.ok(chainFx.boostCycles > startingCycles && chainFx.holdStarts > startingHoldStarts && chainFx.drifting &&
     chainFx.burstStrength === 0,
   `a lead rival must re-enter a clean real hold after the burst: ${JSON.stringify(chainFx)}`);
-  assert.equal(chainFx.smokeSide, -startingSmokeSide,
-    `successive real chain holds must switch their loaded stern-smoke side: ${JSON.stringify(chainFx)}`);
   await page.evaluate(() => window.__harness.scenario('ready'));
   chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   assert.equal(chainFx.burstActive, false,
@@ -1496,6 +1646,22 @@ async function verifyFlightContract(page) {
     highSpeedSweep: true,
     teleportRejected: false,
   });
+  const finalOrder = await page.evaluate(() => window.__harness.finalOrderCase());
+  assert.deepEqual(finalOrder.sameFrameOrder, [1, 2],
+    `same-step Final crossings must use swept sub-frame time: ${JSON.stringify(finalOrder)}`);
+  assert.equal(finalOrder.opponentsFinishedBeforePlayer, true,
+    `all five rivals must be able to finish while the player waits: ${JSON.stringify(finalOrder)}`);
+  assert.equal(finalOrder.rivalsVisibleBeforePlayer, true,
+    `finished rivals must remain visible and physical before the player finishes: ${JSON.stringify(finalOrder)}`);
+  assert.equal(finalOrder.allFinished, true);
+  assert.equal(finalOrder.phase, 'finished');
+  assert.equal(finalOrder.playerPlace, 6);
+  assert.equal(finalOrder.resultPlace, 6,
+    `the last physical crossing must settle as 6/6: ${JSON.stringify(finalOrder)}`);
+  assert.equal(finalOrder.totalRacers, 6);
+  assert.deepEqual(finalOrder.order, [1, 2, 3, 4, 5, 0]);
+  assert.ok(finalOrder.finishTimes.every((time, index, times) => index === 0 || time >= times[index - 1]),
+    `finish times must remain monotonic in locked place order: ${JSON.stringify(finalOrder)}`);
 
   await page.evaluate(() => window.__harness.scenario('start'));
   for (let route = 0; route < 7; route++) {
@@ -4177,17 +4343,140 @@ async function main() {
               : window.__harness.playerPose();
           const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
           const side = cfg.side ?? 0;
+          const lookAhead = cfg.lookAhead ?? 2;
           h.freeCam(
             p.x - fx * cfg.back + fz * side, p.y + cfg.up, p.z - fz * cfg.back - fx * side,
-            p.x + fx * 2, p.y + cfg.lookUp, p.z + fz * 2,
+            p.x + fx * lookAhead, p.y + cfg.lookUp, p.z + fz * lookAhead,
           );
         }, def.freeCamDynamic);
+      }
+
+      if (name === 'wake-close') {
+        await page.evaluate(() => {
+          const scene = window.__scene;
+          const hidden = [
+            scene.getObjectByName('racing-line'),
+            scene.getObjectByName('surface-guide-chevrons'),
+            scene.getObjectByName('surface-guide-chevron-ink'),
+            ...Array.from({ length: 5 }, (_, index) => scene.getObjectByName(`wake-${index + 1}`)),
+            ...Array.from({ length: 5 }, (_, index) => scene.getObjectByName(`boat-${index + 1}`)),
+          ];
+          for (const object of hidden) if (object) object.visible = false;
+        });
       }
 
       await page.evaluate(() => window.__harness.render());
       await assertBattleLeavesDrivingRoiClear(page, name);
       await assertCompactActionPromptLeavesDrivingRoiClear(page, name);
       await page.screenshot({ path: path.join(OUT, `${name}${mobileSuffix}.png`) });
+      if (name === 'wake-close') {
+        await page.evaluate(() => {
+          const wake = window.__scene.getObjectByName('wake-0');
+          if (wake) wake.visible = false;
+          window.__harness.render();
+        });
+        await page.screenshot({ path: path.join(OUT, `wake-close-no-wake${mobileSuffix}.png`) });
+        await page.evaluate(() => {
+          const wake = window.__scene.getObjectByName('wake-0');
+          if (wake) wake.visible = true;
+          window.__harness.render();
+        });
+      }
+      if (name === 'final-rival-portal') {
+        const occlusion = await page.evaluate(() => {
+          const h = window.__harness;
+          const canvas = document.querySelector('#app > canvas');
+          const station = window.__scene.getObjectByName('final-station');
+          const rival = window.__scene.getObjectByName('boat-1');
+          if (!(canvas instanceof HTMLCanvasElement) || !station || !rival) return null;
+          const riderProxy = rival.getObjectByName('rider-ink-proxy');
+          let inkMeshCount = 0;
+          rival.traverse((object) => {
+            if (object.isMesh && (object.layers.mask & (1 << 1)) !== 0) inkMeshCount++;
+          });
+          const read = () => {
+            h.render();
+            const copy = document.createElement('canvas');
+            copy.width = canvas.width;
+            copy.height = canvas.height;
+            const context = copy.getContext('2d', { willReadFrequently: true });
+            context.drawImage(canvas, 0, 0);
+            return context.getImageData(0, 0, copy.width, copy.height).data;
+          };
+          station.visible = true;
+          rival.visible = true;
+          const both = read();
+          station.visible = false;
+          const boatOnly = read();
+          const nonInkMeshes = [];
+          rival.traverse((object) => {
+            if (object.isMesh && (object.layers.mask & (1 << 1)) === 0) {
+              nonInkMeshes.push([object, object.visible]);
+              object.visible = false;
+            }
+          });
+          const inkOnly = read();
+          for (const [object, visible] of nonInkMeshes) object.visible = visible;
+          rival.visible = false;
+          const background = read();
+          station.visible = true;
+          const stationOnly = read();
+          rival.visible = true;
+          const mask = stationOnly;
+          let inkPixels = 0;
+          let inkStationPixels = 0;
+          let maxInkDelta = 0;
+          let solidPixels = 0;
+          let solidEnergy = 0;
+          let haloPixels = 0;
+          let haloEnergy = 0;
+          for (let i = 0; i < both.length; i += 4) {
+            const inkDelta = Math.abs(inkOnly[i] - background[i]) +
+              Math.abs(inkOnly[i + 1] - background[i + 1]) +
+              Math.abs(inkOnly[i + 2] - background[i + 2]);
+            const energyDelta = Math.abs(both[i] - boatOnly[i]) +
+              Math.abs(both[i + 1] - boatOnly[i + 1]) +
+              Math.abs(both[i + 2] - boatOnly[i + 2]);
+            const stationDelta = Math.abs(mask[i] - background[i]) +
+              Math.abs(mask[i + 1] - background[i + 1]) +
+              Math.abs(mask[i + 2] - background[i + 2]);
+            maxInkDelta = Math.max(maxInkDelta, inkDelta);
+            if (inkDelta > 28) {
+              inkPixels++;
+              if (stationDelta > 18) inkStationPixels++;
+            }
+            // Use the same LAYER_INK ownership as the real prepass. Wake,
+            // contact shadows and energy attachments belong outside this mask.
+            if (inkDelta > 28 && stationDelta > 18) {
+              solidPixels++;
+              solidEnergy += energyDelta;
+            } else if (inkDelta < 10 && stationDelta > 18) {
+              haloPixels++;
+              haloEnergy += energyDelta;
+            }
+          }
+          station.visible = true;
+          rival.visible = true;
+          h.render();
+          return {
+            inkPixels,
+            inkStationPixels,
+            maxInkDelta,
+            solidPixels,
+            solidMeanEnergy: solidEnergy / Math.max(1, solidPixels),
+            haloPixels,
+            haloMeanEnergy: haloEnergy / Math.max(1, haloPixels),
+            rivalVisible: rival.visible,
+            riderProxyPrepassOnly: riderProxy?.layers.mask === (1 << 1),
+            inkMeshCount,
+          };
+        });
+        assert.ok(occlusion && occlusion.rivalVisible && occlusion.solidPixels >= 200 &&
+          occlusion.haloPixels >= 500 && occlusion.solidMeanEnergy <= 12 &&
+          occlusion.haloMeanEnergy >= occlusion.solidMeanEnergy * 1.8 &&
+          occlusion.riderProxyPrepassOnly && occlusion.inkMeshCount === 2,
+        `Final energy must halo around an opaque rival instead of shining through it: ${JSON.stringify(occlusion)}`);
+      }
       if (name === 'opponent-drift') {
         const chainRole = 1;
         const captureChaseBeat = async (beat, settleSeconds) => {
@@ -4222,61 +4511,9 @@ async function main() {
           await page.screenshot({ path: path.join(OUT, `opponent-drift-chase-${beat}${mobileSuffix}.png`) });
           return state;
         };
-        const focusRival = async () => {
-          await page.evaluate((role) => {
-            const h = window.__harness;
-            const p = h.rivalChainState(role);
-            const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-            // Inspect the actual loaded side from a raised rear quarter so the
-            // smoke burst stays above the swell and remains readable after a flip.
-            const side = p.smokeSide * 7.5;
-            h.freeCam(
-              p.x - fx * 7.5 + fz * side, p.y + 4.4, p.z - fz * 7.5 - fx * side,
-              p.x + fx * 1.5, p.y + 0.55, p.z + fz * 1.5,
-            );
-            h.render();
-          }, chainRole);
-        };
         const hold = await captureChaseBeat('hold', 1 / 60);
-        assert.ok(hold.drifting && hold.burstStrength === 0 && Math.abs(hold.smokeSide) === 1,
+        assert.ok(hold.drifting && hold.burstStrength === 0,
           `hold chase screenshot must stay free of continuous exhaust: ${JSON.stringify(hold)}`);
-        await focusRival();
-        const smokePixels = await page.evaluate((role) => {
-          const h = window.__harness;
-          const canvas = document.querySelector('#app > canvas');
-          const state = h.rivalChainState(role);
-          const boat = window.__scene.getObjectByName(`boat-${state.id}`);
-          const smoke = boat?.getObjectByName('opponent-drift-smoke');
-          if (!(canvas instanceof HTMLCanvasElement) || !smoke?.isPoints) return null;
-          const read = () => {
-            h.render();
-            const copy = document.createElement('canvas');
-            copy.width = canvas.width;
-            copy.height = canvas.height;
-            const context = copy.getContext('2d', { willReadFrequently:true });
-            context.drawImage(canvas, 0, 0);
-            return context.getImageData(0, 0, copy.width, copy.height).data;
-          };
-          const wasVisible = smoke.visible;
-          smoke.visible = false;
-          const withoutSmoke = read();
-          smoke.visible = true;
-          const withSmoke = read();
-          smoke.visible = wasVisible;
-          h.render();
-          let changed = 0;
-          let deltaSum = 0;
-          for (let i = 0; i < withSmoke.length; i += 4) {
-            const delta = Math.abs(withSmoke[i] - withoutSmoke[i]) +
-              Math.abs(withSmoke[i + 1] - withoutSmoke[i + 1]) +
-              Math.abs(withSmoke[i + 2] - withoutSmoke[i + 2]);
-            if (delta <= 8) continue;
-            changed++;
-            deltaSum += delta;
-          }
-          return { changed, meanDelta:deltaSum / Math.max(1, changed) };
-        }, chainRole);
-        await page.screenshot({ path: path.join(OUT, `opponent-drift-hold${mobileSuffix}.png`) });
         const release = await page.evaluate(({ startReleaseBeats, role }) => {
           const h = window.__harness;
           let state = h.rivalChainState(role);
@@ -4288,13 +4525,31 @@ async function main() {
           return state;
         }, { startReleaseBeats: hold.releaseBeats, role: chainRole });
         assert.ok(release.releaseBeats > hold.releaseBeats && release.boosting && !release.drifting &&
-          release.phase === 'release' && release.burstStrength > 0 && release.heatStrength > 0 && release.burstActive,
+          release.phase === 'release' && release.burstStrength > 0 && release.burstActive,
           `release screenshot must come from a real stern burst payout: ${JSON.stringify(release)}`);
         const releaseChase = await captureChaseBeat('release', 0.12);
         assert.ok(releaseChase.boosting && !releaseChase.drifting && releaseChase.phase === 'release' &&
-          releaseChase.burstStrength > 0 && releaseChase.heatStrength > 0 && releaseChase.burstActive,
+          releaseChase.burstStrength > 0 && releaseChase.burstActive,
           `release chase screenshot must show the real stern pulse: ${JSON.stringify(releaseChase)}`);
-        await focusRival();
+        const burstContract = await page.evaluate((role) => {
+          const state = window.__harness.rivalChainState(role);
+          const burst = window.__scene.getObjectByName(`boat-${state.id}`)?.getObjectByName('opponent-drift-burst');
+          const lobes = burst?.getObjectByName('opponent-drift-pulse-lobes');
+          return {
+            childCount: burst?.children?.length ?? -1,
+            instanced: Boolean(lobes?.isInstancedMesh),
+            instances: lobes?.count ?? -1,
+            depthTest: lobes?.material?.depthTest ?? null,
+            energyLayer: Boolean((lobes?.layers?.mask ?? 0) & (1 << 2)),
+          };
+        }, chainRole);
+        assert.deepEqual(burstContract, {
+          childCount: 1,
+          instanced: true,
+          instances: 12,
+          depthTest: true,
+          energyLayer: true,
+        }, `drift release must stay one depth-aware instanced energy draw: ${JSON.stringify(burstContract)}`);
         const burstPixels = await page.evaluate((role) => {
           const h = window.__harness;
           const canvas = document.querySelector('#app > canvas');
@@ -4327,10 +4582,17 @@ async function main() {
             changed++;
             deltaSum += delta;
           }
-          return { changed, meanDelta: deltaSum / Math.max(1, changed) };
+          const rect = canvas.getBoundingClientRect();
+          const deviceArea = Math.max(1, (canvas.width / Math.max(1, rect.width)) *
+            (canvas.height / Math.max(1, rect.height)));
+          return {
+            changed,
+            changedCss: changed / deviceArea,
+            meanDelta: deltaSum / Math.max(1, changed),
+          };
         }, chainRole);
-        assert.ok(burstPixels && burstPixels.changed >= 45 && burstPixels.meanDelta >= 10,
-          `the release burst must add readable pixels without becoming a beam: ${JSON.stringify(burstPixels)}`);
+        assert.ok(burstPixels && burstPixels.changedCss >= 220 && burstPixels.meanDelta >= 12,
+          `the normal 10-35m chase view must carry a readable release pulse: ${JSON.stringify(burstPixels)}`);
         await page.screenshot({ path: path.join(OUT, `opponent-drift-release${mobileSuffix}.png`) });
         const rechain = await page.evaluate(({ start, role }) => {
           const h = window.__harness;
@@ -4344,21 +4606,17 @@ async function main() {
         }, { start: { holdStarts: hold.holdStarts }, role: chainRole });
         assert.ok(rechain.holdStarts > hold.holdStarts && rechain.drifting && rechain.burstStrength === 0,
           `rechain screenshot must return to a clean real hold: ${JSON.stringify(rechain)}`);
-        assert.equal(rechain.smokeSide, -hold.smokeSide,
-          `rechain screenshot must switch the real loaded side: ${JSON.stringify({ hold, rechain })}`);
         const rechainChase = await captureChaseBeat('rechain', 1 / 60);
         assert.ok(rechainChase.drifting && rechainChase.burstStrength === 0,
           `rechain chase screenshot must restore a clean stern: ${JSON.stringify(rechainChase)}`);
-        await focusRival();
-        await page.screenshot({ path: path.join(OUT, `opponent-drift-rechain${mobileSuffix}.png`) });
-        const readySmoke = await page.evaluate((role) => {
+        const readyPulse = await page.evaluate((role) => {
           const h = window.__harness;
           h.scenario('ready');
           h.render();
           return h.rivalChainState(role);
         }, chainRole);
-        assert.equal(readySmoke.burstActive, false,
-          `READY must clear every rival drift-release burst: ${JSON.stringify(readySmoke)}`);
+        assert.equal(readyPulse.burstActive, false,
+          `READY must clear every rival drift-release burst: ${JSON.stringify(readyPulse)}`);
       }
       if (name === 'final-station') {
         const impactState = await page.evaluate(() => window.__harness.playerState());

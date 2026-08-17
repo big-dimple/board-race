@@ -37,6 +37,7 @@ void main() {
 const fragmentShader = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tEnergy;
+uniform sampler2D tInk;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uBoost;
@@ -62,11 +63,18 @@ void main() {
   float r = length(p);
   vec2 dir = r > 0.0001 ? p / r : vec2(0.0);
   float motion = 1.0 - uReduced;
+  vec2 inkTexel = 1.5 / uResolution;
+  float inkAlpha = texture2D(tInk, vUv).a;
+  inkAlpha = max(inkAlpha, texture2D(tInk, vUv + vec2(inkTexel.x, 0.0)).a);
+  inkAlpha = max(inkAlpha, texture2D(tInk, vUv - vec2(inkTexel.x, 0.0)).a);
+  inkAlpha = max(inkAlpha, texture2D(tInk, vUv + vec2(0.0, inkTexel.y)).a);
+  inkAlpha = max(inkAlpha, texture2D(tInk, vUv - vec2(0.0, inkTexel.y)).a);
+  float inkSolid = step(0.12, inkAlpha);
 
   // The impact bends the image away from the vanishing point for only a few
   // frames. Energy luminance adds a small local heat-haze displacement.
   vec3 e0 = texture2D(tEnergy, vUv).rgb;
-  float eLum = dot(e0, vec3(0.22, 0.68, 0.10));
+  float eLum = dot(e0, vec3(0.22, 0.68, 0.10)) * (1.0 - inkSolid);
   vec2 warpUv = vUv - dir * (uImpact * 0.008 + eLum * (0.0015 + uFlight * 0.002)) * motion;
   vec2 aberr = dir * (uChroma * 2.0 + uBoost * 0.5) * motion / uResolution;
   vec3 col;
@@ -100,6 +108,7 @@ void main() {
   // of clipping the entire frame to white.
   col *= 1.0 - min(0.16, uImpact * 0.11 + uFlight * 0.035);
   vec3 energy = texture2D(tEnergy, clamp(vUv + dir * eLum * 0.003, 0.001, 0.999)).rgb;
+  energy *= 1.0 - inkSolid;
   col += energy * (0.20 + uFlight * 0.08 + uImpact * 0.10);
   col += windColor * streak * (0.42 + uBoost * 0.68);
   col += vec3(0.42, 0.94, 1.0) * brakeBands * 0.48;
@@ -117,7 +126,8 @@ void main() {
   float vignette = smoothstep(0.38, 0.86, r);
   col *= 1.0 - vignette * (0.10 + uBoost * 0.07 + uDrift * 0.04);
   col = mix(col, vec3(1.0, 0.16, 0.42), uWarning * vignette * 0.38);
-  col = mix(col, vec3(0.92, 0.99, 1.0), uFlash * (1.0 - smoothstep(0.15, 0.72, r)) * 0.34);
+  float flashMask = uFlash * (1.0 - smoothstep(0.15, 0.72, r)) * mix(0.34, 0.08, inkSolid);
+  col = mix(col, vec3(0.92, 0.99, 1.0), flashMask);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -159,6 +169,7 @@ export function createPostPipeline(
     uniforms: {
       tDiffuse: { value: null },
       tEnergy: { value: energyComposer.readBuffer.texture },
+      tInk: { value: prePass.normalTexture },
       uResolution: { value: size.clone() },
       uTime: { value: 0 },
       uBoost: { value: 0 },

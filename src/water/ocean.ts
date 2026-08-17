@@ -209,6 +209,7 @@ uniform float uCrestRise;
 uniform float uFoamStrength;
 uniform float uSunGloss;
 uniform float uSunStrength;
+uniform float uGlintStrength;
 uniform float uFresnelStrength;
 
 // continuous distance fade into the horizon
@@ -273,7 +274,9 @@ void main() {
   float rippleFade = 1.0 - smoothstep(uRippleFadeStart, uRippleFadeEnd, dist);
   vec2 rippleSlope =
     vec2(0.82, 0.31) * cos(dot(vOrigXZ, vec2(0.82, 0.31)) * 1.65 + uTime * 1.7) +
-    vec2(-0.27, 0.96) * cos(dot(vOrigXZ, vec2(-0.27, 0.96)) * 2.35 - uTime * 1.25);
+    vec2(-0.27, 0.96) * cos(dot(vOrigXZ, vec2(-0.27, 0.96)) * 2.35 - uTime * 1.25) +
+    vec2(0.56, -0.83) * cos(dot(vOrigXZ, vec2(0.56, -0.83)) * 3.75 + uTime * 2.15) * 0.42 +
+    vec2(-0.94, -0.18) * cos(dot(vOrigXZ, vec2(-0.94, -0.18)) * 5.1 - uTime * 2.7) * 0.24;
   n = normalize(n + vec3(rippleSlope.x, 0.0, rippleSlope.y) * uRippleStrength * rippleFade);
 
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
@@ -294,6 +297,22 @@ void main() {
   float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength;
   sunSpec *= 0.42 + 0.58 * rippleFade;
   col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
+
+  // Fine directional facets turn the broad response into short, moving glints.
+  // Every term is continuous and derivative-filtered: no hash cells, symbols,
+  // or temporal pixel noise. The immediate action lane and horizon stay quiet.
+  vec2 fineSlope =
+    vec2(0.97, 0.24) * cos(dot(vOrigXZ, vec2(0.97, 0.24)) * 7.3 + uTime * 3.2) +
+    vec2(-0.48, 0.88) * cos(dot(vOrigXZ, vec2(-0.48, 0.88)) * 9.1 - uTime * 3.8) * 0.7;
+  vec3 glintNormal = normalize(n + vec3(fineSlope.x, 0.0, fineSlope.y) * 0.024 * rippleFade);
+  float glintSpec = pow(max(dot(glintNormal, halfDir), 0.0), uSunGloss * 1.65);
+  float glintField = 0.5 + 0.31 * sin(dot(vOrigXZ, vec2(0.91, 0.27)) * 1.9 + uTime * 1.8) +
+    0.19 * sin(dot(vOrigXZ, vec2(-0.34, 0.94)) * 3.1 - uTime * 2.25);
+  float glintAa = max(fwidth(glintField) * 1.4, 0.012);
+  float glintRuns = smoothstep(0.73 - glintAa, 0.73 + glintAa, glintField);
+  float glintDistance = smoothstep(10.0, 34.0, dist) * (1.0 - smoothstep(230.0, 430.0, dist));
+  float glint = glintSpec * glintRuns * glintDistance * uGlintStrength;
+  col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.46));
 
   // Whitecaps are gameplay information: only high, steep, rising faces earn
   // them. Broad noise breaks coverage without recoloring the rest of the sea.
@@ -373,15 +392,16 @@ export class Ocean {
       uCameraFar: { value: opts.cameraFar },
 
       uMaxAmp: { value: MAX_AMPLITUDE },
-      uRippleStrength: { value: 0.042 },
+      uRippleStrength: { value: 0.056 },
       uRippleFadeStart: { value: 58.0 },
       uRippleFadeEnd: { value: 155.0 },
       uCrestHeight: { value: 0.24 },
       uCrestSlope: { value: 0.01 },
       uCrestRise: { value: 0.015 },
-      uFoamStrength: { value: 0.78 },
+      uFoamStrength: { value: 0.9 },
       uSunGloss: { value: 34.0 },
-      uSunStrength: { value: 0.34 },
+      uSunStrength: { value: 0.4 },
+      uGlintStrength: { value: 0.5 },
       uFresnelStrength: { value: 0.34 },
 
       uFoamRingWidth: { value: 1.6 },
