@@ -15,7 +15,14 @@
  * immediately).
  */
 import * as THREE from 'three';
-import type { IBoat, ICourse, BoatInput, Personality, CourseSample } from '../contracts';
+import type {
+  IBoat,
+  ICourse,
+  BoatInput,
+  Personality,
+  CourseSample,
+  RivalPaceDirective,
+} from '../contracts';
 
 const VMAX = 34; // normalization reference top speed (m/s)
 const A_LAT = 6.5; // lateral grip budget (m/s^2) behind the corner speed table
@@ -135,11 +142,15 @@ export class AIController {
   private readonly wanderP2: number;
   private flightWindowSeen = false;
   private flightWantsRoute = false;
+  private flightGuidanceActive = false;
+  private protectedFlightAttempt = false;
   private qualifyingFlight = false;
   private upcomingFlightIndex = -1;
   private pursuitDrifting = false;
-  private pursuitCooldown = 0;
+  private pursuitCooldown = 0.2;
   private pursuitBoostCycles = 0;
+  private pursuitEdge = 1;
+  private formationAirBraking = false;
 
   // curvature / speed tables, built once from the course
   private tableN = 0;
@@ -156,6 +167,7 @@ export class AIController {
     this.paceScale = paceScale;
     this.preferredLane = preferredLane;
     this.elite = elite;
+    this.pursuitEdge = (seed & 1) === 0 ? 1 : -1;
     this.nextMistakeAt = this.mistakeEvery();
     this.pacePhase = this.rng() * Math.PI * 2;
     this.wanderW1 = 0.4 + this.rng() * 0.3;
@@ -181,11 +193,15 @@ export class AIController {
     this.nextMistakeAt = this.mistakeEvery();
     this.flightWindowSeen = false;
     this.flightWantsRoute = false;
+    this.flightGuidanceActive = false;
+    this.protectedFlightAttempt = false;
     this.qualifyingFlight = false;
     this.upcomingFlightIndex = -1;
     this.pursuitDrifting = false;
-    this.pursuitCooldown = 0;
+    this.pursuitCooldown = 0.2;
     this.pursuitBoostCycles = 0;
+    this.pursuitEdge = (this.seed & 1) === 0 ? 1 : -1;
+    this.formationAirBraking = false;
   }
 
   private buildTables(): void {
@@ -239,12 +255,16 @@ export class AIController {
     all: IBoat[],
     myProgress: number,
     playerProgress: number,
-    rivalryPace = 1,
+    rivalry: RivalPaceDirective | number = 1,
     techniquePressure = 0,
     openingPressure = 0,
     chainDriftStyle = 0,
   ): BoatInput {
     const tune = this.tune;
+    const rivalryPace = typeof rivalry === 'number' ? rivalry : rivalry.surfaceTargetScale;
+    const formationActive = typeof rivalry === 'number' ? false : rivalry.formationActive;
+    const surfaceThrottleAssist = typeof rivalry === 'number' ? false : rivalry.surfaceThrottleAssist;
+    const closingPressure = typeof rivalry === 'number' ? 0 : clamp01(rivalry.closingPressure);
     this.t += dt;
     const speed = Math.max(0, me.state.speed);
 
@@ -265,7 +285,8 @@ export class AIController {
       me.state.flightPhase === 'surface';
     if (me.state.flightCharges >= 2 || !qualificationWindow) {
       this.qualifyingFlight = false;
-    } else if (!this.qualifyingFlight && me.state.boostCharge < 0.38 && speed > 14) {
+    } else if (!this.qualifyingFlight && !this.pursuitDrifting &&
+        me.state.boostCharge < 0.38 && speed > 14) {
       this.qualifyingFlight = true;
     } else if (this.qualifyingFlight && me.state.boostCharge >= 0.5) {
       // Releasing here pays out the unchanged drift boost and earns flight exactly
@@ -284,37 +305,83 @@ export class AIController {
       me.state.driftReleaseReady || me.state.boostCharge >= 0.38
     )) {
       if (me.state.driftReleaseReady) this.pursuitBoostCycles++;
+      if (chainDrift && (me.state.driftReleaseReady || me.state.boostCharge >= 0.38)) {
+        // The next real hold owns the opposite steering edge.
+        this.pursuitEdge *= -1;
+      }
       this.pursuitDrifting = false;
       this.pursuitCooldown = chainDrift
         ? 0.18 + (1 - clamp01(chainDriftStyle)) * 0.28
         : 6 + (1 - clamp01(techniquePressure)) * 6;
     }
+    const protectedLaunchU = clamp(
+      upcomingRoute.navigation?.launchCueU ?? upcomingRoute.launchFromU,
+      upcomingRoute.qualifyFromU,
+      upcomingRoute.launchToU,
+    );
+    // Only a protected attempt may use this early timing. The physical flight
+    // edge, route latch and scoring remain Boat/Course-owned.
+    const protectedApproachU = upcomingRoute.navigation?.launchCueU === undefined
+      ? Math.max(upcomingRoute.qualifyFromU, upcomingRoute.launchFromU - 0.016)
+      : Math.max(upcomingRoute.qualifyFromU, protectedLaunchU - 0.006);
     if (!flightWindow) {
       this.flightWindowSeen = false;
       this.flightWantsRoute = false;
-    } else if (!this.flightWindowSeen && myU >= upcomingRoute.launchFromU - 0.006) {
+    } else if (!this.flightWindowSeen && myU >= (formationActive
+      ? protectedApproachU
+      : upcomingRoute.launchFromU - 0.006)) {
       this.flightWindowSeen = true;
       this.flightWantsRoute = this.personality !== 'erratic' || me.state.flightRouteCursor < 2 || this.rng() < 0.9;
     }
+    const launchThresholdU = formationActive ? protectedLaunchU : upcomingRoute.launchFromU;
     const launchNow =
       this.flightWantsRoute &&
       me.state.flightCharges > 0 &&
       me.state.flightPhase === 'surface' &&
-      myU >= upcomingRoute.launchFromU &&
+      myU >= launchThresholdU &&
       myU <= upcomingRoute.launchToU;
     const extendNow =
       me.state.flightExtensionReady &&
       me.state.flightRouteState === 'active' &&
       (me.state.flightPhase === 'descending' || me.state.flightRemaining < 0.3);
     const activeRoute = this.course.routeForBoat(me.id);
+    if (this.protectedFlightAttempt && activeRoute === 'surface' &&
+        me.state.flightPhase === 'surface' && me.state.flightRouteState === 'idle') {
+      this.protectedFlightAttempt = false;
+    }
+    const flightApproach =
+      formationActive &&
+      this.flightWantsRoute &&
+      me.state.flightCharges > 0 &&
+      me.state.flightPhase === 'surface' &&
+      myU >= protectedApproachU &&
+      myU <= upcomingRoute.launchToU;
+    if (formationActive && (flightApproach || launchNow || activeRoute !== 'surface' ||
+        (me.state.flightPhase !== 'surface' && flightWindow))) {
+      this.protectedFlightAttempt = true;
+    }
+    const protectedFlightControl = this.protectedFlightAttempt;
     const flightRoute =
       activeRoute !== 'surface' ||
+      flightApproach ||
       launchNow ||
       (me.state.flightPhase !== 'surface' && flightWindow);
     const routeId = activeRoute !== 'surface' ? activeRoute : upcomingRoute.id;
+    const controlledFlightRouteIndex = me.state.flightRouteIndex >= 0
+      ? me.state.flightRouteIndex
+      : upcomingIndex;
+    const precisionS = protectedFlightControl && activeRoute !== 'surface' &&
+      controlledFlightRouteIndex === 2;
 
     // --- lookahead target, with lateral lane/wander/apex offset
-    const look = (12 + 30 * clamp01(speed / VMAX)) * tune.lookMul;
+    // Authored flight branches are much narrower than the open-water racing
+    // line. A long surface lookahead cuts across their S-bends, so protected
+    // rivals use a conservative route-local horizon instead of chasing a point
+    // beyond the next bend.
+    const surfaceLook = (12 + 30 * clamp01(speed / VMAX)) * tune.lookMul;
+    const look = flightRoute && protectedFlightControl
+      ? (precisionS ? 28 : 14 + 10 * clamp01(speed / VMAX))
+      : surfaceLook;
     const uAhead = myU + look / this.course.length;
     this.course.routePointAt(flightRoute ? routeId : 'surface', uAhead, _tp);
     this.course.routeTangentAt(flightRoute ? routeId : 'surface', uAhead, _tt);
@@ -330,7 +397,11 @@ export class AIController {
     }
     const kAvg = kSum / nAhead;
 
-    let lateral = flightRoute ? 0 : this.preferredLane;
+    // A stable sub-lane keeps simultaneous AI entrants from converging on one
+    // center point. It stays well inside every authored corridor and gate.
+    let lateral = flightRoute
+      ? (protectedFlightControl ? clamp(this.preferredLane * 0.22, -1.1, 1.1) : 0)
+      : this.preferredLane;
     if (tune.wanderAmp > 0) {
       lateral +=
         (tune.wanderAmp *
@@ -349,16 +420,33 @@ export class AIController {
     const dx = _tp.x - me.state.position.x;
     const dz = _tp.z - me.state.position.z;
     // world angle of a direction in boat-heading convention: α = atan2(x, z)
-    const err = wrapAngle(Math.atan2(dx, dz) - me.state.heading); // + = target left
+    const pointErr = wrapAngle(Math.atan2(dx, dz) - me.state.heading);
+    const tangentErr = wrapAngle(Math.atan2(_tt.x, _tt.z) - me.state.heading);
+    const err = protectedFlightControl && flightRoute
+      ? wrapAngle(pointErr * (precisionS ? 0.58 : 0.7) + tangentErr * (precisionS ? 0.42 : 0.3))
+      : pointErr; // + = target left
     const steerRaw = clamp(-err * tune.steerGain, -1, 1); // steer: -1 = full left
-    this.steerSm += (steerRaw - this.steerSm) * Math.min(1, dt * tune.steerRate);
+    // Formation is a driver-skill contract, not a hull-stat override. Both
+    // protected pilots need fast enough hands to keep a real BoatInput line in
+    // the narrow route; Boat still applies each driver's authored airControl.
+    const steerRate = protectedFlightControl && flightRoute
+      ? Math.max(8, tune.steerRate)
+      : tune.steerRate;
+    if (protectedFlightControl && flightRoute && !this.flightGuidanceActive) this.steerSm = steerRaw;
+    else this.steerSm += (steerRaw - this.steerSm) * Math.min(1, dt * steerRate);
+    this.flightGuidanceActive = protectedFlightControl && flightRoute;
     let steer = this.steerSm;
     if (chainDrift && this.pursuitDrifting && !flightRoute && Math.abs(err) < 0.8) {
-      // The two authored chain drifters visibly change edge between payouts.
-      // This remains real steering input: Boat owns the slip, charge and boost.
-      steer = clamp(steer + Math.sin(this.t * 1.65 + this.pacePhase) * 0.26 * chainDriftStyle, -1, 1);
+      // Each real hold keeps its authored side through actual steering. The
+      // small oscillation adds hand movement without owning the side or faking
+      // Boat's slip state. Cooldown and flight approach receive no edge bias.
+      steer = clamp(
+        steer * 0.42 + this.pursuitEdge * 0.58 * chainDriftStyle +
+          Math.sin(this.t * 1.65 + this.pacePhase) * 0.04,
+        -1,
+        1,
+      );
     }
-
     // --- throttle: slowest reachable target inside the braking window
     let target = Infinity;
     const nWin = Math.max(2, Math.ceil((look + speed * 1.4) / this.tableStep));
@@ -369,13 +457,23 @@ export class AIController {
     // `playerProgress` remains in the signature for deterministic harness
     // compatibility; RivalDirector is now the only source of competitive pace.
     void playerProgress;
-    target *= this.paceScale * clamp(rivalryPace, 0.72, 1.12) * tune.cornerMul *
+    target *= this.paceScale * clamp(rivalryPace, 0.72, 1.18) * tune.cornerMul *
       (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
     let throttle = clamp((target - speed) * 0.5, -1, 1);
     if (Math.abs(err) > 1.2) throttle = Math.min(throttle, 0.4); // spun out: recover gently
+    // Player boats are auto-throttle. The protected pair must not erase real
+    // drift/BOOST payouts by applying a traditional curvature-table lift that
+    // the player cannot make. Traffic and spin recovery may still lower it.
+    if (surfaceThrottleAssist && !flightRoute && Math.abs(err) <= 1.2) throttle = 1;
 
     // --- drift to charge boost; releasing on corner exit pays it out
-    if (!this.drifting) {
+    if (chainDrift) {
+      // Chain specialists have one drift owner. Letting the legacy curvature
+      // hold overlap pursuit release records a cycle without releasing Shift,
+      // so Boat never receives the real BOOST payout edge.
+      this.drifting = false;
+      this.driftExitT = 0;
+    } else if (!this.drifting) {
       if (kMax > tune.driftKappa && speed > tune.driftMinSpeed) {
         this.drifting = true;
         this.driftExitT = 0;
@@ -388,25 +486,30 @@ export class AIController {
     }
 
     // --- traffic: steer bias away from boats ahead-ish, lift if stuffed
-    const fx = Math.sin(me.state.heading);
-    const fz = Math.cos(me.state.heading);
-    for (const b of all) {
-      if (b === me) continue;
-      const ox = b.state.position.x - me.state.position.x;
-      const oz = b.state.position.z - me.state.position.z;
-      if (Math.abs(b.state.position.y - me.state.position.y) > 2.5) continue;
-      const d2 = ox * ox + oz * oz;
-      if (d2 > AVOID_DIST * AVOID_DIST || d2 < 1e-6) continue;
-      const d = Math.sqrt(d2);
-      const aheadness = (ox * fx + oz * fz) / d;
-      if (aheadness < 0.25) continue;
-      const cross = fx * oz - fz * ox; // <0: they are on my left (boat frame)
-      const w = (1 - d / AVOID_DIST) * aheadness;
-      const pressure = clamp01(openingPressure);
-      steer = clamp(steer - 0.55 * (1 - pressure * 0.2) * Math.sign(cross) * w, -1, 1);
-      if (d < 3.1 && aheadness > 0.72) {
-        const throttleCeiling = Math.max(this.elite ? 0.72 : 0.35, 0.35 + pressure * 0.3);
-        throttle = Math.min(throttle, throttleCeiling);
+    // An authored flight corridor owns the line. Surface-style avoidance there
+    // pushes two legitimate entrants outside the scoring envelope; physical
+    // collision response still remains active if their hulls actually touch.
+    if (!flightRoute || !protectedFlightControl) {
+      const fx = Math.sin(me.state.heading);
+      const fz = Math.cos(me.state.heading);
+      for (const b of all) {
+        if (b === me) continue;
+        const ox = b.state.position.x - me.state.position.x;
+        const oz = b.state.position.z - me.state.position.z;
+        if (Math.abs(b.state.position.y - me.state.position.y) > 2.5) continue;
+        const d2 = ox * ox + oz * oz;
+        if (d2 > AVOID_DIST * AVOID_DIST || d2 < 1e-6) continue;
+        const d = Math.sqrt(d2);
+        const aheadness = (ox * fx + oz * fz) / d;
+        if (aheadness < 0.25) continue;
+        const cross = fx * oz - fz * ox; // <0: they are on my left (boat frame)
+        const w = (1 - d / AVOID_DIST) * aheadness;
+        const pressure = clamp01(openingPressure);
+        steer = clamp(steer - 0.55 * (1 - pressure * 0.2) * Math.sign(cross) * w, -1, 1);
+        if (d < 3.1 && aheadness > 0.72) {
+          const throttleCeiling = Math.max(this.elite ? 0.72 : 0.35, 0.35 + pressure * 0.3);
+          throttle = Math.min(throttle, throttleCeiling);
+        }
       }
     }
 
@@ -425,12 +528,54 @@ export class AIController {
     const out = this.input;
     out.throttle = throttle;
     out.steer = steer;
-    out.drift = me.state.flightPhase === 'surface' && (this.drifting || this.qualifyingFlight || this.pursuitDrifting);
+    out.drift = me.state.flightPhase === 'surface' &&
+      (this.qualifyingFlight || this.pursuitDrifting || (!chainDrift && this.drifting));
     out.flightTrigger = launchNow || extendNow;
     // The authored air route has a hard first bend. AI uses the same vector
     // air-brake available to the player, without changing water handling.
-    out.airBrake = flightRoute && me.state.flightPhase !== 'surface' &&
-      speed > 27 && (Math.abs(err) > 0.075 || this.course.flightTurnWarning(me.id));
+    const controlledFlight = flightRoute && me.state.flightPhase !== 'surface';
+    let formationBrakePulse = false;
+    if (!controlledFlight || !protectedFlightControl) {
+      this.formationAirBraking = false;
+    } else {
+      const turnWarning = this.course.flightTurnWarning(me.id);
+      const error = Math.abs(err);
+      const brakeOnError = turnWarning
+        ? 0.045 + closingPressure * 0.015
+        : 0.1 + closingPressure * 0.02;
+      const brakeOffError = turnWarning ? 0.022 : 0.045;
+      if (!this.formationAirBraking) {
+        this.formationAirBraking = speed > 29 && error > brakeOnError;
+      } else if (speed <= 28 || error < brakeOffError) {
+        this.formationAirBraking = false;
+      }
+      if (this.formationAirBraking) {
+        // Air-brake is still genuine held BoatInput, but a deterministic duty
+        // cycle prevents one early error from pinning the physical envelope to
+        // 29m/s for an entire authored turn. Large errors retain full braking.
+        const severity = clamp01((error - brakeOffError) / 0.28);
+        const duty = clamp(
+          (precisionS
+            ? (turnWarning ? 0.64 : 0.48) + severity * 0.2
+            : (turnWarning ? 0.4 : 0.32) + severity * (turnWarning ? 0.22 : 0.18)) -
+            closingPressure * (precisionS ? 0.01 : 0.03),
+          precisionS ? 0.48 : 0.3,
+          precisionS ? 0.84 : 0.62,
+        );
+        const period = 0.18;
+        const phaseOffset = (this.pacePhase / (Math.PI * 2)) * period;
+        // Route three needs vector-brake authority but not a permanent 29m/s
+        // clamp. Its bounded PWM remains active up to 84%; only a truly lost
+        // heading may demand continuous emergency braking.
+        formationBrakePulse = error > (precisionS ? 0.42 : 0.3) ||
+          ((this.t + phaseOffset) % period) < period * duty;
+      }
+    }
+    // Protected rivals use short, necessary vector-brake pulses. The old
+    // warning-only condition held the brake toward 29m/s for an entire turn.
+    out.airBrake = controlledFlight && (protectedFlightControl
+      ? formationBrakePulse
+      : speed > 27 && (Math.abs(err) > 0.075 || this.course.flightTurnWarning(me.id)));
     return out;
   }
 
@@ -439,6 +584,7 @@ export class AIController {
       active: this.pursuitDrifting,
       cooldown: this.pursuitCooldown,
       boostCycles: this.pursuitBoostCycles,
+      edge: this.pursuitEdge,
     };
   }
 }

@@ -66,7 +66,15 @@ import {
 } from './core/capture';
 import { CapturePreview, type CaptureKind } from './hud/capturePreview';
 import { trackGameEvent } from './game/eventLog';
-import type { BoatInput, BoatState, ChallengeTier, CourseGuidanceStatus, CourseSample, FlightRouteState } from './contracts';
+import type {
+  BoatInput,
+  BoatState,
+  ChallengeTier,
+  CourseGuidanceStatus,
+  CourseSample,
+  FlightRouteState,
+  RivalPaceDirective,
+} from './contracts';
 import { deriveAbilityHudState } from './core/abilityTelemetry';
 
 const params = new URLSearchParams(location.search);
@@ -272,6 +280,9 @@ let harnessLastBattleStreak = 0;
 let harnessCheckpointEvents = 0;
 let harnessCourseWarningEvents = 0;
 let harnessCollisionFxBursts = 0;
+let harnessLastCollisionHits: CollisionHit[] = [];
+let harnessLastCollisionMaxCorrection = 0;
+let harnessRoutePilotIndex = -1;
 const harnessRoutePasses = new Array<number>(boats.length).fill(0);
 const harnessRouteFails = new Array<number>(boats.length).fill(0);
 const harnessPrevRouteStates: FlightRouteState[] = boats.map((boat) => boat.state.flightRouteState);
@@ -700,6 +711,9 @@ function resetRace(): void {
   harnessCheckpointEvents = 0;
   harnessCourseWarningEvents = 0;
   harnessCollisionFxBursts = 0;
+  harnessLastCollisionHits = [];
+  harnessLastCollisionMaxCorrection = 0;
+  harnessRoutePilotIndex = -1;
   for (let i = 0; i < boats.length; i++) {
     harnessRoutePasses[i] = 0;
     harnessRouteFails[i] = 0;
@@ -730,6 +744,7 @@ const ZERO_INPUT: BoatInput = {
 };
 let harnessPlayerInput: BoatInput | null = null;
 let harnessFlightTriggerPulse = false;
+const harnessLastBoatInputs: BoatInput[] = boats.map(() => ({ ...ZERO_INPUT }));
 
 function step(dt: number, _t: number): void {
   gamepadInput.poll(race.phase === 'ready' && !interruptionActive);
@@ -903,6 +918,7 @@ function step(dt: number, _t: number): void {
   if (racing) collisions.capture(boats);
   for (let i = 0; i < boats.length && racing; i++) {
     if (i > 0) boats[i].setOpponentEffectDistance(boats[i].state.position.distanceTo(boats[0].state.position));
+    const rivalControl = rivalDirector.controlFor(i);
     let inp: BoatInput;
     if (!racing) {
       inp = ZERO_INPUT;
@@ -919,11 +935,15 @@ function step(dt: number, _t: number): void {
         boats,
         race.racers[i].progress,
         race.racers[0].progress,
-        rivalDirector.paceFor(i),
+        rivalControl,
         rivalDirector.techniqueFor(i),
         rivalDirector.openingFor(i),
         rivalDirector.chainFor(i),
       );
+    }
+    if (i === 0 && HARNESS && harnessRoutePilotIndex === 2 && !harnessUsePlayerInput &&
+        !harnessPlayerInput && boats[0].state.flightPhase !== 'surface') {
+      inp = { ...inp, steer: harnessThirdFlightSteer() };
     }
     if (i === 0 && harnessForceAirBrake && boats[0].state.flightPhase !== 'surface') {
       inp = { ...inp, drift: false, airBrake: true };
@@ -937,7 +957,15 @@ function step(dt: number, _t: number): void {
       const returnBrake = inp.drift || inp.airBrake;
       inp = { ...inp, drift: false, airBrake: returnBrake, flightTrigger: false };
     }
-    boats[i].update(dt, inp, worldTime, finalReturnBrake ? 'return-brake' : 'drift');
+    if (HARNESS) Object.assign(harnessLastBoatInputs[i], inp);
+    boats[i].update(
+      dt,
+      inp,
+      worldTime,
+      finalReturnBrake ? 'return-brake' : 'drift',
+      rivalControl.surfaceTargetScale,
+      rivalControl.flightTargetScale,
+    );
     if (i === 0) harnessFlightTriggerPulse = false;
   }
 
@@ -973,10 +1001,15 @@ function step(dt: number, _t: number): void {
   if (!waitingForMobile && race.phase === 'racing') race.update(dt);
   if (racing && race.phase === 'racing') {
     const hits = collisions.resolve(boats);
+    const collisionDebug = collisions.debugState();
+    if (HARNESS) {
+      harnessLastCollisionHits = hits.map((hit) => ({ ...hit }));
+      harnessLastCollisionMaxCorrection = collisionDebug.maxCorrection;
+    }
     // Preserve route-projection continuity on untouched frames. Re-basing
     // every frame lets a continuous cross-course shortcut become the new
     // legal segment; only an actual contact correction needs absorption.
-    if (collisions.debugState().maxCorrection > 0) {
+    if (collisionDebug.maxCorrection > 0) {
       course.syncFlightTrackingAfterCollisions(boats);
       race.syncCollisionCorrections();
     }
@@ -1376,6 +1409,7 @@ interface Harness {
   recordsImport(raw: string): { selectedDriverId: string | null };
   recordsCase(name: string): Record<string, unknown>;
   rivalCase(): Record<string, unknown>;
+  skilledFormationCase(driverId: string): Record<string, unknown>;
   radioTechniqueCase(): Record<string, unknown>;
   cameraImpactCase(): Record<string, unknown>;
   enduranceCase(flights: number): Record<string, unknown>;
@@ -1397,6 +1431,34 @@ function advanceUntil(cond: () => boolean, maxSeconds: number): void {
 
 const tmpP = new THREE.Vector3();
 const tmpT = new THREE.Vector3();
+const harnessPilotPoint = new THREE.Vector3();
+const harnessPilotTangent = new THREE.Vector3();
+const harnessPilotSample: CourseSample = {
+  u: 0,
+  point: new THREE.Vector3(),
+  tangent: new THREE.Vector3(),
+  distance: 0,
+  routeId: 'surface',
+};
+
+function harnessThirdFlightSteer(): number {
+  const state = boats[0].state;
+  const route = course.flightRoutes[2];
+  course.sample(state.position, harnessPilotSample, route.id);
+  const targetU = Math.min(route.exitU, harnessPilotSample.u + 28 / course.length);
+  course.routePointAt(route.id, targetU, harnessPilotPoint);
+  course.routeTangentAt(route.id, targetU, harnessPilotTangent);
+  const pointError = Math.atan2(
+    Math.sin(Math.atan2(harnessPilotPoint.x - state.position.x, harnessPilotPoint.z - state.position.z) - state.heading),
+    Math.cos(Math.atan2(harnessPilotPoint.x - state.position.x, harnessPilotPoint.z - state.position.z) - state.heading),
+  );
+  const tangentError = Math.atan2(
+    Math.sin(Math.atan2(harnessPilotTangent.x, harnessPilotTangent.z) - state.heading),
+    Math.cos(Math.atan2(harnessPilotTangent.x, harnessPilotTangent.z) - state.heading),
+  );
+  const error = pointError * 0.58 + tangentError * 0.42;
+  return Math.max(-1, Math.min(1, -error * 2.8));
+}
 
 /** Place all boats around course position u, staggered like a racing pack. */
 function placePack(uPlayer: number): void {
@@ -1570,6 +1632,7 @@ function earnHarnessFlight(combo = false): void {
 function beginHarnessRouteFlight(routeCursor = 0, initialCharges = 1): void {
   const routeIndex = routeCursor % course.flightRoutes.length;
   const route = course.flightRoutes[routeIndex];
+  harnessRoutePilotIndex = routeIndex;
   course.resetFlightChallenge();
   placePack(route.entryU - 0.035);
   for (const boat of boats) {
@@ -1717,14 +1780,31 @@ function harnessMedalRecoveryCase(): Record<string, number | string | boolean> {
   resetRace();
   startFreshCountdown();
   advanceUntil(() => race.phase === 'racing', 8);
+  if (race.phase !== 'racing') {
+    throw new Error(`medal recovery could not start the race: phase=${race.phase}; run=${currentRun}`);
+  }
   beginHarnessRouteFlight(2, 1);
-  harnessForceAirBrake = true;
+  if (race.phase !== 'racing' || boats[0].state.flightPhase === 'surface') {
+    const state = boats[0].state;
+    throw new Error(`medal recovery could not launch flight 3: phase=${race.phase}; ` +
+      `flight=${state.flightPhase}; route=${state.flightRouteState}; charges=${state.flightCharges}; ` +
+      `${course.flightDebugStatus(0)}`);
+  }
+  // Use the route pilot's real error-driven air brake through the portal.
+  // Pinning it for the whole S-bend creates an artificial corridor miss.
+  harnessForceAirBrake = false;
   harnessSuppressAirborneFlightTrigger = true;
   const dt = 1 / 60;
   try {
     advanceUntil(() => race.phase === 'medal' || race.phase === 'defeated', 14);
     const passState = boats[0].state;
-    const passedAtMedal = race.phase === 'medal' && passState.flightRouteState === 'passed';
+    if ((race.phase as string) !== 'medal') {
+      throw new Error(`medal recovery did not pass flight 3: phase=${race.phase}; ` +
+        `flight=${passState.flightPhase}; route=${passState.flightRouteState}; ` +
+        `reason=${passState.flightRouteFailReason}; passes=${harnessRoutePasses[0]}; ` +
+        `fails=${harnessRouteFails[0]}; ${course.flightDebugStatus(0)}`);
+    }
+    const passedAtMedal = passState.flightRouteState === 'passed';
     const frozenX = passState.position.x;
     const frozenY = passState.position.y;
     const frozenZ = passState.position.z;
@@ -1988,6 +2068,17 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
   // descent and route handoff paths.
   course.resetFlightChallenge();
   placePack(course.flightRoutes[3].launchFromU - 0.006);
+  // This contract owns the player's uninterrupted fourth-to-fifth action
+  // chain. Stage the stronger formation well behind once; the old tight pack
+  // produced repeated artificial contacts at the launch aperture.
+  for (let i = 1; i < boats.length; i++) {
+    const u = course.flightRoutes[3].launchFromU - 0.12 - i * 0.006;
+    course.pointAt(u, tmpP);
+    course.tangentAt(u, tmpT);
+    boats[i].teleport(tmpP.x + tmpT.z * (i % 2 === 0 ? -3 : 3), tmpP.z - tmpT.x * (i % 2 === 0 ? -3 : 3),
+      Math.atan2(tmpT.x, tmpT.z));
+    wakes[i].clear();
+  }
   for (const boat of boats) {
     boat.state.flightsCleared = 3;
     boat.state.flightRouteCursor = 3;
@@ -2021,6 +2112,7 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
   let routeFourLandingBridged = false;
   let routeFourLandingCharge = -1;
   let routeFourLandingBrakeEnvelope = -1;
+  let playerCollisionHits = 0;
 
   try {
     while (elapsed < 30 && race.phase === 'racing' && boats[0].state.flightsCleared < 5) {
@@ -2028,6 +2120,7 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
       elapsed += dt;
       const state = boats[0].state;
       const guidance = course.guidanceStatus();
+      playerCollisionHits += harnessLastCollisionHits.filter((hit) => hit.a === 0 || hit.b === 0).length;
       maxStep = Math.max(maxStep, Math.hypot(state.position.x - previousX, state.position.z - previousZ));
       previousX = state.position.x;
       previousZ = state.position.z;
@@ -2069,6 +2162,10 @@ function harnessRoute45ContinuousCase(): Record<string, number | string | boolea
       phase: race.phase,
       flightsCleared: state.flightsCleared,
       routeState: state.flightRouteState,
+      routeIndex: state.flightRouteIndex,
+      failReason: state.flightRouteFailReason,
+      failureCorridorDistance: state.flightFailure?.corridorDistanceM ?? -1,
+      playerCollisionHits,
       routePasses: harnessRoutePasses[0],
       routeFails: harnessRouteFails[0],
       sawRouteFourPassed,
@@ -2195,6 +2292,7 @@ function harnessFinalApproachCase(): Record<string, unknown> {
   let sawSurfaceRecovery = false;
   let sawHandoff = false;
   let releasedReturnBrake = false;
+  let straightenedExcursion = false;
   let finalLandingObserved = false;
   let finalLandingDrifting = false;
   let finalLandingBoostCharge = -1;
@@ -2206,7 +2304,7 @@ function harnessFinalApproachCase(): Record<string, unknown> {
 
   harnessForceAirBrake = true;
   harnessSuppressAirborneFlightTrigger = true;
-  setHarnessInput({ throttle: 1, steer: -1, drift: true, airBrake: true });
+  setHarnessInput({ throttle: 1, steer: 1, drift: true, airBrake: true });
   try {
     for (let frame = 0; frame < 60 * 10 && race.phase === 'racing'; frame++) {
       loop.advance(1 / 60);
@@ -2233,7 +2331,11 @@ function harnessFinalApproachCase(): Record<string, unknown> {
         framesAfterHandoff++;
         if (!releasedReturnBrake) {
           releasedReturnBrake = true;
-          setHarnessInput({ throttle: 1, steer: -1 });
+          setHarnessInput({ throttle: 1, steer: 1 });
+        }
+        if (!straightenedExcursion && framesAfterHandoff >= 72) {
+          straightenedExcursion = true;
+          setHarnessInput({ throttle: 1, steer: 0 });
         }
       }
       if (sawHandoff && framesAfterHandoff >= 150 && maxRouteDistance >= 48) break;
@@ -3081,6 +3183,16 @@ function runRecordsCase(name: string): Record<string, unknown> {
 
 function runRivalCase(): Record<string, unknown> {
   const makeRacers = () => race.racers.map((racer) => ({ ...racer }));
+  const controls = (director: RivalDirector, ids: readonly number[]) => ids.map((id) => {
+    const control = director.controlFor(id);
+    return {
+      surfaceTargetScale: control.surfaceTargetScale,
+      flightTargetScale: control.flightTargetScale,
+      formationActive: control.formationActive,
+      surfaceThrottleAssist: control.surfaceThrottleAssist,
+      closingPressure: control.closingPressure,
+    };
+  });
   const advanceDirector = (
     director: RivalDirector,
     racers: ReturnType<typeof makeRacers>,
@@ -3102,9 +3214,11 @@ function runRivalCase(): Record<string, unknown> {
   for (const id of rivalIds) racers[id].progress = 70;
   advanceDirector(boundsDirector, racers, 4);
   const chase = rivalIds.map((id) => boundsDirector.paceFor(id));
+  const chaseControls = controls(boundsDirector, rivalIds);
   for (const id of rivalIds) racers[id].progress = 150;
   advanceDirector(boundsDirector, racers, 6);
   const release = rivalIds.map((id) => boundsDirector.paceFor(id));
+  const releaseControls = controls(boundsDirector, rivalIds);
 
   const lockDirector = new RivalDirector();
   lockDirector.setRoster(roster);
@@ -3116,8 +3230,9 @@ function runRivalCase(): Record<string, unknown> {
   const beforeLock = rivalIds.map((id) => lockDirector.paceFor(id));
   lockDirector.notifyBattle();
   for (const id of rivalIds) lockRacers[id].progress = 150;
-  advanceDirector(lockDirector, lockRacers, 1.5);
+  advanceDirector(lockDirector, lockRacers, 0.5);
   const duringLock = rivalIds.map((id) => lockDirector.paceFor(id));
+  const duringLockControls = controls(lockDirector, rivalIds);
 
   const graceDirector = new RivalDirector();
   graceDirector.setRoster(roster);
@@ -3126,9 +3241,9 @@ function runRivalCase(): Record<string, unknown> {
   gracePlayer.progress = 100;
   for (const id of rivalIds) graceRacers[id].progress = 70;
   graceDirector.notifyPlayerImpact();
-  advanceDirector(graceDirector, graceRacers, 2);
+  advanceDirector(graceDirector, graceRacers, 1);
   const duringGrace = rivalIds.map((id) => graceDirector.paceFor(id));
-  advanceDirector(graceDirector, graceRacers, 1.25);
+  advanceDirector(graceDirector, graceRacers, 1);
   const afterGrace = rivalIds.map((id) => graceDirector.paceFor(id));
 
   const techniqueDirector = new RivalDirector();
@@ -3156,87 +3271,863 @@ function runRivalCase(): Record<string, unknown> {
   });
 
   const pursuit = runRivalPursuitProbe(rivalIds[0]);
-  const formation = runRivalFormationProbe(rivalIds);
+  boundsDirector.releaseFormation();
+  const releasedControls = controls(boundsDirector, rivalIds);
 
   return {
     rivalIds,
     chase,
+    chaseControls,
     release,
+    releaseControls,
     beforeLock,
     duringLock,
+    duringLockControls,
     duringGrace,
     afterGrace,
     techniqueChase,
     openingRuns,
     pursuit,
-    formation,
+    releasedControls,
+    playerControl: controls(boundsDirector, [player.id])[0],
     nonRivalId: nonRival.id,
     nonRivalPace: boundsDirector.paceFor(nonRival.id),
   };
 }
 
+interface FormationRuntimeStats {
+  frames: number;
+  airBrakeFrames: number;
+  surfaceFrames: number;
+  flightFrames: number;
+  extensionEdges: number;
+  extensionUsedFrames: number;
+  surfaceSpeedSum: number;
+  surfaceThrottleSum: number;
+  surfaceNegativeThrottleFrames: number;
+  surfaceFullThrottleFrames: number;
+  flightSpeedSum: number;
+  minSurfaceSpeed: number;
+  maxSurfaceSpeed: number;
+  minFlightSpeed: number;
+  maxFlightSpeed: number;
+  paceSum: number;
+  minPace: number;
+  maxPace: number;
+  flightTargetScaleSum: number;
+  formationActiveFrames: number;
+  surfaceThrottleAssistFrames: number;
+  closingPressureSum: number;
+  closingRateSum: number;
+  maxClosingRate: number;
+  minGap: number;
+  maxGap: number;
+  lastGap: number;
+  phaseFrames: Record<string, number>;
+  routeStateFrames: Record<string, number>;
+  failureReasonFrames: Record<string, number>;
+}
+
+function makeFormationStats(initialGap: number): FormationRuntimeStats {
+  return {
+    frames: 0,
+    airBrakeFrames: 0,
+    surfaceFrames: 0,
+    flightFrames: 0,
+    extensionEdges: 0,
+    extensionUsedFrames: 0,
+    surfaceSpeedSum: 0,
+    surfaceThrottleSum: 0,
+    surfaceNegativeThrottleFrames: 0,
+    surfaceFullThrottleFrames: 0,
+    flightSpeedSum: 0,
+    minSurfaceSpeed: Infinity,
+    maxSurfaceSpeed: 0,
+    minFlightSpeed: Infinity,
+    maxFlightSpeed: 0,
+    paceSum: 0,
+    minPace: Infinity,
+    maxPace: 0,
+    flightTargetScaleSum: 0,
+    formationActiveFrames: 0,
+    surfaceThrottleAssistFrames: 0,
+    closingPressureSum: 0,
+    closingRateSum: 0,
+    maxClosingRate: -Infinity,
+    minGap: Infinity,
+    maxGap: -Infinity,
+    lastGap: initialGap,
+    phaseFrames: {},
+    routeStateFrames: {},
+    failureReasonFrames: {},
+  };
+}
+
+function observeFormationStats(
+  stats: FormationRuntimeStats,
+  state: BoatState,
+  input: BoatInput,
+  directive: RivalPaceDirective,
+  gap: number,
+  closingRate: number,
+): void {
+  const pace = directive.surfaceTargetScale;
+  stats.frames++;
+  stats.paceSum += pace;
+  stats.minPace = Math.min(stats.minPace, pace);
+  stats.maxPace = Math.max(stats.maxPace, pace);
+  stats.flightTargetScaleSum += directive.flightTargetScale;
+  if (directive.formationActive) stats.formationActiveFrames++;
+  if (directive.surfaceThrottleAssist) stats.surfaceThrottleAssistFrames++;
+  stats.closingPressureSum += directive.closingPressure;
+  stats.closingRateSum += closingRate;
+  stats.maxClosingRate = Math.max(stats.maxClosingRate, closingRate);
+  stats.minGap = Math.min(stats.minGap, gap);
+  stats.maxGap = Math.max(stats.maxGap, gap);
+  stats.lastGap = gap;
+  stats.phaseFrames[state.flightPhase] = (stats.phaseFrames[state.flightPhase] ?? 0) + 1;
+  stats.routeStateFrames[state.flightRouteState] = (stats.routeStateFrames[state.flightRouteState] ?? 0) + 1;
+  if (state.flightRouteState === 'failed') {
+    stats.failureReasonFrames[state.flightRouteFailReason] =
+      (stats.failureReasonFrames[state.flightRouteFailReason] ?? 0) + 1;
+  }
+  if (state.flightPhase === 'surface') {
+    stats.surfaceFrames++;
+    stats.surfaceSpeedSum += state.speed;
+    stats.surfaceThrottleSum += input.throttle;
+    if (input.throttle < 0) stats.surfaceNegativeThrottleFrames++;
+    if (input.throttle >= 0.999) stats.surfaceFullThrottleFrames++;
+    stats.minSurfaceSpeed = Math.min(stats.minSurfaceSpeed, state.speed);
+    stats.maxSurfaceSpeed = Math.max(stats.maxSurfaceSpeed, state.speed);
+  } else {
+    stats.flightFrames++;
+    if (state.flightExtended) stats.extensionEdges++;
+    if (state.flightExtensionUsed) stats.extensionUsedFrames++;
+    stats.flightSpeedSum += state.speed;
+    stats.minFlightSpeed = Math.min(stats.minFlightSpeed, state.speed);
+    stats.maxFlightSpeed = Math.max(stats.maxFlightSpeed, state.speed);
+    if (input.airBrake) stats.airBrakeFrames++;
+  }
+}
+
+function summarizeFormationStats(stats: FormationRuntimeStats): Record<string, unknown> {
+  const finite = (value: number): number => Number.isFinite(value) ? Number(value.toFixed(3)) : 0;
+  return {
+    frames: stats.frames,
+    gap: {
+      min: finite(stats.minGap),
+      max: finite(stats.maxGap),
+      end: finite(stats.lastGap),
+    },
+    gapClosingMps: {
+      mean: finite(stats.frames > 0 ? stats.closingRateSum / stats.frames : 0),
+      max: finite(stats.maxClosingRate),
+    },
+    pace: {
+      mean: finite(stats.frames > 0 ? stats.paceSum / stats.frames : 0),
+      min: finite(stats.minPace),
+      max: finite(stats.maxPace),
+    },
+    directive: {
+      surfaceTargetScaleMean: finite(stats.frames > 0 ? stats.paceSum / stats.frames : 0),
+      flightTargetScaleMean: finite(stats.frames > 0 ? stats.flightTargetScaleSum / stats.frames : 0),
+      formationDuty: finite(stats.frames > 0 ? stats.formationActiveFrames / stats.frames : 0),
+      surfaceThrottleAssistDuty: finite(stats.frames > 0 ? stats.surfaceThrottleAssistFrames / stats.frames : 0),
+      closingPressureMean: finite(stats.frames > 0 ? stats.closingPressureSum / stats.frames : 0),
+    },
+    airBrakeDuty: finite(stats.flightFrames > 0 ? stats.airBrakeFrames / stats.flightFrames : 0),
+    extensionEdges: stats.extensionEdges,
+    extensionUsedDuty: finite(stats.flightFrames > 0 ? stats.extensionUsedFrames / stats.flightFrames : 0),
+    surfaceSpeed: {
+      mean: finite(stats.surfaceFrames > 0 ? stats.surfaceSpeedSum / stats.surfaceFrames : 0),
+      min: finite(stats.minSurfaceSpeed),
+      max: finite(stats.maxSurfaceSpeed),
+    },
+    surfaceThrottle: {
+      mean: finite(stats.surfaceFrames > 0 ? stats.surfaceThrottleSum / stats.surfaceFrames : 0),
+      negativeDuty: finite(stats.surfaceFrames > 0 ? stats.surfaceNegativeThrottleFrames / stats.surfaceFrames : 0),
+      fullDuty: finite(stats.surfaceFrames > 0 ? stats.surfaceFullThrottleFrames / stats.surfaceFrames : 0),
+    },
+    flightSpeed: {
+      mean: finite(stats.flightFrames > 0 ? stats.flightSpeedSum / stats.flightFrames : 0),
+      min: finite(stats.minFlightSpeed),
+      max: finite(stats.maxFlightSpeed),
+    },
+    phaseFrames: stats.phaseFrames,
+    routeStateFrames: stats.routeStateFrames,
+    failureReasonFrames: stats.failureReasonFrames,
+  };
+}
+
+function runSkilledFormationCase(driverId: string): Record<string, unknown> {
+  const previousDriverId = selectedDriverId;
+  const resolved = driverProfile(driverId).id;
+  try {
+    resetRace();
+    applySelectedDriver(resolved);
+    const rivalIds = [...rivalDirector.debugState().rivals];
+    return {
+      driverId: resolved,
+      handling: boats[0].debugDriverHandling(),
+      ...runRivalFormationProbe(rivalIds),
+    };
+  } finally {
+    resetRace();
+    applySelectedDriver(previousDriverId);
+    resetRace();
+  }
+}
+
 function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unknown> {
   const previousEndlessMode = harnessEndlessMode;
+  const previousUsePlayerInput = harnessUsePlayerInput;
+  const previousHarnessInput = harnessPlayerInput ? { ...harnessPlayerInput } : null;
+  const previousRecords = JSON.parse(JSON.stringify(records.data)) as typeof records.data;
+  const previousRecordsStorage = localStorage.getItem('board-race:challenge:v8');
+  const previousWorldTime = worldTime;
+  const previousPresentationTime = presentationTime;
+  const previousCurrentRun = currentRun;
   harnessEndlessMode = true;
-  resetRace();
-  startFreshCountdown();
-  advanceUntil(() => race.phase === 'racing', 8);
+  harnessUsePlayerInput = false;
+  try {
+    resetRace();
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+  // This pilot supplies a deterministic line only. Surface throttle and every
+  // action below are authored as explicit BoatInput holds/edges, so boat 0 can
+  // never fall through to ais[0] as the old false-positive benchmark did.
+  const linePilot = new AIController('aggressive', course, 0x5eed, 1.08, 0, true);
+  const pilotSample: CourseSample = {
+    u: 0,
+    distance: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    routeId: 'surface',
+  };
+  const rivalSamples: CourseSample[] = rivalIds.map(() => ({
+    u: 0,
+    distance: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    routeId: 'surface',
+  }));
+  const rivalControlHistory: Array<Array<Record<string, number | string | boolean>>> = rivalIds.map(() => []);
   const previousPositions = boats.map((boat) => boat.state.position.clone());
   const driftFrames = rivalIds.map(() => 0);
   const boostFrames = rivalIds.map(() => 0);
+  const boatBoostEdges = rivalIds.map(() => 0);
+  const rivalWasBoosting = rivalIds.map((id) => boats[id].state.boosting);
+  const initialPlayerProgress = race.racers[0].progress;
+  const previousGaps = rivalIds.map((id) => race.racers[id].progress - initialPlayerProgress);
+  const runtimeStats = rivalIds.map((_, role) => makeFormationStats(previousGaps[role]));
+  const segmentStats = Array.from({ length: 4 }, () =>
+    rivalIds.map((_, role) => makeFormationStats(previousGaps[role])));
+  const playerSegments = Array.from({ length: 4 }, (_, flight) => ({
+    flight: flight + 1,
+    frames: 0,
+    flightFrames: 0,
+    extensionEdges: 0,
+    extensionUsedFrames: 0,
+  }));
+  const lastPhaseKeys = rivalIds.map((id) => `${boats[id].state.flightPhase}:${boats[id].state.flightRouteState}`);
+  const transitions: Array<Record<string, unknown>> = [];
+  const timeline: Array<Record<string, unknown>> = [];
+  const playerControlHistory: Array<Record<string, number | string | boolean>> = [];
+  const lifecycleEvents: Array<Record<string, unknown>> = [];
+  const proximitySamples: Array<Record<string, unknown>> = [];
+  const lifecycleIds = [0, ...rivalIds];
+  const lifecycleRouteSamples: CourseSample[] = lifecycleIds.map(() => ({
+    u: 0,
+    distance: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    routeId: 'surface',
+  }));
+  const lifecycleSurfaceSamples: CourseSample[] = lifecycleIds.map(() => ({
+    u: 0,
+    distance: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    routeId: 'surface',
+  }));
+  const lifecyclePrevious = lifecycleIds.map((id) => ({
+    phase: boats[id].state.flightPhase,
+    routeState: boats[id].state.flightRouteState,
+    routeIndex: boats[id].state.flightRouteIndex,
+    routeCursor: boats[id].state.flightRouteCursor,
+    flightsCleared: boats[id].state.flightsCleared,
+  }));
+  const flightThreeApproachFrames: Array<Array<{
+    time: number;
+    x: number;
+    z: number;
+    progress: number;
+    surfaceU: number;
+    speed: number;
+    drifting: boolean;
+    boosting: boolean;
+    steer: number;
+    throttle: number;
+    lateralG: number;
+    routeDistance: number;
+    collisionCount: number;
+    collisionCorrection: number;
+    globalCollisionCorrection: number;
+  }>> = lifecycleIds.map(() => []);
+  const flightThreeApproachActive = lifecycleIds.map(() => false);
+  const flightThreeApproachStop = lifecycleIds.map(() => false);
   const passes: Array<{
     flight: number;
+    time: number;
     ahead: number;
     place: number;
+    playerSpeed: number;
+    rivalSpeed: number[];
+    worldRelations: Array<{
+      distance: number;
+      aheadMeters: number;
+      aheadDot: number;
+      heightDelta: number;
+      playerPhase: string;
+      rivalPhase: string;
+      playerRouteState: string;
+      rivalRouteState: string;
+    }>;
     rivalGaps: number[];
     pace: number[];
     technique: number[];
+    controls: Array<{
+      surfaceTargetScale: number;
+      flightTargetScale: number;
+      formationActive: boolean;
+      surfaceThrottleAssist: boolean;
+      closingPressure: number;
+    }>;
+    releaseSameFrame: boolean;
   }> = [];
   let previousFlights = boats[0].state.flightsCleared;
   let maxStep = 0;
   let frames = 0;
+  let racingFrames = 0;
+  let driftHeld = false;
+  let driftReleaseCooldown = 0;
+  let launchIntent = false;
+  let driftStarts = 0;
+  let driftReleases = 0;
+  let bankedReleases = 0;
+  let flightEdges = 0;
+  let airBrakeTurnFrames = 0;
+  let playerBoostEdges = 0;
+  let playerWasBoosting = boats[0].state.boosting;
+  let fourthReleaseFrame = -1;
+  let passThreeTime = -1;
   while (race.phase !== 'defeated' && race.phase !== 'finished' && race.phase !== 'ready' &&
-      boats[0].state.flightsCleared < 4 && frames++ < 60 * 100) {
+      boats[0].state.flightsCleared < 4 && frames++ < 60 * 120) {
+    const wasRacing = race.phase === 'racing';
+    const flightsBeforeStep = boats[0].state.flightsCleared;
+    if (wasRacing) {
+      const playerBoat = boats[0];
+      const state = playerBoat.state;
+      course.sample(state.position, pilotSample, course.routeForBoat(0));
+      const line = linePilot.update(
+        1 / 60,
+        playerBoat,
+        boats,
+        race.racers[0].progress,
+        race.racers[0].progress,
+        1,
+        0,
+        0,
+        0,
+      );
+      const route = course.flightRoutes[state.flightRouteCursor % course.flightRoutes.length];
+      const launchFromU = route.navigation?.launchCueU ?? route.launchFromU;
+      const wantsLaunch = state.flightPhase === 'surface' && state.flightCharges > 0 &&
+        state.flightRouteState === 'idle' && pilotSample.u >= launchFromU && pilotSample.u <= route.launchToU;
+      driftReleaseCooldown = Math.max(0, driftReleaseCooldown - 1 / 60);
+      if (state.flightPhase !== 'surface') {
+        driftHeld = false;
+      } else if (driftHeld && state.driftReleaseReady) {
+        driftHeld = false;
+        driftReleaseCooldown = 0.18;
+        driftReleases++;
+        bankedReleases++;
+      } else if (!driftHeld && driftReleaseCooldown <= 0 && !state.boosting &&
+          state.flightRouteState === 'idle' && state.speed >= 14 &&
+          (state.flightCharges === 0 || pilotSample.u < route.qualifyFromU)) {
+        driftHeld = true;
+        driftStarts++;
+      }
+      const flightTrigger = wantsLaunch && !launchIntent;
+      if (flightTrigger) flightEdges++;
+      launchIntent = wantsLaunch;
+      const airBrake = state.flightPhase !== 'surface' && line.airBrake && Math.abs(line.steer) >= 0.12;
+      if (airBrake && Math.abs(line.steer) > 0.06) airBrakeTurnFrames++;
+      setHarnessInput({
+        throttle: 1,
+        steer: line.steer,
+        drift: driftHeld,
+        flightTrigger,
+        airBrake,
+      });
+    } else {
+      setHarnessInput(ZERO_INPUT);
+      launchIntent = false;
+    }
     loop.advance(1 / 60);
     for (let i = 0; i < boats.length; i++) {
       maxStep = Math.max(maxStep, previousPositions[i].distanceTo(boats[i].state.position));
       previousPositions[i].copy(boats[i].state.position);
     }
+    if (!wasRacing) continue;
+    racingFrames++;
+    const player = race.racers[0];
+    const segment = Math.max(0, Math.min(3, flightsBeforeStep));
+    const playerSegment = playerSegments[segment];
+    const playerState = boats[0].state;
+    if (!playerWasBoosting && playerState.boosting) playerBoostEdges++;
+    playerWasBoosting = playerState.boosting;
+    playerSegment.frames++;
+    if (playerState.flightPhase !== 'surface') {
+      playerSegment.flightFrames++;
+      if (playerState.flightExtended) playerSegment.extensionEdges++;
+      if (playerState.flightExtensionUsed) playerSegment.extensionUsedFrames++;
+    }
+    if (racingFrames % 6 === 0) {
+      course.sample(playerState.position, pilotSample, course.routeForBoat(0));
+      playerControlHistory.push({
+        time: Number((racingFrames / 60).toFixed(3)),
+        x: Number(playerState.position.x.toFixed(3)),
+        z: Number(playerState.position.z.toFixed(3)),
+        routeU: Number(pilotSample.u.toFixed(6)),
+        routeDistance: Number(pilotSample.distance.toFixed(3)),
+        steer: Number(harnessLastBoatInputs[0].steer.toFixed(4)),
+        airBrake: harnessLastBoatInputs[0].airBrake,
+        speed: Number(playerState.speed.toFixed(3)),
+        phase: playerState.flightPhase,
+        routeState: playerState.flightRouteState,
+      });
+      if (playerControlHistory.length > 21) playerControlHistory.shift();
+    }
     for (let role = 0; role < rivalIds.length; role++) {
-      const state = boats[rivalIds[role]].state;
+      const id = rivalIds[role];
+      const state = boats[id].state;
       if (state.drifting) driftFrames[role]++;
       if (state.boosting) boostFrames[role]++;
+      if (!rivalWasBoosting[role] && state.boosting) boatBoostEdges[role]++;
+      rivalWasBoosting[role] = state.boosting;
+      const gap = race.racers[id].progress - player.progress;
+      const closingRate = (previousGaps[role] - gap) * 60;
+      previousGaps[role] = gap;
+      const directive = rivalDirector.controlFor(id);
+      observeFormationStats(runtimeStats[role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
+      observeFormationStats(segmentStats[segment][role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
+      if (racingFrames % 6 === 0) {
+        const sample = course.sample(state.position, rivalSamples[role], course.routeForBoat(id));
+        const surfaceSample = course.sample(state.position, lifecycleSurfaceSamples[role + 1], 'surface');
+        const tangentHeading = Math.atan2(sample.tangent.x, sample.tangent.z);
+        const err = Math.atan2(Math.sin(tangentHeading - state.heading), Math.cos(tangentHeading - state.heading));
+        const history = rivalControlHistory[role];
+        history.push({
+          time: Number((racingFrames / 60).toFixed(3)),
+          x: Number(state.position.x.toFixed(3)),
+          z: Number(state.position.z.toFixed(3)),
+          routeU: Number(sample.u.toFixed(6)),
+          routeDistance: Number(sample.distance.toFixed(3)),
+          surfaceU: Number(surfaceSample.u.toFixed(6)),
+          surfaceDistance: Number(surfaceSample.distance.toFixed(3)),
+          err: Number(err.toFixed(4)),
+          steer: Number(harnessLastBoatInputs[id].steer.toFixed(4)),
+          throttle: Number(harnessLastBoatInputs[id].throttle.toFixed(4)),
+          airBrake: harnessLastBoatInputs[id].airBrake,
+          speed: Number(state.speed.toFixed(3)),
+          lateralG: Number(state.lateralG.toFixed(3)),
+          drifting: state.drifting,
+          boosting: state.boosting,
+          phase: state.flightPhase,
+          routeState: state.flightRouteState,
+        });
+        if (history.length > 21) history.shift();
+      }
+      const phaseKey = `${state.flightPhase}:${state.flightRouteState}`;
+      if (phaseKey !== lastPhaseKeys[role]) {
+        const segmentAirBrakeDuty = segmentStats[segment][role].flightFrames > 0
+          ? segmentStats[segment][role].airBrakeFrames / segmentStats[segment][role].flightFrames
+          : 0;
+        const lastSecondSamples = rivalControlHistory[role].slice(-10);
+        transitions.push({
+          time: Number((racingFrames / 60).toFixed(3)),
+          flight: flightsBeforeStep + 1,
+          role,
+          id,
+          profileId: roster[id].profileId,
+          personality: roster[id].personality,
+          phase: state.flightPhase,
+          routeState: state.flightRouteState,
+          failReason: state.flightRouteFailReason,
+          routeIndex: state.flightRouteIndex,
+          routeCursor: state.flightRouteCursor,
+          speed: Number(state.speed.toFixed(3)),
+          gap: Number(gap.toFixed(3)),
+          airBrake: harnessLastBoatInputs[id].airBrake,
+          airBrakeDutyBefore: Number(segmentAirBrakeDuty.toFixed(3)),
+          lastSecondAirBrakeDuty: Number((lastSecondSamples.length > 0
+            ? lastSecondSamples.filter((sample) => sample.airBrake).length / lastSecondSamples.length
+            : 0).toFixed(3)),
+          director: { ...rivalDirector.controlFor(id) },
+          failure: state.flightFailure ? { ...state.flightFailure } : null,
+          preFailure2s: state.flightRouteState === 'failed'
+            ? rivalControlHistory[role].map((sample) => ({ ...sample }))
+            : [],
+        });
+        lastPhaseKeys[role] = phaseKey;
+      }
+    }
+    for (let slot = 0; slot < lifecycleIds.length; slot++) {
+      const id = lifecycleIds[slot];
+      const state = boats[id].state;
+      const previous = lifecyclePrevious[slot];
+      const changed = previous.phase !== state.flightPhase ||
+        previous.routeState !== state.flightRouteState ||
+        previous.routeIndex !== state.flightRouteIndex ||
+        previous.routeCursor !== state.flightRouteCursor ||
+        previous.flightsCleared !== state.flightsCleared;
+      if (!changed) continue;
+      const edges: string[] = [];
+      if (previous.phase === 'surface' && state.flightPhase !== 'surface') edges.push('launch');
+      if (previous.phase !== 'surface' && state.flightPhase === 'surface') edges.push('landing');
+      if (previous.routeState !== 'active' && state.flightRouteState === 'active') edges.push('route-active');
+      if (previous.routeState !== 'passed' && state.flightRouteState === 'passed') edges.push('route-pass');
+      if (previous.routeState === 'passed' && state.flightRouteState === 'idle') edges.push('handoff');
+      if (previous.routeState !== 'failed' && state.flightRouteState === 'failed') edges.push('route-fail');
+      if (previous.phase !== state.flightPhase) edges.push(`phase:${state.flightPhase}`);
+      if (previous.routeState !== state.flightRouteState) edges.push(`route:${state.flightRouteState}`);
+      if (previous.routeIndex !== state.flightRouteIndex) edges.push(`route-index:${state.flightRouteIndex}`);
+      if (previous.routeCursor !== state.flightRouteCursor) edges.push(`route-cursor:${state.flightRouteCursor}`);
+      if (previous.flightsCleared !== state.flightsCleared) edges.push(`flights:${state.flightsCleared}`);
+      if (edges.includes('handoff') && state.flightRouteCursor === 2) {
+        flightThreeApproachActive[slot] = true;
+        flightThreeApproachFrames[slot].length = 0;
+      }
+      if (edges.includes('launch') && state.flightRouteCursor === 2) {
+        flightThreeApproachStop[slot] = true;
+      }
+      const routeSample = course.sample(state.position, lifecycleRouteSamples[slot], course.routeForBoat(id));
+      const surfaceSample = course.sample(state.position, lifecycleSurfaceSamples[slot], 'surface');
+      const playerState = boats[0].state;
+      const dx = state.position.x - playerState.position.x;
+      const dz = state.position.z - playerState.position.z;
+      const distance = Math.hypot(dx, dz);
+      const aheadMeters = dx * Math.sin(playerState.heading) + dz * Math.cos(playerState.heading);
+      lifecycleEvents.push({
+        time: Number((racingFrames / 60).toFixed(3)),
+        edges,
+        role: id === 0 ? 'player' : rivalIds.indexOf(id),
+        id,
+        profileId: roster[id].profileId,
+        personality: roster[id].personality,
+        phase: state.flightPhase,
+        routeState: state.flightRouteState,
+        routeIndex: state.flightRouteIndex,
+        routeCursor: state.flightRouteCursor,
+        flightsCleared: state.flightsCleared,
+        flightCharges: state.flightCharges,
+        routeU: Number(routeSample.u.toFixed(6)),
+        surfaceU: Number(surfaceSample.u.toFixed(6)),
+        speed: Number(state.speed.toFixed(3)),
+        progress: Number(race.racers[id].progress.toFixed(3)),
+        progressGap: Number((race.racers[id].progress - player.progress).toFixed(3)),
+        worldDistance: Number(distance.toFixed(3)),
+        aheadMeters: Number(aheadMeters.toFixed(3)),
+        aheadDot: Number((distance > 1e-6 ? aheadMeters / distance : 0).toFixed(4)),
+        input: { ...harnessLastBoatInputs[id] },
+      });
+      previous.phase = state.flightPhase;
+      previous.routeState = state.flightRouteState;
+      previous.routeIndex = state.flightRouteIndex;
+      previous.routeCursor = state.flightRouteCursor;
+      previous.flightsCleared = state.flightsCleared;
+    }
+    for (let slot = 0; slot < lifecycleIds.length; slot++) {
+      if (!flightThreeApproachActive[slot]) continue;
+      const id = lifecycleIds[slot];
+      const state = boats[id].state;
+      const surface = course.sample(state.position, lifecycleSurfaceSamples[slot], 'surface');
+      const collisionHits = harnessLastCollisionHits.filter((hit) => hit.a === id || hit.b === id);
+      flightThreeApproachFrames[slot].push({
+        time: Number((racingFrames / 60).toFixed(6)),
+        x: state.position.x,
+        z: state.position.z,
+        progress: race.racers[id].progress,
+        surfaceU: surface.u,
+        speed: state.speed,
+        drifting: state.drifting,
+        boosting: state.boosting,
+        steer: harnessLastBoatInputs[id].steer,
+        throttle: harnessLastBoatInputs[id].throttle,
+        lateralG: state.lateralG,
+        routeDistance: surface.distance,
+        collisionCount: collisionHits.length,
+        collisionCorrection: collisionHits.reduce((sum, hit) => sum + hit.correction, 0),
+        globalCollisionCorrection: harnessLastCollisionMaxCorrection,
+      });
+      if (flightThreeApproachStop[slot]) {
+        flightThreeApproachActive[slot] = false;
+        flightThreeApproachStop[slot] = false;
+      }
+    }
+    if (racingFrames % 6 === 0) {
+      const playerState = boats[0].state;
+      const forwardX = Math.sin(playerState.heading);
+      const forwardZ = Math.cos(playerState.heading);
+      const playerSurface = course.sample(playerState.position, lifecycleSurfaceSamples[0], 'surface');
+      proximitySamples.push({
+        time: Number((racingFrames / 60).toFixed(3)),
+        player: {
+          phase: playerState.flightPhase,
+          routeState: playerState.flightRouteState,
+          speed: Number(playerState.speed.toFixed(3)),
+          progress: Number(player.progress.toFixed(3)),
+          surfaceU: Number(playerSurface.u.toFixed(6)),
+          flightCharges: playerState.flightCharges,
+          input: { ...harnessLastBoatInputs[0] },
+        },
+        rivals: rivalIds.map((id, role) => {
+          const state = boats[id].state;
+          const dx = state.position.x - playerState.position.x;
+          const dz = state.position.z - playerState.position.z;
+          const distance = Math.hypot(dx, dz);
+          const aheadMeters = dx * forwardX + dz * forwardZ;
+          const surface = course.sample(state.position, lifecycleSurfaceSamples[role + 1], 'surface');
+          return {
+            role,
+            id,
+            profileId: roster[id].profileId,
+            phase: state.flightPhase,
+            routeState: state.flightRouteState,
+            speed: Number(state.speed.toFixed(3)),
+            progressGap: Number((race.racers[id].progress - player.progress).toFixed(3)),
+            surfaceU: Number(surface.u.toFixed(6)),
+            flightCharges: state.flightCharges,
+            worldDistance: Number(distance.toFixed(3)),
+            aheadMeters: Number(aheadMeters.toFixed(3)),
+            aheadDot: Number((distance > 1e-6 ? aheadMeters / distance : 0).toFixed(4)),
+            input: { ...harnessLastBoatInputs[id] },
+          };
+        }),
+      });
+    }
+    if (racingFrames % 60 === 0) {
+      timeline.push({
+        time: racingFrames / 60,
+        flight: flightsBeforeStep + 1,
+        playerSpeed: Number(boats[0].state.speed.toFixed(3)),
+        playerPhase: boats[0].state.flightPhase,
+        gaps: rivalIds.map((id) => Number((race.racers[id].progress - player.progress).toFixed(3))),
+        closingMps: rivalIds.map((_, role) => Number(((runtimeStats[role].closingRateSum /
+          Math.max(1, runtimeStats[role].frames))).toFixed(3))),
+        pace: rivalIds.map((id) => Number(rivalDirector.paceFor(id).toFixed(3))),
+        closingPressure: rivalIds.map((id) => Number(rivalDirector.controlFor(id).closingPressure.toFixed(3))),
+        rivalSpeed: rivalIds.map((id) => Number(boats[id].state.speed.toFixed(3))),
+        rivalPhase: rivalIds.map((id) => boats[id].state.flightPhase),
+        rivalRouteState: rivalIds.map((id) => boats[id].state.flightRouteState),
+        rivalAirBrake: rivalIds.map((id) => harnessLastBoatInputs[id].airBrake),
+      });
     }
     const flights = boats[0].state.flightsCleared;
     if (flights > previousFlights) {
-      const player = race.racers[0];
+      const director = rivalDirector.debugState();
+      const releaseSameFrame = flights !== 4 ||
+        (rivalIds.every((id) => rivalDirector.paceFor(id) === 1 && rivalDirector.techniqueFor(id) === 0) &&
+          director.formationFlights === 4);
+      if (flights === 3) passThreeTime = racingFrames / 60;
+      if (flights === 4) fourthReleaseFrame = frames;
+      const playerBoat = boats[0];
+      const playerForwardX = Math.sin(playerBoat.state.heading);
+      const playerForwardZ = Math.cos(playerBoat.state.heading);
       passes.push({
         flight: flights,
+        time: Number((racingFrames / 60).toFixed(3)),
         ahead: race.racers.filter((racer) => !racer.isPlayer && racer.progress > player.progress).length,
         place: player.place,
+        playerSpeed: Number(boats[0].state.speed.toFixed(3)),
+        rivalSpeed: rivalIds.map((id) => Number(boats[id].state.speed.toFixed(3))),
+        worldRelations: rivalIds.map((id) => {
+          const rivalState = boats[id].state;
+          const dx = rivalState.position.x - playerBoat.state.position.x;
+          const dz = rivalState.position.z - playerBoat.state.position.z;
+          const distance = Math.hypot(dx, dz);
+          const aheadMeters = dx * playerForwardX + dz * playerForwardZ;
+          return {
+            distance: Number(distance.toFixed(3)),
+            aheadMeters: Number(aheadMeters.toFixed(3)),
+            aheadDot: Number((distance > 1e-6 ? aheadMeters / distance : 0).toFixed(4)),
+            heightDelta: Number((rivalState.position.y - playerBoat.state.position.y).toFixed(3)),
+            playerPhase: playerBoat.state.flightPhase,
+            rivalPhase: rivalState.flightPhase,
+            playerRouteState: playerBoat.state.flightRouteState,
+            rivalRouteState: rivalState.flightRouteState,
+          };
+        }),
         rivalGaps: rivalIds.map((id) => race.racers[id].progress - player.progress),
         pace: rivalIds.map((id) => rivalDirector.paceFor(id)),
         technique: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
+        controls: rivalIds.map((id) => ({ ...rivalDirector.controlFor(id) })),
+        releaseSameFrame,
       });
       previousFlights = flights;
     }
   }
   const director = rivalDirector.debugState();
-  const result = {
+  const playerOutcome = {
     phase: race.phase,
+    flightsCleared: boats[0].state.flightsCleared,
+    routeState: boats[0].state.flightRouteState,
+    failReason: boats[0].state.flightRouteFailReason,
+    routeIndex: boats[0].state.flightRouteIndex,
+    routeCursor: boats[0].state.flightRouteCursor,
+    gateProgress: boats[0].state.flightGateProgress,
+    failure: boats[0].state.flightFailure ? { ...boats[0].state.flightFailure } : null,
+    preFailure2s: boats[0].state.flightRouteState === 'failed'
+      ? playerControlHistory.map((sample) => ({ ...sample }))
+      : [],
+  };
+  const savedPlayerProgress = race.racers[0].progress;
+  const postReleaseGapProbe = [500, -500].map((delta) => {
+    race.racers[0].progress = savedPlayerProgress + delta;
+    rivalDirector.update(1 / 60, race.racers, 4);
+    return {
+      playerDelta: delta,
+      pace: rivalIds.map((id) => rivalDirector.paceFor(id)),
+      technique: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
+      controls: rivalIds.map((id) => ({ ...rivalDirector.controlFor(id) })),
+    };
+  });
+  race.racers[0].progress = savedPlayerProgress;
+  const flightThreeApproach = flightThreeApproachFrames.map((samples, slot) => {
+    const id = lifecycleIds[slot];
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    const sum = (pick: (sample: (typeof samples)[number]) => number): number =>
+      samples.reduce((total, sample) => total + pick(sample), 0);
+    let planarDistance = 0;
+    let boostEdges = 0;
+    for (let i = 1; i < samples.length; i++) {
+      planarDistance += Math.hypot(samples[i].x - samples[i - 1].x, samples[i].z - samples[i - 1].z);
+      if (!samples[i - 1].boosting && samples[i].boosting) boostEdges++;
+    }
+    const finite = (value: number): number => Number.isFinite(value) ? Number(value.toFixed(3)) : 0;
+    return {
+      role: id === 0 ? 'player' : rivalIds.indexOf(id),
+      id,
+      profileId: roster[id].profileId,
+      frames: samples.length,
+      startTime: first?.time ?? -1,
+      endTime: last?.time ?? -1,
+      duration: finite(first && last ? last.time - first.time : 0),
+      planarDistance: finite(planarDistance),
+      netDisplacement: finite(first && last ? Math.hypot(last.x - first.x, last.z - first.z) : 0),
+      progressDelta: finite(first && last ? last.progress - first.progress : 0),
+      surfaceUDelta: finite(first && last ? last.surfaceU - first.surfaceU : 0),
+      speed: {
+        mean: finite(samples.length > 0 ? sum((sample) => sample.speed) / samples.length : 0),
+        min: finite(samples.length > 0 ? Math.min(...samples.map((sample) => sample.speed)) : 0),
+        max: finite(samples.length > 0 ? Math.max(...samples.map((sample) => sample.speed)) : 0),
+      },
+      driftDuty: finite(samples.length > 0 ? samples.filter((sample) => sample.drifting).length / samples.length : 0),
+      boostDuty: finite(samples.length > 0 ? samples.filter((sample) => sample.boosting).length / samples.length : 0),
+      boostEdges,
+      meanAbsSteer: finite(samples.length > 0 ? sum((sample) => Math.abs(sample.steer)) / samples.length : 0),
+      meanAbsLateralG: finite(samples.length > 0 ? sum((sample) => Math.abs(sample.lateralG)) / samples.length : 0),
+      routeDistance: {
+        mean: finite(samples.length > 0 ? sum((sample) => sample.routeDistance) / samples.length : 0),
+        max: finite(samples.length > 0 ? Math.max(...samples.map((sample) => sample.routeDistance)) : 0),
+      },
+      negativeThrottleDuty: finite(samples.length > 0
+        ? samples.filter((sample) => sample.throttle < 0).length / samples.length
+        : 0),
+      collisionCount: sum((sample) => sample.collisionCount),
+      collisionCorrection: finite(sum((sample) => sample.collisionCorrection)),
+      globalCollisionCorrectionMax: finite(samples.length > 0
+        ? Math.max(...samples.map((sample) => sample.globalCollisionCorrection))
+        : 0),
+    };
+  });
+    return {
+    phase: race.phase,
+    playerOutcome,
+    explicitPlayerInput: true,
+    playerActions: {
+      driftStarts,
+      driftReleases,
+      bankedReleases,
+      flightEdges,
+      airBrakeTurnFrames,
+      boostEdges: playerBoostEdges,
+    },
     passes,
     driftFrames,
     boostFrames,
+    boatBoostEdges,
     boostCycles: rivalIds.map((id) => Number(ais[id].debugPursuit().boostCycles)),
     maxStep,
     formationFlights: director.formationFlights,
     paceAtFourth: rivalIds.map((id) => rivalDirector.paceFor(id)),
     techniqueAtFourth: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
     chainAfterFourth: rivalIds.map((id) => rivalDirector.chainFor(id)),
-  };
-  resetRace();
-  harnessEndlessMode = previousEndlessMode;
-  return result;
+    runSeed: director.runSeed,
+    fourthReleaseFrame,
+    postReleaseGapProbe,
+    rivals: runtimeStats.map((stats, role) => {
+      const id = rivalIds[role];
+      return {
+        role,
+        id,
+        profileId: roster[id].profileId,
+        personality: roster[id].personality,
+        ...summarizeFormationStats(stats),
+      };
+    }),
+    segments: segmentStats.map((stats, flight) => ({
+      flight: flight + 1,
+      rivals: stats.map((rivalStats, role) => ({
+        role,
+        id: rivalIds[role],
+        profileId: roster[rivalIds[role]].profileId,
+        ...summarizeFormationStats(rivalStats),
+      })),
+    })),
+    playerSegments: playerSegments.map((stats) => ({
+      ...stats,
+      extensionUsedDuty: stats.flightFrames > 0
+        ? Number((stats.extensionUsedFrames / stats.flightFrames).toFixed(3))
+        : 0,
+    })),
+    timeline,
+    transitions,
+    lifecycleEvents,
+    flightThreeApproach,
+    passThreeWindow: passThreeTime >= 0
+      ? proximitySamples.filter((sample) => Math.abs(Number(sample.time) - passThreeTime) <= 2.0001)
+      : [],
+    };
+  } finally {
+    harnessEndlessMode = previousEndlessMode;
+    harnessUsePlayerInput = previousUsePlayerInput;
+    const liveCoach = records.data.coach;
+    Object.assign(records.data, previousRecords);
+    Object.assign(liveCoach, previousRecords.coach);
+    records.data.coach = liveCoach;
+    if (previousRecordsStorage === null) localStorage.removeItem('board-race:challenge:v8');
+    else localStorage.setItem('board-race:challenge:v8', previousRecordsStorage);
+    worldTime = previousWorldTime;
+    presentationTime = previousPresentationTime;
+    resetRace();
+    currentRun = previousCurrentRun;
+    tower.resetRun(currentRun);
+    syncDrivingCoachUi();
+    setHarnessInput(previousHarnessInput);
+  }
 }
 
 function runRivalPursuitProbe(rivalId: number): Record<string, number | boolean> {
@@ -3461,7 +4352,6 @@ function scenario(name: string): void {
         const rivals = rivalDirector.debugState().rivals.map((id) => boats[id]);
         return rivals.every((boat) => boat.state.drifting && boat.debugDriftEffects().emissions >= 2);
       }, 8);
-      loop.advance(0.09);
       break;
     case 'flight-spool':
       advanceUntil(() => race.phase === 'racing', 8);
@@ -3853,6 +4743,13 @@ if (HARNESS) {
         boosting: boat.state.boosting,
         emissions: fx.emissions,
         releaseBursts: fx.releaseBursts,
+        phase: fx.phase,
+        holdStarts: fx.holdStarts,
+        edgeStrength: fx.edgeStrength,
+        edgeMatrixScale: fx.edgeMatrixScale,
+        edgeSide: fx.edgeSide,
+        wakeScale: fx.wakeScale,
+        waterSprayBursts: fx.waterSprayBursts,
         boostCycles: Number(ais[id].debugPursuit().boostCycles),
       };
     },
@@ -4075,6 +4972,8 @@ if (HARNESS) {
       const opponents = boats.slice(1);
       const fx = opponents.map((boat) => boat.debugDriftEffects());
       const rivalIds = rivalDirector.debugState().rivals;
+      const strongestEdge = fx.reduce((strongest, item) =>
+        item.edgeStrength > strongest.edgeStrength ? item : strongest, fx[0]);
       return {
         drifting: opponents.filter((boat) => boat.state.drifting).length,
         rivalDrifting: rivalIds.filter((id) => boats[id].state.drifting).length,
@@ -4085,6 +4984,13 @@ if (HARNESS) {
         boostCycles: rivalIds.reduce((sum, id) => sum + Number(ais[id].debugPursuit().boostCycles), 0),
         minScale: Math.min(...fx.map((item) => item.scale)),
         maxScale: Math.max(...fx.map((item) => item.scale)),
+        phase: fx.map((item) => item.phase).join(','),
+        holdStarts: fx.reduce((sum, item) => sum + item.holdStarts, 0),
+        edgeStrength: strongestEdge.edgeStrength,
+        edgeMatrixScale: Math.max(...fx.map((item) => item.edgeMatrixScale)),
+        edgeSide: strongestEdge.edgeSide,
+        wakeScale: Math.max(...fx.map((item) => item.wakeScale)),
+        waterSprayBursts: fx.reduce((sum, item) => sum + item.waterSprayBursts, 0),
       };
     },
     setVisibility: handleVisibility,
@@ -4101,6 +5007,7 @@ if (HARNESS) {
     },
     recordsCase: runRecordsCase,
     rivalCase: runRivalCase,
+    skilledFormationCase: runSkilledFormationCase,
     radioTechniqueCase: runRadioTechniqueCase,
     enduranceCase: runEnduranceCase,
     perfSample: (frames) => new Promise((resolve) => {

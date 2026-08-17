@@ -23,6 +23,28 @@ export interface BoatInput {
   airBrake: boolean;
 }
 
+/**
+ * Read-only race-director signal for AI boats. One stable directive carries
+ * separately bounded surface and controlled-flight targets, so changing route
+ * ownership cannot silently drop formation pressure or apply a surface chase
+ * multiplier to an authored flight safety envelope.
+ *
+ * Objects implementing this contract are stable for a run and mutated only by
+ * the race director; consumers must sample the fields once per fixed step.
+ */
+export interface RivalPaceDirective {
+  /** Multiplier for the AI boat's surface engine and speed-planning targets. */
+  readonly surfaceTargetScale: number;
+  /** Conservative multiplier for the authored controlled-flight speed envelope. */
+  readonly flightTargetScale: number;
+  /** True only for a protected early-race rival before the fourth pass. */
+  readonly formationActive: boolean;
+  /** Grants player-equivalent surface auto-throttle while lead protection is needed. */
+  readonly surfaceThrottleAssist: boolean;
+  /** 0..1 predicted closing pressure, used to avoid unnecessary air-braking. */
+  readonly closingPressure: number;
+}
+
 /** Contextual meaning of the shared drift / air-brake action after water contact. */
 export type SurfaceActionMode = 'drift' | 'return-brake';
 
@@ -218,7 +240,14 @@ export interface IBoat {
   readonly state: BoatState;
   /** Attach point for the rider, positioned at the helm. */
   readonly riderMount: THREE.Object3D;
-  update(dt: number, input: BoatInput, t: number, surfaceAction: SurfaceActionMode): void;
+  update(
+    dt: number,
+    input: BoatInput,
+    t: number,
+    surfaceAction: SurfaceActionMode,
+    surfaceTargetScale?: number,
+    flightTargetScale?: number,
+  ): void;
   teleport(x: number, z: number, heading: number): void;
   beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void;
   applyFlightGatePass(gateIndex: number): void;
@@ -235,6 +264,8 @@ export interface IBoat {
 
 export interface IWake {
   readonly object: THREE.Object3D;
+  /** Visual-only wake width/breakup scale. Physics and deposited path stay unchanged. */
+  setVisualScale(scale: number): void;
   /** Deposit a wake point at the stern. dirX/dirZ = normalized boat forward direction. intensity 0..1. */
   push(pos: THREE.Vector3, dirX: number, dirZ: number, intensity: number): void;
   update(dt: number, t: number): void;

@@ -41,7 +41,10 @@ const SCENARIOS = {
   airtime: { scenario: 'airtime' },
   'drift-charge': { scenario: 'drift-charge' },
   'coach-drift': { scenario: 'coach-drift' },
-  'opponent-drift': { scenario: 'opponent-drift', freeCamDynamic: { back: 6.5, up: 1.8, lookUp: 0.55, target: 'opponent' } },
+  'opponent-drift': {
+    scenario: 'opponent-drift',
+    freeCamDynamic: { back: 7.5, side: -7.5, up: 4.4, lookUp: 0.5, target: 'rival', role: 1 },
+  },
   'boost-burst': { scenario: 'boost-burst', freeCamDynamic: { back: 8.5, up: 2.3, lookUp: 0.55 } },
   'flight-ready': { scenario: 'flight-ready' },
   'flight-prompt': { scenario: 'flight-prompt', settleMs: 180 },
@@ -388,8 +391,9 @@ async function verifySurfaceGuideVisualContract(page) {
     `most guide pixels must remain a translucent water veil: ${JSON.stringify(pixels.veil)}`);
   assert.ok(pixels.veil.softVarianceRetention >= 0.68,
     `ocean bands must remain legible through the translucent part of the guide: ${JSON.stringify(pixels.veil)}`);
-  assert.ok(pixels.veil.p90Delta >= 90 && pixels.veil.p95Delta < 185,
-    `the center navigation spine must be readable without becoming a solid slab: ${JSON.stringify(pixels.veil)}`);
+  assert.ok(pixels.veil.p90Delta >= 90 && pixels.veil.p90Delta < 185 &&
+    pixels.veil.p95Delta >= pixels.veil.p90Delta + 10 && pixels.veil.p95Delta < 260,
+  `the soft field must stay bounded while its narrow center spine remains readable: ${JSON.stringify(pixels.veil)}`);
   assert.ok(pixels.arrows.changed > 200,
     `open-chevron geometry must produce visible pixels in the driving view: ${JSON.stringify(pixels.arrows)}`);
 
@@ -1085,25 +1089,60 @@ async function verifyFlightContract(page) {
 
   await page.evaluate(() => window.__harness.scenario('opponent-drift'));
   let opponentFx = await page.evaluate(() => window.__harness.opponentFx());
-  assert.equal(opponentFx.rivalDrifting, 2,
-    `both lead rivals must visibly use real drift input: ${JSON.stringify(opponentFx)}`);
+  const leadHoldEvidence = await page.evaluate(() => [
+    window.__harness.rivalChainState(0),
+    window.__harness.rivalChainState(1),
+  ]);
+  assert.ok(leadHoldEvidence.every((item) => item.holdStarts >= 1 && item.emissions >= 2),
+    `both lead rivals must visibly use real drift input: ${JSON.stringify(leadHoldEvidence)}`);
   assert.ok(opponentFx.emissions >= 4,
-    `lead-rival drift must emit readable two-sided world effects: ${JSON.stringify(opponentFx)}`);
+    `lead-rival drift must emit a readable layered edge: ${JSON.stringify(opponentFx)}`);
   assert.ok(opponentFx.minScale >= 0.3 && opponentFx.maxScale <= 1,
     `opponent drift FX must remain inside its distance LOD: ${JSON.stringify(opponentFx)}`);
-  const startingCycles = opponentFx.boostCycles;
-  for (let frame = 0; frame < 90 && opponentFx.releaseBursts < 1; frame++) {
+  assert.ok(opponentFx.wakeScale >= 0.78 && opponentFx.wakeScale <= 0.86,
+    `ordinary rival wake must retain water volume while yielding to the chain cue: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.waterSprayBursts <= Math.ceil(opponentFx.emissions * 0.55),
+    `ordinary white spray may not outnumber the colored hold cadence: ${JSON.stringify(opponentFx)}`);
+  let chainFx = await page.evaluate(() => {
+    const h = window.__harness;
+    let state = h.rivalChainState(0);
+    for (let frame = 0; frame < 150 && !(state.drifting && state.edgeStrength >= 0.65); frame++) {
+      h.advance(1 / 60);
+      state = h.rivalChainState(0);
+    }
+    return state;
+  });
+  const startingCycles = chainFx.boostCycles;
+  const startingBursts = chainFx.releaseBursts;
+  const startingHoldStarts = chainFx.holdStarts;
+  const startingEdgeSide = chainFx.edgeSide;
+  const holdingMatrixScale = chainFx.edgeMatrixScale;
+  assert.ok(chainFx.drifting && chainFx.edgeStrength >= 0.65 && holdingMatrixScale >= 1 &&
+    Math.abs(startingEdgeSide) === 1,
+    `the hold frame needs live edge geometry, not a detached particle counter: ${JSON.stringify(chainFx)}`);
+  for (let frame = 0; frame < 120 &&
+      !(chainFx.releaseBursts > startingBursts && chainFx.boosting && !chainFx.drifting); frame++) {
     await page.evaluate(() => window.__harness.advance(1 / 60));
-    opponentFx = await page.evaluate(() => window.__harness.opponentFx());
+    chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
-  assert.ok(opponentFx.releaseBursts >= 1 && opponentFx.rivalBoosting >= 1,
-    `a real drift release must produce a visible BOOST edge: ${JSON.stringify(opponentFx)}`);
-  for (let frame = 0; frame < 90 && opponentFx.rivalDrifting < 1; frame++) {
+  assert.ok(chainFx.releaseBursts > startingBursts && chainFx.boosting && !chainFx.drifting,
+    `a real drift release must replace amber hold with the BOOST beat: ${JSON.stringify(chainFx)}`);
+  assert.ok(chainFx.edgeMatrixScale < holdingMatrixScale,
+    `the hold blade must retract on release so green BOOST owns the frame: ${JSON.stringify(chainFx)}`);
+  for (let frame = 0; frame < 150 &&
+      !(chainFx.holdStarts > startingHoldStarts && chainFx.drifting && chainFx.edgeStrength >= 0.65); frame++) {
     await page.evaluate(() => window.__harness.advance(1 / 60));
-    opponentFx = await page.evaluate(() => window.__harness.opponentFx());
+    chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
-  assert.ok(opponentFx.boostCycles > startingCycles && opponentFx.rivalDrifting >= 1,
-    `a lead rival must re-enter drift after the real payout: ${JSON.stringify(opponentFx)}`);
+  assert.ok(chainFx.boostCycles > startingCycles && chainFx.holdStarts > startingHoldStarts && chainFx.drifting &&
+    chainFx.edgeMatrixScale >= 1,
+  `a lead rival must visibly re-enter a real hold after payout: ${JSON.stringify(chainFx)}`);
+  assert.equal(chainFx.edgeSide, -startingEdgeSide,
+    `successive real chain holds must switch their loaded water-cut side: ${JSON.stringify(chainFx)}`);
+  await page.evaluate(() => window.__harness.scenario('ready'));
+  chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
+  assert.equal(chainFx.edgeMatrixScale, 0,
+    `READY reset must clear every drift-edge instance matrix: ${JSON.stringify(chainFx)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -3937,6 +3976,16 @@ async function main() {
       }
       console.log(`scenario: ${name} ...`);
       await page.evaluate((n) => window.__harness.scenario(n), def.scenario);
+      if (name === 'opponent-drift') {
+        await page.evaluate(() => {
+          const h = window.__harness;
+          let state = h.rivalChainState(1);
+          for (let frame = 0; frame < 150 && !(state.drifting && state.edgeStrength >= 0.9); frame++) {
+            h.advance(1 / 60);
+            state = h.rivalChainState(1);
+          }
+        });
+      }
       if (name === 'final-station') {
         const finalState = await page.evaluate(() => window.__harness.playerState());
         assert.equal(finalState.phase, 'finished', `final station must finish after seven routes: ${JSON.stringify(finalState)}`);
@@ -4035,10 +4084,13 @@ async function main() {
           // Ask the game for the player pose via stats-free path: use chaseCam-relative math in page.
           const p = cfg.target === 'opponent'
             ? window.__harness.driftingOpponentPose()
-            : window.__harness.playerPose();
+            : cfg.target === 'rival'
+              ? window.__harness.rivalChainState(cfg.role ?? 0)
+              : window.__harness.playerPose();
           const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+          const side = cfg.side ?? 0;
           h.freeCam(
-            p.x - fx * cfg.back, p.y + cfg.up, p.z - fz * cfg.back,
+            p.x - fx * cfg.back + fz * side, p.y + cfg.up, p.z - fz * cfg.back - fx * side,
             p.x + fx * 2, p.y + cfg.lookUp, p.z + fz * 2,
           );
         }, def.freeCamDynamic);
@@ -4048,6 +4100,105 @@ async function main() {
       await assertBattleLeavesDrivingRoiClear(page, name);
       await assertCompactActionPromptLeavesDrivingRoiClear(page, name);
       await page.screenshot({ path: path.join(OUT, `${name}${mobileSuffix}.png`) });
+      if (name === 'opponent-drift') {
+        const chainRole = 1;
+        const captureChaseBeat = async (beat, settleSeconds) => {
+          const state = await page.evaluate(({ settle, role }) => {
+            const h = window.__harness;
+            h.chaseCam();
+            if (settle > 0) h.advance(settle);
+            h.render();
+            const player = h.playerPose();
+            const rival = h.rivalChainState(role);
+            const companion = h.rivalChainState(role === 0 ? 1 : 0);
+            const dx = rival.x - player.x;
+            const dz = rival.z - player.z;
+            const companionDx = companion.x - player.x;
+            const companionDz = companion.z - player.z;
+            return {
+              ...rival,
+              chaseDistance: Math.hypot(dx, dz),
+              chaseForward: dx * Math.sin(player.heading) + dz * Math.cos(player.heading),
+              companion: {
+                ...companion,
+                chaseDistance: Math.hypot(companionDx, companionDz),
+                chaseForward: companionDx * Math.sin(player.heading) + companionDz * Math.cos(player.heading),
+              },
+            };
+          }, { settle: settleSeconds, role: chainRole });
+          assert.ok(state.chaseDistance >= 10 && state.chaseDistance <= 35 && state.chaseForward > 0,
+            `${beat} chase proof needs the real lead rival 10-35m ahead: ${JSON.stringify(state)}`);
+          assert.ok(state.companion.chaseDistance >= 10 && state.companion.chaseDistance <= 35 &&
+            state.companion.chaseForward > 0,
+          `${beat} chase proof must keep both strong rivals in the real learning view: ${JSON.stringify(state)}`);
+          await page.screenshot({ path: path.join(OUT, `opponent-drift-chase-${beat}${mobileSuffix}.png`) });
+          return state;
+        };
+        const focusRival = async () => {
+          await page.evaluate((role) => {
+            const h = window.__harness;
+            const p = h.rivalChainState(role);
+            const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+            // Inspect the actual loaded side from a raised rear quarter. The
+            // camera follows a genuine rechain flip without dropping into the
+            // swell or letting the surface guide cover the water cut.
+            const side = p.edgeSide * 7.5;
+            h.freeCam(
+              p.x - fx * 7.5 + fz * side, p.y + 4.4, p.z - fz * 7.5 - fx * side,
+              p.x + fx * 1.5, p.y + 0.55, p.z + fz * 1.5,
+            );
+            h.render();
+          }, chainRole);
+        };
+        const hold = await captureChaseBeat('hold', 1 / 60);
+        assert.ok(hold.drifting && hold.edgeStrength >= 0.9 && hold.edgeMatrixScale >= 1 &&
+          Math.abs(hold.edgeSide) === 1,
+          `hold chase screenshot must show the real amber edge geometry: ${JSON.stringify(hold)}`);
+        const release = await page.evaluate(({ startBursts, role }) => {
+          const h = window.__harness;
+          let state = h.rivalChainState(role);
+          for (let frame = 0; frame < 120; frame++) {
+            h.advance(1 / 60);
+            state = h.rivalChainState(role);
+            if (state.releaseBursts > startBursts && state.boosting && !state.drifting) break;
+          }
+          return state;
+        }, { startBursts: hold.releaseBursts, role: chainRole });
+        assert.ok(release.releaseBursts > hold.releaseBursts && release.boosting && !release.drifting,
+          `release screenshot must come from a real payout: ${JSON.stringify(release)}`);
+        const releaseChase = await captureChaseBeat('release', 0.12);
+        assert.ok(releaseChase.boosting && !releaseChase.drifting && releaseChase.edgeMatrixScale < hold.edgeMatrixScale,
+          `release chase screenshot must let green BOOST own the frame: ${JSON.stringify(releaseChase)}`);
+        await focusRival();
+        await page.screenshot({ path: path.join(OUT, `opponent-drift-release${mobileSuffix}.png`) });
+        const rechain = await page.evaluate(({ start, role }) => {
+          const h = window.__harness;
+          let state = h.rivalChainState(role);
+          for (let frame = 0; frame < 150; frame++) {
+            h.advance(1 / 60);
+            state = h.rivalChainState(role);
+            if (state.holdStarts > start.holdStarts && state.drifting && state.edgeStrength >= 0.9) break;
+          }
+          return state;
+        }, { start: { holdStarts: hold.holdStarts }, role: chainRole });
+        assert.ok(rechain.holdStarts > hold.holdStarts && rechain.drifting && rechain.edgeMatrixScale >= 1,
+          `rechain screenshot must show a new real hold: ${JSON.stringify(rechain)}`);
+        assert.equal(rechain.edgeSide, -hold.edgeSide,
+          `rechain screenshot must switch the real loaded side: ${JSON.stringify({ hold, rechain })}`);
+        const rechainChase = await captureChaseBeat('rechain', 1 / 60);
+        assert.ok(rechainChase.drifting && rechainChase.edgeStrength >= 0.9 && rechainChase.edgeMatrixScale >= 1,
+          `rechain chase screenshot must restore the amber edge: ${JSON.stringify(rechainChase)}`);
+        await focusRival();
+        await page.screenshot({ path: path.join(OUT, `opponent-drift-rechain${mobileSuffix}.png`) });
+        const readyEdge = await page.evaluate((role) => {
+          const h = window.__harness;
+          h.scenario('ready');
+          h.render();
+          return h.rivalChainState(role);
+        }, chainRole);
+        assert.equal(readyEdge.edgeMatrixScale, 0,
+          `READY must clear every rival drift-edge matrix after the screenshot sequence: ${JSON.stringify(readyEdge)}`);
+      }
       if (name === 'final-station') {
         const impactState = await page.evaluate(() => window.__harness.playerState());
         assert.ok(['impact', 'crown'].includes(impactState.finaleVisualPhase),

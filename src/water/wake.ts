@@ -46,6 +46,7 @@ uniform float uWidthMin;  // half-width cap at zero speed (m)
 uniform float uWidthMax;  // half-width cap at full speed (m)
 uniform float uLift;      // ride height above the wave surface (m)
 uniform float uHeadAlong; // aAlong of the newest deposit (m)
+uniform float uVisualScale; // per-boat clutter scale (player 1, rivals slightly lower)
 
 attribute vec2 aPerp;       // unit lateral direction at deposit time
 attribute float aSide;      // -1 / +1 ribbon edge
@@ -71,7 +72,7 @@ void main() {
   // the V shape: geometric spread with distance astern, capped by a
   // speed-scaled max width (foam density/width scale with speed)
   float wCap = mix(uWidthMin, uWidthMax, aIntensity);
-  float halfW = min(uWidth0 + uSpread * behind, wCap);
+  float halfW = min(uWidth0 + uSpread * behind, wCap) * uVisualScale;
 
   vec2 wxz = position.xz + aPerp * (aSide * halfW);
 
@@ -101,6 +102,7 @@ uniform float uStamp; // meters per scallop stamp along the ribbon
 uniform float uFps;   // breakup flip rate (steps/sec)
 uniform float uGapW;  // streak-gap cell width ACROSS the ribbon (m)
 uniform float uGapL;  // streak-gap cell length ALONG the ribbon (m) — 3-5x uGapW
+uniform float uVisualScale;
 
 varying float vLat;
 varying float vAgeF;
@@ -127,7 +129,7 @@ void main() {
   // far field: one flat center band, no pattern — kills ribbon shimmer
   if (vDist > 180.0) {
     if (lat > 0.45) discard;
-    float af = f < 0.5 ? 0.5 : 0.25;
+    float af = (f < 0.5 ? 0.5 : 0.25) * mix(0.78, 1.0, uVisualScale);
     gl_FragColor = vec4(uColorFoam, af);
     #include <colorspace_fragment>
     return;
@@ -142,7 +144,10 @@ void main() {
 
   // wash core: scalloped half-width, narrowing astern, pinches out ~80m
   float pinch = vBehind < 50.0 ? 1.0 : max(0.0, 1.0 - (vBehind - 50.0) / 30.0);
-  float coreW = 0.45 * (0.72 + 0.28 * tri) * pinch;
+  // A reduced rival scale narrows the continuous churn but keeps the V arms
+  // and opaque foam chunks. This reads as displaced water rather than the
+  // same broad plastic sheet rendered at lower alpha.
+  float coreW = 0.45 * (0.72 + 0.28 * tri) * pinch * uVisualScale;
   bool core = lat < coreW;
 
   // V arms at the rim. Edges WOBBLE along the ribbon (per-stamp hash) so the
@@ -173,6 +178,7 @@ void main() {
 
   // density thins with distance astern (hard steps)
   float keep = vBehind < 10.0 ? 0.85 : (vBehind < 30.0 ? 0.55 : (vBehind < 55.0 ? 0.3 : 0.15));
+  keep = max(0.08, keep - (1.0 - uVisualScale) * 0.65);
   if (arm) keep = min(1.0, keep + 0.25);
   // solid white churn at the transom
   if (vBehind < 2.5 && lat < 0.85) keep = 1.0;
@@ -200,7 +206,9 @@ void main() {
 
   // ---- opaque foam: alpha stays high, structure comes from the mask -------
   float a = vBehind < 10.0 ? 1.0 : (vBehind < 30.0 ? 0.95 : 0.85);
-  a *= vIntensity > 0.5 ? 1.0 : 0.8;
+  // Preserve body in each surviving foam chunk. Rival de-cluttering comes
+  // from shaped negative space above, not from making the whole wake ghostly.
+  a *= (vIntensity > 0.5 ? 1.0 : 0.8) * mix(0.78, 1.0, uVisualScale);
   // aged foam steps toward the water tone astern (hard cel transitions) so
   // long sheets never read as one flat white plane: fresh / wash / aged
   vec3 col = vBehind < 10.0 ? uColorFoam : (vBehind < 26.0 ? uColorWash : uColorAged);
@@ -285,6 +293,7 @@ export class WakeRibbon implements IWake {
       uWidthMax: { value: 2.8 },
       uLift: { value: 0.14 },
       uHeadAlong: { value: 0 },
+      uVisualScale: { value: 1 },
       uStamp: { value: 2.4 },
       uFps: { value: 6.0 },
       uGapW: { value: 0.45 },
@@ -310,6 +319,10 @@ export class WakeRibbon implements IWake {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
     this.object = mesh;
+  }
+
+  setVisualScale(scale: number): void {
+    this.uniforms.uVisualScale.value = Math.min(1, Math.max(0.75, scale));
   }
 
   push(pos: THREE.Vector3, dirX: number, dirZ: number, intensity: number): void {

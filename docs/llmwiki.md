@@ -512,19 +512,23 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
 
 - 开局接触只是一种按 run seed 决定的偶发 pack pressure：最多一名相邻、非 clean 对手
   稍微收向玩家的 authored lane；避碰仍生效，不保证接触，也不修改碰撞物理。
-- 两名最强 rival 在开局承担短编队职责：从第二飞、勋章冻结、恢复倒计时一直到第四飞
-  门前，两名都必须仍在玩家前方。目标差距只改变有界 AI pace
-  (`0.72..1.12`) 与 technique pressure，并且必须通过标准
-  `AIController -> BoatInput -> Boat.update` 按住漂移、达到真实
-  `driftReleaseReady`、松开得到 BOOST，再按既有飞行 / 空刹逻辑行驶。两名角色固有的
-  连漂风格可以保留，但不得再读取玩家差距。第四飞计分同一 fixed-step 调用
-  `releaseFormation()`，player-gap pace 与动态 technique pressure 精确归零。禁止
-  teleport、位置插值、假 progress、免碰撞或玩家减速。玩家受撞与超车窗口继续触发
-  grace / hysteresis。
-- 连漂表现也必须来自真实状态：按住漂移只发双侧橙金碎流；真实松开兑现 BOOST 的边沿
-  才允许绿色扇爆和放大的尾部推进脉冲；BOOST 结束后再次进入真实漂移，橙金碎流恢复。
-  harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`，并同时证明两名 rival
-  在普通玩家追车视角内，而不能只拿累计粒子数或贴近自由相机冒充可读性。
+- 两名最强 rival 在开局承担短编队职责：第二飞、第三飞和第四飞计分时，两名都必须
+  领先进度；真实世界距离超过 `8m` 时还必须位于玩家前方且不超过 `55m`，近于 `8m`
+  则允许在 S 弯出口可读地并排。`RivalPaceDirective` 是唯一编队指令，分别提供
+  `surfaceTargetScale=1..1.16`、`flightTargetScale=1..1.02`、水面油门辅助和收口压力；
+  同一份指令同时进入 `AIController` 和 `Boat.update`，玩家船始终强制为 `1`。动作必须
+  通过标准 `AIController -> BoatInput -> Boat.update` 按住漂移、达到真实
+  `driftReleaseReady`、松开得到 BOOST，再按既有飞行 / 空刹逻辑行驶。第四飞计分同一
+  fixed-step 调用 `releaseFormation()`，把 `formationActive=false`、两种倍率归 `1`、
+  水面油门辅助关闭、收口压力归零；已经开始的合法空道尝试可保留线路控制到落水，
+  但不得再读取玩家差距。禁止 teleport、位置插值、假 progress、免碰撞或玩家减速。
+- 连漂表现也必须来自真实状态：真实 hold 只在船体当前受力侧生成一条黄芯墨边的锯齿
+  切水痕，下一次真实 hold 必须随真实相反舵向换侧；真实松开兑现 BOOST 的边沿才允许
+  绿色扇爆和放大的尾部推进脉冲。对手普通白水保留船尾实体水量和 V 形臂，视觉倍率
+  为 `.82`，通过内部断续留白消除规则实心塑料片，不能再靠整体降 alpha 把水花抹掉。
+  harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`、AI accepted cycle 与
+  Boat BOOST rising edge 数量完全一致、READY instance matrix 全清零，并同时证明两名
+  rival 在普通玩家追车视角内，不能只拿累计粒子数或贴近自由相机冒充可读性。
 - 电台是纯 `RadioDirector` 单槽仲裁，优先级为 `critical > tactical > flavor`；危险警告、
   键位引导、飞行提示和表现层冻结时暂停，不与它们争屏。每条消息有 run key、TTL、
   duration，可选 session key；不得用多个独立 timer 叠出一排 toast。

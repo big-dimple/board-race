@@ -1,13 +1,35 @@
-import type { RacerDefinition, RacerState } from '../contracts';
+import type { RacerDefinition, RacerState, RivalPaceDirective } from '../contracts';
 
-const MAX_CHASE = 1.12;
+const MAX_CHASE = 1.16;
 const FORMATION_PACE = 1.06;
-const MAX_RELEASE = 0.72;
-const CHANGE_RATE = 0.12;
+const BASE_PACE = 1;
+const CHASE_RATE = 0.9;
+const RELEASE_RATE = 0.18;
+const CLOSING_FILTER_RATE = 7;
+const CLOSING_LOOKAHEAD_S = 0.85;
+const DEFICIT_BAND_M = 10;
+const MAX_TRACKED_GAP_STEP_M = 3;
+
+interface MutableRivalPaceDirective {
+  surfaceTargetScale: number;
+  flightTargetScale: number;
+  formationActive: boolean;
+  surfaceThrottleAssist: boolean;
+  closingPressure: number;
+}
+
+const NEUTRAL_DIRECTIVE: RivalPaceDirective = Object.freeze({
+  surfaceTargetScale: 1,
+  flightTargetScale: 1,
+  formationActive: false,
+  surfaceThrottleAssist: false,
+  closingPressure: 0,
+});
 
 export interface RivalDirectorDebug {
   rivals: readonly number[];
   pace: readonly number[];
+  flightPace: readonly number[];
   technique: readonly number[];
   opening: readonly number[];
   openingPressureId: number;
@@ -17,13 +39,21 @@ export interface RivalDirectorDebug {
   lock: number;
   formationFlights: number;
   chain: readonly number[];
+  closingSpeed: readonly number[];
+  closingPressure: readonly number[];
+  formationActive: readonly boolean[];
+  surfaceThrottleAssist: readonly boolean[];
 }
 
 /** Coordinates only the two strongest opponents; all other AI stays on authored pace. */
 export class RivalDirector {
   private biases = new Float32Array(0);
+  private closingSpeeds = new Float32Array(0);
+  private previousGaps = new Float32Array(0);
+  private gapSeen = new Uint8Array(0);
   private techniquePressure = new Float32Array(0);
   private openingPressure = new Float32Array(0);
+  private directives: MutableRivalPaceDirective[] = [];
   private definitions: readonly RacerDefinition[] = [];
   private rivalIds: number[] = [];
   private openingPressureId = -1;
@@ -32,13 +62,24 @@ export class RivalDirector {
   private grace = 0;
   private lock = 0;
   private formationFlights = 0;
+  private formationReleased = false;
 
   setRoster(definitions: readonly RacerDefinition[]): void {
     this.definitions = definitions;
     this.biases = new Float32Array(definitions.length);
     this.biases.fill(1);
+    this.closingSpeeds = new Float32Array(definitions.length);
+    this.previousGaps = new Float32Array(definitions.length);
+    this.gapSeen = new Uint8Array(definitions.length);
     this.techniquePressure = new Float32Array(definitions.length);
     this.openingPressure = new Float32Array(definitions.length);
+    this.directives = definitions.map(() => ({
+      surfaceTargetScale: 1,
+      flightTargetScale: 1,
+      formationActive: false,
+      surfaceThrottleAssist: false,
+      closingPressure: 0,
+    }));
     this.rivalIds = definitions.filter((definition) => !definition.isPlayer)
       .sort((a, b) => b.pace - a.pace)
       .slice(0, 2)
@@ -48,6 +89,7 @@ export class RivalDirector {
     this.grace = 0;
     this.lock = 0;
     this.formationFlights = 0;
+    this.formationReleased = false;
   }
 
   beginRun(seed: number): void {
@@ -56,9 +98,14 @@ export class RivalDirector {
     this.grace = 0;
     this.lock = 0;
     this.formationFlights = 0;
+    this.formationReleased = false;
     this.biases.fill(1);
+    this.closingSpeeds.fill(0);
+    this.previousGaps.fill(0);
+    this.gapSeen.fill(0);
     this.techniquePressure.fill(0);
     this.openingPressure.fill(0);
+    for (const directive of this.directives) setDirective(directive, 1, 1, false, 0);
     const hash = hashSeed(this.runSeed);
     this.openingPressureId = -1;
     if (hash % 5 >= 2) return;
@@ -88,40 +135,86 @@ export class RivalDirector {
         : 0;
       this.openingPressure[id] = approach(this.openingPressure[id], openingTarget, 2.4 * dt);
       if (!racer || racer.isPlayer || !this.rivalIds.includes(id)) {
-        this.biases[id] = approach(this.biases[id], 1, CHANGE_RATE * 2 * dt);
+        this.biases[id] = approachAsymmetric(this.biases[id], 1, dt);
+        this.closingSpeeds[id] = approach(this.closingSpeeds[id], 0, CLOSING_FILTER_RATE * dt);
+        this.gapSeen[id] = 0;
         this.techniquePressure[id] = approach(this.techniquePressure[id], 0, 2.5 * dt);
+        setDirective(this.directives[id], this.biases[id], 1, false, 0);
         continue;
       }
       const role = this.rivalIds.indexOf(id);
-      if (playerFlightsCleared >= 4) {
+      if (this.formationReleased || playerFlightsCleared >= 4) {
         // The fourth pass is the exact end of formation assistance. Fixed driver
         // skill remains, but no later input depends on the player's gap.
         this.biases[id] = 1;
+        this.closingSpeeds[id] = 0;
+        this.gapSeen[id] = 0;
         this.techniquePressure[id] = 0;
+        setDirective(this.directives[id], 1, 1, false, 0);
         continue;
       }
 
       const protectedRoles = 2;
       if (role >= protectedRoles) {
-        this.biases[id] = approach(this.biases[id], 1, CHANGE_RATE * 2 * dt);
+        this.biases[id] = approachAsymmetric(this.biases[id], 1, dt);
+        this.closingSpeeds[id] = approach(this.closingSpeeds[id], 0, CLOSING_FILTER_RATE * dt);
+        this.gapSeen[id] = 0;
         this.techniquePressure[id] = approach(this.techniquePressure[id], 0, 2.5 * dt);
+        setDirective(this.directives[id], this.biases[id], 1, false, 0);
         continue;
       }
 
       const ahead = racer.progress - player.progress;
       const minAhead = role === 0 ? 18 : 10;
       const maxAhead = role === 0 ? 32 : 24;
-      let target = ahead < minAhead ? MAX_CHASE : ahead > maxAhead ? MAX_RELEASE : FORMATION_PACE;
-      if (this.grace > 0) target = Math.min(1, target);
-      else if (this.lock > 0) target = this.biases[id];
-      this.biases[id] = approach(this.biases[id], target, CHANGE_RATE * dt);
+      const gapStep = this.previousGaps[id] - ahead;
+      // Route-owner rebases, harness staging and resume frames are not physical
+      // relative velocity. Reject their discontinuities instead of turning one
+      // projection jump into several seconds of artificial chase pressure.
+      const closingSampleValid = this.gapSeen[id] && dt > 0 && dt <= 0.25 &&
+        Math.abs(gapStep) <= Math.max(MAX_TRACKED_GAP_STEP_M, 45 * dt);
+      const rawClosingSpeed = closingSampleValid ? clamp(gapStep / dt, -45, 45) : 0;
+      this.previousGaps[id] = ahead;
+      this.gapSeen[id] = 1;
+      const closingBlend = 1 - Math.exp(-CLOSING_FILTER_RATE * dt);
+      this.closingSpeeds[id] += (rawClosingSpeed - this.closingSpeeds[id]) * closingBlend;
+      const predictedAhead = ahead - Math.max(0, this.closingSpeeds[id]) * CLOSING_LOOKAHEAD_S;
+      const bandPressure = clamp((maxAhead - predictedAhead) / Math.max(1, maxAhead - minAhead), 0, 1);
+      const deficitPressure = clamp((minAhead - predictedAhead) / DEFICIT_BAND_M, 0, 1);
+      const closingPressure = Math.max(deficitPressure, clamp(this.closingSpeeds[id] / 18, 0, 1));
+      let target = BASE_PACE + (FORMATION_PACE - BASE_PACE) * bandPressure;
+      target += (MAX_CHASE - target) * deficitPressure;
+      // Contact gives the player breathing room without ever commanding an AI
+      // slowdown. A battle hold is a floor, never a lock on a stale low scale.
+      if (this.grace > 0) target = Math.min(FORMATION_PACE, target);
+      else if (this.lock > 0) target = Math.max(target, FORMATION_PACE);
+      this.biases[id] = approachAsymmetric(this.biases[id], target, dt);
       const techniqueTarget = role === 0 ? 1 : 0.92;
       this.techniquePressure[id] = approach(this.techniquePressure[id], techniqueTarget, 2.4 * dt);
+      const flightTargetScale = 1 + (this.biases[id] - 1) * (0.02 / (MAX_CHASE - 1));
+      const surfaceThrottleAssist = role === 1 || predictedAhead < maxAhead - 4 || closingPressure > 0.08;
+      setDirective(
+        this.directives[id],
+        this.biases[id],
+        flightTargetScale,
+        true,
+        closingPressure,
+        surfaceThrottleAssist,
+      );
     }
   }
 
   paceFor(id: number): number {
     return this.biases[id] || 1;
+  }
+
+  /** Stable, zero-allocation signal sampled by AI planning and Boat drive. */
+  controlFor(id: number): RivalPaceDirective {
+    return this.directives[id] ?? NEUTRAL_DIRECTIVE;
+  }
+
+  flightPaceFor(id: number): number {
+    return this.directives[id]?.flightTargetScale ?? 1;
   }
 
   techniqueFor(id: number): number {
@@ -143,23 +236,28 @@ export class RivalDirector {
   }
 
   notifyBattle(): void {
-    this.lock = 2;
+    this.lock = 0.8;
   }
 
   notifyPlayerImpact(): void {
-    this.grace = 2.5;
+    this.grace = 1.25;
   }
 
   releaseFormation(): void {
     this.formationFlights = 4;
+    this.formationReleased = true;
     this.biases.fill(1);
+    this.closingSpeeds.fill(0);
+    this.gapSeen.fill(0);
     this.techniquePressure.fill(0);
+    for (const directive of this.directives) setDirective(directive, 1, 1, false, 0);
   }
 
   debugState(): RivalDirectorDebug {
     return {
       rivals: this.rivalIds,
       pace: Array.from(this.biases),
+      flightPace: this.directives.map((directive) => directive.flightTargetScale),
       technique: Array.from(this.techniquePressure),
       opening: Array.from(this.openingPressure),
       openingPressureId: this.openingPressureId,
@@ -169,14 +267,42 @@ export class RivalDirector {
       lock: this.lock,
       formationFlights: this.formationFlights,
       chain: this.definitions.map((definition) => this.chainFor(definition.id)),
+      closingSpeed: Array.from(this.closingSpeeds),
+      closingPressure: this.directives.map((directive) => directive.closingPressure),
+      formationActive: this.directives.map((directive) => directive.formationActive),
+      surfaceThrottleAssist: this.directives.map((directive) => directive.surfaceThrottleAssist),
     };
   }
+}
+
+function approachAsymmetric(current: number, target: number, dt: number): number {
+  return approach(current, target, (target > current ? CHASE_RATE : RELEASE_RATE) * dt);
 }
 
 function approach(current: number, target: number, maxDelta: number): number {
   if (current < target) return Math.min(target, current + maxDelta);
   if (current > target) return Math.max(target, current - maxDelta);
   return current;
+}
+
+function clamp(value: number, lo: number, hi: number): number {
+  return value < lo ? lo : value > hi ? hi : value;
+}
+
+function setDirective(
+  directive: MutableRivalPaceDirective | undefined,
+  surfaceTargetScale: number,
+  flightTargetScale: number,
+  formationActive: boolean,
+  closingPressure: number,
+  surfaceThrottleAssist = false,
+): void {
+  if (!directive) return;
+  directive.surfaceTargetScale = surfaceTargetScale;
+  directive.flightTargetScale = clamp(flightTargetScale, 1, 1.02);
+  directive.formationActive = formationActive;
+  directive.surfaceThrottleAssist = surfaceThrottleAssist;
+  directive.closingPressure = closingPressure;
 }
 
 function openingEnvelope(time: number): number {

@@ -281,7 +281,7 @@ try {
 
   await verifyPcPrimerPersistence(browser);
 
-  const recordsContext = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const recordsContext = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   const recordsPage = await recordsContext.newPage();
   await load(recordsPage);
   const installSurface = await recordsPage.evaluate(async () => {
@@ -348,10 +348,10 @@ try {
   assert.ok(portraits.some((portrait) => portrait.name === 'TIDE') && portraits.some((portrait) => portrait.name === 'SOL'),
     'both women must be selectable');
   assert.equal(await recordsPage.locator('.driver-card').count(), 6, 'six drivers must remain reachable');
-  assert.equal(await recordsPage.locator('.driver-card:visible').count(), 3,
-    'the carousel must show only previous, current, and next drivers');
+  assert.equal(await recordsPage.locator('.driver-card:visible').count(), 6,
+    'the desktop stage must expose all six stable roster destinations');
   assert.equal(await recordsPage.locator('.driver-dot').count(), 6,
-    'six compact destinations must replace the six-card wall');
+    'six compact destinations must remain available to narrower carousel layouts');
   assert.equal(await recordsPage.locator('.driver-dot.selected').count(), 1);
   assert.match(await recordsPage.locator('.driver-radar-title').textContent() ?? '', /±6%/,
     'the radar must state its real physics ceiling');
@@ -371,7 +371,7 @@ try {
     jinx: [0.98, 1.02, 1.06, 0.97],
   };
   for (const [id, expected] of Object.entries(driverHandling)) {
-    await recordsPage.locator(`.driver-dot[data-driver="${id}"]`).click();
+    await recordsPage.locator(`.driver-card[data-driver="${id}"]`).click();
     const handling = await recordsPage.evaluate(() => {
       const state = window.__harness.playerState();
       return [state.driverAcceleration, state.driverSteering, state.driverDriftCharge, state.driverAirControl];
@@ -587,12 +587,33 @@ try {
 
   const rival = await recordsPage.evaluate(() => window.__harness.rivalCase());
   assert.equal(rival.rivalIds.length, 2, 'exactly two elite rivals may receive director pacing');
-  assert.ok(rival.chase.every((value) => value >= 1.119 && value <= 1.121), `bounded early formation chase: ${rival.chase}`);
-  assert.ok(rival.release.every((value) => value >= 0.719 && value <= 0.721), `bounded real-input formation release: ${rival.release}`);
-  assert.deepEqual(rival.duringLock, rival.beforeLock, 'battle hysteresis must prevent an instant pace reversal');
-  assert.ok(rival.duringGrace.every((value) => Math.abs(value - 1) < 1e-6), `impact grace: ${rival.duringGrace}`);
-  assert.ok(rival.afterGrace.every((value) => value > 1 && value <= 1.1201), `pace must ramp after grace: ${rival.afterGrace}`);
+  assert.ok(rival.chase.every((value) => value >= 1.159 && value <= 1.161), `bounded early formation chase: ${rival.chase}`);
+  assert.ok(rival.chaseControls.every((control) => control.formationActive && control.surfaceTargetScale >= 1.159 &&
+    control.surfaceTargetScale <= 1.161 && control.flightTargetScale >= 1 && control.flightTargetScale <= 1.0201),
+  `one stable directive must own bounded surface/flight assistance: ${JSON.stringify(rival.chaseControls)}`);
+  assert.ok(rival.release.every((value) => Math.abs(value - 1) < 1e-6),
+    `a comfortable lead may return only to baseline, never command a slowdown: ${rival.release}`);
+  assert.ok(rival.releaseControls.every((control) => control.formationActive &&
+    Math.abs(control.surfaceTargetScale - 1) < 1e-6 && Math.abs(control.flightTargetScale - 1) < 1e-6),
+    `formation ownership and its physical target must remain explicit: ${JSON.stringify(rival.releaseControls)}`);
+  assert.ok(rival.duringLock.every((value) => value >= 1.059 && value <= 1.161),
+    `battle hysteresis is a short formation floor, not a stale low-speed lock: ${rival.duringLock}`);
+  assert.ok(rival.duringLockControls.every((control) => control.formationActive),
+    `battle hold may not detach the physical directive: ${JSON.stringify(rival.duringLockControls)}`);
+  assert.ok(rival.duringGrace.every((value) => value >= 1.059 && value <= 1.061),
+    `impact grace may cap chase pressure without slowing the rival to baseline: ${rival.duringGrace}`);
+  assert.ok(rival.afterGrace.every((value) => value > 1.06 && value <= 1.1601),
+    `pace must recover promptly after the shorter impact grace: ${rival.afterGrace}`);
   assert.equal(rival.nonRivalPace, 1, 'non-elite racers must keep authored pace');
+  assert.ok(rival.releasedControls.every((control) => !control.formationActive &&
+    !control.surfaceThrottleAssist && control.surfaceTargetScale === 1 &&
+    control.flightTargetScale === 1 && control.closingPressure === 0),
+  `fourth-pass release must atomically neutralize every player-gap directive: ${JSON.stringify(rival.releasedControls)}`);
+  assert.deepEqual(rival.playerControl, {
+    surfaceTargetScale:1, flightTargetScale:1, formationActive:false,
+    surfaceThrottleAssist:false, closingPressure:0,
+  },
+    'the player must never consume rival formation drive assistance');
   assert.ok(rival.techniqueChase[0] > 0.9,
     `the primary rival must arm a real technique attempt after the player opens a flight gap: ${rival.techniqueChase}`);
   assert.ok(rival.techniqueChase[1] >= 0.91 && rival.techniqueChase[1] <= 0.93,
@@ -609,29 +630,93 @@ try {
     `the selected opponent must release exactly one accepted BOOST cycle: ${JSON.stringify(rival.pursuit)}`);
   assert.equal(rival.pursuit.sawBoost, true,
     `the catch attempt must come from the real boat BOOST state: ${JSON.stringify(rival.pursuit)}`);
-  const pass2 = rival.formation.passes.find((pass) => pass.flight === 2);
-  const pass3 = rival.formation.passes.find((pass) => pass.flight === 3);
-  const pass4 = rival.formation.passes.find((pass) => pass.flight === 4);
-  assert.ok(pass2?.ahead >= 2, `two opponents must still be ahead at the player's second pass: ${JSON.stringify(rival.formation)}`);
-  assert.ok(pass3?.ahead >= 2, `two opponents must remain ahead after the medal and into flight four: ${JSON.stringify(rival.formation)}`);
-  assert.ok(pass3?.technique.every((value) => value >= 0.9),
-    `both protected opponents must still use formation technique before flight four: ${JSON.stringify(pass3)}`);
-  assert.ok(pass4?.ahead >= 2, `two opponents must still be ahead at the fourth portal: ${JSON.stringify(rival.formation)}`);
-  assert.ok(pass4?.rivalGaps.every((gap) => gap <= 55),
-    `the protected pair must remain in a readable formation rather than disappearing up-course: ${JSON.stringify(pass4)}`);
-  assert.ok(rival.formation.boostCycles.every((cycles) => cycles >= 6),
-    `protected rivals must visibly chain accepted drift-release BOOST cycles: ${JSON.stringify(rival.formation)}`);
-  assert.ok(rival.formation.driftFrames.every((frames) => frames >= 120),
-    `protected rivals must spend readable time in the real drifting state: ${JSON.stringify(rival.formation)}`);
-  assert.ok(rival.formation.maxStep < 1.7,
-    `the continuous GO-to-fourth-flight benchmark must never teleport a rival: ${JSON.stringify(rival.formation)}`);
-  assert.equal(rival.formation.formationFlights, 4);
-  assert.deepEqual(rival.formation.paceAtFourth, [1, 1],
-    'player-gap formation pacing must end on the exact fourth-pass frame');
-  assert.deepEqual(rival.formation.techniqueAtFourth, [0, 0],
-    'dynamic technique pressure must end on the exact fourth-pass frame');
-  assert.ok(rival.formation.chainAfterFourth[0] === 1 && rival.formation.chainAfterFourth[1] >= 0.9,
-    'fixed driver style may remain after flight four without reading the player gap');
+  const skilledBoundaries = [];
+  for (const driverId of ['sol', 'jinx']) {
+    // Each physical benchmark owns a fresh world. Reusing a rendered scene
+    // would carry visual/wave clocks into the next driver and make collisions
+    // depend on test order even though persistence is restored correctly.
+    const boundaryContext = await browser.newContext({ viewport: { width:1366, height:768 } });
+    const boundaryPage = await boundaryContext.newPage();
+    await load(boundaryPage);
+    const boundaryProbe = await boundaryPage.evaluate((id) => {
+      const selectedBefore = JSON.parse(window.__harness.recordsExport()).selectedDriverId;
+      const recordsBefore = window.__harness.recordsState();
+      const formation = window.__harness.skilledFormationCase(id);
+      const selectedAfter = JSON.parse(window.__harness.recordsExport()).selectedDriverId;
+      const recordsAfter = window.__harness.recordsState();
+      return { selectedBefore, selectedAfter, recordsBefore, recordsAfter, formation };
+    }, driverId);
+    assert.equal(boundaryProbe.selectedAfter, boundaryProbe.selectedBefore,
+      'driver-boundary probes must restore the selected roster and persistence state');
+    assert.deepEqual(boundaryProbe.recordsAfter, boundaryProbe.recordsBefore,
+      'real flight passes inside a benchmark may not pollute records, coach state, or the next run seed');
+    skilledBoundaries.push(boundaryProbe.formation);
+    await boundaryContext.close();
+  }
+  for (const formation of skilledBoundaries) {
+    const label = `${formation.driverId}/${JSON.stringify(formation.handling)}`;
+    assert.equal(formation.phase, 'racing', `${label}: the continuous benchmark must reach flight four`);
+    assert.equal(formation.explicitPlayerInput, true, `${label}: boat 0 may not fall through to the default AI`);
+    assert.ok(formation.playerActions.driftStarts >= 12,
+      `${label}: the skilled reference must continuously chain real drift holds: ${JSON.stringify(formation.playerActions)}`);
+    assert.equal(formation.playerActions.driftStarts, formation.playerActions.driftReleases,
+      `${label}: every scripted hold must reach its real release edge`);
+    assert.equal(formation.playerActions.driftReleases, formation.playerActions.bankedReleases,
+      `${label}: every release must cross the actual BANK threshold`);
+    assert.equal(formation.playerActions.boostEdges, formation.playerActions.bankedReleases,
+      `${label}: every player BANK release must become a real Boat BOOST rising edge`);
+    assert.equal(formation.playerActions.flightEdges, 4, `${label}: Space remains a one-frame edge`);
+    assert.ok(formation.playerActions.airBrakeTurnFrames > 0, `${label}: authored turns need steer plus air-brake`);
+    assert.ok(formation.maxStep < 1.7, `${label}: no boat may teleport after GO: ${formation.maxStep}`);
+    assert.equal(formation.passes.length, 4, `${label}: ${JSON.stringify(formation.passes)}`);
+    assert.ok(formation.boatBoostEdges.every((edges) => edges >= 12),
+      `${label}: both protected rivals must produce repeated physical Boat BOOST edges: ${JSON.stringify(formation.boatBoostEdges)}`);
+    assert.deepEqual(formation.boatBoostEdges, formation.boostCycles,
+      `${label}: AI accepted releases must correspond one-for-one with real Boat BOOST starts`);
+    for (const flight of [2, 3, 4]) {
+      const pass = formation.passes.find((entry) => entry.flight === flight);
+      assert.ok(pass?.ahead >= 2, `${label}: two protected opponents must be ahead at flight ${flight}: ${JSON.stringify(pass)}`);
+      assert.ok(pass?.rivalGaps.every((gap) => gap > 0),
+        `${label}: both protected progress owners must remain ahead at flight ${flight}: ${JSON.stringify(pass)}`);
+      assert.ok(pass?.worldRelations.every((relation) => relation.distance <= 55 &&
+        (relation.distance <= 8 || (relation.aheadMeters > 0 && relation.aheadDot >= 0.75))),
+      `${label}: flight ${flight} rivals must stay readable either close alongside or in the forward chase view: ${JSON.stringify(pass)}`);
+      assert.ok(pass?.controls.every((control) => flight === 4
+        ? !control.formationActive && !control.surfaceThrottleAssist &&
+          control.surfaceTargetScale === 1 && control.flightTargetScale === 1
+        : control.formationActive && control.surfaceTargetScale >= 1 &&
+          control.flightTargetScale >= 1 && control.flightTargetScale <= 1.0201),
+      `${label}: flight ${flight} directive timing: ${JSON.stringify(pass)}`);
+    }
+    const pass4 = formation.passes.find((entry) => entry.flight === 4);
+    assert.equal(pass4?.releaseSameFrame, true, `${label}: fourth pass must release assistance on the scoring frame`);
+    assert.ok(formation.fourthReleaseFrame > 0, `${label}: fourth release frame must be observable`);
+    assert.ok(formation.rivals.every((entry) => (entry.routeStateFrames.failed ?? 0) === 0),
+      `${label}: protected rivals may not lose the formation through an authored route failure: ${JSON.stringify(formation.rivals)}`);
+    for (const segment of formation.segments) {
+      assert.ok(segment.rivals.every((entry) => entry.pace.min >= 1),
+        `${label}: formation may never command below-baseline drive in flight ${segment.flight}: ${JSON.stringify(segment)}`);
+      assert.ok(segment.rivals.every((entry) => Object.values(entry.phaseFrames).reduce((sum, frames) => sum + frames, 0) > 0 &&
+        Object.values(entry.routeStateFrames).reduce((sum, frames) => sum + frames, 0) > 0),
+      `${label}: flight ${segment.flight} must retain phase/route timing evidence: ${JSON.stringify(segment)}`);
+      if (segment.flight > 1) {
+        const airBrakeDutyMax = segment.flight === 3 ? 0.85 : 0.72;
+        assert.ok(segment.rivals.every((entry) => entry.flightSpeed.max > 0 &&
+          entry.airBrakeDuty >= 0 && entry.airBrakeDuty <= airBrakeDutyMax),
+        `${label}: flight ${segment.flight} must retain bounded air-brake/speed evidence: ${JSON.stringify(segment)}`);
+      }
+    }
+    assert.ok(formation.timeline.length >= 20 && formation.timeline.some((sample) => sample.rivalAirBrake.some(Boolean)),
+      `${label}: one-second timing samples must expose gap closing, pace and air-brake state`);
+    assert.ok(formation.timeline.every((sample) => sample.gaps.every(Number.isFinite) &&
+      sample.closingMps.every(Number.isFinite) && sample.pace.every(Number.isFinite) &&
+      sample.closingPressure.every(Number.isFinite)), `${label}: timing telemetry must remain finite`);
+    assert.ok(formation.postReleaseGapProbe.every((probe) => probe.pace.every((value) => value === 1) &&
+      probe.technique.every((value) => value === 0) &&
+      probe.controls.every((control) => !control.formationActive && !control.surfaceThrottleAssist &&
+        control.closingPressure === 0)),
+    `${label}: no post-fourth output may depend on the player gap: ${JSON.stringify(formation.postReleaseGapProbe)}`);
+  }
 
   const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radio.blockedVisible, false,
