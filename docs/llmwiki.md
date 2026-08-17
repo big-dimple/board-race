@@ -380,8 +380,14 @@ DriverSelect / READY
   填成一条发光道路。泡沫高光继续读取与海面相同的 Gerstner 法线，近场中心命中、覆盖
   宽度和空隙率都由 wake 像素合同约束。
 - 所有船体和车手无论质量档是否生成倒壳描边，都必须在 `LAYER_INK` 法线/深度预通道中
-  获得完整实体覆盖；`detailedAiInk=false` 用一份批合并船壳和一个仅预通道可见的车手粗代理
-  代替逐零件重画，单个低画质对手只能贡献 2 个 ink mesh。能量合成用膨胀后的 ink mask
+  获得完整实体覆盖。船的静态外观固定为 shell、safety trim、mechanical、flight hardware、
+  paired number 五个材质批次；物理、碰撞和画面仍共享外层 `boat-*` transform，合批不得产生
+  第二套位置。车手由 `src/game/riderMesh.ts` 生成一个带顶点调色的 `SkinnedMesh`，16 根
+  `THREE.Bone` 继续由 `src/game/rider.ts` 原有受力、漂移、飞行、落地和庆祝弹簧驱动；不得
+  退回逐胶囊 draw 或脱离状态的循环动作。高画质的倒壳描边必须共享同一 skeleton 并留在
+  ink layer 之外；`detailedAiInk=false` 不再使用假粗代理，而由同一真实蒙皮网格同时进入
+  beauty 和预通道。单个低画质对手仍只能贡献 2 个 ink mesh：一份批合并船壳和一份真实车手。
+  能量合成用膨胀后的 ink mask
   抑制船体内部 bloom、热偏移和大闪白，但实体外的光晕必须继续可见。
 
 ## 验证与 harness
@@ -596,8 +602,9 @@ Final 自由接近与桌面选角舞台不改变 records 结构，不升 schema�
   先确认是否仍是视觉验收凭证，再按清场流程列候选。
 - 图像生成 working directory、一次性计划、旧副本和临时脚本不属于项目真相。
   先确认正式资产已入库、没有未合并或独有成果、没有进程占用，再列删除候选。
-- 用户要求 GitHub push、PR、Release、Pages 或其他仓库变更时，先启用
-  `github-operator` skill；本地实现请求不隐含发布授权。
+- 实现任务完成并通过对应门禁后，默认启用 `github-operator` skill 并直接提交、推送；
+  只有用户明确要求“先别发布”或等候验收时，才保留在本地。PR、Release、Pages 设置
+  或其他超出既定 checked release 的仓库变更仍需以用户授权范围为准。
 - 用户要求洁癖 / 收尾时启用 `jiepi-clear`：代码、运行态、文档、规则、记忆和
   工作区逐面标状态。清场删除必须在完整汇报之后获得用户再次明确确认，不能先删
   后报。Codex 生成记忆没有明确控制面时只读，不手改。

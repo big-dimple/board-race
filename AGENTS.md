@@ -48,6 +48,7 @@ automatically; players steer, drift/air-brake, and trigger flight.
   harness contract. Do not weaken thresholds to make a release pass.
 - GitHub Pages deploys `main` through `.github/workflows/deploy.yml`.
 - 本项目发布默认使用 `npm run release:checked -- --no-wait-pages "type: message"`；Pages 的 Actions / live 核验独立进行，不得阻塞提交和推送。
+- 实现任务完成并通过对应门禁后，默认立即提交并推送；只有用户明确要求“先别发布”或等候验收时，才保留在本地。
 - Do not leave manual Vite servers running. Port `5173` is strict; use an
   explicit alternate port only for a deliberate concurrent session, and stop
   the exact recorded process before handoff.
@@ -139,6 +140,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   must not return or compete with routes and rival technique cues. Boat wakes use
   a broken central aerated wash with only faint, discontinuous Kelvin shoulders;
   they may be neither two continuous rails nor a filled road.
+- Each boat's authored static model is five material batches, while every rider
+  is one vertex-colored 16-bone SkinnedMesh driven by the existing physical
+  pose springs. High-quality outlines must share that skeleton; low quality
+  uses the same real rider in beauty and ink prepasses, never a capsule proxy.
+  Rendering, collision, AI, and race progress still share one boat transform.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.

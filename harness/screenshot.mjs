@@ -96,6 +96,14 @@ const SCENARIOS = {
     // placed dynamically: just astern of the player, low, rider-height
     freeCamDynamic: { back: 5.5, up: 1.9, lookUp: 1.2 },
   },
+  'rider-side': {
+    scenario: 'sweeper',
+    freeCamDynamic: { back: 0, side: 6, up: 1.3, lookAhead: 0, lookUp: 0.9 },
+  },
+  'vehicle-three-quarter': {
+    scenario: 'sweeper',
+    freeCamDynamic: { back: -5.5, side: 3.5, up: 1.6, lookAhead: 0, lookUp: 0.8 },
+  },
   water: {
     scenario: 'airtime',
     freeCamDynamic: { back: 26, up: 3.2, lookUp: 0 },
@@ -3862,6 +3870,61 @@ async function activateMobileForScreenshots(page, tiltControls) {
     tiltControls ? 'tilt' : 'touch', `mobile screenshot must use the requested ${tiltControls ? 'tilt' : 'touch'} mode`);
 }
 
+async function assertVehicleAssetContract(page) {
+  const asset = await page.evaluate(() => {
+    const player = window.__scene.getObjectByName('boat-0');
+    const rival = window.__scene.getObjectByName('boat-1');
+    const hull = player?.getObjectByName('hull');
+    const rider = player?.getObjectByName('rider-skinned-shell');
+    const rivalRider = rival?.getObjectByName('rider-skinned-shell');
+    if (!player || !rival || !hull || !rider || !rivalRider) return null;
+    const position = rider.geometry?.getAttribute('position');
+    const skinIndex = rider.geometry?.getAttribute('skinIndex');
+    const skinWeight = rider.geometry?.getAttribute('skinWeight');
+    const color = rider.geometry?.getAttribute('color');
+    let blendedVertices = 0;
+    if (skinWeight) {
+      for (let i = 0; i < skinWeight.count; i++) {
+        const second = skinWeight.getY(i);
+        if (second > 0.01 && second < 0.99) blendedVertices++;
+      }
+    }
+    const batchNames = [
+      'boat-shell-batch',
+      'boat-safety-trim-batch',
+      'boat-mechanical-batch',
+      'boat-flight-hardware-batch',
+      'boat-number-batch',
+    ];
+    const outline = rider.getObjectByName('outline');
+    return {
+      hullClass: hull.userData.assetClass,
+      staticBatchCount: hull.userData.staticBatchCount,
+      allBatchesPresent: batchNames.every((name) => hull.getObjectByName(name)?.isMesh === true),
+      riderClass: rider.userData.assetClass,
+      riderIsSkinned: rider.isSkinnedMesh === true,
+      riderBones: rider.skeleton?.bones.length ?? 0,
+      positionVertices: position?.count ?? 0,
+      skinIndexVertices: skinIndex?.count ?? 0,
+      colorVertices: color?.count ?? 0,
+      blendedVertices,
+      vertexColors: rider.material?.vertexColors === true,
+      skinnedOutline: outline?.isSkinnedMesh === true,
+      rivalUsesRealSkinInPrepass: rivalRider.isSkinnedMesh === true &&
+        (rivalRider.layers.mask & 1) !== 0 && (rivalRider.layers.mask & (1 << 1)) !== 0,
+    };
+  });
+  assert.ok(asset && asset.hullClass === 'five-batch-racing-hydrojet' &&
+    asset.staticBatchCount === 5 && asset.allBatchesPresent,
+  `boat must remain a five-batch authored racing hydrojet: ${JSON.stringify(asset)}`);
+  assert.ok(asset.riderClass === 'batched-skinned-rider' && asset.riderIsSkinned &&
+    asset.riderBones === 16 && asset.positionVertices >= 1800 &&
+    asset.skinIndexVertices === asset.positionVertices && asset.colorVertices === asset.positionVertices &&
+    asset.blendedVertices >= 300 && asset.vertexColors && asset.skinnedOutline &&
+    asset.rivalUsesRealSkinInPrepass,
+  `rider must remain one palette-skinned articulated mesh at every quality: ${JSON.stringify(asset)}`);
+}
+
 async function verifyPerformanceContract(page) {
   const assertBudget = async (label) => {
     const stats = await page.evaluate(() => window.__harness.stats());
@@ -3875,6 +3938,7 @@ async function verifyPerformanceContract(page) {
 
   await page.evaluate(() => window.__harness.scenario('start'));
   await page.evaluate(() => window.__harness.render());
+  await assertVehicleAssetContract(page);
   let stats = await assertBudget('1440x900');
   assert.ok(stats.calls <= 600, `Auto start draw calls ${stats.calls} exceed 600`);
   assert.equal(stats.desktopClarity, 1, 'desktop Auto must expose the headroom clarity governor');
@@ -4389,7 +4453,7 @@ async function main() {
           const station = window.__scene.getObjectByName('final-station');
           const rival = window.__scene.getObjectByName('boat-1');
           if (!(canvas instanceof HTMLCanvasElement) || !station || !rival) return null;
-          const riderProxy = rival.getObjectByName('rider-ink-proxy');
+          const riderSkin = rival.getObjectByName('rider-skinned-shell');
           let inkMeshCount = 0;
           rival.traverse((object) => {
             if (object.isMesh && (object.layers.mask & (1 << 1)) !== 0) inkMeshCount++;
@@ -4467,14 +4531,15 @@ async function main() {
             haloPixels,
             haloMeanEnergy: haloEnergy / Math.max(1, haloPixels),
             rivalVisible: rival.visible,
-            riderProxyPrepassOnly: riderProxy?.layers.mask === (1 << 1),
+            riderUsesRealSkinInPrepass: riderSkin?.isSkinnedMesh === true &&
+              (riderSkin.layers.mask & 1) !== 0 && (riderSkin.layers.mask & (1 << 1)) !== 0,
             inkMeshCount,
           };
         });
         assert.ok(occlusion && occlusion.rivalVisible && occlusion.solidPixels >= 200 &&
           occlusion.haloPixels >= 500 && occlusion.solidMeanEnergy <= 12 &&
           occlusion.haloMeanEnergy >= occlusion.solidMeanEnergy * 1.8 &&
-          occlusion.riderProxyPrepassOnly && occlusion.inkMeshCount === 2,
+          occlusion.riderUsesRealSkinInPrepass && occlusion.inkMeshCount === 2,
         `Final energy must halo around an opaque rival instead of shining through it: ${JSON.stringify(occlusion)}`);
       }
       if (name === 'opponent-drift') {

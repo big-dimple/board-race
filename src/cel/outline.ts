@@ -27,10 +27,18 @@ uniform float uWidth;       // artist-facing width multiplier
 uniform float uWidthFactor; // world-units-per-meter scale (~0.0016)
 uniform float uMinPush;     // world-space floor: the line never thins to nothing
 
+#include <skinning_pars_vertex>
+
 void main() {
-  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vec3 transformed = vec3(position);
+  vec3 objectNormal = aOutlineNormal;
+  #include <skinbase_vertex>
+  #include <skinnormal_vertex>
+  #include <skinning_vertex>
+
+  vec4 worldPos = modelMatrix * vec4(transformed, 1.0);
   // mat3(modelMatrix) assumes uniform scale (true for all meshes here).
-  vec3 worldNormal = normalize(mat3(modelMatrix) * aOutlineNormal);
+  vec3 worldNormal = normalize(mat3(modelMatrix) * objectNormal);
   // Offset proportional to camera distance => constant screen-space width,
   // floored so close-ups never collapse the hull onto the base mesh.
   float dist = distance(worldPos.xyz, cameraPosition);
@@ -187,7 +195,16 @@ export function addOutline(target: THREE.Object3D, opts: OutlineOptions = {}): T
 
     // Child of the mesh: inherits its full transform (position/rotation/
     // scale and any later animation) while sharing its geometry.
-    const outline = new THREE.Mesh(geometry, material);
+    const sourceSkinned = mesh as THREE.SkinnedMesh;
+    const outline: THREE.Mesh = sourceSkinned.isSkinnedMesh
+      ? new THREE.SkinnedMesh(geometry, material)
+      : new THREE.Mesh(geometry, material);
+    if (sourceSkinned.isSkinnedMesh) {
+      const skinnedOutline = outline as THREE.SkinnedMesh;
+      skinnedOutline.bindMode = sourceSkinned.bindMode;
+      skinnedOutline.bind(sourceSkinned.skeleton, sourceSkinned.bindMatrix);
+      skinnedOutline.frustumCulled = false;
+    }
     outline.name = 'outline';
     outline.userData.noOutline = true;
     outline.raycast = () => {}; // hulls are visual only; never eat gameplay raycasts

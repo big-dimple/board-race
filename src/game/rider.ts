@@ -18,9 +18,8 @@
  */
 import * as THREE from 'three';
 import { LAYER_INK, markInk, type BoatState } from '../contracts';
-import { PALETTE } from '../core/palette';
-import { createToonMaterial } from '../cel/toonMaterial';
 import { addOutline } from '../cel/outline';
+import { buildSkinnedRider, updateSkinnedRiderColor, type RiderBones, type RiderSkin } from './riderMesh';
 
 // ------------------------------------------------------------- tuning ----
 // Every number a polish pass might want to touch lives here. Angles in
@@ -100,7 +99,6 @@ const POSE = {
   headTiltUp: -0.72,      // baked head.rotation.x: un-hunches the neck, eyes up over the bow
 } as const;
 
-const UP = new THREE.Vector3(0, 1, 0);
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 /** Scalar damped spring. Semi-implicit Euler — rock solid at dt = 1/60. */
@@ -115,32 +113,14 @@ class Spring {
   }
 }
 
-interface Rig {
-  hips: THREE.Object3D;
-  spine: THREE.Object3D;
-  chest: THREE.Object3D;
-  head: THREE.Object3D;
-  shoulderL: THREE.Object3D;
-  shoulderR: THREE.Object3D;
-  elbowL: THREE.Object3D;
-  elbowR: THREE.Object3D;
-  handL: THREE.Object3D;
-  handR: THREE.Object3D;
-  hipL: THREE.Object3D;
-  hipR: THREE.Object3D;
-  kneeL: THREE.Object3D;
-  kneeR: THREE.Object3D;
-  footL: THREE.Object3D;
-  footR: THREE.Object3D;
-}
+type Rig = RiderBones;
 
 export class Rider {
   readonly object: THREE.Object3D;
 
   private readonly j: Rig;
   private readonly hipsBaseY: number;
-  private readonly suitMaterial: THREE.ShaderMaterial;
-  private readonly accentMaterial: THREE.ShaderMaterial;
+  private readonly skin: RiderSkin;
 
   // Animation state (scalar springs).
   private readonly leanS = new Spring();
@@ -157,61 +137,15 @@ export class Rider {
   private readonly tmp = new THREE.Vector3();
 
   constructor(opts: { color: number; detailedInk?: boolean }) {
-    // Rim turned up on every rider material: the silhouette must pop against
-    // dark water even when the whole suit faces away from the sun. The suit
-    // also carries a small self-color emissive so the racer color reads even
-    // on the fully shadowed front (banding still steps on top of it).
-    const suit = createToonMaterial({
-      color: opts.color,
-      rimStrength: 1.15,
-      rimPower: 2.2,
-      rimThreshold: 0.55,
-      emissive: opts.color,
-      emissiveIntensity: 0.14,
-    });
-    const ink = createToonMaterial({ color: PALETTE.ink, rimColor: PALETTE.foam, rimStrength: 0.7, rimThreshold: 0.55 });
-    const white = createToonMaterial({ color: PALETTE.foam, specColor: PALETTE.sparkle, rimStrength: 0.9 });
-    const accent = createToonMaterial({ color: opts.color, rimColor: PALETTE.sparkle, rimStrength: 0.9 });
-    this.suitMaterial = suit;
-    this.accentMaterial = accent;
-
     const root = new THREE.Group();
     root.name = 'rider';
 
-    const joint = (parent: THREE.Object3D, name: string, p: readonly number[], mirror = 1): THREE.Object3D => {
-      const o = new THREE.Object3D();
+    const joint = (parent: THREE.Object3D, name: string, p: readonly number[], mirror = 1): THREE.Bone => {
+      const o = new THREE.Bone();
       o.name = name;
       o.position.set(p[0] * mirror, p[1], p[2]);
       parent.add(o);
       return o;
-    };
-
-    // Capsule limb from joint `a` to child joint `b`, in a's local space.
-    // NOTE: radial segment count is deliberately high — coarse curved
-    // primitives trip the Sobel normal-edge pass across their whole surface
-    // (the ink multiply then crushes the limb to near-black). Smooth normals
-    // keep the toon banding; only real creases should edge.
-    const bone = (a: THREE.Object3D, b: THREE.Object3D, r: number, mat: THREE.Material): void => {
-      const dir = b.position.clone();
-      const len = dir.length();
-      const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, Math.max(0.02, len - r * 0.6), 4, 16), mat);
-      m.position.copy(dir).multiplyScalar(0.5);
-      m.quaternion.setFromUnitVectors(UP, dir.normalize());
-      a.add(m);
-    };
-    const ball = (parent: THREE.Object3D, r: number, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh => {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 14), mat);
-      m.position.set(x, y, z);
-      parent.add(m);
-      return m;
-    };
-    const box = (parent: THREE.Object3D, w: number, h: number, d: number, mat: THREE.Material,
-      x = 0, y = 0, z = 0, rx = 0): THREE.Mesh => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-      m.position.set(x, y, z);
-      m.rotation.x = rx;
-      parent.add(m);
-      return m;
     };
 
     // ------------------------------------------------------ skeleton ----
@@ -234,97 +168,18 @@ export class Rider {
     const footR = joint(kneeR, 'footR', POSE.footL, -1);
     this.j = { hips, spine, chest, head, shoulderL, shoulderR, elbowL, elbowR, handL, handR, hipL, hipR, kneeL, kneeR, footL, footR };
     this.hipsBaseY = hips.position.y;
-
-    // -------------------------------------------------------- flesh ----
-    // At race distance, AI riders only need a readable color silhouette.
-    // The full articulated mesh remains on the player and in High quality.
-    if (opts.detailedInk === false) {
-      const pelvis = ball(hips, 0.16, suit, 0, 0.02, 0.02);
-      pelvis.scale.set(1, 0.62, 0.78);
-      bone(spine, chest, 0.16, suit);
-      bone(chest, head, 0.14, suit);
-      bone(shoulderL, elbowL, 0.065, suit);
-      bone(shoulderR, elbowR, 0.065, suit);
-      ball(head, 0.15, white, 0, 0.1, 0.02);
-      box(head, 0.21, 0.065, 0.07, ink, 0, 0.1, 0.14).userData.noOutline = true;
-
-      // One coarse, prepass-only body volume keeps portal energy behind the
-      // animated rider. It replaces seven extra per-part prepass draws and is
-      // never rendered into the beauty scene.
-      const inkProxy = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.23, 0.62, 2, 8),
-        new THREE.MeshBasicMaterial(),
-      );
-      inkProxy.name = 'rider-ink-proxy';
-      inkProxy.position.set(0, 0.35, 0.12);
-      inkProxy.layers.set(LAYER_INK);
-      inkProxy.frustumCulled = false;
-      hips.add(inkProxy);
-    } else {
-    // Pelvis + wetsuit torso in rider color (slim — no bell silhouette).
-    // Rounded pelvis: a square box read as a mecha "butt-pack" from behind.
-    const pelvis = ball(hips, 0.15, suit, 0, 0.02, 0.02);
-    pelvis.scale.set(1.0, 0.58, 0.75);
-    bone(spine, chest, 0.15, suit);
-    // Ink side panels + white chest stripe (panel lines as geometry, trim only).
-    // Panels hug the ribcage — a deep panel's rear edge pokes past the hunched
-    // back silhouette and reads as a floating backpack from the side.
-    box(spine, 0.04, 0.18, 0.17, ink, 0.135, 0.1, 0.09);
-    box(spine, 0.04, 0.18, 0.17, ink, -0.135, 0.1, 0.09);
-    box(spine, 0.09, 0.2, 0.03, white, 0, 0.1, 0.19, 0.42);
-    // Life vest over the chest in RIDER COLOR (the suit dominates the torso);
-    // ink zipper + color buckle as trim.
-    bone(chest, head, 0.13, suit);
-    const vest = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.1, 4, 16), suit);
-    vest.position.set(0, 0.05, 0.01);
-    chest.add(vest);
-    const zip = box(chest, 0.025, 0.22, 0.02, ink, 0, 0.05, 0.17);
-    zip.userData.noOutline = true;
-    box(chest, 0.07, 0.04, 0.03, accent, 0, -0.04, 0.165);
-    // Shoulder pads.
-    ball(shoulderL, 0.068, suit, 0.01, 0.02, 0.01);
-    ball(shoulderR, 0.068, suit, -0.01, 0.02, 0.01);
-
-    // Arms: wetsuit sleeves, ink gloves.
-    bone(shoulderL, elbowL, 0.055, suit);
-    bone(shoulderR, elbowR, 0.055, suit);
-    bone(elbowL, handL, 0.048, suit);
-    bone(elbowR, handR, 0.048, suit);
-    ball(handL, 0.06, ink);
-    ball(handR, 0.06, ink);
-
-    // Legs: wetsuit thighs, ink boots planted in the footwells.
-    bone(hipL, kneeL, 0.085, suit);
-    bone(hipR, kneeR, 0.085, suit);
-    bone(kneeL, footL, 0.065, suit);
-    bone(kneeR, footR, 0.065, suit);
-    box(footL, 0.11, 0.09, 0.26, ink, 0, -0.01, 0.06);
-    box(footR, 0.11, 0.09, 0.26, ink, 0, -0.01, 0.06);
-
-    // Helmet: white shell, ink visor band, rider-color crown stripe that
-    // silhouettes front-to-back (kills the "pom on a ball" read from behind),
-    // plus a color nape band at the rear rim, strap.
-    ball(head, 0.14, white, 0, 0.1, 0.02);
-    const visor = box(head, 0.2, 0.06, 0.06, ink, 0, 0.1, 0.135);
-    visor.userData.noOutline = true;
-    const stripe = box(head, 0.075, 0.035, 0.26, accent, 0, 0.228, -0.01);
-    stripe.userData.noOutline = true;
-    const nape = box(head, 0.18, 0.05, 0.05, accent, 0, 0.055, -0.115);
-    nape.userData.noOutline = true;
-    const strap = box(head, 0.16, 0.025, 0.02, ink, 0, 0.01, 0.1);
-    strap.userData.noOutline = true;
-    ball(head, 0.05, ink, 0, 0.02, 0.1); // chin guard
-
+    this.skin = buildSkinnedRider(root, this.j, opts.color, opts.detailedInk !== false);
+    if (opts.detailedInk !== false) {
       addOutline(root);
       markInk(root);
+    } else {
+      this.skin.mesh.layers.enable(LAYER_INK);
     }
     this.object = root;
   }
 
   setColor(color: number): void {
-    this.suitMaterial.uniforms.uColor.value.setHex(color, THREE.NoColorSpace);
-    this.suitMaterial.uniforms.uEmissive.value.setHex(color, THREE.NoColorSpace);
-    this.accentMaterial.uniforms.uColor.value.setHex(color, THREE.NoColorSpace);
+    updateSkinnedRiderColor(this.skin, color);
   }
 
   /** dt is fixed 1/60. Applies delta rotations on top of the baked rest pose. */

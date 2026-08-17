@@ -28,6 +28,8 @@ export interface ToonOptions {
   rimColor?: number; rimStrength?: number; rimPower?: number; rimThreshold?: number;
   specColor?: number; specThreshold?: number;
   emissive?: number; emissiveIntensity?: number;
+  /** Multiply the uniform albedo by the geometry's RGB color attribute. */
+  vertexColors?: boolean;
 }
 
 /** Palette hex → THREE.Color with NO color-space conversion (verbatim to screen, see header). */
@@ -46,13 +48,28 @@ const vertexShader = /* glsl */ `
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
 
+#ifdef USE_VERTEX_COLOR
+varying vec3 vVertexColor;
+#endif
+
+#include <skinning_pars_vertex>
+
 void main() {
+  vec3 transformed = vec3(position);
+  vec3 objectNormal = vec3(normal);
+  #include <skinbase_vertex>
+  #include <skinnormal_vertex>
+  #include <skinning_vertex>
+
   // World-space normal for the sun dot / up-tint / rim / spec.
   // mat3(modelMatrix) assumes uniform scale, which holds for every mesh in
   // this project (boats, riders, buoys are built with uniform scales).
-  vWorldNormal = normalize(mat3(modelMatrix) * normal);
-  vec4 worldPos = modelMatrix * vec4(position, 1.0);
+  vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+  vec4 worldPos = modelMatrix * vec4(transformed, 1.0);
   vWorldPos = worldPos.xyz;
+  #ifdef USE_VERTEX_COLOR
+  vVertexColor = color;
+  #endif
   gl_Position = projectionMatrix * viewMatrix * worldPos;
 }
 `;
@@ -83,6 +100,9 @@ uniform float uFogStrength;     // overall fog multiplier
 
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
+#ifdef USE_VERTEX_COLOR
+varying vec3 vVertexColor;
+#endif
 
 void main() {
   vec3 N = normalize(vWorldNormal);
@@ -99,8 +119,12 @@ void main() {
   // Shadow side hue-shifts toward the sky color so it stays colorful
   // (never gray, never black). "band" only ever takes the ramp's discrete
   // levels, so this mix is still a set of perfectly hard steps.
-  vec3 shadowAlbedo = uColor * mix(vec3(1.0), uSkyMid, uShadowTint);
-  vec3 color = mix(shadowAlbedo, uColor, band);
+  vec3 albedo = uColor;
+  #ifdef USE_VERTEX_COLOR
+  albedo *= vVertexColor;
+  #endif
+  vec3 shadowAlbedo = albedo * mix(vec3(1.0), uSkyMid, uShadowTint);
+  vec3 color = mix(shadowAlbedo, albedo, band);
 
   // ------------------------------------------------------------------
   // MATCAP-ISH UP TINT — one hard step on upward-facing normals, faking
@@ -163,6 +187,8 @@ void main() {
 export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     name: 'CelToon',
+    defines: opts.vertexColors ? { USE_VERTEX_COLOR: 1 } : {},
+    vertexColors: opts.vertexColors ?? false,
     uniforms: {
       uColor: { value: flat(opts.color) },
       uSunDir: { value: SUN_DIR },

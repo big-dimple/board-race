@@ -10,7 +10,7 @@
 ## 当前版本
 
 - 当前交付包含全车手 Final Station 真实过线排名、终点强光前的实体遮挡、真实 BOOST
-  释放脉冲、动态海面高光和中央破碎尾迹。精确版本以包含本文件的 Git commit 为准，
+  释放脉冲、动态海面高光、中央破碎尾迹，以及合批竞速艇与真实蒙皮车手。精确版本以包含本文件的 Git commit 为准，
   不在交接正文复制一个随后必然过期的 SHA。
 - checked release 会在提交前重新执行 build、flight、mobile、collision、audio、systems、
   performance 和 closeout；交接中的“已发布”只以该脚本成功后的远端 SHA 为准。
@@ -39,6 +39,10 @@
 - Final Station 解锁后六名车手按真实穿门先后排序；玩家故意最后过线会得到 `6 / 6`。
   已冲线对手仍保留实体、碰撞和画面，低画质终点强光也不能把它们洗成幽灵。具体扫掠、
   遮挡和性能合同由 [`llmwiki.md`](llmwiki.md) 统一说明。
+- 赛艇外观重制为五个静态材质批次：完整硬脊艇壳、贴体座舱围护、蓝黑风挡与飞行硬件、
+  嵌入式泵喷、分体碳纤水翼和舷侧速度线不再按零件逐个提交。车手重制为一个顶点调色
+  `SkinnedMesh`，16 根骨骼保留原有转向受力、漂移、腾空、落地和庆祝动作；低画质对手也
+  使用同一真实人形参与画面和遮挡，不再换成胶囊粗代理。
 - 文档职责已经拆分：README 面向人，`llmwiki` 面向 AI 稳定契约，本文件面向当前开发交接。
 
 ## 未完成与暂缓
@@ -62,9 +66,10 @@
 
 ### 渲染性能
 
-当前 Auto 档在 `1440x900` 性能合同中为 `592 / 600` draw calls，门禁通过但余量很小。
-这不是画质上限，也不是应该抬高阈值的理由；后续若继续增加艇、场景或特效，先做全艇静态
-批处理、重复物实例化和材质归并，并同时复核高画质轮廓与低画质遮挡，不能靠删动作信息换预算。
+当前 Auto 档在 `1440x900` 性能合同中为 `327 / 600` draw calls。艇体五批和车手单蒙皮批次
+已经回收了原先逼近上限的提交成本，`600` 红线没有放宽。后续若继续增加艇、场景或特效，
+仍要优先复用批次、实例化重复物并同时复核高画质骨骼描边与低画质实体遮挡，不能靠删动作
+信息或恢复假代理换预算。
 
 ### 人味与烟火气
 
@@ -81,12 +86,14 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 ## 本轮验证
 
 - `npm run build`：通过；只有既有的单包体积警告。
-- `SHOT_PORT=5222 npm run shot -- opponent-drift final-rival-portal water wake-close`：四个
-  定向场景和像素合同通过，并已人工复核对应截图。
-- `SHOT_PORT=5223 npm run shot -- final-rival-portal opponent-drift water wake-close`：性能批合并
-  后再次通过，终点实体遮挡、漂移脉冲、海面和中央尾迹均已重新人工复核。
+- `SHOT_PORT=5227 npm run shot -- rider rider-side vehicle-three-quarter final-rival-portal`，以及
+  `SHOT_PORT=5228 npm run shot -- rider-side vehicle-three-quarter final-rival-portal`：
+  正后、侧面、前侧 3/4 和终点强光四个定向场景通过；已人工复核骨骼轮廓、握把接触、
+  座舱比例、分体水翼、舷侧线和真实车手遮挡。
+- `npm run verify:performance`：结构合同确认五批赛艇、16 骨单网格车手、混合骨骼权重、
+  蒙皮描边和低画质真实预通道均在运行；Auto 为 `1,997,196 px / 327 calls`。
 - `npm run verify:release`：通过；覆盖 build、flight、mobile、collision、audio、systems、
-  endurance 和 performance。Auto 性能结果为 `1,997,196 px / 592 calls`。
+  endurance 和 performance。14 次飞行长跑、六艇碰撞、终点遮挡与移动端均无回归。
 
 ## 接手顺序
 

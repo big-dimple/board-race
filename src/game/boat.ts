@@ -565,6 +565,37 @@ function mergeFlatGeometryParts(parts: readonly THREE.BufferGeometry[]): THREE.B
   return merged;
 }
 
+/** Bake a primitive's local transform before it enters a material batch. */
+function transformedPart(
+  source: THREE.BufferGeometry,
+  position: readonly [number, number, number] = [0, 0, 0],
+  rotation: readonly [number, number, number] = [0, 0, 0],
+  scale: readonly [number, number, number] = [1, 1, 1],
+): THREE.BufferGeometry {
+  const geometry = source.index === null ? source.clone() : source.toNonIndexed();
+  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2]));
+  const matrix = new THREE.Matrix4().compose(
+    new THREE.Vector3(position[0], position[1], position[2]),
+    quaternion,
+    new THREE.Vector3(scale[0], scale[1], scale[2]),
+  );
+  geometry.applyMatrix4(matrix);
+  source.dispose();
+  return geometry;
+}
+
+function pushQuad(
+  pos: number[],
+  a: readonly number[], b: readonly number[], c: readonly number[], d: readonly number[],
+  reverse = false,
+): void {
+  if (reverse) {
+    pos.push(...a, ...c, ...b, ...a, ...d, ...c);
+  } else {
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+  }
+}
+
 // [z, sheerHalfWidth, chineHalfWidth, keelY, chineY, sheerY]
 // Keel rises to the bow (V entry), dead-flat planing bottom aft, flared sides.
 type HullRow = readonly [number, number, number, number, number, number];
@@ -637,19 +668,197 @@ function buildDeckGeometry(): THREE.BufferGeometry {
  * deck so it hugs the crown exactly (no z-fighting). Graphic separation so
  * the colored deck doesn't read as one flat blob from the chase camera.
  */
-function buildDeckStripeGeometry(): THREE.BufferGeometry {
+function buildDeckStripeGeometry(halfWidth = 0.09, lift = 0.008): THREE.BufferGeometry {
   const stations = HULL_TABLE.filter((row) => row[0] <= 2.3 && row[0] >= 0.0).map((row): LoftStation => {
     const [z, , , , , sy] = row;
     return {
       z,
       pts: [
-        [0.09, sy + DECK_CROWN + 0.008],
-        [-0.09, sy + DECK_CROWN + 0.008],
+        [halfWidth, sy + DECK_CROWN + lift],
+        [-halfWidth, sy + DECK_CROWN + lift],
       ],
     };
   });
   const pos: number[] = [];
   loftInto(pos, stations, false, true); // faces up
+  return flatGeometry(pos);
+}
+
+/** Narrow tubular rub rail following the full sheer, one per hull side. */
+function buildRubRailGeometry(side: 1 | -1): THREE.BufferGeometry {
+  const points = HULL_TABLE.map((row) => new THREE.Vector3(
+    side * (row[1] + 0.025), row[5] + 0.018, row[0],
+  ));
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 36, 0.024, 6, false);
+}
+
+/** Foam livery ribbon embedded in the upper hull side, below the rub rail. */
+function buildSideLiveryGeometry(side: 1 | -1): THREE.BufferGeometry {
+  const rows = HULL_TABLE.filter((row) => row[0] <= 1.8 && row[0] >= -1.8);
+  const pos: number[] = [];
+  const point = (row: HullRow, heightT: number): number[] => {
+    const [, sw, cw, , cy, sy] = row;
+    const y = THREE.MathUtils.lerp(cy, sy, heightT);
+    const x = THREE.MathUtils.lerp(cw, sw, heightT) + 0.012;
+    return [side * x, y, row[0]];
+  };
+  for (let i = 0; i < rows.length - 1; i++) {
+    const a = rows[i];
+    const b = rows[i + 1];
+    pushQuad(pos, point(a, 0.48), point(b, 0.48), point(b, 0.62), point(a, 0.62), side < 0);
+  }
+  return flatGeometry(pos);
+}
+
+interface CockpitStation {
+  z: number;
+  outer: number;
+  inner: number;
+  y: number;
+}
+
+const COCKPIT: readonly CockpitStation[] = [
+  { z: -0.18, outer: 0.43, inner: 0.3, y: 0.695 },
+  { z: -0.52, outer: 0.54, inner: 0.405, y: 0.71 },
+  { z: -1.2, outer: 0.59, inner: 0.45, y: 0.7 },
+  { z: -1.72, outer: 0.54, inner: 0.39, y: 0.69 },
+  { z: -1.94, outer: 0.43, inner: 0.31, y: 0.675 },
+];
+
+/** Sculpted coaming with top lip plus outer and inner vertical faces. */
+function buildCockpitCoamingGeometry(): THREE.BufferGeometry {
+  const pos: number[] = [];
+  for (const side of [1, -1] as const) {
+    for (let i = 0; i < COCKPIT.length - 1; i++) {
+      const a = COCKPIT[i];
+      const b = COCKPIT[i + 1];
+      const outerA = [side * a.outer, a.y, a.z];
+      const outerB = [side * b.outer, b.y, b.z];
+      const innerB = [side * b.inner, b.y + 0.012, b.z];
+      const innerA = [side * a.inner, a.y + 0.012, a.z];
+      pushQuad(pos, outerA, outerB, innerB, innerA, side < 0);
+      pushQuad(pos,
+        [side * a.outer, a.y - 0.075, a.z],
+        [side * b.outer, b.y - 0.075, b.z],
+        outerB, outerA, side < 0);
+      pushQuad(pos, innerA, innerB,
+        [side * b.inner, b.y - 0.105, b.z],
+        [side * a.inner, a.y - 0.105, a.z], side < 0);
+    }
+  }
+  for (const index of [0, COCKPIT.length - 1]) {
+    const station = COCKPIT[index];
+    const reverse = index === 0;
+    pushQuad(pos,
+      [station.outer, station.y, station.z],
+      [-station.outer, station.y, station.z],
+      [-station.inner, station.y + 0.012, station.z],
+      [station.inner, station.y + 0.012, station.z], reverse);
+  }
+  return flatGeometry(pos);
+}
+
+/** Recessed cockpit floor and side walls, shaped to the coaming opening. */
+function buildCockpitTubGeometry(): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const floorY = 0.565;
+  for (let i = 0; i < COCKPIT.length - 1; i++) {
+    const a = COCKPIT[i];
+    const b = COCKPIT[i + 1];
+    pushQuad(pos,
+      [a.inner, floorY, a.z], [b.inner, floorY, b.z],
+      [-b.inner, floorY, b.z], [-a.inner, floorY, a.z]);
+    pushQuad(pos,
+      [a.inner, floorY, a.z], [a.inner, a.y + 0.01, a.z],
+      [b.inner, b.y + 0.01, b.z], [b.inner, floorY, b.z], true);
+    pushQuad(pos,
+      [-a.inner, floorY, a.z], [-b.inner, floorY, b.z],
+      [-b.inner, b.y + 0.01, b.z], [-a.inner, a.y + 0.01, a.z], true);
+  }
+  return flatGeometry(pos);
+}
+
+function ovalStation(z: number, halfWidth: number, centerY: number, halfHeight: number): LoftStation {
+  const pts: Profile = [];
+  for (let i = 0; i < 10; i++) {
+    const angle = i / 10 * Math.PI * 2;
+    pts.push([Math.cos(angle) * halfWidth, centerY + Math.sin(angle) * halfHeight]);
+  }
+  return { z, pts };
+}
+
+/** Low integrated engine cowl that replaces the old floating seat box. */
+function buildTailCowlGeometry(): THREE.BufferGeometry {
+  const stations = [
+    ovalStation(-1.68, 0.3, 0.655, 0.09),
+    ovalStation(-1.92, 0.42, 0.665, 0.12),
+    ovalStation(-2.22, 0.39, 0.63, 0.095),
+    ovalStation(-2.42, 0.25, 0.595, 0.055),
+  ];
+  const pos: number[] = [];
+  loftInto(pos, stations, true, false);
+  const cap = (station: LoftStation): number[][] => station.pts.map(([x, y]) => [x, y, station.z]);
+  pushCap(pos, cap(stations[0]), true);
+  pushCap(pos, cap(stations[stations.length - 1]), false);
+  return flatGeometry(pos);
+}
+
+function prismFromPlan(
+  plan: readonly (readonly [number, number])[],
+  bottomY: number,
+  topY: number,
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const bottom = plan.map(([x, z]) => [x, bottomY, z]);
+  const top = plan.map(([x, z]) => [x, topY, z]);
+  pushCap(pos, bottom, true);
+  pushCap(pos, top, false);
+  for (let i = 0; i < plan.length; i++) {
+    const next = (i + 1) % plan.length;
+    pushQuad(pos, bottom[i], bottom[next], top[next], top[i]);
+  }
+  return flatGeometry(pos);
+}
+
+/** Split carbon hydrofoil: the center cut-out keeps it from reading as a bumper. */
+function buildRearWingGeometry(): THREE.BufferGeometry {
+  return mergeFlatGeometryParts([
+    prismFromPlan([[-0.66, -2.16], [-0.055, -2.18], [-0.13, -2.43], [-0.53, -2.48]], 0.775, 0.825),
+    prismFromPlan([[0.055, -2.18], [0.66, -2.16], [0.53, -2.48], [0.13, -2.43]], 0.775, 0.825),
+  ]);
+}
+
+/** Racer-color leading edge laid over the split carbon foil. */
+function buildRearWingAccentGeometry(): THREE.BufferGeometry {
+  return mergeFlatGeometryParts([
+    prismFromPlan([[-0.625, -2.158], [-0.065, -2.178], [-0.083, -2.225], [-0.6, -2.208]], 0.826, 0.842),
+    prismFromPlan([[0.065, -2.178], [0.625, -2.158], [0.6, -2.208], [0.083, -2.225]], 0.826, 0.842),
+  ]);
+}
+
+/** Curved-looking faceted wind deflector with a swept top edge. */
+function buildWindscreenGeometry(): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const a = [-0.44, 0.705, -0.19];
+  const b = [0.44, 0.705, -0.19];
+  const c = [0.32, 0.895, -0.39];
+  const d = [-0.32, 0.895, -0.39];
+  pushQuad(pos, a, b, c, d);
+  pushQuad(pos, d, c, b, a);
+  return flatGeometry(pos);
+}
+
+/** Two flush extractor panels on the aft shoulders of the deck. */
+function buildAftVentGeometry(): THREE.BufferGeometry {
+  const pos: number[] = [];
+  for (const side of [1, -1] as const) {
+    const a = [side * 0.5, 0.662, -1.42];
+    const b = [side * 0.69, 0.635, -1.62];
+    const c = [side * 0.64, 0.63, -1.84];
+    const d = [side * 0.45, 0.657, -1.65];
+    pushQuad(pos, a, b, c, d, side < 0);
+    pushQuad(pos, d, c, b, a, side < 0);
+  }
   return flatGeometry(pos);
 }
 
@@ -724,9 +933,9 @@ function buildBoatVisual(id: number, color: number): {
     specThreshold: 0.6,
   });
   const flightMat = createToonMaterial({
-    color: PALETTE.flightDeep,
+    color: 0x163b68,
     emissive: PALETTE.flight,
-    emissiveIntensity: 0.55,
+    emissiveIntensity: 0.18,
     rimColor: PALETTE.foam,
     rimStrength: 0.7,
   });
@@ -738,69 +947,65 @@ function buildBoatVisual(id: number, color: number): {
     return mesh;
   };
 
-  // hull, deck, sponsons — deck shares the hull color so the racer color
-  // wraps over the top and reads from behind/above at gameplay distance
-  const hull = add(mergeFlatGeometryParts([buildHullGeometry(), buildDeckGeometry()]), hullMat);
-  // sponsons skip the inverted-hull outline: their thin aft tips peek past
-  // the transom against the white wake and the ink shell reads as dangling
-  // dark hooks; the bare hull-colored wedges fair in cleanly
-  add(mergeFlatGeometryParts([buildSponsonGeometry(1), buildSponsonGeometry(-1)]), hullMat)
-    .userData.noOutline = true;
-  const deckStripe = add(buildDeckStripeGeometry(), inkMat);
-  deckStripe.userData.noOutline = true; // painted-on panel line, no ink halo
+  // Five static material batches replace the old collection of cockpit boxes
+  // and one-mesh-per-fastener primitives. More shape, fewer submissions.
+  const shellParts: THREE.BufferGeometry[] = [
+    buildHullGeometry(),
+    buildDeckGeometry(),
+    buildSponsonGeometry(1),
+    buildSponsonGeometry(-1),
+    buildTailCowlGeometry(),
+    buildRearWingAccentGeometry(),
+    transformedPart(new THREE.CylinderGeometry(0.16, 0.12, 0.34, 16), [0, 0.21, -2.56], [Math.PI / 2, 0, 0]),
+    transformedPart(new THREE.BoxGeometry(0.11, 0.24, 0.18), [0.35, 0.67, -2.28], [-0.12, 0, 0.08]),
+    transformedPart(new THREE.BoxGeometry(0.11, 0.24, 0.18), [-0.35, 0.67, -2.28], [-0.12, 0, -0.08]),
+  ];
+  const hull = add(mergeFlatGeometryParts(shellParts), hullMat);
+  hull.name = 'boat-shell-batch';
+  hull.userData.assetClass = 'racing-hydrojet-shell';
 
-  // cockpit: foam coaming ring, ink floor, ink seat + backrest
-  add(new THREE.BoxGeometry(1.2, 0.16, 0.1), foamMat, 0, 0.66, -0.32);
-  add(new THREE.BoxGeometry(1.2, 0.16, 0.1), foamMat, 0, 0.66, -1.88);
-  add(new THREE.BoxGeometry(0.1, 0.16, 1.66), foamMat, 0.55, 0.66, -1.1);
-  add(new THREE.BoxGeometry(0.1, 0.16, 1.66), foamMat, -0.55, 0.66, -1.1);
-  add(new THREE.BoxGeometry(1.02, 0.05, 1.5), inkMat, 0, 0.6, -1.1);
-  add(new THREE.BoxGeometry(0.52, 0.22, 0.5), inkMat, 0, 0.72, -1.58);
-  // low seat cowl — a tall backrest poked up behind the rider's back and
-  // read as a floating dark square from the side
-  add(new THREE.BoxGeometry(0.5, 0.16, 0.14), inkMat, 0, 0.78, -1.84);
+  const safetyParts: THREE.BufferGeometry[] = [
+    transformedPart(buildRubRailGeometry(1)),
+    transformedPart(buildRubRailGeometry(-1)),
+    buildCockpitCoamingGeometry(),
+    buildDeckStripeGeometry(0.115, 0.009),
+    transformedPart(new THREE.CylinderGeometry(0.055, 0.075, 0.43, 14), [0, 0.81, -0.55], [-0.25, 0, 0]),
+    transformedPart(new THREE.CylinderGeometry(0.043, 0.043, 0.16, 12), [0.27, 1.0, -0.65], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.043, 0.043, 0.16, 12), [-0.27, 1.0, -0.65], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.018, 0.018, 0.67, 8), [0, 0.895, -0.385], [0, 0, Math.PI / 2]),
+  ];
+  const safety = add(mergeFlatGeometryParts(safetyParts), foamMat);
+  safety.name = 'boat-safety-trim-batch';
+  safety.userData.assetClass = 'integrated-safety-trim';
 
-  // helm: column leaning toward the rider, handlebar, grips. Curved parts
-  // carry enough segments that the Sobel normal pass only inks real creases.
-  const column = add(new THREE.CylinderGeometry(0.055, 0.075, 0.42, 16), foamMat, 0, 0.8, -0.55);
-  column.rotation.x = -0.25;
-  const bar = add(new THREE.CylinderGeometry(0.03, 0.03, 0.62, 16), inkMat, 0, 1.0, -0.65);
-  bar.rotation.z = Math.PI / 2;
-  const gripL = add(new THREE.CylinderGeometry(0.042, 0.042, 0.15, 12), foamMat, 0.27, 1.0, -0.65);
-  gripL.rotation.z = Math.PI / 2;
-  const gripR = add(new THREE.CylinderGeometry(0.042, 0.042, 0.15, 12), foamMat, -0.27, 1.0, -0.65);
-  gripR.rotation.z = Math.PI / 2;
+  const mechanicalParts: THREE.BufferGeometry[] = [
+    buildCockpitTubGeometry(),
+    buildDeckStripeGeometry(0.024, 0.017),
+    buildAftVentGeometry(),
+    buildRearWingGeometry(),
+    transformedPart(new THREE.CylinderGeometry(0.03, 0.03, 0.62, 14), [0, 1.0, -0.65], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.08, 0.066, 0.11, 16), [0, 0.21, -2.66], [Math.PI / 2, 0, 0]),
+    transformedPart(new THREE.BoxGeometry(0.055, 0.1, 0.35), [0.59, 0.8, -2.33], [-0.04, 0, -0.12]),
+    transformedPart(new THREE.BoxGeometry(0.055, 0.1, 0.35), [-0.59, 0.8, -2.33], [-0.04, 0, 0.12]),
+    transformedPart(new THREE.BoxGeometry(0.42, 0.07, 0.31), [0, 0.605, -1.56], [-0.06, 0, 0]),
+    transformedPart(new THREE.CylinderGeometry(0.013, 0.013, 0.4, 8), [0.61, 0.84, -2.12], [0.08, 0, -0.12]),
+  ];
+  const mechanical = add(mergeFlatGeometryParts(mechanicalParts), inkMat);
+  mechanical.name = 'boat-mechanical-batch';
+  mechanical.userData.assetClass = 'cockpit-and-jet-mechanics';
+  mechanical.userData.noOutline = true;
 
-  // windscreen
-  const screen = add(new THREE.BoxGeometry(0.64, 0.02, 0.3), inkMat, 0, 0.72, -0.16);
-  screen.rotation.x = -0.55;
-
-  // jet pump faired INTO the transom: hull-colored housing, ink outlet
-  // recessed INSIDE the housing silhouette — reads as a nozzle, never a ring
-  // floating against the water
-  const pump = add(new THREE.CylinderGeometry(0.15, 0.12, 0.3, 16), hullMat, 0, 0.2, -2.56);
-  pump.rotation.x = Math.PI / 2;
-  const outlet = add(new THREE.CylinderGeometry(0.075, 0.065, 0.1, 16), inkMat, 0, 0.2, -2.63);
-  outlet.rotation.x = Math.PI / 2;
-  // Anti-grav emitter pads sit under the stern quarters. Their restrained
-  // cyan seam is visible before launch; the transparent thrust cones are
-  // attached after the ink pass so they never receive outlines.
-  for (const side of [-1, 1]) {
-    const emitter = add(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), flightMat, side * 0.68, 0.12, -1.62);
-    emitter.userData.noOutline = true;
-  }
-  // rear wing in HULL color with ink endplates — a white wing hovering over
-  // the stern read as a sail. Struts are chunky and fair into the deck.
-  const wing = add(new THREE.BoxGeometry(1.15, 0.05, 0.34), hullMat, 0, 0.78, -2.42);
-  wing.rotation.x = -0.12;
-  add(new THREE.BoxGeometry(0.06, 0.09, 0.36), inkMat, 0.585, 0.78, -2.42).rotation.x = -0.12;
-  add(new THREE.BoxGeometry(0.06, 0.09, 0.36), inkMat, -0.585, 0.78, -2.42).rotation.x = -0.12;
-  add(new THREE.BoxGeometry(0.11, 0.22, 0.18), hullMat, 0.36, 0.65, -2.42);
-  add(new THREE.BoxGeometry(0.11, 0.22, 0.18), hullMat, -0.36, 0.65, -2.42);
-
-  // antenna — short ink whip, no ball tip, no outline
-  const antenna = add(new THREE.CylinderGeometry(0.014, 0.014, 0.42, 8), inkMat, 0.62, 0.78, -2.2);
-  antenna.userData.noOutline = true;
+  const flightParts: THREE.BufferGeometry[] = [
+    buildWindscreenGeometry(),
+    buildSideLiveryGeometry(1),
+    buildSideLiveryGeometry(-1),
+    transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [0.68, 0.12, -1.62]),
+    transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [-0.68, 0.12, -1.62]),
+  ];
+  const flightHardware = add(mergeFlatGeometryParts(flightParts), flightMat);
+  flightHardware.name = 'boat-flight-hardware-batch';
+  flightHardware.userData.assetClass = 'anti-grav-hardware';
+  flightHardware.userData.noOutline = true;
 
   // racing-number decals on the bow sides (canvas texture; unlit sticker material)
   const decalMat = new THREE.MeshBasicMaterial({
@@ -810,13 +1015,16 @@ function buildBoatVisual(id: number, color: number): {
     polygonOffset: true,
     polygonOffsetFactor: -2,
   });
-  const decalGeo = new THREE.PlaneGeometry(0.9, 0.34);
-  const decalPort = add(decalGeo, decalMat, 0.55, 0.36, 1.5);
-  decalPort.rotation.y = Math.PI / 2 - 0.28; // tracks the bow's plan-view taper
-  decalPort.userData.noOutline = true;
-  const decalStbd = add(decalGeo, decalMat, -0.55, 0.36, 1.5);
-  decalStbd.rotation.y = -(Math.PI / 2 - 0.28);
-  decalStbd.userData.noOutline = true;
+  const decalBatch = add(mergeFlatGeometryParts([
+    transformedPart(new THREE.PlaneGeometry(0.9, 0.34), [0.55, 0.36, 1.5], [0, Math.PI / 2 - 0.28, 0]),
+    transformedPart(new THREE.PlaneGeometry(0.9, 0.34), [-0.55, 0.36, 1.5], [0, -(Math.PI / 2 - 0.28), 0]),
+  ]), decalMat);
+  decalBatch.name = 'boat-number-batch';
+  decalBatch.userData.assetClass = 'paired-number-decals';
+  decalBatch.userData.noOutline = true;
+
+  root.userData.assetClass = 'five-batch-racing-hydrojet';
+  root.userData.staticBatchCount = 5;
 
   // rider attach point at the helm; local +Z = boat forward
   const riderMount = new THREE.Object3D();
