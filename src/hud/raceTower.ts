@@ -163,7 +163,7 @@ export class RaceTower {
     this.enqueue({
       key: 'sol-airbrake-tip',
       speaker: driverSpeaker(sol),
-      meta: 'SOL // 最近摸到门道了',
+      meta: `${sol.name} // 最近摸到门道了`,
       message: '边飞边刹 + 转向，线路才咬得住',
       emphasis: '边飞边刹 + 转向',
       presentation: 'broadcast',

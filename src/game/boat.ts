@@ -341,7 +341,10 @@ function buildDriftBurstVisual(): DriftBurstVisual {
         float visibleAlpha = shell * (0.68 + core * 0.24 + hotCore * 0.08) *
           (0.86 + 0.14 * uStrength) * pulse;
         visibleAlpha += (1.0 - smoothstep(edge, edge + 0.18, radius)) * 0.045;
-        if (visibleAlpha < 0.012) discard;
+        // Keep the pulse in the normal transparent path. Zero-alpha lobes are
+        // still pooled and submitted, but avoid an alpha-test branch that can
+        // disable early fragment tests on mobile GPUs.
+        visibleAlpha *= step(0.012, visibleAlpha);
         gl_FragColor = vec4(color, visibleAlpha);
       }
     `,
@@ -349,7 +352,12 @@ function buildDriftBurstVisual(): DriftBurstVisual {
   const lobes = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, DRIFT_BURST_LOBES);
   lobes.name = 'opponent-drift-pulse-lobes';
   lobes.renderOrder = 10;
-  lobes.frustumCulled = false;
+  // Instance transforms move the pulse several meters behind the stern; the
+  // default unit-plane bounds do not include those transforms.
+  lobes.geometry.computeBoundingSphere();
+  lobes.geometry.boundingSphere!.center.set(0, 0, 0);
+  lobes.geometry.boundingSphere!.radius = 8;
+  lobes.frustumCulled = true;
   lobes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   lobes.layers.enable(LAYER_ENERGY);
   const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -433,10 +441,17 @@ function buildThrustVisual(): ThrustVisual {
   outer.renderOrder = 8;
   core.renderOrder = 9;
   rings.renderOrder = 8;
-  shell.frustumCulled = false;
-  outer.frustumCulled = false;
-  core.frustumCulled = false;
-  rings.frustumCulled = false;
+  // Instanced matrices are local to each boat. Inflate the shared local
+  // bounds once, then let Three reject the whole effect with its owning hull.
+  for (const geometry of [geo, ringGeo]) {
+    geometry.computeBoundingSphere();
+    geometry.boundingSphere!.center.set(0, 0, 0);
+    geometry.boundingSphere!.radius = 6;
+  }
+  shell.frustumCulled = true;
+  outer.frustumCulled = true;
+  core.frustumCulled = true;
+  rings.frustumCulled = true;
   shell.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   outer.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   core.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

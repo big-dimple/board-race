@@ -399,8 +399,8 @@ export interface CourseGuidanceStatus {
   /** Turn arrows currently aligning the boat before an authored launch. */
   surfaceGuideLaunchTurnArrowCount: number;
   surfaceGuideTurnChevronCount: number;
-  /** Shared cel-shaded material contract for every airborne branch and recovery tail. */
-  flightGuideStyle: 'cel-virtual-corridor';
+  /** Shared neutral mist material contract for every airborne branch and recovery tail. */
+  flightGuideStyle: 'white-mist-corridor';
   flightGuidePanelAlpha: number;
   flightGuidePanelBeatAlpha: number;
   flightGuideCenterAlpha: number;

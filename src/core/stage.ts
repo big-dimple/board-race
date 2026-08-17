@@ -82,6 +82,10 @@ export class Stage {
     });
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.autoClear = true;
+    // Keep opaque batches front-to-back so the browser/GPU can reject hidden
+    // fragments before running their material shader. Transparent route and
+    // effect layers keep their authored render order below.
+    this.renderer.sortObjects = true;
     this.renderer.info.autoReset = false;
     this.renderer.setPixelRatio(1);
     container.appendChild(this.renderer.domElement);
@@ -207,6 +211,7 @@ export class Stage {
     return {
       calls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
+      sortObjects: this.renderer.sortObjects ? 1 : 0,
       frameMs: this.frameEma,
       pixelRatio: this.pixelRatio,
       drawingPixels: Math.floor(w * this.pixelRatio) * Math.floor(h * this.pixelRatio),

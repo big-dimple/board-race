@@ -420,7 +420,11 @@ export function buildSkinnedRider(
   material.uniforms.uShadowFloor.value.setHex(0x292348, THREE.NoColorSpace);
   const mesh = new THREE.SkinnedMesh(result.geometry, material);
   mesh.name = 'rider-skinned-shell';
-  mesh.frustumCulled = false;
+  // Bone poses stay inside this conservative local sphere. Keeping culling
+  // enabled removes off-camera riders without replacing the real skinned mesh.
+  result.geometry.boundingSphere!.center.set(0, 0, 0);
+  result.geometry.boundingSphere!.radius = Math.max(result.geometry.boundingSphere!.radius, 4);
+  mesh.frustumCulled = true;
   mesh.userData.assetClass = 'batched-skinned-rider';
   mesh.userData.boneCount = bones.length;
   mesh.userData.paletteRoleCount = 8;

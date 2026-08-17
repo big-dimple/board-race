@@ -2,7 +2,7 @@
 
 状态：`current / handoff-ready`
 
-更新时间：2026-08-17
+更新时间：2026-08-18
 
 这份文档只回答“现在做到哪里、接下来还能做什么、哪些事情不要重复踩坑”。稳定的
 玩法和代码契约见 [`llmwiki.md`](llmwiki.md)；玩家说明见 [`../README.md`](../README.md)。
@@ -21,8 +21,8 @@
 
 - 三飞勋章、七飞 Final Station、冻结结算和资料片画廊壳已经完成。
 - Final 只在第七门正式计分后解除水面路线失败；此前的门、空中通道和水面逆行判定仍有效。
-- 青色空中航道、绿色水面主线、门后 recovery tail 和第四至第五飞的急弯提示已形成单一路线视觉合同。
-- 七条空中航道已删除入口前不参与玩法的青色“预先云桥”：绿色水面线交到升空菱形，青色
+- 中性白雾空中航道、绿色水面主线、门后 recovery tail 和第四至第五飞的急弯提示已形成单一路线视觉合同。
+- 七条空中航道已删除入口前不参与玩法的白雾“预先云桥”：绿色水面线交到升空菱形，白雾
   corridor 只从真实 `entryU` 起画；第四飞提前部署、保留库存早起飞和原判定窗口均未改。
 - 飞行库存上限为五格，桌面、艇边和手机读数共用一个上限合同；起飞消耗一格，但一飞仍
   最多只允许一次空中续航。满仓后的合格漂移仍正常兑现水面 BOOST。
@@ -49,6 +49,8 @@
   嵌入式泵喷、分体碳纤水翼和舷侧速度线不再按零件逐个提交。车手重制为一个顶点调色
   `SkinnedMesh`，16 根骨骼保留原有转向受力、漂移、腾空、落地和庆祝动作；低画质对手也
   使用同一真实人形参与画面和遮挡，不再换成胶囊粗代理。
+- 选手的玩家可见名称已统一为 `GLM`、`ChatGPT`、`Gemini`、`Kimi`、`Claude`、`DeepSeek`；
+  旧的内部 ID 和资源文件名保持不变，仅用于存档、资产兼容和行为配置。
 - 文档职责已经拆分：README 面向人，`llmwiki` 面向 AI 稳定契约，本文件面向当前开发交接。
 
 ## 未完成与暂缓
@@ -95,15 +97,43 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 - `npm run build`、`npm run verify:flight`、`npm run verify:mobile`、`npm run verify:systems`、
   `npm run verify:collision`、`npm run verify:audio` 和 `npm run verify:performance` 分项通过；
   build 只有既有的单包体积警告。
+- `ready`、`start`、`radio-technique`、`final-rival-portal` 及移动端 `start` / `radio-technique`
+  截图已人工复核；名次榜和浮动电台均显示新选手名称。
 - flight 合同实赚五格、验证第六次不溢出但仍兑现 BOOST、满仓起飞只扣一格，并在仍余
   三格时拒绝同一飞第二次续航；桌面和手机库存读数都锁定到真实状态。
 - systems 合同模拟了原生分享退出 fullscreen、关闭手势首次恢复被拒，以及下一次真实
   漂移触摸成功重试；预览期间移动操作区不可见且不再遮挡分享。
-- `SHOT_PORT=5234 npm run shot -- flight-route4-prepare flight-route4-approach flight-route5-prepare flight-route5-launch`：
-  四个定向场景通过；已人工复核绿色水面线、三枚升空菱形与真实 `entryU` 青色航道的交接，
-  并确认飞行中 `x1` 只亮一枚库存，不再把五枚空格全部点亮。
+- `SHOT_PORT=5234 npm run shot -- ready start vehicle-three-quarter rider rider-side water wake-close opponent-drift boost-burst flight-ready flight-cruise flight-route4-prepare flight-route4-approach flight-route5-prepare flight-route5-launch flight-route5-turn flight-route5-counter flight-route6-prepare flight-route6-turn flight-route7-cruise final-station final-rival-portal`：
+  桌面道具、船体、车手、海面、尾迹、对手脉冲、白雾航道和 Final 定向场景均已生成并逐张人工复核；
+  另以 `--mobile` 复核船体、车手、海面、第四飞入口、第五飞转弯和 Final。未发现安全剔除漏画，
+  白雾保持白色结构且不覆盖海面动作信息，飞行中 `x1` 只亮一枚库存。
 - performance 仍为 Auto `1,997,196 px / 327 calls`；五批赛艇、16 骨单网格车手、真实
   预通道和 `600` draw-call 红线均未回归。
+
+### meishu.md 全局性能执行细则
+
+这次性能调整覆盖整个美术资源与渲染链，不只覆盖航道。当前可落地项和边界如下：
+
+- **已实施：渲染管线基线。** `Stage` 明确开启 Three.js 不透明对象排序；所有可避免的引导
+  ribbon、路线箭头和对手脉冲 `discard` 已改为零透明度分支，保留硬 alpha cutout 喷雾，
+  因为它依赖纹理轮廓且改成透明混合会增加 overdraw。
+- **已实施：局部视锥剔除。** 赛艇脉冲、喷射实例和全局粒子等动态对象不共享错误的单位包围球；
+  局部实例与车手使用保守包围球重新开启 culling。跨全场的海面、尾迹和水面主线仍保持不剔除，
+  因为它们是相机跟随或世界空间环形缓冲，强行剔除会漏画。
+- **已实施且验证：资源批次。** 赛艇静态部分维持五个材质批次，车手维持一个 16 骨骼
+  `SkinnedMesh`，水面箭头、回收箭头、喷雾、尾迹、JetTrail 和对手脉冲维持实例化 / TypedArray
+  池；独立动画、蒙皮、生命周期和碰撞所有权没有被合并。
+- **已实施：航道材质归一。** 空中 branch 改为 `white-mist-corridor`，中性白雾主体、白色流线
+  和墨边保留空间信息，黄色只用于急弯 action marker；不再叠加蓝绿色平板来制造“青色”印象。
+- **当前不适用：VAT。** 车手姿态由固定步进物理弹簧驱动，现有 GPU skinning 已经是一人一批；
+  VAT 会切断实时姿态和碰撞反馈，且当前没有可烘焙的外部动画纹理资产，暂不引入。
+- **当前不适用：ASTC / 通道打包。** 现有资源是浏览器直接解码的 WebP / Canvas 纹理，空中与海面
+  材质没有法线 / Ramp / 多通道贴图采样链；引入 KTX2/ASTC 解码器或伪造通道图会增加加载与兼容
+  风险，当前性能瓶颈证据不支持这项改造。
+- **当前不适用：Worker 化。** fixed-step、输入边沿、碰撞反馈和 AI 路线采样是同一帧合同，拆到
+  Worker 会引入同步延迟和第二份状态真相；现有 Float32Array 与对象池已覆盖主线程 GC 风险。
+
+以上结论以代码、截图和 `verify:performance` 的同一份证据为准，不把未采用的方案写成已完成。
 
 ## 接手顺序
 

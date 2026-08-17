@@ -97,7 +97,7 @@ automatically; players steer, drift/air-brake, and trigger flight.
   real rival pixels in the player's chase camera.
   Race radio is one prioritized slot and yields to action guidance. Routine passes
   and light contact stay silent; heavy personality reactions are capped per run.
-  SOL's unmastered air-brake technique is a once-per-run desktop broadcast and a
+  Gemini's unmastered air-brake technique is a once-per-run desktop broadcast and a
   mobile race-slot message, with its reading clock paused by higher-priority play.
 - iPhone browser play remains capability-detected rather than fake-fullscreen.
   Active game controls suppress Safari page-pinch defaults without releasing
@@ -113,11 +113,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   remains eligible for the next real game-control touch.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. Water contact is not a visual ownership edge: the same
-  cyan virtual recovery tail remains visible before and after contact. It keeps
+  neutral mist recovery tail remains visible before and after contact. It keeps
   authored aerial height while airborne, then settles onto the swell without
   turning into the green surface route. An accepted next takeoff from retained
   inventory is the only pre-handoff override: it atomically retires the old
-  presentation owner and launch marker, then gives the sole cyan branch to the
+  presentation owner and launch marker, then gives the sole mist branch to the
   new flight. Neither path may snap the boat, clear horizontal momentum,
   preload a surface warning, or show more than one flight branch.
 - Normal water contact atomically hands a held contextual air-brake to surface
@@ -137,8 +137,8 @@ automatically; players steer, drift/air-brake, and trigger flight.
   Each launch entrance traces a curved three-diamond ascent vector from the
   surface tangent toward the first airborne decision; authored turns add two
   directional posture chevrons. The green guide reaches the launch cue, those
-  diamonds own the handoff, and every cyan corridor begins exactly at its authored
-  `entryU`; do not restore a pre-entry cyan surface or cloud bridge. Flight branches retain a translucent cyan
+  diamonds own the handoff, and every mist corridor begins exactly at its authored
+  `entryU`; do not restore a pre-entry mist surface or cloud bridge. Flight branches retain a neutral white-mist
   treatment with explicit panel, edge, and flow contrast floors through the
   scoring portal and recovery; flight five uses three entry-turn buoy signs and
   two opposite exit-correction signs as secondary landmarks.

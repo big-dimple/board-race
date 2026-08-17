@@ -99,7 +99,7 @@ void main() {
   float streak = thin * dash * edgeMask * windAmount;
   vec3 windColor = mix(vec3(0.18, 0.82, 1.0), vec3(0.48, 1.0, 0.05), clamp(uBoost * 1.2, 0.0, 1.0));
 
-  // Air braking cuts transverse cyan blades across the tunnel, making the
+  // Air braking cuts transverse blue-white blades across the tunnel, making the
   // handling change visible before the player reads the HUD.
   float brakeBands = smoothstep(0.08, 0.0, abs(fract((p.y + p.x * 0.18) * 9.0 - uTime * 7.0) - 0.5));
   brakeBands *= smoothstep(0.42, 0.72, abs(p.x)) * uAirBrake * motion;

@@ -294,7 +294,7 @@ export class DrivingCoach {
       return {
         id: 'air-brake', focus: 'drift-control', stage: '空中转向', control: controls.drift,
         kicker: '急弯 · AIR BRAKE',
-        title: `按住 ${controls.drift} 空刹`, detail: `${controls.steer} 对准青线 · 穿过两杆`, tone: 'warning',
+        title: `按住 ${controls.drift} 空刹`, detail: `${controls.steer} 对准白雾航道 · 穿过两杆`, tone: 'warning',
       };
     }
     if (frame.presentationBlocked) return null;
@@ -353,8 +353,8 @@ export class DrivingCoach {
     if (!this.progress.mastery.launched && state.flightCharges > 0 && frame.launchCueActive && state.flightPhase === 'surface') {
       return {
         id: 'launch', focus: 'flight-control', stage: '起飞', control: controls.flight,
-        kicker: '青色飞行分支已展开', title: `按 ${controls.flight} 起飞`,
-        detail: '消耗 1 格 · 沿青线穿过两杆', tone: 'flight',
+        kicker: '白雾飞行分支已展开', title: `按 ${controls.flight} 起飞`,
+        detail: '消耗 1 格 · 沿白雾航道穿过两杆', tone: 'flight',
       };
     }
     if (state.flightPhase === 'cruise' && state.flightsCleared === 0 && this.flightGaugeTimer > 0) {

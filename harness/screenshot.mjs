@@ -194,9 +194,15 @@ async function verifySurfaceGuideVisualContract(page) {
     'the outline must be geometry-backed rather than a blurred glow');
   assert.match(visual.inkFragmentShader, /vec3 color = uInk/,
     'the arrow outline must use the shared ink palette');
-  assert.match(visual.ribbonFragmentShader, /vS >= uLaunchGateS && vS <= uLaunchGateEndS/,
+  assert.doesNotMatch(visual.ribbonFragmentShader, /\bdiscard\b/,
+    'surface guide masking must use zero alpha instead of fragment discard');
+  assert.match(visual.ribbonFragmentShader, /float visible = 1\.0/,
+    'surface guide masking must expose its zero-alpha visibility path');
+  assert.match(visual.ribbonFragmentShader, /step\(uLaunchGateS, vS\) \* step\(vS, uLaunchGateEndS\)/,
     'the launch aperture must own one continuous surface-guide cut through the flight exit');
-  assert.match(visual.arrowFragmentShader, /vS >= uLaunchGateS && vS <= uLaunchGateEndS/,
+  assert.doesNotMatch(visual.arrowFragmentShader, /\bdiscard\b/,
+    'surface guide arrow masking must avoid fragment discard');
+  assert.match(visual.arrowFragmentShader, /step\(uLaunchGateS, vS\) \* step\(vS, uLaunchGateEndS\)/,
     'surface arrows must use the same continuous launch ownership as the route veil');
 
   const launchGateTopology = await page.evaluate(() => Array.from({ length: 7 }, (_, routeIndex) => {
@@ -466,9 +472,9 @@ async function verifySurfaceGuideVisualContract(page) {
     assert.equal(beat.ribbonVisible, true);
     assert.equal(beat.arrowVisible, true);
     assert.equal(beat.recoveryColor, beat.flightColor,
-      'a certified flight must stay cyan until the branch hands off');
+      'a certified flight must stay in the neutral mist branch until handoff');
     assert.equal(beat.arrowColor, beat.flightColor,
-      'recovery direction markers must remain part of the cyan flight branch');
+      'recovery direction markers must remain part of the neutral mist flight branch');
     assert.match(beat.arrowShader, /fract\(uTime \* 0\.65 - vPhase\)/,
       'recovery arrows must share the moving phase rhythm used by the surface route');
   }
@@ -477,7 +483,7 @@ async function verifySurfaceGuideVisualContract(page) {
   assert.ok(airRecovery.recoverySurfaceBlend < 0.05 && airRecovery.arrowSurfaceBlend < 0.05,
     `the airborne recovery must keep its authored flight height: ${JSON.stringify(airRecovery)}`);
   assert.ok(surfaceRecovery.recoverySurfaceBlend > 0.2 && surfaceRecovery.arrowSurfaceBlend > 0.2,
-    `the same cyan recovery may settle onto the swell only after contact: ${JSON.stringify(surfaceRecovery)}`);
+    `the same mist recovery may settle onto the swell only after contact: ${JSON.stringify(surfaceRecovery)}`);
   assert.equal(airRecovery.ribbonShader, surfaceRecovery.ribbonShader,
     'the third-flight route must keep one material language across water contact');
 
@@ -654,6 +660,8 @@ async function verifyWakeMaterialContract(page) {
     assert.match(wake.fragmentShader, /float center =/);
     assert.match(wake.fragmentShader, /float shoulderBreak =/);
     assert.match(wake.fragmentShader, /float bodyAlpha =/);
+    assert.doesNotMatch(wake.fragmentShader, /\bdiscard\b/,
+      'wake masking must stay on the zero-alpha path for early depth tests');
     assert.doesNotMatch(wake.fragmentShader, /hash12|uGapW|uGapL|floor\(vAlong|railCenter|shoulderHalo/,
       'wake foam must not regress to hash-cell or stamped-bar breakup');
     assert.ok(wake.life >= 4.8 && wake.life <= 5.6,
@@ -754,7 +762,7 @@ async function verifyFlightGuideVisualContract(page) {
       exists: Boolean(ribbon?.isMesh),
       style: ribbon?.userData?.guideStyle ?? 'missing',
       deep: material?.uniforms?.uFlightDeep?.value?.getHex?.() ?? -1,
-      cyan: material?.uniforms?.uFlight?.value?.getHex?.() ?? -1,
+      mist: material?.uniforms?.uFlight?.value?.getHex?.() ?? -1,
       panel: material?.uniforms?.uPanelAlpha?.value ?? -1,
       panelBeat: material?.uniforms?.uPanelBeatAlpha?.value ?? -1,
       center: material?.uniforms?.uCenterAlpha?.value ?? -1,
@@ -775,17 +783,19 @@ async function verifyFlightGuideVisualContract(page) {
   assert.equal(materialContract.length, 7);
   for (const route of materialContract) {
     assert.equal(route.exists, true, `flight ${route.route} needs a rendered corridor mesh`);
-    assert.equal(route.style, 'cel-virtual-corridor');
+    assert.equal(route.style, 'white-mist-corridor');
     assert.ok(Math.abs(route.visualStartU - route.authoredEntryU) <= 1e-6,
-      `flight ${route.route} corridor must start at its real entry, with no pre-entry cyan bridge: ${JSON.stringify(route)}`);
-    assert.notEqual(route.deep, route.cyan,
-      `flight ${route.route} must separate its deep panel from cyan structure`);
-    assert.ok(route.panel >= 0.165 && route.panel <= 0.18 &&
-      route.panelBeat >= 0.08 && route.panelBeat <= 0.09 &&
-      route.center >= 0.085 && route.center <= 0.1 &&
-      route.edge >= 0.4 && route.edge <= 0.45 &&
-      route.flow >= 0.6 && route.flow <= 0.65,
-    `flight ${route.route} needs the readable translucent hierarchy: ${JSON.stringify(route)}`);
+      `flight ${route.route} corridor must start at its real entry, with no pre-entry mist bridge: ${JSON.stringify(route)}`);
+    assert.equal(route.mist, 0xffffff,
+      `flight ${route.route} must use neutral white mist, not a second blue-green slab`);
+    assert.equal(route.deep, 0xe8e8e8,
+      `flight ${route.route} must use the neutral mist shade for its panel`);
+    assert.ok(route.panel >= 0.09 && route.panel <= 0.1 &&
+      route.panelBeat >= 0.035 && route.panelBeat <= 0.045 &&
+      route.center >= 0.04 && route.center <= 0.05 &&
+      route.edge >= 0.32 && route.edge <= 0.36 &&
+      route.flow >= 0.52 && route.flow <= 0.56,
+    `flight ${route.route} needs the readable neutral mist hierarchy: ${JSON.stringify(route)}`);
     assert.deepEqual({
       farStart:route.farStart,
       farEnd:route.farEnd,
@@ -807,6 +817,10 @@ async function verifyFlightGuideVisualContract(page) {
       `flight ${route.route} must keep its lines screen-readable at distance`);
     assert.match(route.fragmentShader, /float packetHead =/,
       `flight ${route.route} needs a directional head and fading tail`);
+    assert.doesNotMatch(route.fragmentShader, /\bdiscard\b/,
+      `flight ${route.route} must stay on the early-test-friendly alpha path`);
+    assert.match(route.fragmentShader, /vec3 edgeColor = uFlight/,
+      `flight ${route.route} edge flow must remain neutral instead of mixing blue-green uniforms`);
     assert.match(route.fragmentShader, /float recoveryEdge =/,
       `flight ${route.route} recovery must retain the same cel edge hierarchy`);
   }
@@ -1779,7 +1793,7 @@ async function verifyFlightContract(page) {
   if (state.flightRouteFailReason === 'corridor') {
     await page.evaluate(() => window.__harness.advance(0.6));
     assert.match(await page.locator('.hud-lesson-metric').textContent() ?? '', /悬空通道偏离/,
-      'aerial corridor review must identify the cyan flight channel');
+      'aerial corridor review must identify the neutral mist flight channel');
   }
 
   await page.evaluate(() => window.__harness.scenario('flight-landing-failure'));
@@ -1855,13 +1869,13 @@ async function verifyFlightContract(page) {
   assert.equal(routeFourLaunch.corridorVisible, true,
     'the airborne route must already be visible while the early fourth-flight cue is actionable');
   assert.ok(Math.abs(routeFourLaunch.corridorVisualStartU - 0.515) <= 1e-6,
-    `the fourth cyan route must begin at its real airborne entry: ${JSON.stringify(routeFourLaunch)}`);
+    `the fourth mist route must begin at its real airborne entry: ${JSON.stringify(routeFourLaunch)}`);
   assert.ok(routeFourLaunch.corridorVisualStartU > routeFourLaunch.cueU,
     `the rising launch diamonds must bridge the surface cue to the real corridor: ${JSON.stringify(routeFourLaunch)}`);
   assert.equal(routeFourLaunch.corridorVisualStartU, routeFourLaunch.corridorAuthoredEntryU,
-    `flight four must not retain a misleading pre-entry cyan face: ${JSON.stringify(routeFourLaunch)}`);
+    `flight four must not retain a misleading pre-entry mist face: ${JSON.stringify(routeFourLaunch)}`);
   assert.ok(routeFourLaunch.corridorTurnTintMax > 0 && routeFourLaunch.corridorTurnTintMax <= 0.15,
-    `warm turn emphasis must stay on chevrons instead of recoloring the cyan corridor: ${JSON.stringify(routeFourLaunch)}`);
+    `warm turn emphasis must stay on chevrons instead of recoloring the mist corridor: ${JSON.stringify(routeFourLaunch)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-route4-approach'));
   routeGuidance = await page.evaluate(() => window.__harness.guidance());
@@ -1981,10 +1995,14 @@ async function verifyFlightContract(page) {
     'right-facing posture chevrons must mirror local +X toward starboard');
   assert.ok(unarmedLaunchGate.postureDirectionDots.every((dot) => dot > 0.9),
     `the two upper beats must point toward the actual right side of their ascent vector: ${JSON.stringify(unarmedLaunchGate)}`);
-  assert.ok(unarmedLaunchGate.corridorAlpha.panel >= 0.165 &&
-    unarmedLaunchGate.corridorAlpha.center >= 0.085 &&
-    unarmedLaunchGate.corridorAlpha.edge >= 0.4 &&
-    unarmedLaunchGate.corridorAlpha.flow >= 0.6,
+  assert.ok(unarmedLaunchGate.corridorAlpha.panel >= 0.09 &&
+    unarmedLaunchGate.corridorAlpha.panel <= 0.1 &&
+    unarmedLaunchGate.corridorAlpha.center >= 0.04 &&
+    unarmedLaunchGate.corridorAlpha.center <= 0.05 &&
+    unarmedLaunchGate.corridorAlpha.edge >= 0.32 &&
+    unarmedLaunchGate.corridorAlpha.edge <= 0.36 &&
+    unarmedLaunchGate.corridorAlpha.flow >= 0.52 &&
+    unarmedLaunchGate.corridorAlpha.flow <= 0.56,
     `the airborne corridor must stay translucent but readable: ${JSON.stringify(unarmedLaunchGate)}`);
   assert.equal(unarmedLaunchGate.allEnergyDepthIndependent, true,
     'the virtual ascent aperture must survive wave occlusion without changing collision geometry');
@@ -2011,7 +2029,7 @@ async function verifyFlightContract(page) {
   assert.equal(routeGuidance.actionCue, 'launch');
   assert.equal(routeGuidance.actionRouteIndex, 4);
   assert.equal(routeGuidance.actionMarkerCount, 3,
-    'a stored charge must transfer emphasis to all three cyan launch diamonds');
+    'a stored charge must transfer emphasis to all three mist launch diamonds');
   assert.equal(routeGuidance.launchGateState, 'armed');
   assert.equal(routeGuidance.launchGateRouteIndex, 4);
   assert.equal(routeGuidance.launchGateDiamondCount, 3);
@@ -3970,6 +3988,11 @@ async function assertVehicleAssetContract(page) {
       skinnedOutline: outline?.isSkinnedMesh === true,
       rivalUsesRealSkinInPrepass: rivalRider.isSkinnedMesh === true &&
         (rivalRider.layers.mask & 1) !== 0 && (rivalRider.layers.mask & (1 << 1)) !== 0,
+      riderFrustumCulled: rider.frustumCulled === true,
+      thrustEffectsCulled: ['thrust-shell', 'thrust-outer', 'thrust-core', 'thrust-flow-rings']
+        .every((name) => player.getObjectByName(name)?.frustumCulled === true),
+      driftPulseCulled: player.getObjectByName('opponent-drift-burst') === null ||
+        player.getObjectByName('opponent-drift-burst')?.getObjectByName('opponent-drift-pulse-lobes')?.frustumCulled === true,
     };
   });
   assert.ok(asset && asset.hullClass === 'five-batch-racing-hydrojet' &&
@@ -3979,7 +4002,8 @@ async function assertVehicleAssetContract(page) {
     asset.riderBones === 16 && asset.positionVertices >= 1800 &&
     asset.skinIndexVertices === asset.positionVertices && asset.colorVertices === asset.positionVertices &&
     asset.blendedVertices >= 300 && asset.vertexColors && asset.skinnedOutline &&
-    asset.rivalUsesRealSkinInPrepass,
+    asset.rivalUsesRealSkinInPrepass && asset.riderFrustumCulled &&
+    asset.thrustEffectsCulled && asset.driftPulseCulled,
   `rider must remain one palette-skinned articulated mesh at every quality: ${JSON.stringify(asset)}`);
 }
 
@@ -3987,6 +4011,7 @@ async function verifyPerformanceContract(page) {
   const assertBudget = async (label) => {
     const stats = await page.evaluate(() => window.__harness.stats());
     assert.equal(stats.quality, 'auto');
+    assert.equal(stats.sortObjects, 1, 'opaque renderables must stay front-to-back sortable');
     assert.ok(stats.drawingPixels <= 2_120_000,
       `${label} drawing buffer exceeds Auto budget: ${stats.drawingPixels}`);
     assert.ok(stats.pixelRatio >= 0.5 && stats.pixelRatio <= 1.25,
@@ -4664,15 +4689,22 @@ async function main() {
             instances: lobes?.count ?? -1,
             depthTest: lobes?.material?.depthTest ?? null,
             energyLayer: Boolean((lobes?.layers?.mask ?? 0) & (1 << 2)),
+            fragmentShader: lobes?.material?.fragmentShader ?? '',
           };
         }, chainRole);
-        assert.deepEqual(burstContract, {
+        assert.deepEqual({
+          ...burstContract,
+          fragmentShader: undefined,
+        }, {
           childCount: 1,
           instanced: true,
           instances: 12,
           depthTest: true,
           energyLayer: true,
+          fragmentShader: undefined,
         }, `drift release must stay one depth-aware instanced energy draw: ${JSON.stringify(burstContract)}`);
+        assert.doesNotMatch(burstContract.fragmentShader, /\bdiscard\b/,
+          'drift pulse must stay on the pooled transparent alpha path');
         const burstPixels = await page.evaluate((role) => {
           const h = window.__harness;
           const canvas = document.querySelector('#app > canvas');

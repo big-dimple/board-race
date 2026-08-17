@@ -117,13 +117,13 @@ export class PcControlPrimer {
       progress: 1, ready: true,
     };
     if (this.current === 'launch') return {
-      step: 'launch', key: 'SPACE', kicker: '青色入口出现',
+      step: 'launch', key: 'SPACE', kicker: '白雾入口出现',
       title: '按 SPACE 起飞', detail: '消耗 1 格 ◇ · 对准两杆中间', tone: 'flight',
       progress: 1, ready: true,
     };
     if (this.current === 'success') return {
       step: 'success', key: '✓', kicker: 'FLIGHT ACCEPTED',
-      title: '起飞成功', detail: '沿青线穿过两杆', tone: 'success',
+      title: '起飞成功', detail: '沿白雾航道穿过两杆', tone: 'success',
       progress: 1, ready: true,
     };
     if (state.driftReleaseReady) {

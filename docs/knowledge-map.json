@@ -11,7 +11,7 @@
     {
       "id": "technical-contracts",
       "authority": "docs/llmwiki.md",
-      "summaries": ["README.md"],
+      "summaries": ["README.md", "docs/development-handoff.md"],
       "verifier": "npm run verify:release",
       "status": "current"
     },

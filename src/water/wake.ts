@@ -13,7 +13,7 @@
  *  - silhouette = one broad aerated stern wash; broken Kelvin shoulders peel
  *    away as secondary detail instead of becoming two continuous rails
  *  - interior variation is a continuous low-frequency flow field; no cell
- *    discard, pixel mosaic, or stamped tread bars are allowed in the foam
+ *    kill, pixel mosaic, or stamped tread bars are allowed in the foam
  *  - a live Gerstner normal is blended with broad shoulder ripples so the
  *    white water carries one coherent soft highlight instead of flat rails
  *  - dissipation is a smooth distance/freshness envelope, preserving a
@@ -111,17 +111,16 @@ varying vec3 vWorldPos;
 ${WAVES_GLSL}
 
 void main() {
-  // emission off (airborne / dead slot): no foam at all
-  if (vIntensity < 0.03) discard;
-
   float lat = abs(vLat);
   float f = vAgeF;
+  float emitted = step(0.03, vIntensity);
+  float farField = step(180.0, vDist);
+  float farVisible = 1.0 - farField * step(0.45, lat);
 
   // far field: one flat center band, no pattern — kills ribbon shimmer
-  if (vDist > 180.0) {
-    if (lat > 0.45) discard;
+  if (farField > 0.5) {
     float af = (f < 0.5 ? 0.5 : 0.25) * mix(0.78, 1.0, uVisualScale);
-    gl_FragColor = vec4(uColorFoam, af);
+    gl_FragColor = vec4(uColorFoam, af * emitted * farVisible);
     #include <colorspace_fragment>
     return;
   }
@@ -165,7 +164,6 @@ void main() {
   float body = center * centerFade * churn;
   float coverage = max(body, max(shoulder, contact));
   float coverageMask = smoothstep(0.12, 0.32, coverage);
-  if (coverageMask < 0.01) discard;
 
   float ageFade = (1.0 - smoothstep(64.0, 142.0, vBehind)) *
     (1.0 - smoothstep(0.62, 1.0, f));
@@ -193,7 +191,7 @@ void main() {
   float bodyAlpha = body * (0.29 + 0.32 * freshness + 0.11 * ndl) + innerFroth * 0.1;
   float crestAlpha = shoulder * (0.03 + 0.05 * freshness + 0.02 * ndl + 0.015 * specular);
   float contactAlpha = contact * (0.16 + 0.18 * freshness + 0.08 * ndl);
-  float a = (bodyAlpha + crestAlpha + contactAlpha) * ageFade * coverageMask;
+  float a = (bodyAlpha + crestAlpha + contactAlpha) * ageFade * coverageMask * emitted;
   a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.78, 1.0, uVisualScale);
   gl_FragColor = vec4(col, a);
   #include <colorspace_fragment>

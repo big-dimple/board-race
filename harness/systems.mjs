@@ -396,8 +396,9 @@ try {
   assert.equal(new Set(portraits.map((portrait) => portrait.src)).size, 6, 'every local driver portrait must decode distinctly');
   assert.ok(portraits.every((portrait) => portrait.width === 640 && portrait.height === 960),
     `all portraits must use the mobile-safe 2:3 master: ${JSON.stringify(portraits)}`);
-  assert.ok(portraits.some((portrait) => portrait.name === 'TIDE') && portraits.some((portrait) => portrait.name === 'SOL'),
-    'both women must be selectable');
+  assert.deepEqual(portraits.map((portrait) => portrait.name),
+    ['GLM', 'ChatGPT', 'Gemini', 'Kimi', 'Claude', 'DeepSeek'],
+    'driver names must remain the six published model identities');
   assert.equal(await recordsPage.locator('.driver-card').count(), 6, 'six drivers must remain reachable');
   assert.equal(await recordsPage.locator('.driver-card:visible').count(), 6,
     'the desktop stage must expose all six stable roster destinations');
@@ -826,7 +827,7 @@ try {
   assert.equal(radio.blockedQueued, 1,
     'yielding must preserve a still-relevant technique line instead of dropping it');
   assert.equal(radio.first.visible, true);
-  assert.match(radio.first.speaker, /SOL/);
+  assert.match(radio.first.speaker, /Gemini/);
   assert.equal(radio.first.text, '边飞边刹 + 转向，线路才咬得住');
   assert.equal(radio.first.emphasis, '边飞边刹 + 转向');
   assert.equal(radio.first.presentation, 'broadcast');
@@ -836,7 +837,7 @@ try {
   assert.ok(radio.first.animationDuration >= 5.64,
     `the slide-in, hold, and slide-out must have a real reading budget: ${JSON.stringify(radio.first)}`);
   assert.ok(radio.first.width >= 640, `the desktop broadcast must own a readable center lane: ${JSON.stringify(radio.first)}`);
-  assert.match(radio.first.ariaLabel, /SOL.*边飞边刹/);
+  assert.match(radio.first.ariaLabel, /Gemini.*边飞边刹/);
   assert.equal(radio.timerAfterPause, radio.timerBeforePause,
     'hard gameplay presentations must pause the broadcast reading clock');
   assert.equal(radio.sameRunQueued, 0, 'the technique broadcast may appear only once in one run');

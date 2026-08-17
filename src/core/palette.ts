@@ -33,8 +33,12 @@ export const PALETTE = {
   boost: 0x7CFC00,
   flight: 0x55e7ff,
   flightDeep: 0x258cff,
+  // Neutral route fog; the water supplies its own reflected blue. Keeping
+  // guidance neutral prevents a second blue-green slab from competing with it.
+  flightMist: 0xffffff,
+  flightMistShade: 0xe8e8e8,
 
-  // Racer hull colors: player, REEF (aggressive), KAI (clean), JINX (erratic)
+  // Racer hull colors: player, Kimi (aggressive), Claude (clean), DeepSeek (erratic)
   hullPlayer: 0xff3d7f,
   hullReef: 0xff7847,
   hullKai: 0xffd23f,

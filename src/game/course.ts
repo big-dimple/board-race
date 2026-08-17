@@ -813,7 +813,7 @@ function makeStartGantryVisuals(): {
   return { towerMaterial: foamMat, bannerFront, bannerBack };
 }
 
-/** Pink low-altitude lock: the open cyan aperture only exists above this field. */
+/** Pink low-altitude lock: the open mist aperture only exists above this field. */
 function makeFlightLockTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = 256;
@@ -917,12 +917,17 @@ const SURFACE_GUIDE_ARROW_START_M = 16;
 const SURFACE_GUIDE_ARROW_COUNT = Math.ceil((170 - SURFACE_GUIDE_ARROW_START_M) / SURFACE_GUIDE_ARROW_CADENCE_M);
 const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
 const SURFACE_GUIDE_LAUNCH_ALIGN_M = 40;
-const FLIGHT_GUIDE_STYLE = 'cel-virtual-corridor' as const;
-const FLIGHT_GUIDE_PANEL_ALPHA = 0.17;
-const FLIGHT_GUIDE_PANEL_BEAT_ALPHA = 0.085;
-const FLIGHT_GUIDE_CENTER_ALPHA = 0.09;
-const FLIGHT_GUIDE_EDGE_ALPHA = 0.42;
-const FLIGHT_GUIDE_FLOW_ALPHA = 0.62;
+const FLIGHT_GUIDE_STYLE = 'white-mist-corridor' as const;
+const FLIGHT_ROUTE_MARKER_COLOR = PALETTE.flightMist;
+const FLIGHT_ROUTE_MARKER_SHADE = PALETTE.flightMistShade;
+// The corridor is a mist veil, not a filled blue road. Ink edges and moving
+// white flow marks carry its readable shape; the ocean remains visible through
+// the neutral panel.
+const FLIGHT_GUIDE_PANEL_ALPHA = 0.095;
+const FLIGHT_GUIDE_PANEL_BEAT_ALPHA = 0.04;
+const FLIGHT_GUIDE_CENTER_ALPHA = 0.045;
+const FLIGHT_GUIDE_EDGE_ALPHA = 0.34;
+const FLIGHT_GUIDE_FLOW_ALPHA = 0.54;
 const FLIGHT_GUIDE_FAR_START_M = 55;
 const FLIGHT_GUIDE_FAR_END_M = 145;
 const LAUNCH_GATE_PREVIEW_M = 140;
@@ -992,9 +997,10 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       void main() {
         float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
-        if (ahead > 170.0 && behind > 12.0) discard;
-        if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        if (uLaunchGateActive > 0.5 && vS >= uLaunchGateS && vS <= uLaunchGateEndS) discard;
+        float visible = 1.0;
+        visible *= 1.0 - step(170.0, ahead) * step(12.0, behind);
+        visible *= 1.0 - uGuideActive * step(uMaskStart, vS) * step(vS, uMaskEnd);
+        visible *= 1.0 - uLaunchGateActive * step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
         float packetPhase = fract(vS / 21.0 - uTime * 0.42);
@@ -1014,7 +1020,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
         alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
-        if (alpha < 0.008) discard;
+        alpha *= visible * step(0.008, alpha);
         gl_FragColor = vec4(col, alpha);
       }
     `,
@@ -1123,9 +1129,10 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false):
       void main() {
         float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
-        if (ahead > 170.0 && behind > 12.0) discard;
-        if (uGuideActive > 0.5 && vS >= uMaskStart && vS <= uMaskEnd) discard;
-        if (uLaunchGateActive > 0.5 && vS >= uLaunchGateS && vS <= uLaunchGateEndS) discard;
+        float visible = 1.0;
+        visible *= 1.0 - step(170.0, ahead) * step(12.0, behind);
+        visible *= 1.0 - uGuideActive * step(uMaskStart, vS) * step(vS, uMaskEnd);
+        visible *= 1.0 - uLaunchGateActive * step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
         // Actual instance motion carries direction; the phase sweep keeps a
         // readable front-to-back rhythm without making arrows blink off.
         float travel = fract(uTime * 0.65 - vPhase);
@@ -1137,6 +1144,7 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false):
         vec3 color = ${ink ? 'uInk' : 'mix(base, uFoam, 0.2 + pulse * 0.3)'};
         float alpha = ${ink ? '0.86' : 'mix(0.82, 0.94, vTurn) * (0.88 + pulse * 0.12)'} * fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
+        alpha *= visible;
         gl_FragColor = vec4(color, alpha);
       }
     `,
@@ -2218,7 +2226,7 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
     // The surface guide hands off at the launch diamonds. Before takeoff the
     // marker is the only visual bridge to the corridor at authored entryU; an
-    // accepted early launch still retires it without restoring a false cyan
+    // accepted early launch still retires it without restoring a false mist
     // surface before the gate.
     this.ribbonMat.uniforms.uMaskStart.value = maskStartU * LAP_LENGTH;
     this.ribbonMat.uniforms.uMaskEnd.value = active
@@ -2319,7 +2327,7 @@ export class Course implements ICourse {
       const deploy = visual.deploy * visual.deploy * (3 - 2 * visual.deploy);
       const focus = 1 - THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
       const farScale = 1 + THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_PREVIEW_M, 0, 1) * 0.62;
-      const energyColor = armed ? PALETTE.flight : PALETTE.sunFlare;
+      const energyColor = armed ? FLIGHT_ROUTE_MARKER_COLOR : PALETTE.sunFlare;
       for (const projector of visual.projectors) {
         projector.root.position.y = waterHeight(projector.x, projector.z, t);
         projector.lens.color.setHex(energyColor, THREE.NoColorSpace);
@@ -2462,8 +2470,8 @@ export class Course implements ICourse {
         }
         visual.recoveryArrows.instanceMatrix.needsUpdate = true;
       }
-      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
-      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : PALETTE.flight, THREE.NoColorSpace);
+      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
+      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
       visual.rail.opacity = recovery > 0
         ? 0.34 * (1 - visual.recoverySurfaceBlend)
         : warn > 0.5 ? 0.72 : 0.34 + (upcoming ? readyStep * 0.08 : 0);
@@ -2566,15 +2574,15 @@ export class Course implements ICourse {
         uRecoverySurface: { value: 0 },
         uRecoveryProgress: { value: flightVisualT(def, def.gateUs[def.gateUs.length - 1]) },
         uGateF: { value: flightVisualT(def, def.gateUs[def.gateUs.length - 1]) },
-        uFlight: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
-        uFlightDeep: { value: new THREE.Color().setHex(PALETTE.flightDeep, THREE.NoColorSpace) },
-        uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.flight, THREE.NoColorSpace) },
+        uFlight: { value: new THREE.Color().setHex(PALETTE.flightMist, THREE.NoColorSpace) },
+        uFlightDeep: { value: new THREE.Color().setHex(PALETTE.flightMistShade, THREE.NoColorSpace) },
+        uRecoveryColor: { value: new THREE.Color().setHex(PALETTE.flightMist, THREE.NoColorSpace) },
         uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
-        uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
+        uFoam: { value: new THREE.Color().setHex(PALETTE.flightMist, THREE.NoColorSpace) },
         uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
         uWarnColor: { value: new THREE.Color().setHex(PALETTE.uiWarn, THREE.NoColorSpace) },
-        // A cel-shaded virtual corridor: the deep translucent body preserves
-        // the ocean, while cyan/foam structure carries distance and motion.
+        // A neutral mist corridor: the ocean supplies its own blue while white
+        // structure carries distance and motion without another color slab.
         uPanelAlpha: { value: FLIGHT_GUIDE_PANEL_ALPHA },
         uPanelBeatAlpha: { value: FLIGHT_GUIDE_PANEL_BEAT_ALPHA },
         uCenterAlpha: { value: FLIGHT_GUIDE_CENTER_ALPHA },
@@ -2582,8 +2590,7 @@ export class Course implements ICourse {
         uFlowAlpha: { value: FLIGHT_GUIDE_FLOW_ALPHA },
         uFarStart: { value: FLIGHT_GUIDE_FAR_START_M },
         uFarEnd: { value: FLIGHT_GUIDE_FAR_END_M },
-        // Warm color belongs to the authored chevrons. A low ceiling keeps
-        // the corridor unmistakably cyan instead of mixing into surface green.
+        // Warm color belongs to the authored chevrons, never the whole route.
         uTurnTintMax: { value: 0.14 },
       },
       vertexShader: /* glsl */ `
@@ -2664,8 +2671,8 @@ export class Course implements ICourse {
             (1.0 - smoothstep(0.82, 0.96, fract(vUv.y * 18.0)));
           float scan = step(0.78, fract(vUv.y * 22.0 - uTime * 0.8));
           vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12);
-          vec3 edgeColor = mix(uFlight, uFoam, 0.28 + farBoost * 0.14);
-          vec3 flowColor = mix(uFlight, uFoam, 0.68 + packet * 0.2);
+          vec3 edgeColor = uFlight;
+          vec3 flowColor = uFlight;
           vec3 color = panelColor;
           color = mix(color, edgeColor, edgeBand * (0.72 + farBoost * 0.16));
           color = mix(color, flowColor, flow * (0.76 + farBoost * 0.14));
@@ -2736,12 +2743,12 @@ export class Course implements ICourse {
     routeGroup.add(ribbon);
 
     // Directional handoff markers appear only after the scoring portal. They
-    // stay cyan and follow the authored flight height until the hull actually
+    // stay neutral mist and follow the authored flight height until the hull actually
     // reaches water; contact then blends the same markers onto the swell.
     const arrowGeo = buildSurfaceChevronGeometry();
     const recoveryArrowMaterial = buildSurfaceCueMaterial(
       this.ribbonMat.uniforms.uTime,
-      PALETTE.flight,
+      FLIGHT_ROUTE_MARKER_COLOR,
       0,
       true,
       ribbonMat.uniforms.uRecoverySurface,
@@ -2848,7 +2855,7 @@ export class Course implements ICourse {
         const buoyGeometry = new THREE.CylinderGeometry(0.34, 0.48, 0.5, 8);
         const foamGeometry = makeFoamRingGeometry();
         const mastMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.ink, toneMapped: false });
-        const buoyMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.flightDeep, toneMapped: false });
+        const buoyMaterial = new THREE.MeshBasicMaterial({ color: FLIGHT_ROUTE_MARKER_SHADE, toneMapped: false });
         const foamMaterial = new THREE.MeshBasicMaterial({
           color: PALETTE.foam,
           transparent: true,
@@ -2903,7 +2910,7 @@ export class Course implements ICourse {
     }
 
     const railMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.flight,
+      color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
       opacity: 0.68,
       depthWrite: false,
@@ -2927,7 +2934,7 @@ export class Course implements ICourse {
     }
 
     const ringMat = new THREE.MeshBasicMaterial({
-      color: PALETTE.flight,
+      color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
       opacity: 0.92,
       depthWrite: false,
@@ -3028,7 +3035,7 @@ export class Course implements ICourse {
       gateGroup.add(beamSpine, beam, beamCore, surfaceLock, lockBeam, anchor);
       if (def.navigation?.locatorU !== undefined && Math.abs(def.navigation.locatorU - u) < 0.012) {
         const locatorMaterial = new THREE.MeshBasicMaterial({
-          color: PALETTE.flight,
+          color: FLIGHT_ROUTE_MARKER_COLOR,
           transparent: true,
           opacity: 0.72,
           depthTest: false,
@@ -3161,7 +3168,7 @@ export class Course implements ICourse {
     projectorFloat.rotateX(Math.PI / 2);
     const projectorLens = new THREE.OctahedronGeometry(0.26, 0);
     const bodyMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.ink, toneMapped: false });
-    const floatMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.flightDeep, toneMapped: false });
+    const floatMaterial = new THREE.MeshBasicMaterial({ color: FLIGHT_ROUTE_MARKER_SHADE, toneMapped: false });
     const lensMaterial = new THREE.MeshBasicMaterial({
       color: PALETTE.sunFlare,
       transparent: true,
@@ -3285,7 +3292,7 @@ export class Course implements ICourse {
     }
 
     const packetMaterial = new THREE.MeshBasicMaterial({
-      color: PALETTE.flight,
+      color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
       opacity: 0.9,
       depthTest: false,

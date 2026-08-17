@@ -1389,7 +1389,7 @@ export class HUD {
       off_course: '冲出主航线后没有及时回正',
       wrong_way: '逆向行驶超过纠正窗口',
       no_launch: '没有起飞，水面通过不计完成',
-      corridor: '飞离了悬空青色能量航线',
+      corridor: '飞离了悬空白雾航线',
       gate: '船体没有从两根发光杆之间穿过',
       gate_left: '从杆门左侧掠过',
       gate_right: '从杆门右侧掠过',
@@ -1471,7 +1471,7 @@ export class HUD {
         return {
           title: '没有起飞',
           copy: mastery?.bankedCharge
-            ? `你已经会入库；下一次青线展开时按 ${flight} 起飞`
+            ? `你已经会入库；下一次白雾航道展开时按 ${flight} 起飞`
             : `下一次：按住 ${drift} 到黄线，松开入库后按 ${flight}`,
           metric: '',
         };
@@ -1502,7 +1502,7 @@ export class HUD {
       case 'corridor':
         return {
           title: `偏航先空刹 · 偏离 ${failure.corridorDistanceM?.toFixed(1) ?? '?'}m`,
-          copy: `按住 ${drift} 空刹减速，再${steer}回青线`,
+          copy: `按住 ${drift} 空刹减速，再${steer}回白雾航线`,
           metric: '',
         };
       case 'landing':
@@ -1510,7 +1510,7 @@ export class HUD {
       case 'exit':
         return {
           title: '偏航先空刹 · 飞行未完成',
-          copy: `按住 ${drift} 空刹，${steer}回青色航线`,
+          copy: `按住 ${drift} 空刹，${steer}回白雾航线`,
           metric: '',
         };
       case 'gate':
