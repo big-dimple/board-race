@@ -1,9 +1,9 @@
 /**
  * ocean.ts — infinite cel-shaded open ocean. The star of the show.
  *
- * Art target: Guilty Gear Xrd ink work x Wave Race 64 — bold flat bands,
- * graphic hard-edged foam, quantized anime glitter. Zero PBR, zero smooth
- * photoreal gradients. When unsure: bolder, flatter, more graphic.
+ * Art target: an outlined arcade ocean with broad, softened color bands,
+ * restrained graphic foam, and sparse quantized glitter. The surface stays
+ * stylized without letting its cel treatment overpower racers and technique.
  *
  * Technique:
  *  - One camera-following mesh, recentered in update() and SNAPPED to the
@@ -24,8 +24,8 @@
  *    at the LOD boundary.
  *  - Band thresholds are domain-warped by THREE value-noise octaves
  *    (~64 m / 11 m / 5 m) so silhouettes read as chopped swell at BOTH the
- *    macro and the local scale, never as smooth bezier tongues. Transitions
- *    stay HARD — the warp only moves where the hard step happens.
+ *    macro and the local scale, never as smooth bezier tongues. A narrow
+ *    blend around each threshold removes the old posterized slabs.
  *  - Deep-band richness: one slightly lighter deep tone laid in as long
  *    hard-edged DIAGONAL streak bands (dash-segmented, slow drift) plus
  *    sparse BIG glints — the largest area of frame is never a dead void.
@@ -210,6 +210,7 @@ uniform float uRingMaxDist;    // collar only drawn inside this distance
 uniform float uMaxAmp;
 uniform float uBandDeep;       // vH below -> deep
 uniform float uBandCrest;      // vH above -> crest (between -> mid)
+uniform float uBandBlend;      // half-width of the softened band transition
 uniform float uPatchScale;     // meters per ink-tone patch
 uniform float uPatchStrength;  // 0..1 hard two-tone variation inside a band
 
@@ -316,7 +317,7 @@ void main() {
   float warpKeep = dist < 150.0 ? 1.0 : (dist < uWarpFade ? 0.5 : 0.0);
   float detail = dist < uDetailFadeA ? 1.0 : (dist < uDetailFadeB ? 0.5 : 0.0);
 
-  // --- 1. cel color bands, domain-warped: HARD thresholds on warped vH ----
+  // --- 1. broad color bands, domain-warped with narrow soft transitions ---
   // Three noise octaves wobble the band thresholds: the 64 m macro octave
   // chops the big silhouettes, the 11 m / 5 m octaves chop the local edges.
   float warp = (vnoise(vOrigXZ / uWarpScaleA) - 0.5) * uWarpAmp * warpKeep
@@ -324,9 +325,10 @@ void main() {
              + (vnoise(vOrigXZ / uWarpScaleC + 7.3) - 0.5) * uWarpAmp * 1.25 * (warpKeep > 0.0 ? 1.0 : 0.0);
   float vHw = vH + warp;
 
-  vec3 col = uColorDeep;
-  if (vHw > uBandDeep) col = uColorMid;
-  if (vHw > uBandCrest) col = uColorCrest;
+  float deepToMid = smoothstep(uBandDeep - uBandBlend, uBandDeep + uBandBlend, vHw);
+  float midToCrest = smoothstep(uBandCrest - uBandBlend, uBandCrest + uBandBlend, vHw);
+  vec3 col = mix(uColorDeep, uColorMid, deepToMid);
+  col = mix(col, uColorCrest, midToCrest);
   // per-band ink richness: two hard tone patches, never a gradient
   float tonePatch = hash12(floor(vOrigXZ / uPatchScale));
   float patchStrength = uPatchStrength * detail;
@@ -464,6 +466,10 @@ export class Ocean {
 
   constructor(opts: { depthTexture: THREE.Texture; cameraNear: number; cameraFar: number }) {
     const sun = PALETTE.sunDir;
+    const deepColor = new THREE.Color(PALETTE.waterDeep);
+    const originalMidColor = new THREE.Color(PALETTE.waterMid);
+    const midColor = originalMidColor.clone().lerp(deepColor, 0.25);
+    const crestColor = new THREE.Color(PALETTE.waterCrest).lerp(originalMidColor, 0.42);
     this.uniforms = {
       uTime: { value: 0 },
       uDepthTex: { value: opts.depthTexture },
@@ -474,10 +480,11 @@ export class Ocean {
       uMaxAmp: { value: MAX_AMPLITUDE },
       uBandDeep: { value: -0.45 },
       uBandCrest: { value: 0.45 },
+      uBandBlend: { value: 0.13 },
       uPatchScale: { value: 18.0 },
-      uPatchStrength: { value: 0.07 },
+      uPatchStrength: { value: 0.01 },
 
-      uWarpAmp: { value: 0.17 },
+      uWarpAmp: { value: 0.045 },
       uWarpScaleA: { value: 11.0 },
       uWarpScaleB: { value: 5.0 },
       uWarpScaleC: { value: 64.0 },
@@ -485,20 +492,20 @@ export class Ocean {
 
       uDeepStreakScale: { value: 28.0 },
       uDeepStreakDuty: { value: 0.35 },
-      uDeepStreakStrength: { value: 0.19 },
+      uDeepStreakStrength: { value: 0.02 },
       uDeepStreakDrift: { value: 1.2 },
 
-      uCrestCapW: { value: 1.3 },
+      uCrestCapW: { value: 0.65 },
       uCapScallop: { value: 0.3 },
       uCapArcLen: { value: 6.0 },
-      uCapArcCut: { value: 0.5 },
+      uCapArcCut: { value: 0.78 },
       uCapFps: { value: 4.0 },
       uCapRiseGate: { value: 0.05 },
 
       uGlintFps: { value: 6.0 },
       uGlintLaneCos: { value: 0.9 },
       uGlintLaneSoft: { value: 0.72 },
-      uGlintDensIn: { value: 0.16 },
+      uGlintDensIn: { value: 0.04 },
       uGlintDensOut: { value: 0.0008 },
       uGlintSizeA: { value: 0.5 },
       uGlintSizeB: { value: 1.0 },
@@ -526,9 +533,9 @@ export class Ocean {
       uFogMidMix: { value: 0.45 },
       uFogFarMix: { value: 0.8 },
 
-      uColorDeep: { value: new THREE.Color(PALETTE.waterDeep) },
-      uColorMid: { value: new THREE.Color(PALETTE.waterMid) },
-      uColorCrest: { value: new THREE.Color(PALETTE.waterCrest) },
+      uColorDeep: { value: deepColor },
+      uColorMid: { value: midColor },
+      uColorCrest: { value: crestColor },
       uColorFoam: { value: new THREE.Color(PALETTE.foam) },
       uColorSparkle: { value: new THREE.Color(PALETTE.sparkle) },
       uColorHorizon: { value: new THREE.Color(PALETTE.skyHorizon) },

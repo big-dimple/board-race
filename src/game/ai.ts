@@ -461,10 +461,11 @@ export class AIController {
       (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
     let throttle = clamp((target - speed) * 0.5, -1, 1);
     if (Math.abs(err) > 1.2) throttle = Math.min(throttle, 0.4); // spun out: recover gently
-    // Player boats are auto-throttle. The protected pair must not erase real
-    // drift/BOOST payouts by applying a traditional curvature-table lift that
-    // the player cannot make. Traffic and spin recovery may still lower it.
-    if (surfaceThrottleAssist && !flightRoute && Math.abs(err) <= 1.2) throttle = 1;
+    // Player boats are auto-throttle. Chain specialists keep that same surface
+    // contract after formation assistance ends: traffic and spin recovery may
+    // lower drive, but curvature planning may not turn into a brake input.
+    if ((surfaceThrottleAssist || (chainDrift && !formationActive)) &&
+        !flightRoute && Math.abs(err) <= 1.2) throttle = 1;
 
     // --- drift to charge boost; releasing on corner exit pays it out
     if (chainDrift) {
@@ -523,6 +524,10 @@ export class AIController {
       this.mistakeT = dLo + this.rng() * (dHi - dLo);
       this.mistakeBias = (this.rng() * 2 - 1) * 0.8;
       this.nextMistakeAt = this.t + this.mistakeT + this.mistakeEvery();
+    }
+
+    if (chainDrift && !formationActive && me.state.flightPhase === 'surface') {
+      throttle = Math.max(0, throttle);
     }
 
     const out = this.input;

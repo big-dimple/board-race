@@ -691,6 +691,8 @@ try {
     const pass4 = formation.passes.find((entry) => entry.flight === 4);
     assert.equal(pass4?.releaseSameFrame, true, `${label}: fourth pass must release assistance on the scoring frame`);
     assert.ok(formation.fourthReleaseFrame > 0, `${label}: fourth release frame must be observable`);
+    assert.ok(formation.chainAfterFourth.every(Boolean),
+      `${label}: both specialists must retain their authored chain-drift personality after release`);
     assert.ok(formation.rivals.every((entry) => (entry.routeStateFrames.failed ?? 0) === 0),
       `${label}: protected rivals may not lose the formation through an authored route failure: ${JSON.stringify(formation.rivals)}`);
     for (const segment of formation.segments) {
@@ -716,6 +718,29 @@ try {
       probe.controls.every((control) => !control.formationActive && !control.surfaceThrottleAssist &&
         control.closingPressure === 0)),
     `${label}: no post-fourth output may depend on the player gap: ${JSON.stringify(formation.postReleaseGapProbe)}`);
+    assert.equal(formation.postRelease.length, 2,
+      `${label}: both chain specialists need a continuous post-fourth sample`);
+    for (const rival of formation.postRelease) {
+      assert.ok(rival.frames >= 295 && (rival.phaseFrames.surface ?? 0) >= 60,
+        `${label}: post-fourth evidence must include a sustained real water run: ${JSON.stringify(rival)}`);
+      assert.equal(rival.pace.min, 1,
+        `${label}: formation release must leave authored pace at baseline: ${JSON.stringify(rival)}`);
+      assert.ok(rival.appliedSurfaceThrottle.frames >= 60,
+        `${label}: actual surface-drive evidence must exclude the airborne landing transition: ${JSON.stringify(rival)}`);
+      assert.equal(rival.appliedSurfaceThrottle.min, 0,
+        `${label}: traffic may lift throttle, but a chain specialist may never command reverse braking: ${JSON.stringify(rival)}`);
+      assert.equal(rival.appliedSurfaceThrottle.negativeDuty, 0,
+        `${label}: post-fourth chain drift may not contain a hidden brake frame: ${JSON.stringify(rival)}`);
+      assert.equal(rival.directive.formationDuty, 0,
+        `${label}: no formation ownership may survive the fourth pass: ${JSON.stringify(rival)}`);
+      assert.equal(rival.directive.surfaceThrottleAssistDuty, 0,
+        `${label}: chain auto-throttle is AI personality, not player-gap assistance: ${JSON.stringify(rival)}`);
+      assert.equal(rival.directive.closingPressureMean, 0,
+        `${label}: post-fourth controls must remain independent of player distance: ${JSON.stringify(rival)}`);
+    }
+    assert.ok(formation.postRelease.reduce((sum, rival) => sum + rival.driftFrames, 0) > 0 &&
+      formation.postRelease.reduce((sum, rival) => sum + rival.boostEdges, 0) > 0,
+    `${label}: post-release sampling must still observe real chain input and a BOOST payout: ${JSON.stringify(formation.postRelease)}`);
   }
 
   const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());

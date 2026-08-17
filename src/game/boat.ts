@@ -135,9 +135,7 @@ const TUNING = {
   turnSprayG: 6,         // |lateralG| that starts leeward-chine spray
   turnSprayPeriod: 0.09, // s between chine spray bursts
   boostSprayPeriod: 0.08,// s between stern spray bursts while boosting
-  opponentWakeScale: 0.82, // broken-back rival wash keeps water volume without masking the chain cue
-  opponentDriftSprayPeriod: 0.16,
-  opponentBoostSprayPeriod: 0.15,
+  opponentWakeScale: 0.68, // retain water contact without competing with the raised chain-drift wind
   slamSprayPer: 2.5,     // spray particles per m/s of landing impact
   slamSprayMax: 36,
 } as const;
@@ -257,64 +255,58 @@ interface ThrustVisual {
   rings: THREE.InstancedMesh;
 }
 
-const DRIFT_EDGE_LAYERS = 3;
-const DRIFT_EDGE_SEGMENTS = 3;
-const DRIFT_EDGE_INSTANCES = DRIFT_EDGE_LAYERS * DRIFT_EDGE_SEGMENTS;
+const DRIFT_WIND_LAYERS = 3;
+const DRIFT_WIND_SEGMENTS = 3;
+const DRIFT_WIND_INSTANCES = DRIFT_WIND_LAYERS * DRIFT_WIND_SEGMENTS;
+const DRIFT_WIND_RELEASE_TIME = 0.22;
 
-/** A hard-edged water-skimming slash on the real loaded drift side. */
-function buildDriftEdgeVisual(): THREE.InstancedMesh {
+/** Raised stern wind derived from the opponent's real drift/BOOST state. */
+function buildDriftWindVisual(): THREE.InstancedMesh {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    -0.08, 0, 0,
-    0.48, 0, -0.12,
-    0.30, 0, -0.44,
-    0.12, 0, -0.76,
-    -0.03, 0, -1,
-    -0.18, 0, -0.59,
-    -0.16, 0, -0.23,
-    // One torn-off chip keeps the silhouette closer to a water slash than a
-    // symmetric collectible or course arrow.
-    -0.18, 0, -0.38,
-    -0.38, 0, -0.48,
-    -0.15, 0, -0.58,
+    -0.18, 0, 0,
+    0.18, 0, 0,
+    0.28, 0.10, -0.30,
+    0.17, 0.22, -0.62,
+    0.06, 0.08, -1,
+    -0.06, 0.08, -1,
+    -0.17, 0.22, -0.62,
+    -0.28, 0.10, -0.30,
   ], 3));
   geometry.setIndex([
     0, 1, 2,
-    0, 2, 6,
-    6, 2, 3,
-    6, 3, 5,
-    5, 3, 4,
-    7, 8, 9,
+    0, 2, 7,
+    7, 2, 3,
+    7, 3, 6,
+    6, 3, 4,
+    6, 4, 5,
   ]);
   const material = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
     opacity: 1,
-    // This is a virtual cel-energy cut rather than water geometry. Let it
-    // remain readable over the translucent wake/route layers on either side;
-    // its narrow tapered footprint keeps it from painting over the hull.
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     side: THREE.DoubleSide,
     toneMapped: false,
   });
-  const mesh = new THREE.InstancedMesh(geometry, material, DRIFT_EDGE_INSTANCES);
-  mesh.name = 'opponent-drift-edge';
+  const mesh = new THREE.InstancedMesh(geometry, material, DRIFT_WIND_INSTANCES);
+  mesh.name = 'opponent-drift-wind';
   mesh.renderOrder = 8;
   mesh.frustumCulled = false;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.layers.enable(LAYER_ENERGY);
   const layerColors = [PALETTE.ink, PALETTE.sunFlare, PALETTE.sunCore];
-  for (let segment = 0; segment < DRIFT_EDGE_SEGMENTS; segment++) {
-    for (let layer = 0; layer < DRIFT_EDGE_LAYERS; layer++) {
+  for (let segment = 0; segment < DRIFT_WIND_SEGMENTS; segment++) {
+    for (let layer = 0; layer < DRIFT_WIND_LAYERS; layer++) {
       mesh.setColorAt(
-        segment * DRIFT_EDGE_LAYERS + layer,
+        segment * DRIFT_WIND_LAYERS + layer,
         _fxColor.setHex(layerColors[layer], THREE.NoColorSpace),
       );
     }
   }
   const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
-  for (let i = 0; i < DRIFT_EDGE_INSTANCES; i++) mesh.setMatrixAt(i, hidden);
+  for (let i = 0; i < DRIFT_WIND_INSTANCES; i++) mesh.setMatrixAt(i, hidden);
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   return mesh;
@@ -789,15 +781,16 @@ export class Boat implements IBoat {
   private boostSprayCd = 0;
   private trailCd = 0;
   private driftTrailCd = 0;
-  private opponentDriftSprayCd = 0;
   private opponentFxScale = 1;
-  private driftFxEmissions = 0;
+  private opponentTechniqueFxScale = 1;
   private driftHoldStarts = 0;
   private driftVisualSide = 1;
-  private driftEdgeFx = 0;
-  private opponentWaterSprayBursts = 0;
+  private driftWindFx = 0;
+  private driftWindRenderedStrength = 0;
+  private driftWindReleaseTimer = 0;
+  private driftWindActiveInstances = 0;
   private opponentBoostWasActive = false;
-  private opponentReleaseBursts = 0;
+  private opponentReleaseBeats = 0;
   private lastT = 0;
   private readonly blob: THREE.Mesh;
   private readonly footprint: THREE.Mesh;
@@ -805,7 +798,7 @@ export class Boat implements IBoat {
   private readonly thrustOuter: THREE.InstancedMesh;
   private readonly thrustCore: THREE.InstancedMesh;
   private readonly thrustRings: THREE.InstancedMesh;
-  private readonly driftEdge: THREE.InstancedMesh;
+  private readonly driftWind: THREE.InstancedMesh;
   private boostFx = 0;
   private flightFx = 0;
   private liftBurstTimer = 0;
@@ -848,9 +841,9 @@ export class Boat implements IBoat {
     this.thrustOuter = thrust.outer;
     this.thrustCore = thrust.core;
     this.thrustRings = thrust.rings;
-    this.driftEdge = buildDriftEdgeVisual();
-    this.driftEdge.visible = false;
-    this.object.add(this.thrustShell, this.thrustOuter, this.thrustCore, this.thrustRings, this.driftEdge);
+    this.driftWind = buildDriftWindVisual();
+    this.driftWind.visible = false;
+    this.object.add(this.thrustShell, this.thrustOuter, this.thrustCore, this.thrustRings, this.driftWind);
 
     this.state = {
       position: this.object.position, // live reference — never reassigned
@@ -1019,7 +1012,7 @@ export class Boat implements IBoat {
       if (this.id > 0) this.driftHoldStarts++;
       // A chained rival can reverse the real steering input while the hull is
       // still carrying lateral inertia from the previous payout. At the new
-      // hold edge, a deliberate current input owns the loaded cut; lateral G
+      // hold edge, a deliberate current input owns the loaded wind side; lateral G
       // remains the fallback for neutral/noisy steering. This keeps the visual
       // tied to BoatInput without inventing a cosmetic cycle parity.
       this.driftVisualSide = this.id > 0 && Math.abs(steer) >= 0.25
@@ -1228,7 +1221,7 @@ export class Boat implements IBoat {
     // ---- wake ribbon (every frame) ----
     _v1.set(pos.x - fwdX * 2.3, hSt + 0.04, pos.z - fwdZ * 2.3);
     // White water sells the player's speed, but must not bury an opponent's
-    // amber hold edge or green release. Rival technique remains visible through
+    // warm hold wind or green release. Rival technique remains visible through
     // real state-driven energy FX, while their ordinary wash stays restrained.
     const wakeI = clamp(vF / TUNING.topSpeed, 0, 1) +
       (this.id === 0 && input.drift ? TUNING.wakeDriftBoost : 0) +
@@ -1268,91 +1261,39 @@ export class Boat implements IBoat {
     const opponentBoostStarted = this.id > 0 && boosting && !this.opponentBoostWasActive &&
       !st.airborne && st.flightClearance < 1.2;
     if (opponentBoostStarted) {
-      // A real drift payout gets one angular fan. It is deliberately distinct
-      // from white water spray so a chase camera can read the chain cadence.
-      for (let shard = 0; shard < 6; shard++) {
-        const side = shard % 2 === 0 ? -1 : 1;
-        const row = Math.floor(shard / 2);
-        const size = (0.3 + row * 0.045) * (0.82 + this.opponentFxScale * 0.28);
-        this.trail.emit(
-          pos.x + portX * side * (0.42 + row * 0.16) - fwdX * (1.65 + row * 0.13),
-          pos.y + 0.1 + row * 0.04,
-          pos.z + portZ * side * (0.42 + row * 0.16) - fwdZ * (1.65 + row * 0.13),
-          -fwdX * (1.8 + row * 0.28) + portX * side * (1.7 + row * 0.34),
-          0.4 + row * 0.12,
-          -fwdZ * (1.8 + row * 0.28) + portZ * side * (1.7 + row * 0.34),
-          row % 2 === 0 ? PALETTE.racingLine : 0xb7ffcf,
-          size,
-          0.5 + row * 0.05,
-        );
-      }
-      this.opponentReleaseBursts++;
+      this.driftWindReleaseTimer = DRIFT_WIND_RELEASE_TIME;
+      this.opponentReleaseBeats++;
     }
 
-    if (boosting && !st.airborne && st.flightClearance < 1.2) {
+    if (this.id === 0 && boosting && !st.airborne && st.flightClearance < 1.2) {
       this.boostSprayCd -= dt;
       if (this.boostSprayCd <= 0) {
-        this.boostSprayCd = this.id === 0
-          ? TUNING.boostSprayPeriod
-          : TUNING.opponentBoostSprayPeriod / this.opponentFxScale;
+        this.boostSprayCd = TUNING.boostSprayPeriod;
         _v2.set(pos.x - fwdX * 2.4, hSt + 0.1, pos.z - fwdZ * 2.4);
-        this.spray.burst(
-          _v2,
-          this.id === 0 ? 3 : 1,
-          this.id === 0 ? 3 + speedAbs * 0.15 : (1.8 + speedAbs * 0.07) * this.opponentFxScale,
-        );
-        if (this.id > 0) this.opponentWaterSprayBursts++;
+        this.spray.burst(_v2, 3, 3 + speedAbs * 0.15);
       }
     }
 
     this.driftTrailCd -= dt;
-    this.opponentDriftSprayCd -= dt;
-    if (surfaceDrift && st.boostCharge > 0.04 && speedAbs > TUNING.driftMinSpeed && this.driftTrailCd <= 0) {
-      const opponent = this.id > 0;
-      this.driftTrailCd = opponent ? 0.052 / this.opponentFxScale : 0.05;
-      const side = this.id > 0
-        ? this.driftVisualSide
-        : (Math.abs(this.lateralG) > 0.5 ? (this.lateralG > 0 ? -1 : 1) : (steer >= 0 ? 1 : -1));
+    if (this.id === 0 && surfaceDrift && st.boostCharge > 0.04 &&
+        speedAbs > TUNING.driftMinSpeed && this.driftTrailCd <= 0) {
+      this.driftTrailCd = 0.05;
+      const side = Math.abs(this.lateralG) > 0.5 ? (this.lateralG > 0 ? -1 : 1) : (steer >= 0 ? 1 : -1);
       const charge = st.boostCharge;
-      const streams = opponent ? 2 : 1;
-      for (let stream = 0; stream < streams; stream++) {
-        const streamSide = side;
-        const layer = opponent ? stream : 0;
-        this.trail.emit(
-          pos.x + portX * streamSide * (opponent ? 0.98 - layer * 0.12 : 0.88) -
-            fwdX * (opponent ? 2.2 + layer * 0.24 : 1.15),
-          pos.y + (opponent ? 0.1 + layer * 0.025 : 0.06),
-          pos.z + portZ * streamSide * (opponent ? 0.98 - layer * 0.12 : 0.88) -
-            fwdZ * (opponent ? 2.2 + layer * 0.24 : 1.15),
-          -fwdX * (opponent ? 1.2 + charge * 0.8 + layer * 0.2 : 0.78 + charge) +
-            portX * streamSide * (opponent ? 1.45 - layer * 0.35 : 0.65),
-          0.16 + charge * (opponent ? 0.25 : 0.45),
-          -fwdZ * (opponent ? 1.2 + charge * 0.8 + layer * 0.2 : 0.78 + charge) +
-            portZ * streamSide * (opponent ? 1.45 - layer * 0.35 : 0.65),
-          opponent ? (layer === 0 ? PALETTE.sunFlare : PALETTE.sunCore) : PALETTE.boost,
-          (opponent ? 0.2 + layer * -0.045 : 0.11) + charge * (opponent ? 0.12 : 0.14),
-          (opponent ? 0.25 - layer * 0.03 : 0.24) + charge * (opponent ? 0.07 : 0.18),
-        );
-        this.driftFxEmissions++;
-      }
-    }
-
-    // Opponent technique must be readable in the world, not through another
-    // HUD badge. Two short stern sprays mark a real drift input, with a simple
-    // distance LOD to avoid filling the horizon when the field spreads out.
-    if (this.id > 0 && surfaceDrift && !st.airborne && st.flightPhase === 'surface' &&
-        speedAbs > TUNING.driftMinSpeed && this.opponentDriftSprayCd <= 0) {
-      this.opponentDriftSprayCd = TUNING.opponentDriftSprayPeriod / this.opponentFxScale;
-      _v2.set(
-        pos.x + portX * this.driftVisualSide * 0.86 - fwdX * 2.25,
-        hSt + 0.06,
-        pos.z + portZ * this.driftVisualSide * 0.86 - fwdZ * 2.25,
+      this.trail.emit(
+        pos.x + portX * side * 0.88 - fwdX * 1.15,
+        pos.y + 0.06,
+        pos.z + portZ * side * 0.88 - fwdZ * 1.15,
+        -fwdX * (0.78 + charge) + portX * side * 0.65,
+        0.16 + charge * 0.45,
+        -fwdZ * (0.78 + charge) + portZ * side * 0.65,
+        PALETTE.boost,
+        0.11 + charge * 0.14,
+        0.24 + charge * 0.18,
       );
-      this.spray.burst(_v2, 1, (1.55 + speedAbs * 0.055) * this.opponentFxScale);
-      this.opponentWaterSprayBursts++;
     }
 
-    this.updateDriftEdgeVisual(dt, t, surfaceDrift, speedAbs, st.boostCharge);
+    this.updateDriftWindVisual(dt, t, surfaceDrift, speedAbs, st.boostCharge);
     this.updateThrustVisual(dt, t, boosting, st.flightThrust, fwdX, fwdZ, portX, portZ);
     this.opponentBoostWasActive = boosting;
 
@@ -1516,11 +1457,11 @@ export class Boat implements IBoat {
     this.thrustRings.instanceMatrix.needsUpdate = true;
 
     this.trailCd -= dt;
-    if (this.trailCd <= 0 && (this.boostFx > 0.25 || this.flightFx > 0.3)) {
+    if (this.trailCd <= 0 && ((this.id === 0 && this.boostFx > 0.25) || this.flightFx > 0.3)) {
       this.trailCd = this.flightFx > 0.3 ? 0.1 : 0.055;
       const pos = this.object.position;
       const pulse = 0.85 + 0.15 * Math.sin(t * 19 + this.id * 2.3);
-      if (this.boostFx > 0.25) {
+      if (this.id === 0 && this.boostFx > 0.25) {
         this.trail.emit(
           pos.x - fwdX * 2.85,
           pos.y + 0.2,
@@ -1555,7 +1496,7 @@ export class Boat implements IBoat {
     }
   }
 
-  private updateDriftEdgeVisual(
+  private updateDriftWindVisual(
     dt: number,
     t: number,
     surfaceDrift: boolean,
@@ -1563,52 +1504,76 @@ export class Boat implements IBoat {
     charge: number,
   ): void {
     if (this.id === 0) return;
-    const target = surfaceDrift && speedAbs > TUNING.driftMinSpeed ? 1 : 0;
-    const rate = target > this.driftEdgeFx ? 18 : 28;
-    this.driftEdgeFx += (target - this.driftEdgeFx) * (1 - Math.exp(-rate * dt));
+    const holding = surfaceDrift && speedAbs > TUNING.driftMinSpeed;
+    const target = holding ? this.opponentTechniqueFxScale : 0;
+    const rate = target > this.driftWindFx ? 18 : 28;
+    this.driftWindFx += (target - this.driftWindFx) * (1 - Math.exp(-rate * dt));
+    const releasing = this.driftWindReleaseTimer > 0 && this.opponentTechniqueFxScale > 0;
+    const releaseProgress = releasing
+      ? 1 - this.driftWindReleaseTimer / DRIFT_WIND_RELEASE_TIME
+      : 0;
+    const releaseFade = releasing
+      ? 1 - smooth01(clamp((releaseProgress - 0.7) / 0.3, 0, 1))
+      : 0;
+    const releasePulse = releasing ? 1 + Math.sin(releaseProgress * Math.PI) * 0.32 : 1;
+    const strength = releasing
+      ? this.opponentTechniqueFxScale * releaseFade
+      : this.driftWindFx;
+    this.driftWindRenderedStrength = strength;
     const n = smooth01(clamp(charge / 0.55, 0, 1));
     const pulse = 0.96 + 0.04 * Math.sin(t * 16 + this.id * 1.7);
-    const side = this.driftVisualSide;
-    const visible = this.driftEdgeFx > 0.01;
-    this.driftEdge.visible = visible;
-    const primaryLength = 3.2 + n * 1.8;
-    const segmentLengthScale = [1, 0.62, 0.4];
-    const segmentWidthScale = [1, 0.78, 0.6];
+    const side = this.driftVisualSide * (releasing ? 1 - releaseProgress : 1);
+    const visible = strength > 0.01;
+    this.driftWind.visible = visible;
+    this.driftWindActiveInstances = visible ? DRIFT_WIND_INSTANCES : 0;
+    const primaryLength = (2.25 + n * 1.2) * releasePulse;
+    const segmentLengthScale = [1, 0.6, 0.38];
+    const segmentWidthScale = [1, 0.82, 0.66];
     const segmentOffset = [
       0,
-      primaryLength * 0.92 + 0.45,
-      primaryLength * 1.54 + 1,
+      primaryLength * 0.92 + 0.32,
+      primaryLength * 1.58 + 0.72,
     ];
-    for (let segment = 0; segment < DRIFT_EDGE_SEGMENTS; segment++) {
-      for (let layer = 0; layer < DRIFT_EDGE_LAYERS; layer++) {
-        const width = layer === 0 ? 0.68 : layer === 1 ? 0.5 : 0.16;
-        const length = layer === 0 ? 1 : layer === 1 ? 0.93 : 0.82;
-        const y = layer === 0 ? 0.48 : layer === 1 ? 0.5 : 0.52;
+    const colors = releasing
+      ? [PALETTE.ink, PALETTE.boost, 0xb7ffcf]
+      : [PALETTE.ink, PALETTE.sunFlare, PALETTE.sunCore];
+    for (let segment = 0; segment < DRIFT_WIND_SEGMENTS; segment++) {
+      for (let layer = 0; layer < DRIFT_WIND_LAYERS; layer++) {
+        const width = layer === 0 ? 0.98 : layer === 1 ? 0.72 : 0.25;
+        const length = layer === 0 ? 1 : layer === 1 ? 0.92 : 0.78;
+        const lateral = side * (0.42 + segment * 0.3);
         _fxPos.set(
-          side * (1.02 + segment * 0.85 + layer * 0.012),
-          y + segment * 0.006,
-          -2.22 - segmentOffset[segment] - n * 0.08,
+          lateral,
+          0.98 + segment * 0.16 + layer * 0.015,
+          -2.5 - segmentOffset[segment],
         );
         _fxScale.set(
-          visible ? side * width * segmentWidthScale[segment] * this.driftEdgeFx * pulse : 0,
+          visible ? width * segmentWidthScale[segment] * strength * pulse : 0,
           1,
-          visible ? primaryLength * segmentLengthScale[segment] * length * this.driftEdgeFx : 0,
+          visible ? primaryLength * segmentLengthScale[segment] * length * strength : 0,
         );
-        _fxQDrift.setFromAxisAngle(_fxAxisY, -side * (0.03 + segment * 0.045));
+        _euler.set(0.1 + segment * 0.015, -side * (0.1 + segment * 0.045), 0, 'YXZ');
+        _fxQDrift.setFromEuler(_euler);
         _fxMatrix.compose(_fxPos, _fxQDrift, _fxScale);
-        this.driftEdge.setMatrixAt(segment * DRIFT_EDGE_LAYERS + layer, _fxMatrix);
+        const index = segment * DRIFT_WIND_LAYERS + layer;
+        this.driftWind.setMatrixAt(index, _fxMatrix);
+        this.driftWind.setColorAt(index, _fxColor.setHex(colors[layer], THREE.NoColorSpace));
       }
     }
-    this.driftEdge.instanceMatrix.needsUpdate = true;
+    this.driftWind.instanceMatrix.needsUpdate = true;
+    if (this.driftWind.instanceColor) this.driftWind.instanceColor.needsUpdate = true;
+    this.driftWindReleaseTimer = Math.max(0, this.driftWindReleaseTimer - dt);
   }
 
-  private hideDriftEdgeVisual(): void {
+  private hideDriftWindVisual(): void {
     _fxPos.set(0, 0, 0);
     _fxScale.set(0, 0, 0);
     _fxMatrix.compose(_fxPos, _fxIdentityQ, _fxScale);
-    for (let i = 0; i < DRIFT_EDGE_INSTANCES; i++) this.driftEdge.setMatrixAt(i, _fxMatrix);
-    this.driftEdge.instanceMatrix.needsUpdate = true;
-    this.driftEdge.visible = false;
+    for (let i = 0; i < DRIFT_WIND_INSTANCES; i++) this.driftWind.setMatrixAt(i, _fxMatrix);
+    this.driftWind.instanceMatrix.needsUpdate = true;
+    this.driftWind.visible = false;
+    this.driftWindRenderedStrength = 0;
+    this.driftWindActiveInstances = 0;
   }
 
   private setThrustInstance(
@@ -1734,46 +1699,51 @@ export class Boat implements IBoat {
   /** Main-thread visual LOD; has no effect on physics or AI input. */
   setOpponentEffectDistance(distance: number): void {
     this.opponentFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);
+    this.opponentTechniqueFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 55) / 95, 0, 1);
   }
 
   /** Deterministic harness evidence for AI technique visibility. */
   debugDriftEffects(): {
-    emissions: number;
-    scale: number;
-    releaseBursts: number;
+    windScale: number;
+    releaseBeats: number;
     boosting: boolean;
     phase: 'idle' | 'holding' | 'charged' | 'release';
     holdStarts: number;
-    edgeStrength: number;
-    edgeMatrixScale: number;
-    edgeSide: number;
+    windStrength: number;
+    windMatrixScale: number;
+    windSide: number;
+    windActiveInstances: number;
+    windLocalHeight: number;
     wakeScale: number;
-    waterSprayBursts: number;
   } {
-    let edgeMatrixScale = 0;
-    for (let i = 0; i < DRIFT_EDGE_INSTANCES; i++) {
-      this.driftEdge.getMatrixAt(i, _fxMatrix);
+    let windMatrixScale = 0;
+    let windLocalHeight = 0;
+    for (let i = 0; i < DRIFT_WIND_INSTANCES; i++) {
+      this.driftWind.getMatrixAt(i, _fxMatrix);
       const e = _fxMatrix.elements;
-      edgeMatrixScale = Math.max(
-        edgeMatrixScale,
+      windMatrixScale = Math.max(
+        windMatrixScale,
         Math.hypot(e[0], e[1], e[2]),
         Math.hypot(e[8], e[9], e[10]),
       );
+      if (Math.hypot(e[0], e[1], e[2]) > 0.001) windLocalHeight = Math.max(windLocalHeight, e[13]);
     }
     return {
-      emissions: this.driftFxEmissions,
-      scale: this.opponentFxScale,
-      releaseBursts: this.opponentReleaseBursts,
+      windScale: this.opponentTechniqueFxScale,
+      releaseBeats: this.opponentReleaseBeats,
       boosting: this.state.boosting,
-      phase: this.state.drifting
+      phase: this.driftWindReleaseTimer > 0
+        ? 'release'
+        : this.state.drifting
         ? (this.state.driftReleaseReady ? 'charged' : 'holding')
-        : this.state.boosting ? 'release' : 'idle',
+        : 'idle',
       holdStarts: this.driftHoldStarts,
-      edgeStrength: this.driftEdgeFx,
-      edgeMatrixScale,
-      edgeSide: this.driftVisualSide,
+      windStrength: this.driftWindRenderedStrength,
+      windMatrixScale,
+      windSide: this.driftVisualSide,
+      windActiveInstances: this.driftWindActiveInstances,
+      windLocalHeight,
       wakeScale: this.id === 0 ? 1 : TUNING.opponentWakeScale,
-      waterSprayBursts: this.opponentWaterSprayBursts,
     };
   }
 
@@ -1968,15 +1938,14 @@ export class Boat implements IBoat {
     this.boostSprayCd = 0;
     this.trailCd = 0;
     this.driftTrailCd = 0;
-    this.opponentDriftSprayCd = 0;
     this.opponentBoostWasActive = false;
-    this.opponentReleaseBursts = 0;
-    this.driftFxEmissions = 0;
+    this.opponentReleaseBeats = 0;
     this.driftHoldStarts = 0;
     this.driftVisualSide = 1;
-    this.driftEdgeFx = 0;
-    this.hideDriftEdgeVisual();
-    this.opponentWaterSprayBursts = 0;
+    this.driftWindFx = 0;
+    this.driftWindRenderedStrength = 0;
+    this.driftWindReleaseTimer = 0;
+    this.hideDriftWindVisual();
     this.boostFx = 0;
     this.flightFx = 0;
     this.liftBurstTimer = 0;

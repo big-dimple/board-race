@@ -35,11 +35,10 @@ function flat(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex, THREE.NoColorSpace);
 }
 
-/** All toon materials share one default 4-band ramp texture. The darkest band
- *  is lifted (0.40) so shadow sides keep readable hue — never near-black. */
+/** All toon materials share one restrained 8-band ramp texture. */
 let sharedRamp: THREE.DataTexture | null = null;
 function getSharedRamp(): THREE.DataTexture {
-  if (sharedRamp === null) sharedRamp = createToonRamp([0.4, 0.6, 0.82, 1.0]);
+  if (sharedRamp === null) sharedRamp = createToonRamp();
   return sharedRamp;
 }
 
@@ -169,21 +168,21 @@ export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
       uSunDir: { value: SUN_DIR },
       uRamp: { value: getSharedRamp() },
       uSkyMid: { value: flat(PALETTE.skyMid) },
-      uShadowTint: { value: 0.5 },
+      uShadowTint: { value: 0.42 },
       // Deep indigo, verbatim to screen: the darkest any toon surface renders.
       uShadowFloor: { value: flat(0x1e1b3a) },
       uRimColor: { value: flat(opts.rimColor ?? PALETTE.sparkle) },
-      uRimStrength: { value: opts.rimStrength ?? 0.9 },
+      uRimStrength: { value: (opts.rimStrength ?? 0.9) * 0.82 },
       uRimPower: { value: opts.rimPower ?? 2.6 },
       uRimThreshold: { value: opts.rimThreshold ?? 0.58 },
       uSpecColor: { value: flat(opts.specColor ?? 0xffffff) },
       uSpecPower: { value: 72.0 },
-      uSpecThreshold: { value: opts.specThreshold ?? 0.92 },
-      uSpecThreshold2: { value: 0.985 },
+      uSpecThreshold: { value: Math.max(opts.specThreshold ?? 0.95, 0.95) },
+      uSpecThreshold2: { value: 0.995 },
       uEmissive: { value: flat(opts.emissive ?? 0x000000) },
       uEmissiveIntensity: { value: opts.emissiveIntensity ?? 1.0 },
       uUpTintColor: { value: flat(PALETTE.skyHorizon) },
-      uUpTint: { value: 0.12 },
+      uUpTint: { value: 0.096 },
       uFogColor: { value: flat(PALETTE.skyHorizon) },
       uFogBand1: { value: 260.0 },
       uFogBand2: { value: 760.0 },

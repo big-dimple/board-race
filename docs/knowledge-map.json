@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "facts": [
+    {
+      "id": "player-controls",
+      "authority": "README.md",
+      "summaries": ["docs/llmwiki.md"],
+      "verifier": "npm run verify:release",
+      "status": "current"
+    },
+    {
+      "id": "technical-contracts",
+      "authority": "docs/llmwiki.md",
+      "summaries": ["README.md"],
+      "verifier": "npm run verify:release",
+      "status": "current"
+    },
+    {
+      "id": "project-status",
+      "authority": "docs/development-handoff.md",
+      "summaries": ["README.md"],
+      "verifier": "git status --short --branch",
+      "status": "current"
+    },
+    {
+      "id": "agent-rules",
+      "authority": "AGENTS.md",
+      "summaries": ["docs/llmwiki.md"],
+      "verifier": "git diff --check",
+      "status": "current"
+    },
+    {
+      "id": "expansion-scope",
+      "authority": "docs/expansion-gallery-handoff.md",
+      "summaries": ["docs/development-handoff.md"],
+      "verifier": "npm run build",
+      "status": "current"
+    }
+  ]
+}

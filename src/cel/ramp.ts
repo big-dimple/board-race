@@ -1,7 +1,7 @@
 /**
  * ramp.ts — 1D luminance ramp texture for toon diffuse quantization.
  *
- * THE core of the cel look: the wrapped NdotL (0..1) is used as the U
+ * The wrapped NdotL (0..1) is used as the U
  * coordinate and the texel value becomes the diffuse light level.
  * NearestFilter + no mipmaps = hard posterized bands, zero interpolation.
  *
@@ -12,10 +12,10 @@
 import * as THREE from 'three';
 
 /**
- * Default 4-band luminance levels, dark → lit. The darkest band stays well
- * above zero (0.28) so shadow sides keep their hue instead of going black.
+ * Default 8-band luminance levels, dark → lit. The closer steps keep the
+ * outlined look while avoiding large posterized slabs across broad surfaces.
  */
-const DEFAULT_LEVELS: readonly number[] = [0.28, 0.55, 0.8, 1.0];
+const DEFAULT_LEVELS: readonly number[] = [0.46, 0.54, 0.62, 0.7, 0.78, 0.86, 0.93, 1.0];
 
 /** Texel count across the ramp. 256 makes band edges land on exact texels. */
 const RAMP_WIDTH = 256;

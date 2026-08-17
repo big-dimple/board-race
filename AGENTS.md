@@ -53,7 +53,7 @@ automatically; players steer, drift/air-brake, and trigger flight.
   the exact recorded process before handoff.
 - GitHub mutation or release work must use the available GitHub operations
   skill. The checked release script includes the repository's deterministic
-  neat-freak closeout gate; run extra interactive closeout only when new facts,
+  jiepi-clear closeout gate; run extra interactive closeout only when new facts,
   conflicts, or cleanup candidates are discovered.
 
 ## Current State
@@ -83,9 +83,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
   real pace and drift-release BOOST input to keep both boats ahead through the
   fourth-flight approach; `releaseFormation()` removes all player-gap assistance
   on the exact fourth-pass frame. Fixed chain-drift personality may remain afterward,
-  but teleport, fake progress, collision immunity, and player slowdown are forbidden.
-  Rival drift/release visuals must be derived from real Boat state, never a cosmetic
-  loop detached from input, charge, or BOOST payout.
+  but its surface auto-throttle may only lift for traffic or recovery and never become
+  reverse braking. Teleport, fake progress, collision immunity, and player slowdown are
+  forbidden. Every real opponent drift drives a raised three-segment stern wind; real
+  BOOST release changes that same wind beat, and ordinary rival wake stays subordinate.
+  These visuals must derive from Boat state, never a cosmetic loop detached from input,
+  charge, or BOOST payout.
   Race radio is one prioritized slot and yields to action guidance. Routine passes
   and light contact stay silent; heavy personality reactions are capped per run.
   SOL's unmastered air-brake technique is a once-per-run desktop broadcast and a

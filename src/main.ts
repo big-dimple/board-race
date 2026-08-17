@@ -3304,6 +3304,7 @@ interface FormationRuntimeStats {
   extensionUsedFrames: number;
   surfaceSpeedSum: number;
   surfaceThrottleSum: number;
+  minSurfaceThrottle: number;
   surfaceNegativeThrottleFrames: number;
   surfaceFullThrottleFrames: number;
   flightSpeedSum: number;
@@ -3338,6 +3339,7 @@ function makeFormationStats(initialGap: number): FormationRuntimeStats {
     extensionUsedFrames: 0,
     surfaceSpeedSum: 0,
     surfaceThrottleSum: 0,
+    minSurfaceThrottle: Infinity,
     surfaceNegativeThrottleFrames: 0,
     surfaceFullThrottleFrames: 0,
     flightSpeedSum: 0,
@@ -3395,6 +3397,7 @@ function observeFormationStats(
     stats.surfaceFrames++;
     stats.surfaceSpeedSum += state.speed;
     stats.surfaceThrottleSum += input.throttle;
+    stats.minSurfaceThrottle = Math.min(stats.minSurfaceThrottle, input.throttle);
     if (input.throttle < 0) stats.surfaceNegativeThrottleFrames++;
     if (input.throttle >= 0.999) stats.surfaceFullThrottleFrames++;
     stats.minSurfaceSpeed = Math.min(stats.minSurfaceSpeed, state.speed);
@@ -3445,6 +3448,7 @@ function summarizeFormationStats(stats: FormationRuntimeStats): Record<string, u
     },
     surfaceThrottle: {
       mean: finite(stats.surfaceFrames > 0 ? stats.surfaceThrottleSum / stats.surfaceFrames : 0),
+      min: finite(stats.surfaceFrames > 0 ? stats.minSurfaceThrottle : 0),
       negativeDuty: finite(stats.surfaceFrames > 0 ? stats.surfaceNegativeThrottleFrames / stats.surfaceFrames : 0),
       fullDuty: finite(stats.surfaceFrames > 0 ? stats.surfaceFullThrottleFrames / stats.surfaceFrames : 0),
     },
@@ -3522,6 +3526,16 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
   const runtimeStats = rivalIds.map((_, role) => makeFormationStats(previousGaps[role]));
   const segmentStats = Array.from({ length: 4 }, () =>
     rivalIds.map((_, role) => makeFormationStats(previousGaps[role])));
+  const postReleaseStats = rivalIds.map((_, role) => makeFormationStats(previousGaps[role]));
+  const postReleaseDriftFrames = rivalIds.map(() => 0);
+  const postReleaseBoostEdges = rivalIds.map(() => 0);
+  const postReleaseWasBoosting = rivalIds.map((id) => boats[id].state.boosting);
+  const rivalWasSurfaceBeforeStep = rivalIds.map((id) => boats[id].state.flightPhase === 'surface');
+  const postReleaseAppliedSurface = rivalIds.map(() => ({
+    frames: 0,
+    minThrottle: Infinity,
+    negativeThrottleFrames: 0,
+  }));
   const playerSegments = Array.from({ length: 4 }, (_, flight) => ({
     flight: flight + 1,
     frames: 0,
@@ -3621,8 +3635,10 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
   let playerWasBoosting = boats[0].state.boosting;
   let fourthReleaseFrame = -1;
   let passThreeTime = -1;
+  const postReleaseProbeFrames = 5 * 60;
   while (race.phase !== 'defeated' && race.phase !== 'finished' && race.phase !== 'ready' &&
-      boats[0].state.flightsCleared < 4 && frames++ < 60 * 120) {
+      (fourthReleaseFrame < 0 || frames - fourthReleaseFrame <= postReleaseProbeFrames) &&
+      frames++ < 60 * 128) {
     const wasRacing = race.phase === 'racing';
     const flightsBeforeStep = boats[0].state.flightsCleared;
     if (wasRacing) {
@@ -3642,7 +3658,7 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
       );
       const route = course.flightRoutes[state.flightRouteCursor % course.flightRoutes.length];
       const launchFromU = route.navigation?.launchCueU ?? route.launchFromU;
-      const wantsLaunch = state.flightPhase === 'surface' && state.flightCharges > 0 &&
+      const wantsLaunch = flightsBeforeStep < 4 && state.flightPhase === 'surface' && state.flightCharges > 0 &&
         state.flightRouteState === 'idle' && pilotSample.u >= launchFromU && pilotSample.u <= route.launchToU;
       driftReleaseCooldown = Math.max(0, driftReleaseCooldown - 1 / 60);
       if (state.flightPhase !== 'surface') {
@@ -3652,7 +3668,7 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
         driftReleaseCooldown = 0.18;
         driftReleases++;
         bankedReleases++;
-      } else if (!driftHeld && driftReleaseCooldown <= 0 && !state.boosting &&
+      } else if (flightsBeforeStep < 4 && !driftHeld && driftReleaseCooldown <= 0 && !state.boosting &&
           state.flightRouteState === 'idle' && state.speed >= 14 &&
           (state.flightCharges === 0 || pilotSample.u < route.qualifyFromU)) {
         driftHeld = true;
@@ -3673,6 +3689,9 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
     } else {
       setHarnessInput(ZERO_INPUT);
       launchIntent = false;
+    }
+    for (let role = 0; role < rivalIds.length; role++) {
+      rivalWasSurfaceBeforeStep[role] = boats[rivalIds[role]].state.flightPhase === 'surface';
     }
     loop.advance(1 / 60);
     for (let i = 0; i < boats.length; i++) {
@@ -3720,8 +3739,22 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
       const closingRate = (previousGaps[role] - gap) * 60;
       previousGaps[role] = gap;
       const directive = rivalDirector.controlFor(id);
-      observeFormationStats(runtimeStats[role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
-      observeFormationStats(segmentStats[segment][role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
+      if (fourthReleaseFrame < 0) {
+        observeFormationStats(runtimeStats[role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
+        observeFormationStats(segmentStats[segment][role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
+      }
+      if (fourthReleaseFrame >= 0) {
+        observeFormationStats(postReleaseStats[role], state, harnessLastBoatInputs[id], directive, gap, closingRate);
+        if (rivalWasSurfaceBeforeStep[role]) {
+          const applied = postReleaseAppliedSurface[role];
+          applied.frames++;
+          applied.minThrottle = Math.min(applied.minThrottle, harnessLastBoatInputs[id].throttle);
+          if (harnessLastBoatInputs[id].throttle < 0) applied.negativeThrottleFrames++;
+        }
+        if (state.drifting) postReleaseDriftFrames[role]++;
+        if (!postReleaseWasBoosting[role] && state.boosting) postReleaseBoostEdges[role]++;
+        postReleaseWasBoosting[role] = state.boosting;
+      }
       if (racingFrames % 6 === 0) {
         const sample = course.sample(state.position, rivalSamples[role], course.routeForBoat(id));
         const surfaceSample = course.sample(state.position, lifecycleSurfaceSamples[role + 1], 'surface');
@@ -3941,7 +3974,12 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
         (rivalIds.every((id) => rivalDirector.paceFor(id) === 1 && rivalDirector.techniqueFor(id) === 0) &&
           director.formationFlights === 4);
       if (flights === 3) passThreeTime = racingFrames / 60;
-      if (flights === 4) fourthReleaseFrame = frames;
+      if (flights === 4) {
+        fourthReleaseFrame = frames;
+        for (let role = 0; role < rivalIds.length; role++) {
+          postReleaseWasBoosting[role] = boats[rivalIds[role]].state.boosting;
+        }
+      }
       const playerBoat = boats[0];
       const playerForwardX = Math.sin(playerBoat.state.heading);
       const playerForwardZ = Math.cos(playerBoat.state.heading);
@@ -4078,6 +4116,22 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
     runSeed: director.runSeed,
     fourthReleaseFrame,
     postReleaseGapProbe,
+    postRelease: postReleaseStats.map((stats, role) => ({
+      role,
+      id: rivalIds[role],
+      profileId: roster[rivalIds[role]].profileId,
+      driftFrames: postReleaseDriftFrames[role],
+      boostEdges: postReleaseBoostEdges[role],
+      appliedSurfaceThrottle: {
+        frames: postReleaseAppliedSurface[role].frames,
+        min: Number((Number.isFinite(postReleaseAppliedSurface[role].minThrottle)
+          ? postReleaseAppliedSurface[role].minThrottle
+          : 0).toFixed(3)),
+        negativeDuty: Number((postReleaseAppliedSurface[role].negativeThrottleFrames /
+          Math.max(1, postReleaseAppliedSurface[role].frames)).toFixed(3)),
+      },
+      ...summarizeFormationStats(stats),
+    })),
     rivals: runtimeStats.map((stats, role) => {
       const id = rivalIds[role];
       return {
@@ -4350,7 +4404,10 @@ function scenario(name: string): void {
       placeOpponentDriftPack(0.14);
       advanceUntil(() => {
         const rivals = rivalDirector.debugState().rivals.map((id) => boats[id]);
-        return rivals.every((boat) => boat.state.drifting && boat.debugDriftEffects().emissions >= 2);
+        return rivals.every((boat) => {
+          const fx = boat.debugDriftEffects();
+          return boat.state.drifting && fx.windStrength >= 0.9 && fx.windActiveInstances === 9;
+        });
       }, 8);
       break;
     case 'flight-spool':
@@ -4741,15 +4798,16 @@ if (HARNESS) {
         ready: boat.state.driftReleaseReady,
         charge: boat.state.boostCharge,
         boosting: boat.state.boosting,
-        emissions: fx.emissions,
-        releaseBursts: fx.releaseBursts,
+        windScale: fx.windScale,
+        releaseBeats: fx.releaseBeats,
         phase: fx.phase,
         holdStarts: fx.holdStarts,
-        edgeStrength: fx.edgeStrength,
-        edgeMatrixScale: fx.edgeMatrixScale,
-        edgeSide: fx.edgeSide,
+        windStrength: fx.windStrength,
+        windMatrixScale: fx.windMatrixScale,
+        windSide: fx.windSide,
+        windActiveInstances: fx.windActiveInstances,
+        windLocalHeight: fx.windLocalHeight,
         wakeScale: fx.wakeScale,
-        waterSprayBursts: fx.waterSprayBursts,
         boostCycles: Number(ais[id].debugPursuit().boostCycles),
       };
     },
@@ -4972,25 +5030,25 @@ if (HARNESS) {
       const opponents = boats.slice(1);
       const fx = opponents.map((boat) => boat.debugDriftEffects());
       const rivalIds = rivalDirector.debugState().rivals;
-      const strongestEdge = fx.reduce((strongest, item) =>
-        item.edgeStrength > strongest.edgeStrength ? item : strongest, fx[0]);
+      const strongestWind = fx.reduce((strongest, item) =>
+        item.windStrength > strongest.windStrength ? item : strongest, fx[0]);
       return {
         drifting: opponents.filter((boat) => boat.state.drifting).length,
         rivalDrifting: rivalIds.filter((id) => boats[id].state.drifting).length,
         rivalBoosting: rivalIds.filter((id) => boats[id].state.boosting).length,
-        emissions: fx.reduce((sum, item) => sum + item.emissions, 0),
-        maxEmissions: Math.max(...fx.map((item) => item.emissions)),
-        releaseBursts: fx.reduce((sum, item) => sum + item.releaseBursts, 0),
+        windActiveInstances: fx.reduce((sum, item) => sum + item.windActiveInstances, 0),
+        maxWindActiveInstances: Math.max(...fx.map((item) => item.windActiveInstances)),
+        releaseBeats: fx.reduce((sum, item) => sum + item.releaseBeats, 0),
         boostCycles: rivalIds.reduce((sum, id) => sum + Number(ais[id].debugPursuit().boostCycles), 0),
-        minScale: Math.min(...fx.map((item) => item.scale)),
-        maxScale: Math.max(...fx.map((item) => item.scale)),
+        minWindScale: Math.min(...fx.map((item) => item.windScale)),
+        maxWindScale: Math.max(...fx.map((item) => item.windScale)),
         phase: fx.map((item) => item.phase).join(','),
         holdStarts: fx.reduce((sum, item) => sum + item.holdStarts, 0),
-        edgeStrength: strongestEdge.edgeStrength,
-        edgeMatrixScale: Math.max(...fx.map((item) => item.edgeMatrixScale)),
-        edgeSide: strongestEdge.edgeSide,
+        windStrength: strongestWind.windStrength,
+        windMatrixScale: Math.max(...fx.map((item) => item.windMatrixScale)),
+        windSide: strongestWind.windSide,
+        windLocalHeight: Math.max(...fx.map((item) => item.windLocalHeight)),
         wakeScale: Math.max(...fx.map((item) => item.wakeScale)),
-        waterSprayBursts: fx.reduce((sum, item) => sum + item.waterSprayBursts, 0),
       };
     },
     setVisibility: handleVisibility,

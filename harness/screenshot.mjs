@@ -1093,56 +1093,58 @@ async function verifyFlightContract(page) {
     window.__harness.rivalChainState(0),
     window.__harness.rivalChainState(1),
   ]);
-  assert.ok(leadHoldEvidence.every((item) => item.holdStarts >= 1 && item.emissions >= 2),
+  assert.ok(leadHoldEvidence.every((item) => item.holdStarts >= 1 && item.windStrength >= 0.65 &&
+    item.windActiveInstances === 9),
     `both lead rivals must visibly use real drift input: ${JSON.stringify(leadHoldEvidence)}`);
-  assert.ok(opponentFx.emissions >= 4,
-    `lead-rival drift must emit a readable layered edge: ${JSON.stringify(opponentFx)}`);
-  assert.ok(opponentFx.minScale >= 0.3 && opponentFx.maxScale <= 1,
-    `opponent drift FX must remain inside its distance LOD: ${JSON.stringify(opponentFx)}`);
-  assert.ok(opponentFx.wakeScale >= 0.78 && opponentFx.wakeScale <= 0.86,
+  assert.ok(opponentFx.windActiveInstances >= 18 && opponentFx.maxWindActiveInstances === 9,
+    `both lead rivals need all nine raised stern-wind layers: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.minWindScale >= 0 && opponentFx.maxWindScale <= 1,
+    `opponent drift wind must remain inside its distance LOD: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.windLocalHeight >= 0.88,
+    `the technique cue must sit above the wake and water surface: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.wakeScale >= 0.66 && opponentFx.wakeScale <= 0.7,
     `ordinary rival wake must retain water volume while yielding to the chain cue: ${JSON.stringify(opponentFx)}`);
-  assert.ok(opponentFx.waterSprayBursts <= Math.ceil(opponentFx.emissions * 0.55),
-    `ordinary white spray may not outnumber the colored hold cadence: ${JSON.stringify(opponentFx)}`);
   let chainFx = await page.evaluate(() => {
     const h = window.__harness;
     let state = h.rivalChainState(0);
-    for (let frame = 0; frame < 150 && !(state.drifting && state.edgeStrength >= 0.65); frame++) {
+    for (let frame = 0; frame < 150 && !(state.drifting && state.windStrength >= 0.65); frame++) {
       h.advance(1 / 60);
       state = h.rivalChainState(0);
     }
     return state;
   });
   const startingCycles = chainFx.boostCycles;
-  const startingBursts = chainFx.releaseBursts;
+  const startingReleaseBeats = chainFx.releaseBeats;
   const startingHoldStarts = chainFx.holdStarts;
-  const startingEdgeSide = chainFx.edgeSide;
-  const holdingMatrixScale = chainFx.edgeMatrixScale;
-  assert.ok(chainFx.drifting && chainFx.edgeStrength >= 0.65 && holdingMatrixScale >= 1 &&
-    Math.abs(startingEdgeSide) === 1,
-    `the hold frame needs live edge geometry, not a detached particle counter: ${JSON.stringify(chainFx)}`);
+  const startingWindSide = chainFx.windSide;
+  const holdingMatrixScale = chainFx.windMatrixScale;
+  assert.ok(chainFx.drifting && chainFx.windStrength >= 0.65 && holdingMatrixScale >= 1 &&
+    chainFx.windActiveInstances === 9 && chainFx.windLocalHeight >= 0.88 && Math.abs(startingWindSide) === 1,
+    `the hold frame needs raised live wind geometry, not a detached particle counter: ${JSON.stringify(chainFx)}`);
   for (let frame = 0; frame < 120 &&
-      !(chainFx.releaseBursts > startingBursts && chainFx.boosting && !chainFx.drifting); frame++) {
+      !(chainFx.releaseBeats > startingReleaseBeats && chainFx.boosting && !chainFx.drifting); frame++) {
     await page.evaluate(() => window.__harness.advance(1 / 60));
     chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
-  assert.ok(chainFx.releaseBursts > startingBursts && chainFx.boosting && !chainFx.drifting,
-    `a real drift release must replace amber hold with the BOOST beat: ${JSON.stringify(chainFx)}`);
-  assert.ok(chainFx.edgeMatrixScale < holdingMatrixScale,
-    `the hold blade must retract on release so green BOOST owns the frame: ${JSON.stringify(chainFx)}`);
+  assert.ok(chainFx.releaseBeats > startingReleaseBeats && chainFx.boosting && !chainFx.drifting &&
+    chainFx.phase === 'release' && chainFx.windActiveInstances === 9,
+    `a real drift release must turn the stern wind into the BOOST beat: ${JSON.stringify(chainFx)}`);
   for (let frame = 0; frame < 150 &&
-      !(chainFx.holdStarts > startingHoldStarts && chainFx.drifting && chainFx.edgeStrength >= 0.65); frame++) {
+      !(chainFx.holdStarts > startingHoldStarts && chainFx.drifting && chainFx.windStrength >= 0.65); frame++) {
     await page.evaluate(() => window.__harness.advance(1 / 60));
     chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
   assert.ok(chainFx.boostCycles > startingCycles && chainFx.holdStarts > startingHoldStarts && chainFx.drifting &&
-    chainFx.edgeMatrixScale >= 1,
+    chainFx.windMatrixScale >= 1 && chainFx.windActiveInstances === 9,
   `a lead rival must visibly re-enter a real hold after payout: ${JSON.stringify(chainFx)}`);
-  assert.equal(chainFx.edgeSide, -startingEdgeSide,
-    `successive real chain holds must switch their loaded water-cut side: ${JSON.stringify(chainFx)}`);
+  assert.equal(chainFx.windSide, -startingWindSide,
+    `successive real chain holds must switch their loaded stern-wind side: ${JSON.stringify(chainFx)}`);
   await page.evaluate(() => window.__harness.scenario('ready'));
   chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
-  assert.equal(chainFx.edgeMatrixScale, 0,
-    `READY reset must clear every drift-edge instance matrix: ${JSON.stringify(chainFx)}`);
+  assert.equal(chainFx.windMatrixScale, 0,
+    `READY reset must clear every drift-wind instance matrix: ${JSON.stringify(chainFx)}`);
+  assert.equal(chainFx.windActiveInstances, 0,
+    `READY reset must hide every drift-wind layer: ${JSON.stringify(chainFx)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -3980,7 +3982,7 @@ async function main() {
         await page.evaluate(() => {
           const h = window.__harness;
           let state = h.rivalChainState(1);
-          for (let frame = 0; frame < 150 && !(state.drifting && state.edgeStrength >= 0.9); frame++) {
+          for (let frame = 0; frame < 150 && !(state.drifting && state.windStrength >= 0.9); frame++) {
             h.advance(1 / 60);
             state = h.rivalChainState(1);
           }
@@ -4139,10 +4141,9 @@ async function main() {
             const h = window.__harness;
             const p = h.rivalChainState(role);
             const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
-            // Inspect the actual loaded side from a raised rear quarter. The
-            // camera follows a genuine rechain flip without dropping into the
-            // swell or letting the surface guide cover the water cut.
-            const side = p.edgeSide * 7.5;
+            // Inspect the actual loaded side from a raised rear quarter so the
+            // wind stays above the swell and remains readable after a flip.
+            const side = p.windSide * 7.5;
             h.freeCam(
               p.x - fx * 7.5 + fz * side, p.y + 4.4, p.z - fz * 7.5 - fx * side,
               p.x + fx * 1.5, p.y + 0.55, p.z + fz * 1.5,
@@ -4151,24 +4152,65 @@ async function main() {
           }, chainRole);
         };
         const hold = await captureChaseBeat('hold', 1 / 60);
-        assert.ok(hold.drifting && hold.edgeStrength >= 0.9 && hold.edgeMatrixScale >= 1 &&
-          Math.abs(hold.edgeSide) === 1,
-          `hold chase screenshot must show the real amber edge geometry: ${JSON.stringify(hold)}`);
-        const release = await page.evaluate(({ startBursts, role }) => {
+        assert.ok(hold.drifting && hold.windStrength >= 0.9 && hold.windMatrixScale >= 1 &&
+          hold.windActiveInstances === 9 && hold.windLocalHeight >= 0.88 && Math.abs(hold.windSide) === 1,
+          `hold chase screenshot must show the real warm stern wind: ${JSON.stringify(hold)}`);
+        await focusRival();
+        const windPixels = await page.evaluate((role) => {
+          const h = window.__harness;
+          const canvas = document.querySelector('#app > canvas');
+          const state = h.rivalChainState(role);
+          const boat = window.__scene.getObjectByName(`boat-${state.id}`);
+          const wind = boat?.getObjectByName('opponent-drift-wind');
+          if (!(canvas instanceof HTMLCanvasElement) || !wind?.isInstancedMesh) return null;
+          const read = () => {
+            h.render();
+            const copy = document.createElement('canvas');
+            copy.width = canvas.width;
+            copy.height = canvas.height;
+            const context = copy.getContext('2d', { willReadFrequently:true });
+            context.drawImage(canvas, 0, 0);
+            return context.getImageData(0, 0, copy.width, copy.height).data;
+          };
+          const wasVisible = wind.visible;
+          wind.visible = false;
+          const withoutWind = read();
+          wind.visible = true;
+          const withWind = read();
+          wind.visible = wasVisible;
+          h.render();
+          let changed = 0;
+          let deltaSum = 0;
+          for (let i = 0; i < withWind.length; i += 4) {
+            const delta = Math.abs(withWind[i] - withoutWind[i]) +
+              Math.abs(withWind[i + 1] - withoutWind[i + 1]) +
+              Math.abs(withWind[i + 2] - withoutWind[i + 2]);
+            if (delta <= 8) continue;
+            changed++;
+            deltaSum += delta;
+          }
+          return { changed, meanDelta:deltaSum / Math.max(1, changed) };
+        }, chainRole);
+        assert.ok(windPixels && windPixels.changed >= 200 && windPixels.meanDelta >= 18,
+          `the loaded stern wind must contribute visible canvas pixels: ${JSON.stringify(windPixels)}`);
+        await page.screenshot({ path: path.join(OUT, `opponent-drift-hold${mobileSuffix}.png`) });
+        const release = await page.evaluate(({ startReleaseBeats, role }) => {
           const h = window.__harness;
           let state = h.rivalChainState(role);
           for (let frame = 0; frame < 120; frame++) {
             h.advance(1 / 60);
             state = h.rivalChainState(role);
-            if (state.releaseBursts > startBursts && state.boosting && !state.drifting) break;
+            if (state.releaseBeats > startReleaseBeats && state.boosting && !state.drifting) break;
           }
           return state;
-        }, { startBursts: hold.releaseBursts, role: chainRole });
-        assert.ok(release.releaseBursts > hold.releaseBursts && release.boosting && !release.drifting,
+        }, { startReleaseBeats: hold.releaseBeats, role: chainRole });
+        assert.ok(release.releaseBeats > hold.releaseBeats && release.boosting && !release.drifting &&
+          release.phase === 'release' && release.windActiveInstances === 9,
           `release screenshot must come from a real payout: ${JSON.stringify(release)}`);
         const releaseChase = await captureChaseBeat('release', 0.12);
-        assert.ok(releaseChase.boosting && !releaseChase.drifting && releaseChase.edgeMatrixScale < hold.edgeMatrixScale,
-          `release chase screenshot must let green BOOST own the frame: ${JSON.stringify(releaseChase)}`);
+        assert.ok(releaseChase.boosting && !releaseChase.drifting && releaseChase.phase === 'release' &&
+          releaseChase.windStrength > 0 && releaseChase.windActiveInstances === 9,
+          `release chase screenshot must show the real green stern-wind beat: ${JSON.stringify(releaseChase)}`);
         await focusRival();
         await page.screenshot({ path: path.join(OUT, `opponent-drift-release${mobileSuffix}.png`) });
         const rechain = await page.evaluate(({ start, role }) => {
@@ -4177,27 +4219,31 @@ async function main() {
           for (let frame = 0; frame < 150; frame++) {
             h.advance(1 / 60);
             state = h.rivalChainState(role);
-            if (state.holdStarts > start.holdStarts && state.drifting && state.edgeStrength >= 0.9) break;
+            if (state.holdStarts > start.holdStarts && state.drifting && state.windStrength >= 0.9) break;
           }
           return state;
         }, { start: { holdStarts: hold.holdStarts }, role: chainRole });
-        assert.ok(rechain.holdStarts > hold.holdStarts && rechain.drifting && rechain.edgeMatrixScale >= 1,
+        assert.ok(rechain.holdStarts > hold.holdStarts && rechain.drifting && rechain.windMatrixScale >= 1 &&
+          rechain.windActiveInstances === 9,
           `rechain screenshot must show a new real hold: ${JSON.stringify(rechain)}`);
-        assert.equal(rechain.edgeSide, -hold.edgeSide,
+        assert.equal(rechain.windSide, -hold.windSide,
           `rechain screenshot must switch the real loaded side: ${JSON.stringify({ hold, rechain })}`);
         const rechainChase = await captureChaseBeat('rechain', 1 / 60);
-        assert.ok(rechainChase.drifting && rechainChase.edgeStrength >= 0.9 && rechainChase.edgeMatrixScale >= 1,
-          `rechain chase screenshot must restore the amber edge: ${JSON.stringify(rechainChase)}`);
+        assert.ok(rechainChase.drifting && rechainChase.windStrength >= 0.9 &&
+          rechainChase.windMatrixScale >= 1 && rechainChase.windActiveInstances === 9,
+          `rechain chase screenshot must restore the warm stern wind: ${JSON.stringify(rechainChase)}`);
         await focusRival();
         await page.screenshot({ path: path.join(OUT, `opponent-drift-rechain${mobileSuffix}.png`) });
-        const readyEdge = await page.evaluate((role) => {
+        const readyWind = await page.evaluate((role) => {
           const h = window.__harness;
           h.scenario('ready');
           h.render();
           return h.rivalChainState(role);
         }, chainRole);
-        assert.equal(readyEdge.edgeMatrixScale, 0,
-          `READY must clear every rival drift-edge matrix after the screenshot sequence: ${JSON.stringify(readyEdge)}`);
+        assert.equal(readyWind.windMatrixScale, 0,
+          `READY must clear every rival drift-wind matrix after the screenshot sequence: ${JSON.stringify(readyWind)}`);
+        assert.equal(readyWind.windActiveInstances, 0,
+          `READY must hide every rival drift-wind layer after the screenshot sequence: ${JSON.stringify(readyWind)}`);
       }
       if (name === 'final-station') {
         const impactState = await page.evaluate(() => window.__harness.playerState());

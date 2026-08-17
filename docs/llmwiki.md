@@ -351,6 +351,14 @@ DriverSelect / READY
   禁止完整双图 crossfade、DRIVER CONTRACT 假卡或强制 layout reflow。连续输入以最后
   一次为准，`260ms` 硬收敛；reduced motion 立即切换。雷达 backing store 必须覆盖
   `CSS size * min(devicePixelRatio, 2)`。
+- 全局造型继续由 `CelOutline` 墨线承担，不能为了削弱赛璐珞把轮廓一起淡掉。普通
+  `CelToon` 使用 `.46/.54/.62/.70/.78/.86/.93/1` 八级光照，shadow tint 为 `.42`，
+  rim 强度按原值乘 `.82`，up tint 为 `.096`，高光阈值至少 `.95/.995`。这组参数的
+  目标是缩小大块明暗跳变，不是改成无轮廓写实材质。
+- 海面两道主色带各使用 `.13` 的过渡半宽；中段向深水色收 `25%`，浪峰向原中段色收
+  `42%`。patch / warp / deep streak 分别为 `.01/.045/.02`，crest cap 宽 `.65`、
+  保留阈值 `.78`，lane glint 密度 `.04`。物理波形、海面网格、路线对比和墨线不随
+  这次降噪改变；后续调海面必须同时跑水面路线像素方差合同。
 
 ## 验证与 harness
 
@@ -382,7 +390,7 @@ collision / audio / systems / performance 门禁、commit、push 和 remote SHA 
 
 `npm run verify:closeout` 会拒绝未暂存 / 未跟踪残留、备份类文件、tracked `.env` 中的
 异常键，以及本仓库仍在运行的人工 Vite 服务。它已经是发布合同的第一道 gate；只有
-它发现新问题时才进入交互式 `neat-freak` 裁决。
+它发现新问题时才进入交互式 `jiepi-clear` 裁决。
 
 若 GitHub 匿名 API 配额耗尽，checked publisher 可能在成功 push 后返回 metadata
 错误。`release:checked` 只在工作区已干净且 local SHA 等于 `origin/main` 时启用公开
@@ -523,14 +531,21 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
   `driftReleaseReady`、松开得到 BOOST，再按既有飞行 / 空刹逻辑行驶。第四飞计分同一
   fixed-step 调用 `releaseFormation()`，把 `formationActive=false`、两种倍率归 `1`、
   水面油门辅助关闭、收口压力归零；已经开始的合法空道尝试可保留线路控制到落水，
-  但不得再读取玩家差距。禁止 teleport、位置插值、假 progress、免碰撞或玩家减速。
-- 连漂表现也必须来自真实状态：真实 hold 只在船体当前受力侧生成一条黄芯墨边的锯齿
-  切水痕，下一次真实 hold 必须随真实相反舵向换侧；真实松开兑现 BOOST 的边沿才允许
-  绿色扇爆和放大的尾部推进脉冲。对手普通白水保留船尾实体水量和 V 形臂，视觉倍率
-  为 `.82`，通过内部断续留白消除规则实心塑料片，不能再靠整体降 alpha 把水花抹掉。
-  harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`、AI accepted cycle 与
-  Boat BOOST rising edge 数量完全一致、READY instance matrix 全清零，并同时证明两名
-  rival 在普通玩家追车视角内，不能只拿累计粒子数或贴近自由相机冒充可读性。
+  但不得再读取玩家差距。解除编队后的 chain specialist 继承玩家式水面自动油门：正常
+  直线输出 `1`，拥堵、打转或 mistake 可以降到 `0`，帧开始已在水面时绝不输出负值；
+  空中仍由独立 vector air-brake 包络负责减速。禁止 teleport、位置插值、假 progress、
+  免碰撞或玩家减速。
+- 连漂表现必须来自真实状态：所有实际进入 drift 的对手都使用同一个
+  `opponent-drift-wind`，由三段、每段三层的暖色折线从艇尾上方展开；长度跟真实 charge
+  走，下一次真实 hold 随相反舵向换侧。只有真实松开兑现 Boat BOOST 的 rising edge
+  才把同一组风切切成 `0.22s` 绿色释放节拍。旧的对手漂移粒子、漂移白水、BOOST 水花
+  和独立绿色扇面全部退役，不能再叠回来。该风切在 `55m` 内完整显示，至 `150m` 线性
+  淡出；普通对手尾流倍率降为 `.68`，只负责船体贴水，不与技巧提示争画面。
+- harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`、AI accepted cycle 与
+  Boat BOOST rising edge 数量完全一致、READY 九个 instance matrix 全清零，并同时证明
+  两名 rival 位于普通玩家追车视角、风切实际改变 WebGL canvas 像素；累计计数或只用
+  贴近自由相机都不能冒充可读性。第四飞后还要连续采样至少五秒，证明 player-gap 指令
+  全为零、实际水面输入无负油门，同时仍观察到真实 chain hold 与 BOOST。
 - 电台是纯 `RadioDirector` 单槽仲裁，优先级为 `critical > tactical > flavor`；危险警告、
   键位引导、飞行提示和表现层冻结时暂停，不与它们争屏。每条消息有 run key、TTL、
   duration，可选 session key；不得用多个独立 timer 叠出一排 toast。
@@ -555,7 +570,7 @@ Final 自由接近与桌面选角舞台不改变 records 结构，不升 schema�
   先确认正式资产已入库、没有未合并或独有成果、没有进程占用，再列删除候选。
 - 用户要求 GitHub push、PR、Release、Pages 或其他仓库变更时，先启用
   `github-operator` skill；本地实现请求不隐含发布授权。
-- 用户要求洁癖 / 收尾时启用 `neat-freak`：代码、运行态、文档、规则、记忆和
+- 用户要求洁癖 / 收尾时启用 `jiepi-clear`：代码、运行态、文档、规则、记忆和
   工作区逐面标状态。清场删除必须在完整汇报之后获得用户再次明确确认，不能先删
   后报。Codex 生成记忆没有明确控制面时只读，不手改。
 
