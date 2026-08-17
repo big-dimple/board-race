@@ -1,4 +1,4 @@
-import type { BoatInput, BoatState, FlightRouteFailReason } from '../contracts';
+import { MAX_FLIGHT_CHARGES, type BoatInput, type BoatState, type FlightRouteFailReason } from '../contracts';
 
 export type CoachStatus = 'dormant' | 'active' | 'disabled' | 'complete' | 'expert';
 export type CoachInputDevice = 'keyboard' | 'gamepad' | 'mobile';
@@ -9,6 +9,10 @@ export type CoachFocus =
   | 'flight-stock'
   | 'flight-control'
   | 'flight-meter';
+
+// Two stored cells are enough to teach that inventory stacks. This is a
+// curriculum milestone, not the gameplay capacity.
+const INVENTORY_STACK_LESSON_CHARGES = 2;
 
 export interface CoachMastery {
   steered: boolean;
@@ -220,12 +224,14 @@ export class DrivingCoach {
       if (this.progress.status === 'active') {
         this.progress.knowledge.bankRule = true;
         this.progress.knowledge.inventory = true;
-        this.reinforcement = state.flightCharges >= 2 ? 'inventory' : 'banked';
+        this.reinforcement = state.flightCharges >= INVENTORY_STACK_LESSON_CHARGES ? 'inventory' : 'banked';
         this.reinforcementTimer = 2.8;
       }
       this.sawBankReady = false;
       dirty = true;
-    } else if (this.progress.status === 'active' && state.flightCharges >= 2 && this.previousCharges < 2 && !this.progress.knowledge.inventory) {
+    } else if (this.progress.status === 'active' &&
+        state.flightCharges >= INVENTORY_STACK_LESSON_CHARGES &&
+        this.previousCharges < INVENTORY_STACK_LESSON_CHARGES && !this.progress.knowledge.inventory) {
       this.progress.knowledge.inventory = true;
       this.reinforcement = 'inventory';
       this.reinforcementTimer = 3.8;
@@ -295,14 +301,14 @@ export class DrivingCoach {
     if (this.reinforcementTimer > 0 && this.reinforcement === 'banked') {
       return {
         id: 'banked', focus: 'flight-stock', stage: '入库完成', control: controls.flight,
-        kicker: '已存 1 格 · 最多 2 格', title: '菱形 = 可用飞行次数',
+        kicker: `已存 1 格 · 最多 ${MAX_FLIGHT_CHARGES} 格`, title: '菱形 = 可用飞行次数',
         detail: '漂过黄线继续蓄，只延长水面 BOOST · 不会延长飞行', tone: 'info',
       };
     }
     if (this.reinforcementTimer > 0 && this.reinforcement === 'inventory') {
       return {
         id: 'banked', focus: 'flight-stock', stage: '飞行库存', control: controls.flight,
-        kicker: '库存 2 / 2', title: '起飞用 1 格',
+        kicker: `库存 ${INVENTORY_STACK_LESSON_CHARGES} / ${MAX_FLIGHT_CHARGES}`, title: '起飞用 1 格',
         detail: '备用格可留到下一飞 · 或在空中续航', tone: 'info',
       };
     }
@@ -327,7 +333,7 @@ export class DrivingCoach {
         detail: '轻调方向，回到主航线', tone: 'surface',
       };
     }
-    if (!this.progress.mastery.bankedCharge && state.flightPhase === 'surface' && state.speed > 12 && state.flightCharges < 2) {
+    if (!this.progress.mastery.bankedCharge && state.flightPhase === 'surface' && state.speed > 12 && state.flightCharges < MAX_FLIGHT_CHARGES) {
       if (state.driftReleaseReady) return {
         id: 'release', focus: 'drift-meter', stage: '漂移蓄能', control: controls.drift,
         kicker: '黄线 = 已够 1 格', title: `现在松开 ${controls.drift}`,
@@ -355,7 +361,7 @@ export class DrivingCoach {
       return {
         id: 'flight-gauge', focus: 'flight-meter', stage: '飞行读条', control: '',
         kicker: 'FLIGHT TIMER', title: '右条 = 本次飞行剩余时间',
-        detail: '两颗菱形才是可用库存', tone: 'flight',
+        detail: '菱形亮起几格，就有几次可用库存', tone: 'flight',
       };
     }
     if (state.flightExtensionReady && state.flightCharges > 0 && this.extensionTimer > 0 && !this.progress.mastery.extendedFlight) {

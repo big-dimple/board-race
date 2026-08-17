@@ -17,7 +17,7 @@
  * update() runs on the fixed 1/60 sim step and allocates nothing per frame.
  */
 import * as THREE from 'three';
-import { LAYER_ENERGY, LAYER_INK, markInk } from '../contracts';
+import { LAYER_ENERGY, LAYER_INK, MAX_FLIGHT_CHARGES, markInk } from '../contracts';
 import type {
   BoatInput,
   BoatState,
@@ -1325,7 +1325,7 @@ export class Boat implements IBoat {
         // Flying never replaces the old payout. A wave jump on the release
         // frame must not steal the earned charge; only controlled flight blocks
         // re-arming, which prevents an infinite airborne chain.
-        if (!flightWasActive) st.flightCharges = Math.min(2, st.flightCharges + 1);
+        if (!flightWasActive) st.flightCharges = Math.min(MAX_FLIGHT_CHARGES, st.flightCharges + 1);
       }
       st.boostCharge = 0;
     }

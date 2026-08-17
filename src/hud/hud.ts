@@ -21,6 +21,7 @@ import type {
   CourseWarning,
   RouteTurnDirection,
 } from '../contracts';
+import { MAX_FLIGHT_CHARGES } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
 import { MedalCeremonyCanvas } from './medalCeremony';
@@ -332,12 +333,12 @@ export class HUD {
     this.speedNum = h('div', 'hud-speed-num hud-inked', speedPanel, '0');
     h('div', 'hud-speed-unit', speedPanel, 'KM/H');
 
-    // ---- single power unit: two launch cells above the original boost bar ----
+    // ---- single power unit: stored launch cells above the original boost bar ----
     this.powerPanel = h('div', 'hud-panel hud-power', this.root);
     const flightRow = h('div', 'hud-flight', this.powerPanel);
     h('div', 'hud-flight-label', flightRow, 'FLIGHT');
     const flightRack = h('div', 'hud-flight-rack', flightRow);
-    for (let i = 0; i < 2; i++) this.flightTokens.push(h('div', 'hud-flight-token', flightRack));
+    for (let i = 0; i < MAX_FLIGHT_CHARGES; i++) this.flightTokens.push(h('div', 'hud-flight-token', flightRack));
     this.flightChargeCount = h('div', 'hud-flight-count', flightRow, 'x0');
     const flightPips = h('div', 'hud-flight-pips', flightRow);
     for (let i = 0; i < FLIGHT_PIPS; i++) {
@@ -361,7 +362,7 @@ export class HUD {
     this.driverLeftLabel = h('div', 'hud-driver-label hud-driver-label-left', this.driverPower, '');
     this.driverRightLabel = h('div', 'hud-driver-label hud-driver-label-right', this.driverPower, '');
     this.driverStocks = h('div', 'hud-driver-stocks', this.driverPower);
-    for (let i = 0; i < 2; i++) h('i', 'hud-driver-stock', this.driverStocks);
+    for (let i = 0; i < MAX_FLIGHT_CHARGES; i++) h('i', 'hud-driver-stock', this.driverStocks);
 
     // ---- toasts / wrong way / countdown ----------------------------------------------
     this.toastBox = h('div', 'hud-toasts', this.root);
@@ -704,6 +705,7 @@ export class HUD {
       this.flightChargeCount.textContent = `x${st.flightCharges}`;
       for (let i = 0; i < this.flightTokens.length; i++) {
         this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
+        this.flightTokens[i].classList.toggle('active', flightActive && i < st.flightCharges);
       }
     }
     const launchPromptToken = routeGuidance.actionCue === 'launch' && routeGuidance.actionRouteIndex >= 0 &&
@@ -753,7 +755,9 @@ export class HUD {
     }
     if (flightActive !== this.lastFlightActive) {
       this.lastFlightActive = flightActive;
-      for (const token of this.flightTokens) token.classList.toggle('active', flightActive);
+      for (let i = 0; i < this.flightTokens.length; i++) {
+        this.flightTokens[i].classList.toggle('active', flightActive && i < st.flightCharges);
+      }
       this.powerPanel.classList.toggle('flying', flightActive);
     }
     if (race.phase === 'racing' && st.flightPhase !== this.lastFlightPhase && st.flightPhase === 'spool') {
@@ -859,9 +863,9 @@ export class HUD {
     // once an airborne envelope is actually consuming time.
     this.driverRightRail.classList.toggle('on', active &&
       (state.flightMode === 'active' || state.flightMode === 'extend' || state.flightMode === 'finish'));
-    this.driverLeftLabel.textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'BRAKE' : state.driftReleaseReady && state.flightCharges < 2 ? 'BANK' : state.drifting && state.flightCharges >= 2 ? 'MAX' : '';
+    this.driverLeftLabel.textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'BRAKE' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
     this.driverRightLabel.textContent = state.flightMode === 'finish' ? 'GO' : state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
-    this.driverPower.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < 2);
+    this.driverPower.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
     this.driverPower.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
     this.driverPower.classList.toggle('extend', state.flightMode === 'extend');
     this.driverPower.classList.toggle('final', state.flightMode === 'finish');

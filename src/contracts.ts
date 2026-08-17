@@ -9,6 +9,9 @@ import type * as THREE from 'three';
 
 // ---------------------------------------------------------------- boats ----
 
+/** Maximum number of launch charges a boat may carry between flights. */
+export const MAX_FLIGHT_CHARGES = 5;
+
 /** Per-frame driving input, produced by the player keyboard or an AI controller. */
 export interface BoatInput {
   /** -1 (full reverse/brake) .. 1 (full throttle). */
@@ -127,8 +130,6 @@ export interface FlightRouteNavigation {
   locatorU?: number;
   /** Deploy the visual branch before the normal AI qualification window. Visual only. */
   guideFromU?: number;
-  /** Earliest point represented by the branch mesh. Does not deploy or score the route. */
-  visualFromU?: number;
   /** Recommended player launch marker. It may lead the AI window without changing scoring. */
   launchCueU?: number;
   /** Route-specific ascent preview length for making an immediate turn-in readable. */
@@ -181,7 +182,7 @@ export interface BoatState {
   boosting: boolean;
   /** Normalized time left in the active boost, or 0 while inactive. */
   boostRemaining: number;
-  /** Earned launch charges. Each qualifying surface-drift release adds one, capped at two. */
+  /** Earned launch charges, capped by MAX_FLIGHT_CHARGES. */
   flightCharges: number;
   flightPhase: FlightPhase;
   /** Normalized time left in the authored flight envelope. */

@@ -35,6 +35,8 @@ export class CapturePreview {
     parent: HTMLElement,
     private readonly service: CaptureService,
     private readonly onOutcome: (kind: CaptureKind, action: CaptureExportAction, outcome: CaptureExportOutcome) => void,
+    private readonly onVisibilityChange: (visible: boolean) => void = () => {},
+    private readonly onDismissGesture: () => void = () => {},
   ) {
     const root = document.createElement('div');
     root.className = 'capture-preview';
@@ -69,7 +71,12 @@ export class CapturePreview {
     this.secondary.addEventListener('click', () => {
       if (this.secondaryAction) void this.run(this.secondaryAction);
     });
-    this.closeButton.addEventListener('click', () => this.hide());
+    this.closeButton.addEventListener('click', () => {
+      // Keep the fullscreen request on the same trusted gesture that dismisses
+      // the preview. Waiting until after hide loses browser activation.
+      this.onDismissGesture();
+      this.hide();
+    });
     root.addEventListener('keydown', (event) => {
       event.stopPropagation();
       if (event.key === 'Escape') {
@@ -89,6 +96,7 @@ export class CapturePreview {
     this.title.textContent = kind === 'medal' ? '勋章截图' : 'Final 截图';
     this.status.textContent = '';
     this.configureActions(detectPlatform(), blob, filename);
+    this.onVisibilityChange(true);
     this.root.classList.add('on');
     this.primary.focus({ preventScroll: true });
   }
@@ -96,6 +104,7 @@ export class CapturePreview {
   hide(restore = true): void {
     if (!this.root.classList.contains('on')) return;
     this.root.classList.remove('on');
+    this.onVisibilityChange(false);
     this.request = null;
     this.busy = false;
     if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);

@@ -229,16 +229,46 @@ async function verifyCaptureContract(browser, desktopPage) {
   const androidPage = await androidContext.newPage();
   await load(androidPage);
   await androidPage.evaluate(() => {
-    window.__captureProbe = { shares:0 };
+    let fullscreenActive = true;
+    let rejectNextFullscreen = false;
+    window.__captureProbe = {
+      shares:0,
+      fullscreenCalls:0,
+      rejectNextFullscreen:() => { rejectNextFullscreen = true; },
+    };
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable:true,
+      get:() => fullscreenActive ? document.documentElement : null,
+    });
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable:true,
+      value:() => {
+        window.__captureProbe.fullscreenCalls++;
+        if (rejectNextFullscreen) {
+          rejectNextFullscreen = false;
+          return Promise.reject(new DOMException('fixture rejection', 'NotAllowedError'));
+        }
+        fullscreenActive = true;
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      },
+    });
     Object.defineProperty(navigator, 'canShare', { configurable:true, value:() => true });
     Object.defineProperty(navigator, 'share', {
-      configurable:true, value:async () => { window.__captureProbe.shares++; },
+      configurable:true, value:async () => {
+        window.__captureProbe.shares++;
+        fullscreenActive = false;
+        document.dispatchEvent(new Event('fullscreenchange'));
+      },
     });
+    document.dispatchEvent(new Event('fullscreenchange'));
   });
   await androidPage.evaluate(() => window.__harness.openCapturePreview('finale'));
   assert.equal(await androidPage.locator('.capture-preview-primary').textContent(), '下载 PNG');
   assert.equal(await androidPage.locator('.capture-preview-secondary').textContent(), '分享');
   assert.match(await androidPage.locator('.capture-preview-hint').textContent() ?? '', /“下载”目录/);
+  assert.equal((await androidPage.evaluate(() => window.__harness.mobileStatus())).overlayHidden, true,
+    'a mobile capture preview must remove the drift/air-brake controls from its touch surface');
   const downloadPromise = androidPage.waitForEvent('download');
   await androidPage.locator('.capture-preview-primary').click();
   const download = await downloadPromise;
@@ -246,6 +276,27 @@ async function verifyCaptureContract(browser, desktopPage) {
   await androidPage.locator('.capture-preview-secondary').click();
   await androidPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('系统面板'));
   assert.equal(await androidPage.evaluate(() => window.__captureProbe.shares), 1);
+  assert.equal((await androidPage.evaluate(() => window.__harness.mobileStatus())).fullscreenOutcome, 'exited',
+    'native share exiting fullscreen must reopen immersive eligibility');
+  const fullscreenCallsBeforeClose = await androidPage.evaluate(() => window.__captureProbe.fullscreenCalls);
+  await androidPage.evaluate(() => window.__captureProbe.rejectNextFullscreen());
+  await androidPage.locator('.capture-preview-close').click();
+  await androidPage.waitForFunction((before) => {
+    const status = window.__harness.mobileStatus();
+    return window.__captureProbe.fullscreenCalls === before + 1 && status.fullscreenOutcome === 'rejected';
+  }, fullscreenCallsBeforeClose);
+  assert.equal((await androidPage.evaluate(() => window.__harness.mobileStatus())).overlayHidden, false,
+    'closing a medal/capture viewer must restore the gameplay control layer');
+  await androidPage.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', {
+    pointerId:991, pointerType:'touch', isPrimary:true,
+  });
+  await androidPage.waitForFunction((before) => {
+    const status = window.__harness.mobileStatus();
+    return window.__captureProbe.fullscreenCalls === before + 2 && status.fullscreenOutcome === 'entered';
+  }, fullscreenCallsBeforeClose);
+  await androidPage.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', {
+    pointerId:991, pointerType:'touch', isPrimary:true,
+  });
   await androidContext.close();
 
   const iosContext = await browser.newContext({

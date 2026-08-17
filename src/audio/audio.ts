@@ -17,6 +17,7 @@
  */
 import rockOgg from '../assets/audio/board-race-rock.ogg?url';
 import rockMp3 from '../assets/audio/board-race-rock.mp3?url';
+import { MAX_FLIGHT_CHARGES } from '../contracts';
 
 export type CountdownStartDisposition = 'played' | 'context_suspended' | 'muted' | 'unavailable';
 
@@ -561,7 +562,7 @@ export class GameAudio {
     const c = this.ctx;
     if (!c) return;
     this.impactBurst(160, 72, 0.5, 0.18);
-    const lift = charges >= 2 ? 1.16 : 1;
+    const lift = charges >= MAX_FLIGHT_CHARGES ? 1.16 : 1;
     this.blip(620 * lift, c.currentTime, 0.18, 0.2, 'triangle');
     this.blip(930 * lift, c.currentTime + 0.07, 0.25, 0.19, 'triangle');
     this.blip(1395 * lift, c.currentTime + 0.14, 0.32, 0.14, 'square');

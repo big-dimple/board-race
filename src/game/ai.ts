@@ -30,6 +30,9 @@ const A_LAT = 6.5; // lateral grip budget (m/s^2) behind the corner speed table
 const V_MIN_CORNER = 10; // corner speed floor (m/s)
 const AVOID_DIST = 5.6; // m; close enough that contact remains a deliberate racing option
 const SURFACE_CONTINUITY_MAX_STEP_M = 4;
+// Rivals only need one launch plus one extension in reserve. This is a pacing
+// target, not the player-facing inventory cap.
+const AI_FLIGHT_RESERVE_TARGET = 2;
 const SURFACE_PROJECTION_SLACK_M = 2;
 const SURFACE_PROJECTION_MAX_U = 0.02;
 
@@ -319,7 +322,7 @@ export class AIController {
     const flightWindow = myU >= upcomingRoute.qualifyFromU && myU <= upcomingRoute.exitU + 0.02;
     const qualificationWindow = flightWindow && myU < upcomingRoute.launchFromU &&
       me.state.flightPhase === 'surface';
-    if (me.state.flightCharges >= 2 || !qualificationWindow) {
+    if (me.state.flightCharges >= AI_FLIGHT_RESERVE_TARGET || !qualificationWindow) {
       this.qualifyingFlight = false;
     } else if (!this.qualifyingFlight && !this.pursuitDrifting &&
         me.state.boostCharge < 0.38 && speed > 14) {

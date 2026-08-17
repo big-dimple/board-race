@@ -22,6 +22,12 @@
 - 三飞勋章、七飞 Final Station、冻结结算和资料片画廊壳已经完成。
 - Final 只在第七门正式计分后解除水面路线失败；此前的门、空中通道和水面逆行判定仍有效。
 - 青色空中航道、绿色水面主线、门后 recovery tail 和第四至第五飞的急弯提示已形成单一路线视觉合同。
+- 七条空中航道已删除入口前不参与玩法的青色“预先云桥”：绿色水面线交到升空菱形，青色
+  corridor 只从真实 `entryU` 起画；第四飞提前部署、保留库存早起飞和原判定窗口均未改。
+- 飞行库存上限为五格，桌面、艇边和手机读数共用一个上限合同；起飞消耗一格，但一飞仍
+  最多只允许一次空中续航。满仓后的合格漂移仍正常兑现水面 BOOST。
+- 手机截图预览会完整隐藏并释放触控按钮；原生分享 / 下载退出 fullscreen 后，关闭预览的
+  真实手势会立即请求恢复，若被拒绝则保留到下一次游戏触控继续重试。
 - 首局 PC 键盘基础提示、首败后可跳过驾驶教练、移动端触控默认、手柄映射和真实落水持有 Shift 交接已纳入验收。
 - GO 使用非语音合成信号；持续水面 / 空气白噪声保持关闭，环境声音必须经过明确听感审核。
 - 两名强敌在第四飞前通过真实 `BoatInput` 链式漂移、释放 BOOST、起飞和空刹保持可见；没有传送、假进度或玩家减速。
@@ -68,8 +74,9 @@
 
 当前 Auto 档在 `1440x900` 性能合同中为 `327 / 600` draw calls。艇体五批和车手单蒙皮批次
 已经回收了原先逼近上限的提交成本，`600` 红线没有放宽。后续若继续增加艇、场景或特效，
-仍要优先复用批次、实例化重复物并同时复核高画质骨骼描边与低画质实体遮挡，不能靠删动作
-信息或恢复假代理换预算。
+先判断同 transform 静态件能否按材质合并、重复几何能否实例化、等价材质 / 纹理能否共享；
+独立动画、蒙皮、剔除和显隐所有权必须保留。同时复核高画质骨骼描边与低画质实体遮挡，
+不能靠删动作信息或恢复假代理换预算。
 
 ### 人味与烟火气
 
@@ -85,15 +92,18 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 
 ## 本轮验证
 
-- `npm run build`：通过；只有既有的单包体积警告。
-- `SHOT_PORT=5227 npm run shot -- rider rider-side vehicle-three-quarter final-rival-portal`，以及
-  `SHOT_PORT=5228 npm run shot -- rider-side vehicle-three-quarter final-rival-portal`：
-  正后、侧面、前侧 3/4 和终点强光四个定向场景通过；已人工复核骨骼轮廓、握把接触、
-  座舱比例、分体水翼、舷侧线和真实车手遮挡。
-- `npm run verify:performance`：结构合同确认五批赛艇、16 骨单网格车手、混合骨骼权重、
-  蒙皮描边和低画质真实预通道均在运行；Auto 为 `1,997,196 px / 327 calls`。
-- `npm run verify:release`：通过；覆盖 build、flight、mobile、collision、audio、systems、
-  endurance 和 performance。14 次飞行长跑、六艇碰撞、终点遮挡与移动端均无回归。
+- `npm run build`、`npm run verify:flight`、`npm run verify:mobile`、`npm run verify:systems`、
+  `npm run verify:collision`、`npm run verify:audio` 和 `npm run verify:performance` 分项通过；
+  build 只有既有的单包体积警告。
+- flight 合同实赚五格、验证第六次不溢出但仍兑现 BOOST、满仓起飞只扣一格，并在仍余
+  三格时拒绝同一飞第二次续航；桌面和手机库存读数都锁定到真实状态。
+- systems 合同模拟了原生分享退出 fullscreen、关闭手势首次恢复被拒，以及下一次真实
+  漂移触摸成功重试；预览期间移动操作区不可见且不再遮挡分享。
+- `SHOT_PORT=5234 npm run shot -- flight-route4-prepare flight-route4-approach flight-route5-prepare flight-route5-launch`：
+  四个定向场景通过；已人工复核绿色水面线、三枚升空菱形与真实 `entryU` 青色航道的交接，
+  并确认飞行中 `x1` 只亮一枚库存，不再把五枚空格全部点亮。
+- performance 仍为 Auto `1,997,196 px / 327 calls`；五批赛艇、16 骨单网格车手、真实
+  预通道和 `600` draw-call 红线均未回归。
 
 ## 接手顺序
 

@@ -311,9 +311,6 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
       // distance suggests. Preview the branch at handoff and recommend an
       // earlier launch, while leaving AI timing, physics and scoring intact.
       guideFromU: 0.465,
-      // A retained cell can be spent as soon as flight three touches down.
-      // Cover that post-gate envelope without moving the scored route.
-      visualFromU: 0.438,
       launchCueU: 0.493,
       launchVectorLengthM: 34,
       launchAlignM: 65,
@@ -570,14 +567,9 @@ function flightLaunchCueU(def: FlightRouteDefinition): number {
   return def.navigation?.launchCueU ?? def.launchFromU;
 }
 
-function flightVisualFromU(def: FlightRouteDefinition): number {
-  return Math.min(def.entryU, def.navigation?.visualFromU ?? flightLaunchCueU(def));
-}
-
-/** Normalize route-space effects against the branch mesh's earliest visual coverage. */
+/** Normalize route-space effects against the authored flight corridor. */
 function flightVisualT(def: FlightRouteDefinition, u: number): number {
-  const fromU = flightVisualFromU(def);
-  return THREE.MathUtils.clamp((u - fromU) / Math.max(1e-6, def.exitU - fromU), 0, 1);
+  return THREE.MathUtils.clamp((u - def.entryU) / Math.max(1e-6, def.exitU - def.entryU), 0, 1);
 }
 
 // -------------------------------------------------------------- grid ----
@@ -2222,14 +2214,12 @@ export class Course implements ICourse {
     }
     const active = next >= 0 ? FLIGHT_ROUTES[next] : null;
     const recovering = next >= 0 && (this.playerRecoveryRoute === next || this.flightVisuals[next].recoveryFade > 0);
-    const committed = active && this.playerLaunchCommittedRoute === active.index;
-    const maskStartU = active
-      ? committed ? flightVisualFromU(active) : flightLaunchCueU(active)
-      : 0;
+    const maskStartU = active ? flightLaunchCueU(active) : 0;
     this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
-    // The aperture is the normal handoff. A genuinely accepted earlier launch
-    // moves ownership to the branch's authored visual start in the same frame;
-    // the green spine must never remain underneath that committed flight.
+    // The surface guide hands off at the launch diamonds. Before takeoff the
+    // marker is the only visual bridge to the corridor at authored entryU; an
+    // accepted early launch still retires it without restoring a false cyan
+    // surface before the gate.
     this.ribbonMat.uniforms.uMaskStart.value = maskStartU * LAP_LENGTH;
     this.ribbonMat.uniforms.uMaskEnd.value = active
       ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
@@ -2451,7 +2441,6 @@ export class Course implements ICourse {
       visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0.62 * recovery;
       if (recovery > 0) {
         const def = visual.runtime.def;
-        const visualFromU = flightVisualFromU(def);
         const gateFraction = flightVisualT(def, def.gateUs[def.gateUs.length - 1]);
         const minFraction = Math.max(gateFraction, visual.recoveryProgress - 0.018);
         for (let i = 0; i < visual.recoveryArrowFractions.length; i++) {
@@ -2460,7 +2449,7 @@ export class Course implements ICourse {
           const phase = (i / visual.recoveryArrowFractions.length + flow) % 1;
           const fraction = minFraction + (1 - minFraction) * phase;
           visual.recoveryArrowFractions[i] = fraction;
-          const u = visualFromU + (def.exitU - visualFromU) * fraction;
+          const u = def.entryU + (def.exitU - def.entryU) * fraction;
           runtimePointAt(visual.runtime, u, _surfaceArrowCenter);
           runtimeTangentAt(visual.runtime, u, _surfaceArrowForward).setY(0).normalize();
           _surfaceArrowQuaternion.setFromAxisAngle(
@@ -2518,9 +2507,8 @@ export class Course implements ICourse {
     routeGroup.name = `${def.id}-guide`;
     routeGroup.visible = false;
     this.object.add(routeGroup);
-    const visualFromU = flightVisualFromU(def);
-    const approachLength = Math.max(0, (def.entryU - visualFromU) * LAP_LENGTH);
-    const SEG = Math.max(64, Math.ceil((runtime.routeLength + approachLength) / 1.8));
+    const visualStartU = def.entryU;
+    const SEG = Math.max(64, Math.ceil(runtime.routeLength / 1.8));
     const HALF_W = def.corridorHalfWidth;
     const pos = new Float32Array((SEG + 1) * 2 * 3);
     const uv = new Float32Array((SEG + 1) * 2 * 2);
@@ -2530,7 +2518,7 @@ export class Course implements ICourse {
 
     for (let i = 0; i <= SEG; i++) {
       const f = i / SEG;
-      const u = visualFromU + (def.exitU - visualFromU) * f;
+      const u = visualStartU + (def.exitU - visualStartU) * f;
       this.routePointAt(def.id, u, p);
       this.routeTangentAt(def.id, u, t);
       const rx = t.z;
@@ -2739,7 +2727,7 @@ export class Course implements ICourse {
     ribbonMat.forceSinglePass = true;
     const ribbon = new THREE.Mesh(ribbonGeo, ribbonMat);
     ribbon.name = `${def.id}-ribbon`;
-    ribbon.userData.visualStartU = visualFromU;
+    ribbon.userData.visualStartU = visualStartU;
     ribbon.userData.authoredEntryU = def.entryU;
     ribbon.userData.turnTintMax = ribbonMat.uniforms.uTurnTintMax.value;
     ribbon.userData.guideStyle = FLIGHT_GUIDE_STYLE;

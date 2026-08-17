@@ -1,4 +1,4 @@
-import type { BoatInput, RouteTurnDirection } from '../contracts';
+import { MAX_FLIGHT_CHARGES, type BoatInput, type RouteTurnDirection } from '../contracts';
 import type { AbilityHudState } from './abilityTelemetry';
 import './mobileControls.css';
 
@@ -6,7 +6,7 @@ type ControlMode = 'tilt' | 'touch';
 type ActivationState = 'idle' | 'requesting' | 'calibrating' | 'ready';
 type ControlPhase = 'inactive' | 'presentation' | 'preparing' | 'racing';
 type PointerAction = 'left' | 'right' | 'drift' | 'flight';
-type FullscreenOutcome = 'idle' | 'unsupported' | 'standalone' | 'pending' | 'entered' | 'rejected';
+type FullscreenOutcome = 'idle' | 'unsupported' | 'standalone' | 'pending' | 'entered' | 'exited' | 'rejected';
 
 const ZERO: BoatInput = {
   throttle: 0,
@@ -64,6 +64,7 @@ export class MobileControls {
   private fullscreenOutcome: FullscreenOutcome = 'idle';
   private fullscreenFailures = 0;
   private firstImmersiveGestureHandled = false;
+  private fullscreenWasActive = false;
   private gestureSuppressions = 0;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
@@ -161,6 +162,7 @@ export class MobileControls {
     window.addEventListener('deviceorientation', (event) => this.orientation(event), { passive: true });
     window.addEventListener('orientationchange', () => this.orientationChanged());
     screen.orientation?.addEventListener?.('change', () => this.orientationChanged());
+    document.addEventListener('fullscreenchange', () => this.fullscreenChanged());
     window.addEventListener('blur', () => this.releaseAll());
     document.addEventListener('gesturestart', this.suppressPageGesture, { capture: true, passive: false });
     document.addEventListener('gesturechange', this.suppressPageGesture, { capture: true, passive: false });
@@ -267,6 +269,7 @@ export class MobileControls {
 
   /** Try immersive mode from any first pre-game touch, before async work. */
   requestImmersiveFromGesture(force = false): void {
+    if (!this.enabled) return;
     this.onFirstGesture();
     if (this.firstImmersiveGestureHandled && !force) return;
     this.enterImmersiveMode('control');
@@ -297,13 +300,13 @@ export class MobileControls {
   ): void {
     if (!this.root) return;
     this.finalMode = state.flightMode === 'finish';
-    const charges = Math.round(clamp(state.flightCharges, 0, 2));
+    const charges = Math.round(clamp(state.flightCharges, 0, MAX_FLIGHT_CHARGES));
     this.root.style.setProperty('--mobile-drift-progress', String(clamp(state.boostCharge, 0, 1)));
     this.root.style.setProperty('--mobile-bank-progress', String(clamp(state.driftBankProgress, 0, 1)));
     this.root.style.setProperty('--mobile-boost-progress', String(clamp(state.boostRemaining, 0, 1)));
     this.root.style.setProperty('--mobile-flight-progress', String(clamp(state.flightRemaining, 0, 1)));
     this.root.style.setProperty('--mobile-airbrake-progress', String(clamp(state.flightAirBrake, 0, 1)));
-    this.root.classList.toggle('drift-release-ready', state.driftReleaseReady && state.flightCharges < 2);
+    this.root.classList.toggle('drift-release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
     this.root.classList.toggle('drift-bank-full', state.drifting && state.boostCharge >= 0.995);
     this.root.classList.toggle('flight-ready', state.flightMode === 'stored');
     this.root.classList.toggle('flight-extension-ready', state.flightMode === 'extend');
@@ -446,6 +449,7 @@ export class MobileControls {
       return Promise.resolve('standalone');
     }
     if (document.fullscreenElement) {
+      this.fullscreenWasActive = true;
       this.fullscreenOutcome = 'entered';
       return Promise.resolve('entered');
     }
@@ -469,6 +473,7 @@ export class MobileControls {
     }
     return request
       .then(() => {
+        this.fullscreenWasActive = true;
         this.fullscreenOutcome = 'entered';
         return 'entered' as const;
       })
@@ -478,6 +483,25 @@ export class MobileControls {
         throw error;
       })
       .finally(() => { this.fullscreenRequestPending = false; });
+  }
+
+  private fullscreenChanged(): void {
+    if (this.isStandaloneDisplay()) {
+      this.fullscreenOutcome = 'standalone';
+      this.firstImmersiveGestureHandled = true;
+      return;
+    }
+    if (document.fullscreenElement) {
+      this.fullscreenWasActive = true;
+      this.fullscreenOutcome = 'entered';
+      this.firstImmersiveGestureHandled = true;
+      return;
+    }
+    if (!this.fullscreenWasActive) return;
+    this.fullscreenWasActive = false;
+    this.fullscreenRequestPending = false;
+    this.fullscreenOutcome = 'exited';
+    this.firstImmersiveGestureHandled = false;
   }
 
   private enterImmersiveMode(source: 'go' | 'control'): void {

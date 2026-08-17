@@ -108,6 +108,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   standalone mode the root owns the full `100vh` viewport, the renderer follows
   the measured `#app` container, and only controls consume safe-area insets; do
   not size the scene from `visualViewport.height` or a cached `innerHeight`.
+  Capture previews own and release the mobile controls; if native export exits
+  fullscreen, dismissing the preview retries on that gesture and a rejection
+  remains eligible for the next real game-control touch.
 - A passed flight keeps its authored branch through descent and landing until
   recovery handoff. Water contact is not a visual ownership edge: the same
   cyan virtual recovery tail remains visible before and after contact. It keeps
@@ -123,13 +126,19 @@ automatically; players steer, drift/air-brake, and trigger flight.
   its non-charging return brake. PC coverage includes a fourth-flight descent
   where focus clears the first keydown and a repeated physical Shift must still
   recover, land, and continuously reach the BANK threshold.
+- Flight inventory capacity is owned by the shared `MAX_FLIGHT_CHARGES` contract;
+  Boat, desktop HUD, near-boat HUD, mobile HUD, coach, audio, haptics, and harness
+  must consume that constant instead of introducing local caps. Launch spends one
+  cell, while `flightExtensionUsed` continues to permit at most one extension per flight.
 - The full-lap green surface guide is a tessellated translucent wake: it bends
   with the local swell, has no hard rails or filled road core, and carries only
   a bounded 170m lookahead of open chevrons spaced 10m apart and moving forward
   at 10m/s. Sharp bends enlarge and warm at least three consecutive markers.
   Each launch entrance traces a curved three-diamond ascent vector from the
   surface tangent toward the first airborne decision; authored turns add two
-  directional posture chevrons. Flight branches retain a translucent cyan
+  directional posture chevrons. The green guide reaches the launch cue, those
+  diamonds own the handoff, and every cyan corridor begins exactly at its authored
+  `entryU`; do not restore a pre-entry cyan surface or cloud bridge. Flight branches retain a translucent cyan
   treatment with explicit panel, edge, and flow contrast floors through the
   scoring portal and recovery; flight five uses three entry-turn buoy signs and
   two opposite exit-correction signs as secondary landmarks.
@@ -145,6 +154,10 @@ automatically; players steer, drift/air-brake, and trigger flight.
   pose springs. High-quality outlines must share that skeleton; low quality
   uses the same real rider in beauty and ink prepasses, never a capsule proxy.
   Rendering, collision, AI, and race progress still share one boat transform.
+- New visual work must first evaluate static geometry merging by material for parts
+  sharing a transform, `InstancedMesh` for repeated geometry, and shared materials /
+  textures. Keep independently animated, skinned, culled, or lifecycle-owned pieces
+  separate; batching may not erase action information or create a second transform truth.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.

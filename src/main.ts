@@ -66,14 +66,15 @@ import {
 } from './core/capture';
 import { CapturePreview, type CaptureKind } from './hud/capturePreview';
 import { trackGameEvent } from './game/eventLog';
-import type {
-  BoatInput,
-  BoatState,
-  ChallengeTier,
-  CourseGuidanceStatus,
-  CourseSample,
-  FlightRouteState,
-  RivalPaceDirective,
+import {
+  MAX_FLIGHT_CHARGES,
+  type BoatInput,
+  type BoatState,
+  type ChallengeTier,
+  type CourseGuidanceStatus,
+  type CourseSample,
+  type FlightRouteState,
+  type RivalPaceDirective,
 } from './contracts';
 import { deriveAbilityHudState } from './core/abilityTelemetry';
 
@@ -157,6 +158,7 @@ const capture = new CaptureService(stage.renderer.domElement);
 let medalCapture: Blob | null = null;
 let finaleCapture: Blob | null = null;
 let finaleCaptureRecorded = false;
+let captureOverlayVisible = false;
 const mobileInput = new MobileControls(app, () => {
   audio.resume();
   audio.startReadyMusic();
@@ -193,7 +195,13 @@ const driverSelect = new DriverSelect(
   toggleDrivingCoach,
 );
 const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, openFinaleCapturePreview);
-const capturePreview = new CapturePreview(hudLayer, capture, handleCaptureOutcome);
+const capturePreview = new CapturePreview(
+  hudLayer,
+  capture,
+  handleCaptureOutcome,
+  setCaptureOverlayVisible,
+  restoreMobileImmersiveFromCaptureGesture,
+);
 const expansionGallery = new ExpansionGallery(
   hudLayer,
   (index) => records.markExpansionSeen(index),
@@ -521,6 +529,15 @@ function openExpansionGallery(): void {
 function openMedalCapturePreview(): void {
   if (!medalCapture) return;
   capturePreview.show('medal', medalCapture, `board-race-macho-${currentRun}.png`);
+}
+
+function setCaptureOverlayVisible(visible: boolean): void {
+  captureOverlayVisible = visible;
+  mobileInput.setOverlayHidden(captureOverlayVisible || finalePresentation || expansionGallery.visible());
+}
+
+function restoreMobileImmersiveFromCaptureGesture(): void {
+  if (mobileInput.enabled) mobileInput.requestImmersiveFromGesture(true);
 }
 
 function openFinaleCapturePreview(): void {
@@ -1066,7 +1083,9 @@ function step(dt: number, _t: number): void {
     audio.flightReady(playerState.flightCharges);
     cameraRig.flightReadyKick();
     pipeline.pulse('ready');
-    haptics.cue('charge', playerState.flightCharges >= 2 ? 1 : 0.82);
+    const stockIntensity = 0.82 + 0.18 * Math.max(0, playerState.flightCharges - 1) /
+      Math.max(1, MAX_FLIGHT_CHARGES - 1);
+    haptics.cue('charge', stockIntensity);
   }
   if (playerState.flightExtended) {
     audio.flightExtend();
@@ -1705,7 +1724,7 @@ function beginHarnessRouteFlight(routeCursor = 0, initialCharges = 1): void {
   }
   // Staging starts behind the launch window. Flight-charge earning itself is
   // covered separately; route scenarios focus on flight handling and gates.
-  boats[0].state.flightCharges = Math.max(1, Math.min(2, Math.round(initialCharges)));
+  boats[0].state.flightCharges = Math.max(1, Math.min(MAX_FLIGHT_CHARGES, Math.round(initialCharges)));
   setHarnessInput(null);
   advanceUntil(() => boats[0].state.flightPhase !== 'surface', 15);
 }
@@ -4730,7 +4749,7 @@ function scenario(name: string): void {
       break;
     case 'flight-extension-ready':
       advanceUntil(() => race.phase === 'racing', 8);
-      beginHarnessRouteFlight(2, 2);
+      beginHarnessRouteFlight(2, MAX_FLIGHT_CHARGES);
       advanceUntil(() => boats[0].state.flightExtensionReady, 2);
       break;
     case 'flight-extension-spool':

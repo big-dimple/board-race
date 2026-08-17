@@ -766,6 +766,8 @@ async function verifyFlightGuideVisualContract(page) {
       depthTest: Boolean(material?.depthTest),
       depthWrite: Boolean(material?.depthWrite),
       forceSinglePass: Boolean(material?.forceSinglePass),
+      visualStartU: ribbon?.userData?.visualStartU ?? -1,
+      authoredEntryU: ribbon?.userData?.authoredEntryU ?? -1,
       vertexShader: material?.vertexShader ?? '',
       fragmentShader: material?.fragmentShader ?? '',
     };
@@ -774,6 +776,8 @@ async function verifyFlightGuideVisualContract(page) {
   for (const route of materialContract) {
     assert.equal(route.exists, true, `flight ${route.route} needs a rendered corridor mesh`);
     assert.equal(route.style, 'cel-virtual-corridor');
+    assert.ok(Math.abs(route.visualStartU - route.authoredEntryU) <= 1e-6,
+      `flight ${route.route} corridor must start at its real entry, with no pre-entry cyan bridge: ${JSON.stringify(route)}`);
     assert.notEqual(route.deep, route.cyan,
       `flight ${route.route} must separate its deep panel from cyan structure`);
     assert.ok(route.panel >= 0.165 && route.panel <= 0.18 &&
@@ -1325,18 +1329,20 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightCharges, 1, 'releasing after the threshold must earn exactly one charge');
 
-  // Each distinct release earns one launch, capped at two. Full storage may
-  // still pay a normal boost, and one launch must consume only one cell.
+  // Each distinct release earns one launch, and one launch consumes one cell.
+  // The five-cell boundary runs last so its extra fixed steps cannot alter the
+  // deterministic wave phase of later route and Final contracts.
   await page.evaluate(() => window.__harness.earnFlight(false));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightCharges, 2, 'a second qualifying drift must fill the second launch cell');
+  assert.equal(state.flightCharges, 2, 'a second qualifying drift must add exactly one launch cell');
   await page.evaluate(() => window.__harness.earnFlight(false));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightCharges, 2, 'flight storage must hard-cap at two');
-  assert.equal(state.boosting, true, 'a full magazine must not suppress the drift boost payout');
+  assert.equal(state.flightCharges, 3,
+    'a third qualifying drift must no longer be clipped by the retired two-cell cap');
+  assert.equal(state.boosting, true, 'earning another inventory cell must preserve the drift boost payout');
   await page.evaluate(() => window.__harness.tapFlight());
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightCharges, 1, 'one launch must consume exactly one stored charge');
+  assert.equal(state.flightCharges, 2, 'one launch must consume exactly one stored charge');
   assert.notEqual(state.flightPhase, 'surface');
 
   await page.evaluate(() => window.__harness.scenario('opponent-drift'));
@@ -1405,8 +1411,8 @@ async function verifyFlightContract(page) {
     window.__harness.setPlayerInput(null);
   });
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightCharges, 1,
-    'full storage + same-frame qualifying release/launch must remain at one after spending');
+  assert.equal(state.flightCharges, 2,
+    'same-frame qualifying release/launch must add one and spend one without losing existing stock');
 
   await page.evaluate(() => window.__harness.scenario('flight-cruise'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -1418,6 +1424,8 @@ async function verifyFlightContract(page) {
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'flight');
   assert.ok(state.flightFxRings >= 8, `controlled flight must open the vortex rings: ${state.flightFxRings}`);
   assert.ok(state.flightFxPlumeLength < 2.8, `flight core must remain a short plume, not a beam: ${state.flightFxPlumeLength}`);
+  assert.equal(await page.locator('.hud-flight-token.active').count(), state.flightCharges,
+    'an active flight must light exactly its real spare inventory, never every stock cell');
   const flightStats = await page.evaluate(() => window.__harness.stats());
   assert.ok(flightStats.cameraFov >= 77 && flightStats.cameraFov <= 86, `flight FOV ${flightStats.cameraFov}`);
   const guidance = await page.evaluate(() => window.__harness.guidance());
@@ -1440,9 +1448,15 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.scenario('flight-extension-ready'));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightPhase, 'cruise');
-  assert.equal(state.flightCharges, 1);
+  assert.equal(state.flightCharges, 4);
   assert.equal(state.flightExtensionReady, true);
   assert.equal(state.flightExtensionUsed, false);
+  assert.deepEqual(await page.evaluate(() => ({
+    count:document.querySelector('.hud-flight-count')?.textContent ?? '',
+    ready:document.querySelectorAll('.hud-flight-token.ready').length,
+    active:document.querySelectorAll('.hud-flight-token.active').length,
+  })), { count:'x4', ready:4, active:4 },
+  'airborne stock styling must match the four real spare cells');
   assert.equal(await page.locator('.hud-flight-prompt.on').count(), 1,
     'the first actionable extension window must own exactly one SPACE prompt');
   assert.match(await page.locator('.hud-flight-prompt').textContent() ?? '', /SPACE.*续航.*\+2\.4/,
@@ -1453,7 +1467,7 @@ async function verifyFlightContract(page) {
   await page.evaluate(() => window.__harness.tapFlight());
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightExtended, true, 'the accepted Space edge must expose a one-frame extension pulse');
-  assert.equal(state.flightCharges, 0, 'airborne extension consumes exactly one stored cell');
+  assert.equal(state.flightCharges, 3, 'airborne extension consumes exactly one stored cell');
   assert.equal(state.flightExtensionUsed, true);
   assert.equal(state.flightExtensionReady, false);
   assert.equal(state.flightPhase, 'cruise');
@@ -1466,6 +1480,8 @@ async function verifyFlightContract(page) {
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.flightDenied, true, 'a current flight can be extended at most once');
   assert.equal(state.flightExtensionUsed, true);
+  assert.equal(state.flightCharges, 3,
+    'a rejected second extension must preserve spare inventory even when several cells remain');
 
   await page.evaluate(() => window.__harness.scenario('flight-extension-descent'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -1838,12 +1854,12 @@ async function verifyFlightContract(page) {
     `flight four needs a longer turn-in vector than the standard launch beat: ${JSON.stringify(routeFourLaunch)}`);
   assert.equal(routeFourLaunch.corridorVisible, true,
     'the airborne route must already be visible while the early fourth-flight cue is actionable');
-  assert.ok(Math.abs(routeFourLaunch.corridorVisualStartU - 0.438) <= 1e-6,
-    `the fourth cyan route must cover the earliest valid post-medal launch: ${JSON.stringify(routeFourLaunch)}`);
-  assert.ok(routeFourLaunch.corridorVisualStartU < routeFourLaunch.cueU,
-    `the recommended launch marker may not truncate an already accepted early flight: ${JSON.stringify(routeFourLaunch)}`);
-  assert.ok(routeFourLaunch.corridorVisualStartU < routeFourLaunch.corridorAuthoredEntryU,
-    `flight four needs a visible cyan approach before its unchanged scoring entry: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(Math.abs(routeFourLaunch.corridorVisualStartU - 0.515) <= 1e-6,
+    `the fourth cyan route must begin at its real airborne entry: ${JSON.stringify(routeFourLaunch)}`);
+  assert.ok(routeFourLaunch.corridorVisualStartU > routeFourLaunch.cueU,
+    `the rising launch diamonds must bridge the surface cue to the real corridor: ${JSON.stringify(routeFourLaunch)}`);
+  assert.equal(routeFourLaunch.corridorVisualStartU, routeFourLaunch.corridorAuthoredEntryU,
+    `flight four must not retain a misleading pre-entry cyan face: ${JSON.stringify(routeFourLaunch)}`);
   assert.ok(routeFourLaunch.corridorTurnTintMax > 0 && routeFourLaunch.corridorTurnTintMax <= 0.15,
     `warm turn emphasis must stay on chevrons instead of recoloring the cyan corridor: ${JSON.stringify(routeFourLaunch)}`);
 
@@ -2226,8 +2242,8 @@ async function verifyFlightContract(page) {
   await page.keyboard.up('Shift');
   await page.evaluate(() => window.__harness.advance(1 / 30));
   state = await page.evaluate(() => window.__harness.playerState());
-  assert.equal(state.flightCharges, Math.min(2, heldChargeBeforeLanding + 1),
-    'releasing the preserved Shift hold must add exactly one cell, capped at two');
+  assert.equal(state.flightCharges, Math.min(5, heldChargeBeforeLanding + 1),
+    'releasing the preserved Shift hold must add exactly one cell, capped at five');
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
   await page.evaluate(() => window.__harness.scenario('endless-four'));
@@ -2287,8 +2303,8 @@ async function verifyFlightContract(page) {
     assert.equal(earlyLaunch.immediateVisibleRoutes, 1);
     assert.equal(earlyLaunch.immediateLaunchGateCommitted, true,
       `the launch facility must retire on the accepted input edge, not at scoring entry: ${JSON.stringify(earlyLaunch)}`);
-    assert.ok(Math.abs(earlyLaunch.immediateMaskStartU - 0.438) <= 1e-6,
-      `green guidance must yield to the early cyan approach without a gap: ${JSON.stringify(earlyLaunch)}`);
+    assert.ok(Math.abs(earlyLaunch.immediateMaskStartU - 0.493) <= 1e-6,
+      `green guidance must remain authoritative until the fourth-flight launch marker: ${JSON.stringify(earlyLaunch)}`);
     assert.equal(earlyLaunch.afterCommitRoute, 3);
     assert.equal(earlyLaunch.afterRecoveryOwner, -1);
     assert.equal(earlyLaunch.afterActiveOwner, 3);
@@ -2321,7 +2337,7 @@ async function verifyFlightContract(page) {
     assert.equal(visibility.flightFour, true,
       `the fourth branch must be visible through its complete parent chain: ${JSON.stringify(visibility)}`);
     assert.equal(visibility.launchGate, false);
-    assert.ok(Math.abs(visibility.visualStartU - 0.438) <= 1e-6);
+    assert.ok(Math.abs(visibility.visualStartU - 0.515) <= 1e-6);
 
     if (mode === 'during-recovery') {
       const pixelContribution = await page.evaluate(() => {
@@ -2405,6 +2421,32 @@ async function verifyFlightContract(page) {
     window.__harness.advance(1 / 60);
     window.__harness.usePlayerInput(false);
   });
+
+  // Keep the capacity exercise last: every cell is earned through the real
+  // fixed-step drift release path, but its extra simulation time cannot perturb
+  // any wave-sensitive route contract above.
+  await page.evaluate(() => {
+    window.__harness.scenario('start');
+    for (let i = 0; i < 5; i++) window.__harness.earnFlight(false);
+  });
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 5, 'five qualifying drifts must fill all five launch cells');
+  const fullStockHud = await page.evaluate(() => ({
+    count:document.querySelector('.hud-flight-count')?.textContent ?? '',
+    rack:document.querySelectorAll('.hud-flight-token').length,
+    ready:document.querySelectorAll('.hud-flight-token.ready').length,
+    near:document.querySelectorAll('.hud-driver-stock').length,
+    nearOn:document.querySelectorAll('.hud-driver-stock.on').length,
+  }));
+  assert.deepEqual(fullStockHud, { count:'x5', rack:5, ready:5, near:5, nearOn:5 },
+    `all desktop stock reads must expose the five-cell cap: ${JSON.stringify(fullStockHud)}`);
+  await page.evaluate(() => window.__harness.earnFlight(false));
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 5, 'a sixth qualifying release must not overflow flight storage');
+  assert.equal(state.boosting, true, 'a full magazine must not suppress the drift boost payout');
+  await page.evaluate(() => window.__harness.tapFlight());
+  state = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(state.flightCharges, 4, 'one launch from full storage must consume exactly one cell');
 
   console.log('gameplay contract: OK');
 }
@@ -3187,7 +3229,7 @@ async function verifyMobileControls(page) {
   await page.locator('[data-mobile-action="left"]').dispatchEvent('pointerup', { pointerId: 31, pointerType: 'touch' });
   await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', { pointerId: 32, pointerType: 'touch' });
   await page.evaluate(() => window.__harness.advance(1 / 30));
-  assert.equal((await page.evaluate(() => window.__harness.playerState())).flightCharges, Math.min(2, preparingCharge + 1),
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).flightCharges, Math.min(5, preparingCharge + 1),
     'releasing the held drift after GO must add exactly one cell');
   await page.evaluate(() => window.__harness.usePlayerInput(false));
 
@@ -3440,7 +3482,7 @@ async function verifyMobileControls(page) {
   assert.equal(mobileEarlyLaunch.immediateRecoveryOwner, -1);
   assert.equal(mobileEarlyLaunch.immediateActiveOwner, 3);
   assert.equal(mobileEarlyLaunch.immediateVisibleRoutes, 1);
-  assert.ok(Math.abs(mobileEarlyLaunch.immediateMaskStartU - 0.438) <= 1e-6);
+  assert.ok(Math.abs(mobileEarlyLaunch.immediateMaskStartU - 0.493) <= 1e-6);
   const mobileEarlyVisibility = await page.evaluate(() => {
     const effectivelyVisible = (name) => {
       let object = window.__scene.getObjectByName(name);
@@ -3462,6 +3504,22 @@ async function verifyMobileControls(page) {
     flightFour: true,
     launchGate: false,
   }, 'mobile must use the same atomic route ownership as desktop');
+
+  await page.evaluate(() => {
+    window.__harness.scenario('start');
+    for (let i = 0; i < 5; i++) window.__harness.earnFlight(false);
+  });
+  const mobileFullStock = await page.evaluate(() => {
+    const root = document.querySelector('.mobile-controls');
+    const stock = document.querySelector('.mobile-stock');
+    return {
+      charges:root?.getAttribute('data-flight-charges') ?? '',
+      label:stock?.textContent ?? '',
+      color:stock ? getComputedStyle(stock).color : '',
+    };
+  });
+  assert.deepEqual(mobileFullStock, { charges:'5', label:'x5', color:'rgb(248, 255, 122)' },
+    `mobile stock must expose and distinguish the five-cell cap: ${JSON.stringify(mobileFullStock)}`);
 
   console.log('mobile controls contract: OK');
 }
