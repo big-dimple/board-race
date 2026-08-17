@@ -79,10 +79,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
   presentation coalesces per fixed step and uses the real contact side/point;
   directional camera impact is bounded and offers `standard / weak / off`.
 - Opening contact pressure is seeded and occasional. The two strongest rivals use
-  real pace and drift-release BOOST input to keep two boats ahead through pass two
-  and one through pass three; `releaseFormation()` removes all player-gap assistance
-  on the exact third-pass frame. Fixed chain-drift personality may remain afterward,
+  real pace and drift-release BOOST input to keep both boats ahead through the
+  fourth-flight approach; `releaseFormation()` removes all player-gap assistance
+  on the exact fourth-pass frame. Fixed chain-drift personality may remain afterward,
   but teleport, fake progress, collision immunity, and player slowdown are forbidden.
+  Rival drift/release visuals must be derived from real Boat state, never a cosmetic
+  loop detached from input, charge, or BOOST payout.
   Race radio is one prioritized slot and yields to action guidance. Routine passes
   and light contact stay silent; heavy personality reactions are capped per run.
   SOL's unmastered air-brake technique is a once-per-run desktop broadcast and a

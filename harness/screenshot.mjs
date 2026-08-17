@@ -278,6 +278,17 @@ async function verifySurfaceGuideVisualContract(page) {
     const canvas = document.querySelector('#app > canvas');
     const scene = window.__scene;
     if (!(canvas instanceof HTMLCanvasElement)) return null;
+    // Rival tuning legitimately changes where boats occlude the route. The
+    // guide contract owns water-versus-guide readability, so remove racers
+    // from both halves of the A/B capture and restore them immediately after.
+    const actors = [
+      ...Array.from({ length:6 }, (_, index) => scene.getObjectByName(`boat-${index}`)),
+      ...Array.from({ length:6 }, (_, index) => scene.getObjectByName(`wake-${index}`)),
+      scene.getObjectByName('spray-system'),
+      scene.getObjectByName('jet-trail'),
+    ].filter(Boolean);
+    const actorVisibility = actors.map((actor) => actor.visible);
+    for (const actor of actors) actor.visible = false;
     const read = () => {
       window.__harness.render();
       const copy = document.createElement('canvas');
@@ -360,10 +371,13 @@ async function verifySurfaceGuideVisualContract(page) {
         softVarianceRetention: includeVariance ? softOnVariance / Math.max(1, softOffVariance) : 0,
       };
     };
-    return {
+    const result = {
       veil: compareToggle('racing-line', true),
       arrows: compareToggle(['surface-guide-chevron-ink', 'surface-guide-chevrons'], false),
     };
+    actors.forEach((actor, index) => { actor.visible = actorVisibility[index]; });
+    window.__harness.render();
+    return result;
   });
   assert.ok(pixels, 'surface guide pixel probe needs the live renderer canvas');
   assert.ok(pixels.veil.changed > 20000,
@@ -1070,11 +1084,26 @@ async function verifyFlightContract(page) {
   assert.notEqual(state.flightPhase, 'surface');
 
   await page.evaluate(() => window.__harness.scenario('opponent-drift'));
-  const opponentFx = await page.evaluate(() => window.__harness.opponentFx());
-  assert.ok(opponentFx.drifting >= 1, `at least one opponent must visibly use a real drift input: ${JSON.stringify(opponentFx)}`);
-  assert.ok(opponentFx.emissions >= 2, `opponent drift must emit a readable two-sided world effect: ${JSON.stringify(opponentFx)}`);
+  let opponentFx = await page.evaluate(() => window.__harness.opponentFx());
+  assert.equal(opponentFx.rivalDrifting, 2,
+    `both lead rivals must visibly use real drift input: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.emissions >= 4,
+    `lead-rival drift must emit readable two-sided world effects: ${JSON.stringify(opponentFx)}`);
   assert.ok(opponentFx.minScale >= 0.3 && opponentFx.maxScale <= 1,
     `opponent drift FX must remain inside its distance LOD: ${JSON.stringify(opponentFx)}`);
+  const startingCycles = opponentFx.boostCycles;
+  for (let frame = 0; frame < 90 && opponentFx.releaseBursts < 1; frame++) {
+    await page.evaluate(() => window.__harness.advance(1 / 60));
+    opponentFx = await page.evaluate(() => window.__harness.opponentFx());
+  }
+  assert.ok(opponentFx.releaseBursts >= 1 && opponentFx.rivalBoosting >= 1,
+    `a real drift release must produce a visible BOOST edge: ${JSON.stringify(opponentFx)}`);
+  for (let frame = 0; frame < 90 && opponentFx.rivalDrifting < 1; frame++) {
+    await page.evaluate(() => window.__harness.advance(1 / 60));
+    opponentFx = await page.evaluate(() => window.__harness.opponentFx());
+  }
+  assert.ok(opponentFx.boostCycles > startingCycles && opponentFx.rivalDrifting >= 1,
+    `a lead rival must re-enter drift after the real payout: ${JSON.stringify(opponentFx)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());

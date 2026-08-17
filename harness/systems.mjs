@@ -587,15 +587,15 @@ try {
 
   const rival = await recordsPage.evaluate(() => window.__harness.rivalCase());
   assert.equal(rival.rivalIds.length, 2, 'exactly two elite rivals may receive director pacing');
-  assert.ok(rival.chase.every((value) => value >= 1.074 && value <= 1.076), `bounded early formation chase: ${rival.chase}`);
-  assert.ok(rival.release.every((value) => value >= 0.799 && value <= 0.801), `bounded real-input formation release: ${rival.release}`);
+  assert.ok(rival.chase.every((value) => value >= 1.119 && value <= 1.121), `bounded early formation chase: ${rival.chase}`);
+  assert.ok(rival.release.every((value) => value >= 0.719 && value <= 0.721), `bounded real-input formation release: ${rival.release}`);
   assert.deepEqual(rival.duringLock, rival.beforeLock, 'battle hysteresis must prevent an instant pace reversal');
   assert.ok(rival.duringGrace.every((value) => Math.abs(value - 1) < 1e-6), `impact grace: ${rival.duringGrace}`);
-  assert.ok(rival.afterGrace.every((value) => value > 1 && value <= 1.0751), `pace must ramp after grace: ${rival.afterGrace}`);
+  assert.ok(rival.afterGrace.every((value) => value > 1 && value <= 1.1201), `pace must ramp after grace: ${rival.afterGrace}`);
   assert.equal(rival.nonRivalPace, 1, 'non-elite racers must keep authored pace');
   assert.ok(rival.techniqueChase[0] > 0.9,
     `the primary rival must arm a real technique attempt after the player opens a flight gap: ${rival.techniqueChase}`);
-  assert.ok(rival.techniqueChase[1] >= 0.81 && rival.techniqueChase[1] <= 0.83,
+  assert.ok(rival.techniqueChase[1] >= 0.91 && rival.techniqueChase[1] <= 0.93,
     `the second protected rival must visibly chain real drift releases before flight two: ${rival.techniqueChase}`);
   assert.ok(rival.openingRuns.some((run) => run.id >= 0 && run.pressure > 0.8),
     `some seeded starts must create one opening contact opportunity: ${JSON.stringify(rival.openingRuns)}`);
@@ -611,21 +611,27 @@ try {
     `the catch attempt must come from the real boat BOOST state: ${JSON.stringify(rival.pursuit)}`);
   const pass2 = rival.formation.passes.find((pass) => pass.flight === 2);
   const pass3 = rival.formation.passes.find((pass) => pass.flight === 3);
+  const pass4 = rival.formation.passes.find((pass) => pass.flight === 4);
   assert.ok(pass2?.ahead >= 2, `two opponents must still be ahead at the player's second pass: ${JSON.stringify(rival.formation)}`);
-  assert.ok(pass3?.ahead >= 1, `one opponent must still be ahead at the player's third pass: ${JSON.stringify(rival.formation)}`);
+  assert.ok(pass3?.ahead >= 2, `two opponents must remain ahead after the medal and into flight four: ${JSON.stringify(rival.formation)}`);
+  assert.ok(pass3?.technique.every((value) => value >= 0.9),
+    `both protected opponents must still use formation technique before flight four: ${JSON.stringify(pass3)}`);
+  assert.ok(pass4?.ahead >= 2, `two opponents must still be ahead at the fourth portal: ${JSON.stringify(rival.formation)}`);
+  assert.ok(pass4?.rivalGaps.every((gap) => gap <= 55),
+    `the protected pair must remain in a readable formation rather than disappearing up-course: ${JSON.stringify(pass4)}`);
   assert.ok(rival.formation.boostCycles.every((cycles) => cycles >= 6),
     `protected rivals must visibly chain accepted drift-release BOOST cycles: ${JSON.stringify(rival.formation)}`);
   assert.ok(rival.formation.driftFrames.every((frames) => frames >= 120),
     `protected rivals must spend readable time in the real drifting state: ${JSON.stringify(rival.formation)}`);
   assert.ok(rival.formation.maxStep < 1.7,
-    `the continuous GO-to-third-flight benchmark must never teleport a rival: ${JSON.stringify(rival.formation)}`);
-  assert.equal(rival.formation.formationFlights, 3);
-  assert.deepEqual(rival.formation.paceAtThird, [1, 1],
-    'player-gap formation pacing must end on the exact third-pass frame');
-  assert.deepEqual(rival.formation.techniqueAtThird, [0, 0],
-    'dynamic technique pressure must end on the exact third-pass frame');
-  assert.ok(rival.formation.chainAfterThird[0] === 1 && rival.formation.chainAfterThird[1] > 0.8,
-    'fixed driver style may remain after flight three without reading the player gap');
+    `the continuous GO-to-fourth-flight benchmark must never teleport a rival: ${JSON.stringify(rival.formation)}`);
+  assert.equal(rival.formation.formationFlights, 4);
+  assert.deepEqual(rival.formation.paceAtFourth, [1, 1],
+    'player-gap formation pacing must end on the exact fourth-pass frame');
+  assert.deepEqual(rival.formation.techniqueAtFourth, [0, 0],
+    'dynamic technique pressure must end on the exact fourth-pass frame');
+  assert.ok(rival.formation.chainAfterFourth[0] === 1 && rival.formation.chainAfterFourth[1] >= 0.9,
+    'fixed driver style may remain after flight four without reading the player gap');
 
   const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radio.blockedVisible, false,

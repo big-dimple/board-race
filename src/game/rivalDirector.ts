@@ -1,8 +1,9 @@
 import type { RacerDefinition, RacerState } from '../contracts';
 
-const MAX_CHASE = 1.075;
-const MAX_RELEASE = 0.8;
-const CHANGE_RATE = 0.08;
+const MAX_CHASE = 1.12;
+const FORMATION_PACE = 1.06;
+const MAX_RELEASE = 0.72;
+const CHANGE_RATE = 0.12;
 
 export interface RivalDirectorDebug {
   rivals: readonly number[];
@@ -92,15 +93,15 @@ export class RivalDirector {
         continue;
       }
       const role = this.rivalIds.indexOf(id);
-      if (playerFlightsCleared >= 3) {
-        // The third pass is the exact end of formation assistance. Fixed driver
+      if (playerFlightsCleared >= 4) {
+        // The fourth pass is the exact end of formation assistance. Fixed driver
         // skill remains, but no later input depends on the player's gap.
         this.biases[id] = 1;
         this.techniquePressure[id] = 0;
         continue;
       }
 
-      const protectedRoles = playerFlightsCleared < 2 ? 2 : 1;
+      const protectedRoles = 2;
       if (role >= protectedRoles) {
         this.biases[id] = approach(this.biases[id], 1, CHANGE_RATE * 2 * dt);
         this.techniquePressure[id] = approach(this.techniquePressure[id], 0, 2.5 * dt);
@@ -108,13 +109,13 @@ export class RivalDirector {
       }
 
       const ahead = racer.progress - player.progress;
-      const minAhead = playerFlightsCleared < 2 ? (role === 0 ? 12 : 5) : 8;
-      const maxAhead = playerFlightsCleared < 2 ? (role === 0 ? 26 : 16) : 22;
-      let target = ahead < minAhead ? MAX_CHASE : ahead > maxAhead ? MAX_RELEASE : 1.025;
+      const minAhead = role === 0 ? 18 : 10;
+      const maxAhead = role === 0 ? 32 : 24;
+      let target = ahead < minAhead ? MAX_CHASE : ahead > maxAhead ? MAX_RELEASE : FORMATION_PACE;
       if (this.grace > 0) target = Math.min(1, target);
       else if (this.lock > 0) target = this.biases[id];
       this.biases[id] = approach(this.biases[id], target, CHANGE_RATE * dt);
-      const techniqueTarget = role === 0 ? 1 : 0.82;
+      const techniqueTarget = role === 0 ? 1 : 0.92;
       this.techniquePressure[id] = approach(this.techniquePressure[id], techniqueTarget, 2.4 * dt);
     }
   }
@@ -131,10 +132,10 @@ export class RivalDirector {
     return this.openingPressure[id] || 0;
   }
 
-  /** Authored driver style, independent of the player's gap and valid after flight three. */
+  /** Authored driver style, independent of the player's gap and valid after flight four. */
   chainFor(id: number): number {
     const role = this.rivalIds.indexOf(id);
-    return role === 0 ? 1 : role === 1 ? 0.82 : 0;
+    return role === 0 ? 1 : role === 1 ? 0.9 : 0;
   }
 
   isElite(id: number): boolean {
@@ -150,7 +151,7 @@ export class RivalDirector {
   }
 
   releaseFormation(): void {
-    this.formationFlights = 3;
+    this.formationFlights = 4;
     this.biases.fill(1);
     this.techniquePressure.fill(0);
   }

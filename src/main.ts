@@ -92,6 +92,7 @@ const ocean = new Ocean({
 stage.scene.add(ocean.object);
 
 const spray = new SpraySystem();
+spray.object.name = 'spray-system';
 stage.scene.add(spray.object);
 
 const jetTrail = new JetTrailSystem();
@@ -112,6 +113,7 @@ const wakes: WakeRibbon[] = [];
 for (const racer of roster) {
   const detailedInk = racer.id === 0 || stage.quality.detailedAiInk;
   const wake = new WakeRibbon();
+  wake.object.name = `wake-${racer.id}`;
   stage.scene.add(wake.object);
   wakes.push(wake);
   const boat = new Boat({ id: racer.id, color: racer.color, wake, spray, trail: jetTrail, detailedInk });
@@ -983,7 +985,7 @@ function step(dt: number, _t: number): void {
   let enteredMedal = false;
   if (playerPassedFlight && race.phase === 'racing') {
     const flights = boats[0].state.flightsCleared;
-    if (flights >= 3) rivalDirector.releaseFormation();
+    if (flights >= 4) rivalDirector.releaseFormation();
     const pass = records.recordFlightPass(flights, selectedDriverId);
     newBestThisRun ||= pass.newBest;
     hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
@@ -1329,6 +1331,7 @@ interface Harness {
   chaseCam(): void;
   playerPose(): { x: number; y: number; z: number; heading: number };
   driftingOpponentPose(): { x: number; y: number; z: number; heading: number };
+  rivalChainState(role: number): Record<string, number | string | boolean>;
   setPlayerInput(input: Partial<BoatInput> | null): void;
   usePlayerInput(enabled: boolean): void;
   earnFlight(combo?: boolean): void;
@@ -1411,14 +1414,18 @@ function placePack(uPlayer: number): void {
 
 /** Put real opponents in the player's forward view before a surface hairpin. */
 function placeOpponentDriftPack(uPlayer: number): void {
-  const offsets = [0, 0.004, 0.008, 0.012, -0.01, -0.016];
-  const laterals = [0, -2.2, 2.2, -4.2, 4.2, 0];
+  const rivalIds = [...rivalDirector.debugState().rivals];
+  const trailing = boats.map((_, id) => id).filter((id) => id > 0 && !rivalIds.includes(id));
   for (let i = 0; i < boats.length; i++) {
-    const u = (((uPlayer + offsets[i]) % 1) + 1) % 1;
+    const role = rivalIds.indexOf(i);
+    const trailingRole = trailing.indexOf(i);
+    const offset = i === 0 ? 0 : role === 0 ? 0.0095 : role === 1 ? 0.0055 : -0.008 - trailingRole * 0.005;
+    const lateral = role === 0 ? -2.8 : role === 1 ? 2.8 : trailingRole % 2 === 0 ? -4 : 4;
+    const u = (((uPlayer + offset) % 1) + 1) % 1;
     course.pointAt(u, tmpP);
     course.tangentAt(u, tmpT);
     const heading = Math.atan2(tmpT.x, tmpT.z);
-    boats[i].teleport(tmpP.x + tmpT.z * laterals[i], tmpP.z - tmpT.x * laterals[i], heading);
+    boats[i].teleport(tmpP.x + tmpT.z * lateral, tmpP.z - tmpT.x * lateral, heading);
     wakes[i].clear();
   }
 }
@@ -3095,7 +3102,7 @@ function runRivalCase(): Record<string, unknown> {
   for (const id of rivalIds) racers[id].progress = 70;
   advanceDirector(boundsDirector, racers, 4);
   const chase = rivalIds.map((id) => boundsDirector.paceFor(id));
-  for (const id of rivalIds) racers[id].progress = 130;
+  for (const id of rivalIds) racers[id].progress = 150;
   advanceDirector(boundsDirector, racers, 6);
   const release = rivalIds.map((id) => boundsDirector.paceFor(id));
 
@@ -3108,7 +3115,7 @@ function runRivalCase(): Record<string, unknown> {
   advanceDirector(lockDirector, lockRacers, 4);
   const beforeLock = rivalIds.map((id) => lockDirector.paceFor(id));
   lockDirector.notifyBattle();
-  for (const id of rivalIds) lockRacers[id].progress = 130;
+  for (const id of rivalIds) lockRacers[id].progress = 150;
   advanceDirector(lockDirector, lockRacers, 1.5);
   const duringLock = rivalIds.map((id) => lockDirector.paceFor(id));
 
@@ -3177,11 +3184,19 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
   const previousPositions = boats.map((boat) => boat.state.position.clone());
   const driftFrames = rivalIds.map(() => 0);
   const boostFrames = rivalIds.map(() => 0);
-  const passes: Array<{ flight: number; ahead: number; place: number; rivalGaps: number[] }> = [];
+  const passes: Array<{
+    flight: number;
+    ahead: number;
+    place: number;
+    rivalGaps: number[];
+    pace: number[];
+    technique: number[];
+  }> = [];
   let previousFlights = boats[0].state.flightsCleared;
   let maxStep = 0;
   let frames = 0;
-  while (race.phase === 'racing' && boats[0].state.flightsCleared < 3 && frames++ < 60 * 70) {
+  while (race.phase !== 'defeated' && race.phase !== 'finished' && race.phase !== 'ready' &&
+      boats[0].state.flightsCleared < 4 && frames++ < 60 * 100) {
     loop.advance(1 / 60);
     for (let i = 0; i < boats.length; i++) {
       maxStep = Math.max(maxStep, previousPositions[i].distanceTo(boats[i].state.position));
@@ -3200,6 +3215,8 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
         ahead: race.racers.filter((racer) => !racer.isPlayer && racer.progress > player.progress).length,
         place: player.place,
         rivalGaps: rivalIds.map((id) => race.racers[id].progress - player.progress),
+        pace: rivalIds.map((id) => rivalDirector.paceFor(id)),
+        technique: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
       });
       previousFlights = flights;
     }
@@ -3213,9 +3230,9 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
     boostCycles: rivalIds.map((id) => Number(ais[id].debugPursuit().boostCycles)),
     maxStep,
     formationFlights: director.formationFlights,
-    paceAtThird: rivalIds.map((id) => rivalDirector.paceFor(id)),
-    techniqueAtThird: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
-    chainAfterThird: rivalIds.map((id) => rivalDirector.chainFor(id)),
+    paceAtFourth: rivalIds.map((id) => rivalDirector.paceFor(id)),
+    techniqueAtFourth: rivalIds.map((id) => rivalDirector.techniqueFor(id)),
+    chainAfterFourth: rivalIds.map((id) => rivalDirector.chainFor(id)),
   };
   resetRace();
   harnessEndlessMode = previousEndlessMode;
@@ -3439,8 +3456,11 @@ function scenario(name: string): void {
     case 'opponent-drift':
       advanceUntil(() => race.phase === 'racing', 8);
       setHarnessInput({ throttle: 1 });
-      placeOpponentDriftPack(0.585);
-      advanceUntil(() => boats.slice(1).some((boat) => boat.state.drifting && boat.debugDriftEffects().emissions > 0), 8);
+      placeOpponentDriftPack(0.14);
+      advanceUntil(() => {
+        const rivals = rivalDirector.debugState().rivals.map((id) => boats[id]);
+        return rivals.every((boat) => boat.state.drifting && boat.debugDriftEffects().emissions >= 2);
+      }, 8);
       loop.advance(0.09);
       break;
     case 'flight-spool':
@@ -3814,6 +3834,28 @@ if (HARNESS) {
         heading: target.state.heading,
       };
     },
+    rivalChainState: (requestedRole) => {
+      const rivalIds = rivalDirector.debugState().rivals;
+      const role = Math.max(0, Math.min(rivalIds.length - 1, Math.floor(requestedRole)));
+      const id = rivalIds[role] ?? 1;
+      const boat = boats[id];
+      const fx = boat.debugDriftEffects();
+      return {
+        role,
+        id,
+        x: boat.state.position.x,
+        y: boat.state.position.y,
+        z: boat.state.position.z,
+        heading: boat.state.heading,
+        drifting: boat.state.drifting,
+        ready: boat.state.driftReleaseReady,
+        charge: boat.state.boostCharge,
+        boosting: boat.state.boosting,
+        emissions: fx.emissions,
+        releaseBursts: fx.releaseBursts,
+        boostCycles: Number(ais[id].debugPursuit().boostCycles),
+      };
+    },
     setPlayerInput: setHarnessInput,
     usePlayerInput: (enabled) => {
       harnessUsePlayerInput = enabled;
@@ -4032,10 +4074,15 @@ if (HARNESS) {
     opponentFx: () => {
       const opponents = boats.slice(1);
       const fx = opponents.map((boat) => boat.debugDriftEffects());
+      const rivalIds = rivalDirector.debugState().rivals;
       return {
         drifting: opponents.filter((boat) => boat.state.drifting).length,
+        rivalDrifting: rivalIds.filter((id) => boats[id].state.drifting).length,
+        rivalBoosting: rivalIds.filter((id) => boats[id].state.boosting).length,
         emissions: fx.reduce((sum, item) => sum + item.emissions, 0),
         maxEmissions: Math.max(...fx.map((item) => item.emissions)),
+        releaseBursts: fx.reduce((sum, item) => sum + item.releaseBursts, 0),
+        boostCycles: rivalIds.reduce((sum, id) => sum + Number(ais[id].debugPursuit().boostCycles), 0),
         minScale: Math.min(...fx.map((item) => item.scale)),
         maxScale: Math.max(...fx.map((item) => item.scale)),
       };

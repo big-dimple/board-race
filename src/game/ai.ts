@@ -354,7 +354,9 @@ export class AIController {
     this.steerSm += (steerRaw - this.steerSm) * Math.min(1, dt * tune.steerRate);
     let steer = this.steerSm;
     if (chainDrift && this.pursuitDrifting && !flightRoute && Math.abs(err) < 0.8) {
-      steer = clamp(steer + Math.sin(this.t * 1.2 + this.pacePhase) * 0.18 * chainDriftStyle, -1, 1);
+      // The two authored chain drifters visibly change edge between payouts.
+      // This remains real steering input: Boat owns the slip, charge and boost.
+      steer = clamp(steer + Math.sin(this.t * 1.65 + this.pacePhase) * 0.26 * chainDriftStyle, -1, 1);
     }
 
     // --- throttle: slowest reachable target inside the braking window
@@ -367,7 +369,7 @@ export class AIController {
     // `playerProgress` remains in the signature for deterministic harness
     // compatibility; RivalDirector is now the only source of competitive pace.
     void playerProgress;
-    target *= this.paceScale * clamp(rivalryPace, 0.8, 1.075) * tune.cornerMul *
+    target *= this.paceScale * clamp(rivalryPace, 0.72, 1.12) * tune.cornerMul *
       (1 + tune.paceJitter * Math.sin(this.t * 0.43 + this.pacePhase));
     let throttle = clamp((target - speed) * 0.5, -1, 1);
     if (Math.abs(err) > 1.2) throttle = Math.min(throttle, 0.4); // spun out: recover gently

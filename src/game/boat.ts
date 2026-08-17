@@ -724,6 +724,8 @@ export class Boat implements IBoat {
   private opponentDriftSprayCd = 0;
   private opponentFxScale = 1;
   private driftFxEmissions = 0;
+  private opponentBoostWasActive = false;
+  private opponentReleaseBursts = 0;
   private lastT = 0;
   private readonly blob: THREE.Mesh;
   private readonly footprint: THREE.Mesh;
@@ -1155,6 +1157,30 @@ export class Boat implements IBoat {
       this.spray.takeoff(_v2, _v1, _v3, this.id === 0 ? 34 : Math.round(12 * this.opponentFxScale), 7.5);
     }
 
+    const opponentBoostStarted = this.id > 0 && boosting && !this.opponentBoostWasActive &&
+      !st.airborne && st.flightClearance < 1.2;
+    if (opponentBoostStarted) {
+      // A real drift payout gets one angular fan. It is deliberately distinct
+      // from white water spray so a chase camera can read the chain cadence.
+      for (let shard = 0; shard < 8; shard++) {
+        const side = shard % 2 === 0 ? -1 : 1;
+        const row = Math.floor(shard / 2);
+        const size = (0.34 + row * 0.04) * (0.72 + this.opponentFxScale * 0.38);
+        this.trail.emit(
+          pos.x + portX * side * (0.42 + row * 0.16) - fwdX * (1.65 + row * 0.13),
+          pos.y + 0.1 + row * 0.04,
+          pos.z + portZ * side * (0.42 + row * 0.16) - fwdZ * (1.65 + row * 0.13),
+          -fwdX * (1.8 + row * 0.28) + portX * side * (1.7 + row * 0.34),
+          0.4 + row * 0.12,
+          -fwdZ * (1.8 + row * 0.28) + portZ * side * (1.7 + row * 0.34),
+          row % 2 === 0 ? PALETTE.boost : 0xffdc7a,
+          size,
+          0.56 + row * 0.055,
+        );
+      }
+      this.opponentReleaseBursts++;
+    }
+
     if (boosting && !st.airborne && st.flightClearance < 1.2) {
       this.boostSprayCd -= dt;
       if (this.boostSprayCd <= 0) {
@@ -1178,12 +1204,14 @@ export class Boat implements IBoat {
           pos.x + portX * streamSide * 0.88 - fwdX * 1.15,
           pos.y + 0.06,
           pos.z + portZ * streamSide * 0.88 - fwdZ * 1.15,
-          -fwdX * (0.78 + charge) + portX * streamSide * (opponent ? 1.35 : 0.65),
+          -fwdX * (opponent ? 1.08 + charge * 1.2 : 0.78 + charge) +
+            portX * streamSide * (opponent ? 1.72 : 0.65),
           0.2 + charge * 0.45,
-          -fwdZ * (0.78 + charge) + portZ * streamSide * (opponent ? 1.35 : 0.65),
+          -fwdZ * (opponent ? 1.08 + charge * 1.2 : 0.78 + charge) +
+            portZ * streamSide * (opponent ? 1.72 : 0.65),
           opponent ? (stream === 0 ? 0xffac3d : 0xffdc7a) : PALETTE.boost,
-          (opponent ? 0.24 : 0.11) + charge * 0.14,
-          (opponent ? 0.62 : 0.24) + charge * 0.18,
+          (opponent ? 0.3 : 0.11) + charge * (opponent ? 0.24 : 0.14),
+          (opponent ? 0.7 : 0.24) + charge * (opponent ? 0.26 : 0.18),
         );
         this.driftFxEmissions++;
       }
@@ -1207,6 +1235,7 @@ export class Boat implements IBoat {
     }
 
     this.updateThrustVisual(dt, t, boosting, st.flightThrust, fwdX, fwdZ, portX, portZ);
+    this.opponentBoostWasActive = boosting;
 
     // ---- state ----
     st.speed = vF;
@@ -1267,9 +1296,16 @@ export class Boat implements IBoat {
     // Surface boost hands off to the twin anti-grav emitters instead of
     // stacking three bright plumes on the launch frame.
     const boostVisual = this.boostFx * (1 - this.flightFx * 0.92);
-    const boostLen = 0.06 + boostVisual * 2.3 * boostPulse;
-    this.setThrustInstance('outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost, 0.3 * boostVisual, boostLen);
-    this.setThrustInstance('core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost, 0.085 * boostVisual, boostLen * 0.72);
+    const opponentReadability = this.id > 0 ? 1 + this.opponentFxScale * 0.42 : 1;
+    const boostLen = (0.06 + boostVisual * 2.3 * boostPulse) * opponentReadability;
+    this.setThrustInstance(
+      'outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost,
+      0.3 * boostVisual * opponentReadability, boostLen,
+    );
+    this.setThrustInstance(
+      'core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost,
+      0.085 * boostVisual * opponentReadability, boostLen * 0.72,
+    );
 
     const burst = clamp(this.liftBurstTimer / 0.22, 0, 1);
     const pulseStep = Math.floor((t * 13 + this.id * 0.73) % 3);
@@ -1526,8 +1562,13 @@ export class Boat implements IBoat {
   }
 
   /** Deterministic harness evidence for AI technique visibility. */
-  debugDriftEffects(): { emissions: number; scale: number } {
-    return { emissions: this.driftFxEmissions, scale: this.opponentFxScale };
+  debugDriftEffects(): { emissions: number; scale: number; releaseBursts: number; boosting: boolean } {
+    return {
+      emissions: this.driftFxEmissions,
+      scale: this.opponentFxScale,
+      releaseBursts: this.opponentReleaseBursts,
+      boosting: this.state.boosting,
+    };
   }
 
   /** Deterministic evidence that the selection radar matches live physics. */
@@ -1722,6 +1763,8 @@ export class Boat implements IBoat {
     this.trailCd = 0;
     this.driftTrailCd = 0;
     this.opponentDriftSprayCd = 0;
+    this.opponentBoostWasActive = false;
+    this.opponentReleaseBursts = 0;
     this.driftFxEmissions = 0;
     this.boostFx = 0;
     this.flightFx = 0;
