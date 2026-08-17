@@ -618,6 +618,37 @@ async function verifyOceanMaterialContract(page) {
   `the mid-distance ocean must move and sparkle without turning into full-frame noise: ${JSON.stringify(temporal)}`);
 }
 
+async function verifyToonMaterialContract(page) {
+  await page.evaluate(() => window.__harness.scenario('start'));
+  const toon = await page.evaluate(() => {
+    let found = null;
+    window.__scene.traverse((object) => {
+      if (found || !object.material) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      const material = materials.find((candidate) => candidate?.name === 'CelToon');
+      if (!material) return;
+      found = {
+        name: material.name,
+        uniforms: Object.keys(material.uniforms ?? {}),
+        fragmentShader: material.fragmentShader ?? '',
+      };
+    });
+    return found;
+  });
+  assert.ok(toon, 'the scene must expose a shared cel material for the rendering contract');
+  assert.equal(toon.name, 'CelToon');
+  assert.equal(toon.uniforms.includes('uRamp'), false,
+    'toon diffuse must not bind the retired per-fragment ramp texture');
+  assert.doesNotMatch(toon.fragmentShader, /sampler2D\s+uRamp|texture2D\(uRamp/,
+    'toon diffuse must use arithmetic instead of a ramp texture fetch');
+  assert.match(toon.fragmentShader, /float band = 0\.46/,
+    'toon diffuse must keep the authored darkest band level');
+  for (const threshold of ['0\\.125', '0\\.250', '0\\.375', '0\\.500', '0\\.625', '0\\.750', '0\\.875']) {
+    assert.match(toon.fragmentShader, new RegExp(`step\\(${threshold}, ndl\\)`),
+      `toon diffuse must preserve its analytic eight-band threshold ${threshold}`);
+  }
+}
+
 async function verifyWakeMaterialContract(page) {
   await page.evaluate(() => window.__harness.scenario('start'));
   const wakes = await page.evaluate(() => Array.from({ length: 6 }, (_, id) => {
@@ -1835,6 +1866,7 @@ async function verifyFlightContract(page) {
     'the second-flight bend must use the same three-chevron route language');
 
   await verifySurfaceGuideVisualContract(page);
+  await verifyToonMaterialContract(page);
   await verifyOceanMaterialContract(page);
   await verifyWakeMaterialContract(page);
   await verifyFlightGuideVisualContract(page);

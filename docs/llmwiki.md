@@ -411,6 +411,9 @@ DriverSelect / READY
 - 路线 ribbon、surface guide、箭头和漂移脉冲不再用可避免的 fragment `discard` 做动态裁剪，
   改为零 alpha 路径以保留早期深度测试机会。喷溅的硬 alpha cutout 暂时保留：把它改成普通
   半透明会扩大过绘，当前没有足够的视觉或设备证据证明值得付出这笔成本。
+- 赛璐珞主材质的八档漫反射已从共享 1D Ramp 纹理改为等价的解析 `step()` 阶梯；阈值和亮度
+  仍保持原八档，运行时不再为每个 toon 片元做 Ramp 纹理采样。该合同由截图 harness 检查
+  `uRamp` 缺失和全部七个阶梯阈值。
 - 只给拥有局部、可证明包络的 rider、thrust 和 drift pulse 开启安全 frustum culling；海面、
   船尾 wake、喷溅和跟随相机的整圈 guide 保持保守提交，避免动态顶点、实例矩阵或波面位移
   被错误边界裁掉。任何新增剔除都必须先有固定相机像素证据，再加对应 harness 合同。

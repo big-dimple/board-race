@@ -2,7 +2,7 @@
  * toonMaterial.ts — THE cel surface shader.
  *
  * One baked sun direction (no three.js lights, no PBR, no env maps):
- *   diffuse   = NdotL quantized through the 1D ramp (hard bands)
+ *   diffuse   = NdotL quantized through an analytic 8-band step (hard bands)
  *   rim       = fresnel through a hard step threshold
  *   specular  = Blinn half-vector through two hard step thresholds
  *   fog       = two hard distance bands toward the horizon color
@@ -14,7 +14,6 @@
  */
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
-import { createToonRamp } from './ramp';
 
 /** The ONE light direction: world space, pointing TOWARD the sun. Shared by sky, water spec and every toon material. */
 export const SUN_DIR: THREE.Vector3 = new THREE.Vector3(
@@ -35,13 +34,6 @@ export interface ToonOptions {
 /** Palette hex → THREE.Color with NO color-space conversion (verbatim to screen, see header). */
 function flat(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex, THREE.NoColorSpace);
-}
-
-/** All toon materials share one restrained 8-band ramp texture. */
-let sharedRamp: THREE.DataTexture | null = null;
-function getSharedRamp(): THREE.DataTexture {
-  if (sharedRamp === null) sharedRamp = createToonRamp();
-  return sharedRamp;
 }
 
 const vertexShader = /* glsl */ `
@@ -76,7 +68,6 @@ void main() {
 
 const fragmentShader = /* glsl */ `
 uniform vec3 uColor;            // flat albedo
-uniform sampler2D uRamp;        // 1D toon ramp (NearestFilter => hard bands)
 uniform vec3 uSunDir;           // world-space direction TOWARD the sun (normalized)
 uniform vec3 uSkyMid;           // shadow-side hue source
 uniform float uShadowTint;      // 0..1 how far shadows hue-shift toward uSkyMid
@@ -110,14 +101,22 @@ void main() {
   vec3 L = uSunDir;                               // already normalized
 
   // ------------------------------------------------------------------
-  // DIFFUSE — NdotL wrapped to 0..1 and quantized through the 1D ramp.
-  // NearestFilter on the ramp means every band edge is razor hard.
+  // DIFFUSE — NdotL wrapped to 0..1 and quantized through the same eight
+  // authored levels as the former 1D ramp. Analytic steps remove a texture
+  // fetch from every toon fragment while preserving the hard band boundaries.
   // ------------------------------------------------------------------
   float ndl = clamp(dot(N, L) * 0.5 + 0.5, 0.0, 1.0);
-  float band = texture2D(uRamp, vec2(ndl, 0.5)).r;
+  float band = 0.46
+    + step(0.125, ndl) * 0.08
+    + step(0.250, ndl) * 0.08
+    + step(0.375, ndl) * 0.08
+    + step(0.500, ndl) * 0.08
+    + step(0.625, ndl) * 0.08
+    + step(0.750, ndl) * 0.07
+    + step(0.875, ndl) * 0.07;
 
   // Shadow side hue-shifts toward the sky color so it stays colorful
-  // (never gray, never black). "band" only ever takes the ramp's discrete
+  // (never gray, never black). "band" only ever takes the authored discrete
   // levels, so this mix is still a set of perfectly hard steps.
   vec3 albedo = uColor;
   #ifdef USE_VERTEX_COLOR
@@ -136,7 +135,7 @@ void main() {
   // ------------------------------------------------------------------
   // SHADOW FLOOR — hard per-channel clamp at a dark indigo minimum.
   // Nothing toon-shaded may render as a dead black void: even the darkest
-  // ramp band on the darkest albedo (ink) keeps a readable hue. Clamping
+  // darkest band on the darkest albedo (ink) keeps a readable hue. Clamping
   // the already-quantized color preserves the hard band edges; only albedos
   // darker than the floor are touched. Ink OUTLINES (separate shader) are
   // intentionally exempt and may go darker.
@@ -192,7 +191,6 @@ export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
     uniforms: {
       uColor: { value: flat(opts.color) },
       uSunDir: { value: SUN_DIR },
-      uRamp: { value: getSharedRamp() },
       uSkyMid: { value: flat(PALETTE.skyMid) },
       uShadowTint: { value: 0.42 },
       // Deep indigo, verbatim to screen: the darkest any toon surface renders.

@@ -4,7 +4,7 @@
  * Visuals: a ~5.2 m planing hull lofted from hand-placed cross-sections
  * (pointed V bow, flared sides, chine flats, color-wrapped deck with an ink
  * panel line, cockpit + coaming, side sponsons, faired-in jet pump, spoiler),
- * flat-shaded for the toon ramp and outlined once via cel/outline. Zero
+ * flat-shaded for the analytic toon bands and outlined once via cel/outline. Zero
  * assets: the racing-number decal is drawn into a canvas at build time.
  *
  * Physics: planar heading/velocity model with strong hydrodynamic grip,
