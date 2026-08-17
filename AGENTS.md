@@ -47,6 +47,7 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Changes to physics, lifecycle, audio, records, or rendering need the matching
   harness contract. Do not weaken thresholds to make a release pass.
 - GitHub Pages deploys `main` through `.github/workflows/deploy.yml`.
+- 本项目发布默认使用 `npm run release:checked -- --no-wait-pages "type: message"`；Pages 的 Actions / live 核验独立进行，不得阻塞提交和推送。
 - Do not leave manual Vite servers running. Port `5173` is strict; use an
   explicit alternate port only for a deliberate concurrent session, and stop
   the exact recorded process before handoff.

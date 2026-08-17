@@ -1,213 +1,101 @@
 # 是男人就飞三次
 
-Cel-shaded arcade boat racing on an open ocean. The boat moves automatically; three independently earned flights grant a `男人勋章`, and seven route flights unlock the golden `FINAL STATION`. Cross it to finish, view the post-race easter egg and expansion dossier, then choose `继续游戏` to carry the same run onward. Take first place after qualifying to lock `优秀男人`. Vite + Three.js (r185) + TypeScript, ES modules. World geometry and effects are authored in code; project character portraits and the owner-supplied score are documented under `src/assets/**/LICENSES.md`.
+一款赛璐璐风格的海上街机竞速游戏。船会自动前进，你只需要转向、漂移、起飞，
+在七段空中航道之间找准节奏。前三飞拿到 `男人勋章`，七飞后穿过金色终点站，
+还能打开冻结的神秘资料片画廊。
 
-The dossier is a frozen, full-screen, one-game-per-page viewer for seven planned
-games: `沙漠：圣甲虫`, `城市：磁轨轮滑手`, `雪地：北极狐`, `沼泽：树蛙`,
-`丛林：长臂猿`, `外星：浮空鳐形生命`, and `肠道：益生菌`. It supports the
-arrow buttons, `←` / `→`, `A` / `D`, touch swipes, clickable Chinese page tabs,
-and `Esc` / `返回结算`. Each image loads only when its page is opened, with an
-explicit loading/retry state; neighboring pages are not prefetched. Mobile game
-controls yield the full screen while the dossier is open. The images are concept art; the seven playable games
-remain tracked in [`docs/expansion-gallery-handoff.md`](docs/expansion-gallery-handoff.md).
+## 文档分工
 
-**Play online:** [https://big-dimple.github.io/board-race/](https://big-dimple.github.io/board-race/)
+- **README**：给玩家、试玩者和准备参与项目的人看，说明游戏是什么、怎么玩、怎么运行。
+- [`docs/llmwiki.md`](docs/llmwiki.md)：给 AI 和接手代码的开发者看，记录稳定的玩法、输入、生命周期、视觉和验收契约。
+- [`docs/development-handoff.md`](docs/development-handoff.md)：记录当前版本的开发交接、已完成事项、未完成事项和风险，不承担长期架构说明。
+- [`docs/expansion-gallery-handoff.md`](docs/expansion-gallery-handoff.md)：只记录资料片画廊及未来资料片玩法。
 
-## Run
+## 在线试玩
+
+[打开网页版](https://hp666.cc)
+
+游戏是单机前端应用，成绩和设置保存在当前浏览器的 `localStorage`，不会要求账号。
+清理站点数据或使用无痕窗口会得到一份新的存档。
+
+## 本地运行
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the printed localhost URL. You start fourth in a six-racer challenge, with three rivals ahead and two behind. Opening contact is an occasional authored pack event rather than a guaranteed pile-up. The two strongest rivals remain a readable opening pack through the fourth flight by performing the same drift-release `BOOST`, launch, and air-brake actions available to the player. They are never teleported into view, assigned fake progress, or allowed to slow the player; after the fourth pass, all gap-aware formation help ends and the race continues under ordinary authored competition.
+打开终端输出的地址即可。生产构建和本地验收命令见[开发参与](#开发参与)。
 
-The grid is intentionally frozen at `READY`. Desktop uses a fixed portrait / identity / radar stage from 1366px upward: all six candidates remain visible, the race world is dimmed and camera-frozen, and browsing uses a short directional reveal rather than overlapping full portraits. On desktop, `Enter` or `Space` starts the full `3 · 2 · 1 · GO` countdown. Mobile keeps its separate standing-portrait layout; any real selector click may request fullscreen at a browser-authorized click boundary, while the single `GO` button retains its own reliable fullscreen, permission, and calibration path.
+## 核心玩法
 
-Backgrounding or minimizing the page immediately freezes simulation and hard-mutes audio. Returning never resumes a live run by itself: the player must press `GO`, then a fresh frozen `3 · 2 · 1 · GO` countdown restores control. READY already acts as that explicit resume gate; medal and loading screens resume their unread remainder only after GO.
+每一飞都遵循同一条节奏：
 
-## Controls
+1. **按住漂移键**，让船边的 `BANK` 读条越过黄色刻度。
+2. **松开漂移键**，把一格飞行库存存进船边的菱形。
+3. **靠近青色起飞入口时按起飞键**，沿空中航道穿过门。
+4. **空中继续用漂移键空刹并转向**，把船压回急弯里的青色线路。
 
-| Input | Action |
-| --- | --- |
-| Automatic | Forward throttle; no accelerate key |
-| `A` `D` / `←` `→` | Steer |
-| `Shift` (hold) | Drift on water; contextual vector air-brake while flying |
-| `Space` (press) | Start/continue from a frozen prompt; while racing, spend one charge to take off or extend flight |
-| `Enter` | Start from READY; immediately continue a failure review |
-| `R` | Immediately continue a failure review |
-| `Esc` | Dismiss the first-run keyboard hint or skip the active driving guide; READY `?` can enable the full guide again |
+漂得更久只会让这次水面 `BOOST` 持续更久，不会把一格飞行变成长航程；真正的飞行
+库存来自“过黄线后松开”。最多可以存两格，飞行中还可以把备用格换成一次额外续航。
 
-Keyboard steering remains active in touch-capable Chrome sessions, including `←` / `→`. Standard-mapped controllers are also supported: left stick or D-pad steers, `A / Cross` flies and confirms, and `X / Square`, `LB`, or `RB` holds drift/air-brake. Connected pads are scanned together and the pad producing deliberate input becomes active; an idle first-listed device cannot block the controller in hand. Unknown browser mappings enter a four-step READY calibration and persist by device signature. Controller rumble and short phone vibration share an independent, default-on `体感反馈` setting and the same no-buffer countdown rule as keyboard input.
+前三飞完成后会冻结当前比赛，播放 `男人勋章` 仪式；恢复后继续挑战第四至第七飞。第七
+门计分后，普通水面偏航和逆行判定解除，落水后从任意方向穿过可见金门即可完成 Final。
+在第七门之前，漏门、提前落水、偏离空中航道和水面逆行仍然会结束本局。
 
-On mobile, landscape is required. Portrait mode is a full interaction blocker and freezes the simulation until the device returns to landscape. Selector clicks and control clicks may attempt fullscreen/landscape, and `GO` retains its own request inside the actual GO gesture; a generic pointerdown never races the subsequent click. A rejected supported-browser fullscreen request restores retry eligibility for the next real control gesture instead of permanently consuming it. iPhone browsers do not expose ordinary page fullscreen, so the unsupported request safely remains browser-hosted instead of faking fullscreen. Adding the game to the Home Screen uses a standalone landscape manifest and branded icon without a Service Worker; Chrome's automatic install promotion is suppressed so installation remains an explicit browser-menu action, and the launcher uses the full product name. The standalone iPhone root uses the full `100vh` viewport, while the Three.js renderer follows the measured `#app` container instead of WebKit's occasionally shorter JavaScript viewport height; the scene therefore extends behind the Home Indicator and only interactive controls consume safe-area insets. During active landscape play only, Safari's page-pinch gesture defaults are suppressed across the game controls; selector and dossier screens retain browser gesture ownership. Touch steering is the default and starts immediately; choosing `转向 · 重力` from the mode switch is the only path that requests motion permission and calibrates a stable neutral angle. Browsers do not permit fullscreen before any user gesture. Missing or denied sensors remain in touch steering automatically. Tilt and touch modes share one fixed two-thumb layout: only the left steering zone changes, while the right thumb always owns the lower-right `漂/空刹` primary skill and its upper-left `飞` secondary skill. Touch steering keeps two full-size hit targets in a fixed-width left-thumb zone; its visible right-turn face is inset instead of drifting farther away on wider phones. The right-side skill arc does not move. Each large invisible target presents a compact round thumb disc, so it is easy to hit without painting four crude rectangles over the race. Independent pointer tracking supports steering and holding drift/air-brake while tapping flight.
+## 操作
 
-A qualifying drift release banks one flight charge, up to two; the button rim and near-boat rail mark the release threshold, while a full drift only lengthens the resulting boost. Takeoff spends one charge, and the remaining cell can be spent once during cruise or descent for `+2.4s` of controlled airtime. The early spool/ascending frames reject a second press so a double-tap cannot waste the spare. Passing or missing the portal still starts descent immediately. Passing completes the flight but does not erase the boat's horizontal momentum: the semi-transparent cyan branch remains cyan through descent, water contact, and the authored handoff. Its post-gate tail keeps the authored aerial height while the hull is airborne, then smoothly settles onto the swell without masquerading as the green surface route. Water contact alone cannot replace it with the next branch; an actually accepted next takeoff from retained inventory is the explicit exception and atomically transfers visual ownership. Legal recovery momentum cannot preload an off-course or wrong-way warning; the third flight uses its own tangent-matched recovery tail through the medal resume, without weakening route enforcement elsewhere. Before the seventh pass, surface progress remains ordered: crossing open water onto a later, spatially nearby piece of the green ribbon cannot adopt that segment or emit its checkpoints. An unused spare survives landing and the third-flight medal freeze, while a fresh run clears both cells. Steering and drift/air-brake may be held before or during the medal and remain held through its frozen presentation and resume countdown; on a normal landing that held contextual action becomes water drift on the exact contact step, immediately starts the first fixed step of charge, and clears the old air-brake envelope. It never backdates airborne time or requires a release-and-repress. Final Station is the sole exception: the same action remains its non-charging return brake. A flight press is still edge-triggered and never buffered. The base `6.45s` envelope still covers every legal portal approach at 29m/s; the optional extension raises it to `8.85s` for early launches and air-braked turn-in.
+| 设备 | 转向 | 漂移 / 空刹 | 起飞 / 续航 |
+| --- | --- | --- | --- |
+| 键盘 | `A` `D` 或 `←` `→` | `Shift`（按住） | `Space` |
+| 手柄 | 左摇杆或方向键 | `X / Square`，肩键也支持 | `A / Cross` |
+| 手机 | 左侧触控区 | 右下 `漂 / 刹` | 右侧上方 `飞` |
 
-The first is a wide straight launch, the second is an air-brake chicane, and the third is a precision loop. The third pass freezes the same run for a `4.5s` medal ceremony with a back double-biceps champion medal, `猛男`, fireworks, firecrackers, petals, confetti, and a dedicated audio sting. Flights 4-7 continue around the rest of the circuit. The stronger green surface wake keeps the ocean visible but adds a bright navigation spine and dark-outlined chevrons that physically travel along the waves; authored bends enlarge and warm three consecutive arrows before the turn. Every one of the seven launch entrances terminates that water wake at a non-colliding curved ascent vector: two small wave-bobbing projectors support three virtual diamonds that bend from the current water heading toward the first airborne decision, while open chevrons flow along the same path and the upper two beats carry the authored left/right posture. Flight four is the deliberate exception to the standard visual timing: its recommended launch marker sits upstream of the ordinary AI launch point, and its longer vector gives the player time to launch and establish the left-turn posture. Its cyan mesh extends back to `u=.438`, covering the earliest valid post-medal takeoff, while the recommendation remains at `u=.493` and the scoring entry remains unchanged. The two protected opening rivals may consume that same authored cue while their formation is active; ordinary AI behavior is unchanged. A takeoff accepted before either recovery handoff or the marker retires the old recovery branch and the launch diamonds in that same fixed step, then masks the green route under the sole cyan branch. Warm emphasis stays on directional chevrons instead of recoloring the whole corridor. This changes no player input window, flight envelope, corridor, portal, or failure rule. The vector is gold while the player still needs a flight stock, switches to cyan-white when launch is ready, and retires the instant the real flight branch takes ownership. The airborne cyan corridor remains translucent but its panel body, edge, and flow filaments retain a phone-readable contrast floor. Flight four keeps its existing height and adds a high marine locator above the current portal so waves cannot erase the target. Every authored sharp flight bend is announced directly inside the virtual cyan ribbon by a warm, lane-width triple-chevron cluster; route five keeps three buoy-supported right-turn signs, then adds two left-facing exit-correction signs so sustained air-brake does not carry the player past the return line. Their direction is checked against the real route tangent rather than against each other. Flight five remains the hardest route, and desktop reinforces its airborne turn with `[SHIFT] + [→]`, while mobile highlights the existing air-brake and right-turn zones without moving them or adding vibration.
+船没有加速键，油门会自动保持。键盘的 `Shift` 在水面是漂移，进入空中后是空刹；
+手机默认使用触控转向，横屏游玩，竖屏会暂停并提示旋转设备。重力转向是主动选择的
+备用模式，不会改变右侧漂移和起飞按钮的位置。
 
-The seventh pass atomically retires surface off-course and wrong-way failures, fades the green route to a weak reference, and makes the visible golden `FINAL STATION` the sole scored destination. After the authored descent and landing, the player may approach from any route or direction; crossing between the two gold columns finishes, while passing outside them simply leaves the gate available for another attempt. During this free approach, `Shift` or the mobile `刹` button becomes a non-reversing return brake: it settles near 18m/s and grants air-brake-style turning authority without drifting, boosting, charging, spending a cell, or adding a new sound or vibration. The frozen finale makes `神秘资料片` the default primary action; `截图` and `继续游戏` remain compact utilities. Screenshot commands first open a frozen preview instead of relying on an ambiguous browser share sheet: desktop exposes an explicit file save/download plus image copy, Android exposes PNG download plus system share, and iOS exposes system Save Image/share plus a Files download fallback. A cancelled or failed export stays in the preview with a precise status and never increments the screenshot record. Before Final is armed, missing a portal, failing to launch, landing early, or leaving the corridor still ends the run immediately. Failure review keeps those causes separate: route-level failures do not invent a gate number, while portal-side misses preserve the actual side and distance evidence.
+第一次在 PC 键盘上开局时，画面会用一条不阻塞操作的短提示告诉你先按住 `Shift`；
+第一次真实失败后，才会邀请你开启更完整的逐步驾驶提示。所有提示都可以跳过，且不会
+降低物理难度或影响勋章资格。
 
-The first run still has no modal tutorial, dimming, freeze, or altered physics: experienced players can attack the `男人勋章` immediately. An eligible desktop keyboard novice sees one quiet, dismissible lower-left navigation console throughout every fresh countdown until the first flight is actually passed or the console is explicitly closed, so `SHIFT` is discoverable before control begins. It starts with `按住 SHIFT 不放`, mirrors the real `BANK` progress and yellow mark, changes to `松开 SHIFT` only when release can bank a diamond, holds the accepted `飞行库存 +1` confirmation long enough to read, then changes to `SPACE` only when the authored launch cue is actionable. A real `surface -> spool` edge confirms takeoff even when Shift release and Space occur in the same fixed step. Merely banking once records the accepted action but does not retire this first-flight explanation. The ordinary upper-right prompt is a separate owner: later runs emit it once per actionable launch cue and once per extension window, never merely because inventory increased. Closing the lower-left console persists acknowledgement without disabling the first-failure coach. It never appears on mobile, and deliberate gamepad input suppresses the keyboard copy.
+## 画面、声音与保存
 
-Only an eligible novice's first real failure offers the fuller `带标注再冲 / 不用引导`; the focused review is actionable from its first frame, returns only to READY, and never buffers a race input. If accepted, the next run dims the surrounding HUD and spotlights one actual control or near-boat instrument at a time. Desktop Shift coaching reuses the same real lower-left key anchor instead of circling a duplicate keycap inside its explanation card; mobile circles the fixed lower-right `漂` thumb control. Once held, the focus moves to the left rail and yellow line, then to the stored diamond, `SPACE`/`飞`, and the flight timer as those actions become relevant. A drift is mastered only after crossing the yellow `BANK` mark and releasing into a stored diamond, not merely by pressing Shift. Every full-guide step can be permanently skipped by its visible `跳过引导`, keyboard `Esc`, or controller `View / Back`; READY `?` can re-enable remaining lessons on demand. Players who prove three flights before a failure are treated as experts. Schema v8 includes a one-time repair for novices accidentally disarmed by the rejected v7 rollout; it still waits for their next real failure and preserves every explicit skip or expert state.
+青色航道表示“可以飞行的空间”，绿色水面线表示“当前推荐的水面路线”。航道会沿真实
+路线流动，并在急弯前用形状和方向提前提示，不会接管转向。冲过门后的惯性会保留，
+门后回收尾段和水面路线会平滑交接。
 
-The near-boat left rail is contextual: drift charge on water, remaining surface `BOOST` after release, or air-brake strength in flight. The yellow line means “enough to bank one cell”; releasing is what stores it. The right rail is the current flight's remaining envelope, while the two diamonds are the actual inventory. Holding a drift longer after the yellow line only lengthens the resulting water boost and never changes the fixed base flight duration. A spare diamond can instead add exactly `+2.4s` during cruise or descent.
+背景音乐在第一次明确操作后启动并贯穿本局；`3 · 2 · 1` 使用递减灯光和短促电子音，
+`GO` 使用更高一档的非语音起步信号。环境水声目前只保留经过审核的短事件，未审核的
+持续噪声不会自行加入。碰撞、落水和触觉反馈会合并同帧事件，不抢断右手漂移手感。
 
-Runs, medals, excellent finishes, per-driver PB flights, final completions, expansion pages seen, screenshot counts, closest misses, rival wins, and driving-guide mastery/preferences are saved in versioned browser `localStorage` with v2-v7 migration into schema v8. Schema v8 records the one-time automatic-invitation eligibility explicitly and repairs only complete, dormant novice v7/v6 coach records; explicit skips, completed/expert states, older saves, malformed data, and imports are never re-armed automatically. A deployment on a stable HTTPS domain persists normal revisits on the same browser profile and origin. Clearing site data or private browsing still removes local records; the versioned data contract remains suitable for a future authenticated server sync. Archive controls stay out of the selection screen so the first decision remains focused.
+选手、勋章、最佳成绩、资料片浏览记录和驾驶提示偏好都保存在本机浏览器中。资料片画廊
+是概念预览，不代表七个资料片已经可玩；当前页面按需加载图片，失败时会显示重试状态。
 
-Audio uses the complete owner-selected 127-second instrumental rock track plus Web Audio engine and short, identifiable event layers. Countdown lights visibly count down `3 lit -> 2 -> 1 -> GO dark`, with short ticks and no spoken numbers. `GO` uses one deterministic non-verbal synthesized start signal; there are no voice assets, speech downloads, or late decode paths. The former continuous water/air white-noise loops are disabled pending an explicitly reviewed environment recording; landing splash is a player-only, rate-limited event. Browser policy prevents sound before interaction, so the first keyboard or pointer gesture on READY starts the song; the same media timeline continues through GO, later runs, loading, medals, and READY, and only the natural end loops to the opening. `SOUND` exposes separate master, music, effects, environment-event, visible percentages, mute, and `镜头冲击 · 标准 / 弱 / 关`. Player collisions coalesce within one fixed step, use the real contact side for a restrained camera translation/roll, and never override the right-hand drift/air-brake haptic lane. The race radio is a single prioritized slot: hazards and control prompts win; routine passes and light contact stay silent; heavy character reactions are capped at two per run and eight seconds apart. Until air-brake mastery, SOL may teach `边飞边刹 + 转向，线路才咬得住` once each run: desktop uses a large right-to-left broadcast with a long center hold, while mobile reuses the left race-context slot instead of covering touch controls. Critical events duck the score, a 48Hz safety high-pass and 16:1 limiter protect phone speakers, and backgrounding pauses both media and context immediately until explicit GO resumes it.
+## 开发参与
 
-The two strongest rivals form a real-input opening field rather than disappearing after flight two. Both receive stronger but bounded surface and flight pace targets and visibly chain genuine drift-release `BOOST` cycles through the fourth-flight approach. A held drift draws narrow yellow-and-ink serrated water cuts only on the boat's physically loaded side; the next genuine hold changes side. The ordinary stern foam and V wake retain water volume, while broken negative space removes the former solid plastic sheet. A green fan and enlarged stern pulse occur only on the real release payout, so the repeated drift -> boost -> drift rhythm is readable without labels. At the fourth portal they must still score ahead or remain visibly alongside the player; that pass atomically removes all player-gap pacing and technique pressure. Their fixed aggressive drift style may remain afterward, but competition is then authored and fair. No rival is teleported, assigned fake progress, made collision-immune, or allowed to slow the player.
-
-## Architecture
-
-```
-src/
-  contracts.ts      Shared interfaces (IBoat, ICourse, IWake, ISpray, RaceView, LAYER_INK)
-  core/             palette.ts (single source of the limited palette), stage.ts (renderer
-                    + adaptive pixel ratio), loop.ts (fixed 60Hz sim), input.ts,
-                    gamepadInput.ts (multi-pad arbitration, calibration, rumble), haptics.ts,
-                    mobileControls.ts
-                    (default touch steering, opt-in tilt, fullscreen, multi-touch actions),
-                    abilityTelemetry.ts (shared drift/flight HUD state), capture.ts
-                    (WebGL plus authored-card PNG capture),
-                    prePass.ts (MRT normal/depth prepass for edge detection + foam masks)
-  water/
-    waves.ts        Gerstner field (5 waves) — ONE definition, compiled into both the
-                    GLSL chunk (WAVES_GLSL) and the CPU waterHeight() sampler, so
-                    buoyancy and rendering can never diverge
-    ocean.ts        Infinite ocean: camera-following recentered mesh (dense 1.4m core +
-                    coarse lattice to the horizon, stitched crack-free), cel height bands
-                    with domain-warped hard thresholds, crest foam scallop arcs, sun-lane
-                    quantized glitter, hull foam collars via depth-difference mask
-    wake.ts         Persistent wake ribbon per boat: ring-buffer triangle strip, scalloped
-                    wash core + diverging V-arms, rotated diamond cutout cells, three
-                    hard tone steps (fresh / wash / aged), dissipates by density
-    spray.ts        Instanced billboard spray droplets, hard canvas cutout sprite,
-                    CPU ballistic sim, killed at the live wave surface
-  cel/
-    toonMaterial.ts Extended MeshToonMaterial: 4-band ramp (NearestFilter), Fresnel rim,
-                    banded specular, banded distance fog
-    outline.ts      Inverted-hull ink outlines, screen-space constant width
-                    (push scales with view distance)
-    edgePass.ts     Sobel normal/depth edge pass for interior lines (second ink system,
-                    tuned against the hull outlines so they don't double up)
-    postPipeline.ts Beauty/edge pipeline plus selective energy bloom and the event-driven
-                    speed tunnel, chroma punch, warning wash, and air-brake bands
-    sky.ts          Gradient sky dome, graphic sun (disc + alternating-length rays),
-                    two parallax layers of flat cel clouds, all hard steps
-    ramp.ts         Gradient ramp texture generation
-  game/
-    boat.ts         Hull loft + deck/sponsons/spoiler/jet-pump geometry, arcade handling
-                    (tapered engine curve, speed-tightened steering, drift→boost→two-charge
-                    flight storage, controlled anti-gravity lift, 5-point Gerstner buoyancy,
-                    crest-launch airtime), opponent drift trails, aero vortex rings
-    jetTrail.ts     Shared instanced ring buffer for lime boost and cyan flight shards
-    rider.ts        Code-rigged cel rider, fully procedural skeleton + capsule flesh.
-                    Animated from BoatState: lean ∝ lateral G, weight shift ∝ long G,
-                    drift hip twist, throttle wrist, landing crouch spring, airborne
-                    "whee" pose, idle breathing, celebration pump
-    course.ts       CatmullRom circuit plus seven 3D flight branches, single-guide ownership,
-                    post-gate recovery handoff, locally masked water line, gates/buoys with
-                    foam collars, and swept bidirectional golden Final portal geometry
-    ai.ts           Spline-following AI with lookahead, six-racer pace profiles,
-                    readable drift, elite consistency, and bounded traffic avoidance
-    collision.ts    Swept capsule CCD, bounded arcade impulses, pileup separation,
-                    feedback cooldown, and race/gate correction isolation
-    rivalDirector.ts Two-rival pace director with hysteresis, battle lock, and impact grace
-    racers.ts       Six adult profiles, two women, handling styles, grid ranks, lanes, pace
-    records.ts      v8 local records, guide eligibility/mastery, per-driver PBs,
-                    final/gallery state, JSON export/import, and v2-v7 migration
-    pcControlPrimer.ts Desktop Shift -> bank -> Space successful-action observer
-    drivingCoach.ts Pure post-failure curriculum and successful-action mastery observer
-    race.ts         Explicit READY, fresh/resume countdowns, route-transition rebasing,
-                    distinct course warnings, free Final approach, laps, and battle events
-    eventLog.ts     Capped local-only gameplay event log; no network analytics transport
-    chaseCamera.ts  Spring-damped chase cam, drift/flight/battle impulses, speed FOV,
-                    reduced-motion support, cinematic orbit for countdown/results
-  hud/
-    hud.ts/.css     Responsive goal HUD: flights, position, PC control primer, spotlight guide,
-                    focused failure review, READY gate, and medal UI
-    driverSelect.ts/.css Three-column desktop stage with cancellable clip reveal and DPR radar;
-                    separate mobile standing portrait, real handling modifiers (up to +/-6%),
-                    named roster paddles, and six stable desktop destinations
-    raceTower.ts/.css Compact six-driver tower and transient team radio
-    medalCeremony.ts Asset-backed champion medal plus one DPR-capped Canvas2D particle layer
-    expansionGallery.ts Full-screen Chinese-name dossier viewer for planned games
-    finaleOverlay.ts Frozen seven-flight result actions and dossier entry point
-    capturePreview.ts/.css Frozen platform-aware PNG preview and explicit export actions
-  audio/
-    audio.ts        Streamed local rock plus four-bus Web Audio engine, reviewed impacts,
-                    player splash, ducking, non-verbal GO signal, and medal sting
-    mixerControls.ts/.css Persistent master/music/effects/ambience controls
-harness/
-    screenshot.mjs  Playwright screenshot harness — deterministic (?harness=1) scenarios
-                    (two-charge storage, seven-route timing, qualification, adaptive loading,
-                    keyboard/dual-gamepad/custom-map/mobile controls, haptics, cold START,
-                    radar restore, fullscreen request,
-                    route guidance, continuous flight-four-to-five entry and post-gate recovery,
-                    free Final approach,
-                    desktop selection motion, performance, and battles)
-    collision.mjs   15-pair CCD, pileup, cooldown, rule isolation, route-4 boundary tests
-    audio.mjs       Media playback, mixer, ducking, background lifecycle, exact-time non-verbal
-                    GO signal, environment-loop silence, and one-shot audit contracts
-    systems.mjs     Save migration/import, portraits, rivals, and two-lap/14-flight endurance
-```
-
-## Performance notes
-
-- Fixed 60 Hz simulation, render decoupled. Auto starts inside a 2.1M drawing-pixel budget.
-  High-DPR phones may use up to 2.5x resolution while remaining inside that same budget;
-  desktop Auto retains its conservative 1.25x ceiling. On desktop, sustained frame headroom
-  can restore clarity up to 3.2M pixels;
-  any pressure or fullscreen resize immediately returns toward the conservative budget.
-  It reacts to fullscreen/resize within one animation frame, drops quality after 0.5s over
-  20ms, and only climbs after 4s of stable sub-18.2ms frames.
-- `?quality=performance` uses a 1.3M budget; `?quality=high` uses 4.1M, 2x MSAA,
-  half-resolution energy effects, and detailed AI ink. Auto uses an RGBA8 beauty target,
-  no MSAA, 0.35-scale energy effects, and simplified distant AI rider silhouettes.
-- Ocean is one draw call per LOD shell; wake is one draw call per boat; spray is one instanced draw call total.
-- The harness reports drawing pixels, draw calls, triangles, route state, and battle events.
-  Its dedicated performance check samples real animation frames; headless software-renderer
-  timings are diagnostic only and must not be presented as hardware FPS.
-- Zero per-frame allocation in hot paths (ring buffers, module-scope temps).
-
-## Visual guidance
-
-The full-lap green surface guide is a soft translucent wake tessellated across the
-local swell. It has no hard rails or painted-road core: a bright navigation spine,
-two restrained flow traces, and a bounded 170m lookahead of dark-outlined open
-chevrons preserve the ocean underneath. Those markers are spaced at 10m and
-physically travel forward at 10m/s; sharp turns enlarge and warm at least three
-consecutive markers. A passed branch keeps its cyan virtual tail and moving chevrons
-before landing and after water contact, until its authored handoff. The tail follows
-the authored flight height in air and only blends onto the live swell after contact;
-it never borrows the green surface route's identity. Every airborne branch uses the
-same cel-virtual material: a translucent deep-cyan body, cyan-white directional
-traces, and a thin ink edge that stays readable at distance without hiding the ocean.
-At each launch point the water route terminates at the three-diamond ascent aperture;
-the cyan flight branch remains a separate aerial layer after launch. Neither guide nor
-the aperture changes route validation or boat physics.
-
-## Verification harness
+项目使用 TypeScript、Vite、Three.js 和 Playwright。
 
 ```bash
-node harness/screenshot.mjs                 # all scenarios → shots/*.png (retina)
-node harness/screenshot.mjs water rider     # subset
-node harness/screenshot.mjs --stats sweeper # + renderer.info stats
-npm run verify:flight                     # gameplay plus keyboard/gamepad input contracts
-npm run verify:mobile                     # fullscreen, radar restore, fallback, controls, multi-touch
-npm run verify:performance                # pixel budget, resize coalescing, draw-call ceiling
-npm run verify:collision                  # CCD, impact integration, gate/checkpoint isolation
-npm run verify:audio                      # formal track, mixer, ducking, hidden/resume lifecycle
-npm run verify:systems                    # records, portraits, rivals, 14-flight endurance
-npm run verify:release                    # all release gates in sequence
-node harness/screenshot.mjs --responsive flight-cruise # desktop + compact landscape
-node harness/screenshot.mjs --mobile --responsive flight-recovery-air flight-recovery-surface
-node harness/screenshot.mjs third-recovery-air third-recovery-surface post-third-turn
-node harness/screenshot.mjs --mobile start              # landscape touch-control capture (default)
-node harness/screenshot.mjs --mobile --tilt start       # explicit tilt-control capture
+npm run build
+npm run verify:release
 ```
 
-`?harness=1` runs the game deterministically (seeded, fixed-step) and exposes `window.__harness` for scenario driving and free-camera placement.
+`verify:release` 会覆盖飞行路线、移动端、碰撞、音频、存档系统、长跑和性能合同。常用
+代码位置如下：
+
+- `src/game/`：船体、赛道、飞行、AI、记录。
+- `src/core/`：键盘、手柄、手机输入、触觉和固定步进。
+- `src/hud/`：选角、HUD、驾驶提示、Final 和资料片画廊。
+- `src/audio/`：BGM、事件音效、混音和音频解锁。
+- `harness/`：确定性浏览器验收。
+
+开始改动前先读 [`docs/development-handoff.md`](docs/development-handoff.md) 了解当前
+未完成事项，再读 [`docs/llmwiki.md`](docs/llmwiki.md) 了解会影响输入、物理、路线和视觉
+验收的稳定契约。改了物理、生命周期、音频、记录或渲染，就要同步对应 harness；不要只
+修改说明文字来绕过失败的验收。
+
+## 资产与许可
+
+角色立绘、BGM 和资料片概念图是项目所有者提供的素材。来源、处理方式和替换注意事项
+分别记录在 `src/assets/**/LICENSES.md`；替换素材前请保留同一套语义文件名并更新对应说明。

@@ -3,8 +3,10 @@
 状态：`current / schema-v8`
 
 这份文档给接手代码的 AI 使用，记录容易因上下文压缩而丢失、但又不能靠猜的
-稳定事实。面向玩家的操作与行为合同仍在 `README.md`；项目级硬约束在
-`AGENTS.md`；有冲突时以当前代码、确定性 harness 和用户最新明确决定为准，
+稳定事实。面向玩家的说明只放在 `README.md`；当前版本的开发事项、未完成工作和
+发布状态只放在 [`docs/development-handoff.md`](development-handoff.md)；资料片专案
+只放在 [`docs/expansion-gallery-handoff.md`](expansion-gallery-handoff.md)。项目级硬
+约束在 `AGENTS.md`。有冲突时以当前代码、确定性 harness 和用户最新明确决定为准，
 修正事实后必须同步相关文档，不能保留两个都自称现役的版本。
 
 ## 一分钟恢复上下文
@@ -19,8 +21,8 @@
   移动端不显示。第一次真实失败仍会出现一次完整聚光教学邀请。
 - `BoatInput` 和 60 Hz fixed-step 是稳定合同。教学只观察状态和成功动作，绝不
   注入输入、改物理、放宽路线判定或创建教程专用比赛规则。
-- 任何本地改动都不等于已发布。GitHub Pages 只会在 `main` 推送并通过 workflow 后
-  部署；发布与 live verification 必须单独完成和汇报。
+- 任何本地改动都不等于已发布。代码推送到 `main` 即完成本项目的发布动作；GitHub
+  Pages 只会在 workflow 后部署，Pages 与 live verification 独立进行，不阻塞提交和推送。
 
 ## 真实玩法语义
 
@@ -372,7 +374,7 @@ systems、endurance 和 performance。物理、生命周期、音频、记录或
 commit、push、remote SHA 与 Pages live marker 校验。没有发现新事实、冲突或清理候选时，
 不得再把这套固定流程拆成多轮大模型交互。
 
-用户明确要求“不等 Pages”时，使用
+本项目默认不等待 Pages，使用
 `npm run release:checked -- --no-wait-pages "type: message"`。该参数从版本化合同临时派生
 一个只移除 `pages` 的 `.git` 内合同副本；全部 closeout / build / gameplay / mobile /
 collision / audio / systems / performance 门禁、commit、push 和 remote SHA 校验仍然执行。
