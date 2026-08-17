@@ -668,6 +668,11 @@ try {
     assert.equal(formation.playerActions.flightEdges, 4, `${label}: Space remains a one-frame edge`);
     assert.ok(formation.playerActions.airBrakeTurnFrames > 0, `${label}: authored turns need steer plus air-brake`);
     assert.ok(formation.maxStep < 1.7, `${label}: no boat may teleport after GO: ${formation.maxStep}`);
+    assert.ok(formation.projectionContinuity.every((entry) => entry.maxSurfaceDeltaU <= 0.001 &&
+      entry.maxSurfaceProgressStep <= 1 && entry.resyncFrames === 0 &&
+      (entry.id === 0 || entry.aiMaxSurfaceDeltaU <= 0.001)),
+    `${label}: physical surface motion must keep Race and AI on one continuous course fold: ` +
+      JSON.stringify(formation.projectionContinuity));
     assert.equal(formation.passes.length, 4, `${label}: ${JSON.stringify(formation.passes)}`);
     assert.ok(formation.boatBoostEdges.every((edges) => edges >= 12),
       `${label}: both protected rivals must produce repeated physical Boat BOOST edges: ${JSON.stringify(formation.boatBoostEdges)}`);
@@ -741,6 +746,27 @@ try {
     assert.ok(formation.postRelease.reduce((sum, rival) => sum + rival.driftFrames, 0) > 0 &&
       formation.postRelease.reduce((sum, rival) => sum + rival.boostEdges, 0) > 0,
     `${label}: post-release sampling must still observe real chain input and a BOOST payout: ${JSON.stringify(formation.postRelease)}`);
+    const battle = formation.postReleaseBattle;
+    if (battle.enabled) {
+      assert.equal(battle.phase, 'complete',
+        `${label}: the post-fourth physical pass/repass must complete: ${JSON.stringify(battle)}`);
+      assert.ok(battle.initialGap > 0 && battle.playerPass?.progressGap <= -0.75 &&
+        battle.playerPass.worldDistance <= 10 && battle.playerPass.aheadMeters <= 1 &&
+        battle.playerPass.playerPhase === 'surface' && battle.playerPass.rivalPhase === 'surface',
+      `${label}: the player pass must be a nearby same-water crossing, not rank-only data: ${JSON.stringify(battle)}`);
+      assert.ok(battle.rivalRepass?.progressGap >= 0.75 && battle.rivalRepass.worldDistance <= 12 &&
+        battle.rivalRepass.aheadMeters >= 0.5 && Math.abs(battle.rivalRepass.heightDelta) <= 1.5 &&
+        battle.rivalRepass.playerPhase === 'surface' && battle.rivalRepass.rivalPhase === 'surface',
+      `${label}: the rival must physically return through the player's chase space: ${JSON.stringify(battle)}`);
+      const visibility = battle.rivalRepass.visibility;
+      assert.ok(visibility?.inView && visibility.effectivelyVisible && visibility.cameraLayer &&
+        visibility.changedPixels >= 1000 && visibility.meanDelta >= 20,
+      `${label}: the repassing boat must contribute real pixels, not only place/progress values: ${JSON.stringify(visibility)}`);
+    } else {
+      assert.equal(battle.phase, 'complete');
+      assert.equal(battle.playerPass, null);
+      assert.equal(battle.rivalRepass, null);
+    }
   }
 
   const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());

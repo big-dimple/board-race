@@ -60,6 +60,8 @@ const OFF_COURSE_WARN_M = 24;
 const OFF_COURSE_FAIL_HOLD_S = 0.8;
 /** Fixed-step surface motion above this is an explicit staging cut, not a route-projection jump. */
 const SURFACE_CONTINUITY_MAX_STEP_M = 4;
+/** Arc-search slack for lateral motion and table interpolation around a physical step. */
+const SURFACE_PROJECTION_SLACK_M = 2;
 /** A wrong-way banner is corrective; ignoring it for this long is terminal. */
 const WRONG_WAY_FAIL_HOLD_S = 2.4;
 const BATTLE_ARM_M = 0.75;
@@ -75,8 +77,14 @@ const _sample: CourseSample = {
   tangent: new THREE.Vector3(),
   routeId: 'surface',
 };
+const _globalSurfaceCandidate: CourseSample = {
+  u: 0,
+  distance: 0,
+  point: new THREE.Vector3(),
+  tangent: new THREE.Vector3(),
+  routeId: 'surface',
+};
 const _velocity = new THREE.Vector2();
-const _expectedSurfacePoint = new THREE.Vector3();
 
 export class Race implements RaceView {
   readonly racers: RacerState[] = [];
@@ -155,6 +163,17 @@ export class Race implements RaceView {
   /** boats[0] is always the player. */
   player(): RacerState {
     return this.racers[this.boats[0].id];
+  }
+
+  /** Read-only continuity evidence for deterministic harness contracts. */
+  debugProjection(id: number): Record<string, number | string | boolean> {
+    return {
+      ready: this.inited[id] ?? false,
+      u: this.prevU[id] ?? 0,
+      continuousU: this.contU[id] ?? 0,
+      route: this.prevRoute[id] ?? 'surface',
+      resynced: this.resynced[id] ?? false,
+    };
   }
 
   setDefinitions(definitions: readonly RacerDefinition[]): void {
@@ -393,7 +412,14 @@ export class Race implements RaceView {
     for (const boat of this.boats) {
       const id = boat.id;
       if (!this.inited[id]) continue;
-      this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
+      const route = this.course.routeForBoat(id);
+      const worldStep = this.previousWorld[id].distanceTo(boat.state.position);
+      if (route === 'surface' && this.prevRoute[id] === 'surface' && worldStep <= SURFACE_CONTINUITY_MAX_STEP_M) {
+        const maxDeltaU = Math.min(JUMP_U, (worldStep + SURFACE_PROJECTION_SLACK_M) / this.course.length);
+        this.course.sampleSurfaceNear(boat.state.position, this.prevU[id], maxDeltaU, _sample);
+      } else {
+        this.course.sample(boat.state.position, _sample, route);
+      }
       this.prevU[id] = _sample.u;
       this.previousWorld[id].copy(boat.state.position);
     }
@@ -405,10 +431,28 @@ export class Race implements RaceView {
     for (const boat of this.boats) {
       const id = boat.id;
       const r = this.racers[id];
-      this.course.sample(boat.state.position, _sample, this.course.routeForBoat(id));
-      const u = _sample.u;
+      const route = this.course.routeForBoat(id);
       const previousPosition = this.previousWorld[id];
       const worldStep = previousPosition.distanceTo(boat.state.position);
+      const continuousSurfaceStep = this.inited[id] && route === 'surface' &&
+        this.prevRoute[id] === 'surface' && worldStep <= SURFACE_CONTINUITY_MAX_STEP_M;
+      if (continuousSurfaceStep) {
+        const maxDeltaU = Math.min(JUMP_U, (worldStep + SURFACE_PROJECTION_SLACK_M) / this.course.length);
+        this.course.sampleSurfaceNear(boat.state.position, this.prevU[id], maxDeltaU, _sample);
+      } else {
+        this.course.sample(boat.state.position, _sample, route);
+      }
+      const u = _sample.u;
+      let continuousSurfaceFoldConflict = false;
+      if (!resyncOnly && continuousSurfaceStep && id === this.boats[0].id &&
+          _sample.distance >= OFF_COURSE_WARN_M) {
+        this.course.sample(boat.state.position, _globalSurfaceCandidate, 'surface');
+        let candidateDelta = _globalSurfaceCandidate.u - u;
+        if (candidateDelta < -0.5) candidateDelta += 1;
+        else if (candidateDelta > 0.5) candidateDelta -= 1;
+        continuousSurfaceFoldConflict = Math.abs(candidateDelta) > JUMP_U &&
+          _globalSurfaceCandidate.distance + SURFACE_PROJECTION_SLACK_M < _sample.distance;
+      }
       const crossedFinalStation = !resyncOnly && id === this.boats[0].id && this.finalStationArmed &&
         this.course.crossFinalStation(previousPosition, boat.state.position);
       previousPosition.copy(boat.state.position);
@@ -452,28 +496,6 @@ export class Race implements RaceView {
       else if (du > 0.5) du -= 1;
 
       const validatesSurface = boat.state.flightPhase === 'surface' && _sample.routeId === 'surface';
-      const continuousSurfaceCut = !resyncOnly && id === this.boats[0].id && validatesSurface &&
-        worldStep <= SURFACE_CONTINUITY_MAX_STEP_M && Math.abs(du) > JUMP_U;
-      if (continuousSurfaceCut) {
-        // The surface spline folds back near itself around the second flight.
-        // A global-nearest projection can therefore jump to a later section
-        // while the boat crosses open water in perfectly small physical steps.
-        // Keep the last accepted route owner so the shortcut cannot clear its
-        // warning merely by reaching a different piece of the same ribbon.
-        this.course.pointAt(this.prevU[id], _expectedSurfacePoint);
-        const expectedDistance = _expectedSurfacePoint.distanceTo(boat.state.position);
-        this.offCourseT[id] += dt;
-        this.wrongT[id] = 0;
-        this.setCourseWarning(r, 'off_course');
-        r.progress = this.windowedProgress(id);
-        this.prevContU[id] = this.contU[id];
-        if (this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
-          this.defeatSurface('off_course', Math.max(_sample.distance, expectedDistance));
-          return;
-        }
-        continue;
-      }
-
       this.prevU[id] = u;
 
       if (Math.abs(du) > JUMP_U) {
@@ -518,7 +540,10 @@ export class Race implements RaceView {
         } else {
           const offCourse = _sample.distance >= OFF_COURSE_WARN_M;
           const outside = _sample.distance >= SURFACE_ROUTE_FAIL_DISTANCE_M;
-          this.offCourseT[id] = outside
+          // Keep local u ownership, but start the normal correction clock when
+          // a sustained cross-water cut has entered a clearly closer fold. The
+          // global candidate is validation evidence only and never grants rank.
+          this.offCourseT[id] = outside || continuousSurfaceFoldConflict
             ? this.offCourseT[id] + dt
             : Math.max(0, this.offCourseT[id] - dt * 2.5);
           if (id === this.boats[0].id && offCourse) this.setCourseWarning(r, 'off_course');

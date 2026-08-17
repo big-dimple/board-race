@@ -1,9 +1,10 @@
 /**
- * ocean.ts — infinite cel-shaded open ocean. The star of the show.
+ * ocean.ts — infinite arcade ocean shared by rendering and boat physics.
  *
- * Art target: an outlined arcade ocean with broad, softened color bands,
- * restrained graphic foam, and sparse quantized glitter. The surface stays
- * stylized without letting its cel treatment overpower racers and technique.
+ * Art target: clean racing water whose material comes from surface direction,
+ * view angle, sunlight, and sparse readable whitecaps. Broad swell carries
+ * gameplay; local foam and wake carry interaction. The sea must never bury
+ * racers, route guidance, or technique effects under full-frame color slabs.
  *
  * Technique:
  *  - One camera-following mesh, recentered in update() and SNAPPED to the
@@ -16,30 +17,19 @@
  *    a fan "stitch strip" bridges the 1.4 m / 56 m tessellation mismatch
  *    with bit-identical shared world positions, so there is no crack and
  *    no z-fighting overlap (strictly cleaner than raw overlap).
- *  - All fragment shading (height bands, foam, glitter, fog) is computed
+ *  - All fragment shading (normal response, foam, reflection, fog) is computed
  *    per-pixel from the analytic wave field on the UNDISPLACED world XZ.
  *    On the dense grid vH computed this way is mathematically identical to
  *    displacedY / MAX_AMPLITUDE (the Gerstner Y term IS waveHeight(origXZ)),
  *    and on the coarse ring it stays alias-free. Shading can never diverge
  *    at the LOD boundary.
- *  - Band thresholds are domain-warped by THREE value-noise octaves
- *    (~64 m / 11 m / 5 m) so silhouettes read as chopped swell at BOTH the
- *    macro and the local scale, never as smooth bezier tongues. A narrow
- *    blend around each threshold removes the old posterized slabs.
- *  - Deep-band richness: one slightly lighter deep tone laid in as long
- *    hard-edged DIAGONAL streak bands (dash-segmented, slow drift) plus
- *    sparse BIG glints — the largest area of frame is never a dead void.
- *  - Crest foam caps: 2–3 chunky scallop ARCS per crest contour (whole arcs
- *    flip on/off in time steps), hugging the DOWN-WAVE edge of the crest
- *    band (dh/dt > 0), sized in meters by distance-to-band-edge
- *    (vHw / |grad|), with 1–2 interior negative-space cuts per arc. No
- *    parallelogram slabs, no high-frequency fingerprint breakup.
- *  - Sun-glitter lane: plus/diamond glints in 3 discrete cell sizes,
- *    clustered into a hard band around the sun azimuth (sparse outside),
- *    blinking in hard time steps.
- *  - Distance collapse: warp / tone patches / caps / streaks / glitter all
- *    fade CONTRAST to zero in hard steps (120 m / 250 m, warp 350 m) so the
- *    fog bands own the horizon — no far-field speckle shimmer.
+ *  - View-facing slopes pick up the sky while sun-facing slopes carry a broad
+ *    reflection. Two small visual-only ripples fade before the mid field and
+ *    never feed buoyancy or collision.
+ *  - Whitecaps require a high, steep, rising wave face. Low-frequency noise
+ *    only breaks their coverage into natural runs; it does not recolor the sea.
+ *  - Every local detail fades continuously into the horizon, avoiding both
+ *    shimmer and the old hard distance bands.
  *  - Hull foam collar: depth-difference mask against the ink prepass depth
  *    texture (core/prePass.ts), BIASED ~3 cm so the collar only emits where
  *    the water fragment is strictly in front of the solid by a margin (no
@@ -172,6 +162,7 @@ uniform float uTime;
 
 varying vec2 vOrigXZ; // undisplaced world XZ — source of truth for all shading
 varying float vViewZ; // view-space Z of the displaced fragment (negative forward)
+varying vec3 vWorldPos;
 
 ${WAVES_GLSL}
 
@@ -180,6 +171,7 @@ void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vec3 disp = gerstnerDisplace(wp.xyz, uTime);
   vOrigXZ = wp.xz;
+  vWorldPos = disp;
   vec4 mv = viewMatrix * vec4(disp, 1.0);
   vViewZ = mv.z;
   gl_Position = projectionMatrix * mv;
@@ -206,58 +198,22 @@ uniform float uRingContact;    // gap meters of darkened contact water inside th
 uniform float uRingContactShade; // brightness multiplier of the contact band
 uniform float uRingMaxDist;    // collar only drawn inside this distance
 
-// cel height bands
+// clean racing-water material
 uniform float uMaxAmp;
-uniform float uBandDeep;       // vH below -> deep
-uniform float uBandCrest;      // vH above -> crest (between -> mid)
-uniform float uBandBlend;      // half-width of the softened band transition
-uniform float uPatchScale;     // meters per ink-tone patch
-uniform float uPatchStrength;  // 0..1 hard two-tone variation inside a band
+uniform float uRippleStrength;
+uniform float uRippleFadeStart;
+uniform float uRippleFadeEnd;
+uniform float uCrestHeight;
+uniform float uCrestSlope;
+uniform float uCrestRise;
+uniform float uFoamStrength;
+uniform float uSunGloss;
+uniform float uSunStrength;
+uniform float uFresnelStrength;
 
-// band domain warp — chops band silhouettes into swell shapes (hard edges stay)
-uniform float uWarpAmp;      // vH units of threshold warp
-uniform float uWarpScaleA;   // meters, mid octave (~swell chop)
-uniform float uWarpScaleB;   // meters, high octave
-uniform float uWarpScaleC;   // meters, MACRO octave (4-8x A) — big silhouettes chop too
-uniform float uWarpFade;     // warp fully gone beyond this distance
-
-// deep-band richness — long hard-edged diagonal streak bands, low contrast
-uniform float uDeepStreakScale;    // wavelength across the streaks (m)
-uniform float uDeepStreakDuty;     // lit fraction of each wavelength
-uniform float uDeepStreakStrength; // brightness lift of the lit streak (subtle)
-uniform float uDeepStreakDrift;    // slow slide speed (m/s)
-
-// crest foam caps — 2-3 chunky scallop arcs on the DOWN-WAVE edge of crests
-uniform float uCrestCapW;    // cap strip width in METERS along the surface
-uniform float uCapScallop;   // scallop lobe frequency along the crest contour (1/m)
-uniform float uCapArcLen;    // meters per arc segment along the contour
-uniform float uCapArcCut;    // whole-arc keep threshold (arcs flip on/off)
-uniform float uCapFps;       // arc flip rate (steps/sec)
-uniform float uCapRiseGate;  // dh/dt gate: only the rising (down-wave) face foams
-
-// sun-glitter lane — plus/diamond glints, 3 discrete sizes, hard blinks
-uniform float uGlintFps;     // blink rate (steps/sec)
-uniform float uGlintLaneCos; // core lane: cos of the half-angle around the sun azimuth
-uniform float uGlintLaneSoft;// penumbra lane cos (reduced density)
-uniform float uGlintDensIn;  // cell density inside the lane
-uniform float uGlintDensOut; // sparse density outside the lane
-uniform float uGlintSizeA;   // small diamond cell (m), crest-gated
-uniform float uGlintSizeB;   // medium plus cell (m)
-uniform float uGlintSizeC;   // BIG diamond cell (m) — sparse, also livens the deep band
-uniform float uGlintCrest;   // vHw gate, small class only
-uniform float uGlintFadeA;   // contrast steps: full inside / half / gone outside
-uniform float uGlintFadeB;
-
-// detail collapse — past these distances the surface flattens to pure bands
-uniform float uDetailFadeA;  // caps/patches/streaks full inside
-uniform float uDetailFadeB;  // caps/patches/streaks gone outside
-
-// distance fog — hard bands toward the horizon color
+// continuous distance fade into the horizon
 uniform float uFogStart;
-uniform float uFogMid;
 uniform float uFogFar;
-uniform float uFogMidMix;
-uniform float uFogFarMix;
 
 // palette
 uniform vec3 uColorDeep;
@@ -270,6 +226,7 @@ uniform vec3 uSunDir;
 
 varying vec2 vOrigXZ;
 varying float vViewZ;
+varying vec3 vWorldPos;
 
 ${WAVES_GLSL}
 
@@ -280,7 +237,7 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-// smooth value noise — used ONLY to wobble thresholds; visible edges stay hard
+// Smooth value noise only breaks whitecap coverage into broad natural runs.
 float vnoise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
@@ -311,106 +268,45 @@ void main() {
   vec3 n = gerstnerNormal(vOrigXZ, uTime);
   float dist = -vViewZ;
 
-  // detail collapse: far water must flatten into the flat fog bands, so every
-  // high-frequency feature (warp octaves A/B, tone patches, caps, streaks,
-  // glitter) fades contrast to zero in hard steps instead of shimmering.
-  float warpKeep = dist < 150.0 ? 1.0 : (dist < uWarpFade ? 0.5 : 0.0);
-  float detail = dist < uDetailFadeA ? 1.0 : (dist < uDetailFadeB ? 0.5 : 0.0);
+  // Visual-only ripples modify the material normal near the camera. The
+  // displacement and every CPU query continue to use the unchanged wave sum.
+  float rippleFade = 1.0 - smoothstep(uRippleFadeStart, uRippleFadeEnd, dist);
+  vec2 rippleSlope =
+    vec2(0.82, 0.31) * cos(dot(vOrigXZ, vec2(0.82, 0.31)) * 1.65 + uTime * 1.7) +
+    vec2(-0.27, 0.96) * cos(dot(vOrigXZ, vec2(-0.27, 0.96)) * 2.35 - uTime * 1.25);
+  n = normalize(n + vec3(rippleSlope.x, 0.0, rippleSlope.y) * uRippleStrength * rippleFade);
 
-  // --- 1. broad color bands, domain-warped with narrow soft transitions ---
-  // Three noise octaves wobble the band thresholds: the 64 m macro octave
-  // chops the big silhouettes, the 11 m / 5 m octaves chop the local edges.
-  float warp = (vnoise(vOrigXZ / uWarpScaleA) - 0.5) * uWarpAmp * warpKeep
-             + (vnoise(vOrigXZ / uWarpScaleB + 19.7) - 0.5) * uWarpAmp * 0.55 * (warpKeep > 0.5 ? 1.0 : 0.0)
-             + (vnoise(vOrigXZ / uWarpScaleC + 7.3) - 0.5) * uWarpAmp * 1.25 * (warpKeep > 0.0 ? 1.0 : 0.0);
-  float vHw = vH + warp;
+  vec3 viewDir = normalize(cameraPosition - vWorldPos);
+  vec3 sunDir = normalize(uSunDir);
+  float ndl = clamp(dot(n, sunDir) * 0.5 + 0.5, 0.0, 1.0);
+  float slope = clamp(1.0 - n.y, 0.0, 1.0);
+  float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 2.2);
 
-  float deepToMid = smoothstep(uBandDeep - uBandBlend, uBandDeep + uBandBlend, vHw);
-  float midToCrest = smoothstep(uBandCrest - uBandBlend, uBandCrest + uBandBlend, vHw);
-  vec3 col = mix(uColorDeep, uColorMid, deepToMid);
-  col = mix(col, uColorCrest, midToCrest);
-  // per-band ink richness: two hard tone patches, never a gradient
-  float tonePatch = hash12(floor(vOrigXZ / uPatchScale));
-  float patchStrength = uPatchStrength * detail;
-  col *= 1.0 - patchStrength + 2.0 * patchStrength * step(0.5, tonePatch);
+  // Directional material response replaces the old height-colored slabs.
+  float faceLight = clamp(0.22 + ndl * 0.58 + slope * 0.34, 0.0, 1.0);
+  vec3 col = mix(uColorDeep, uColorMid, faceLight);
+  col = mix(col, uColorCrest, smoothstep(0.035, 0.22, slope) * 0.34);
+  col = mix(col, uColorHorizon, fresnel * uFresnelStrength);
 
-  // --- 2. deep-band interior: diagonal streak bands, hard-edged, subtle ---
-  // One slightly lighter deep tone in long dash-segmented diagonal bands so
-  // the largest area of frame always has graphic content. Straight edges are
-  // intentional — the warped band silhouette chops them organically.
-  if (vHw <= uBandDeep && detail > 0.0) {
-    vec2 dg = vec2(vOrigXZ.x + vOrigXZ.y, vOrigXZ.x - vOrigXZ.y) * 0.7071;
-    float bandPos = (dg.x + uTime * uDeepStreakDrift) / uDeepStreakScale;
-    float bandRow = floor(bandPos);
-    float lit = step(fract(bandPos), uDeepStreakDuty);
-    // long dash gaps along each streak, offset per row so gaps never align
-    float dashPos = dg.y / (uDeepStreakScale * 1.9) + bandRow * 0.37;
-    lit *= step(fract(dashPos), 0.62);
-    col *= 1.0 + uDeepStreakStrength * lit * detail;
-  }
+  // A broad sun response gives the surface scale without a field of blinking
+  // symbols. Near ripples naturally split it into short moving highlights.
+  vec3 halfDir = normalize(sunDir + viewDir);
+  float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength;
+  sunSpec *= 0.42 + 0.58 * rippleFade;
+  col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
 
-  // --- 3. crest foam caps: 2-3 chunky scallop ARCS per crest contour ------
-  // Distance-to-band-edge in METERS (vHw delta / gradient magnitude) so the
-  // cap hugs the crest band's silhouette and stays thin over flat crest tops;
-  // dh/dt > 0 selects the leading face. Whole arcs flip on/off in time steps
-  // and each arc can lose 1-2 interior bites (negative space, not slabs).
-  if (detail > 0.0) {
-    float dhdt = waveDerivT(vOrigXZ, uTime);
-    float gradMag = length(n.xz) / (max(n.y, 0.05) * uMaxAmp); // |grad vH|, 1/m
-    float dEdge = (vHw - uBandCrest) / max(gradMag, 0.012);    // meters from the edge
-    if (dhdt > uCapRiseGate && dEdge > -0.4) {
-      vec2 edgeDir = vec2(-n.z, n.x) / (length(n.xz) + 1e-5); // along the crest contour
-      float arcC = dot(vOrigXZ, edgeDir);                     // meters along the contour
-      float arcId = floor(arcC / uCapArcLen);
-      float tqC = floor(uTime * uCapFps);
-      float arcOn = hash12(vec2(arcId * 1.13, 5.0) + tqC * 0.31);
-      // lobes grow chunkier in the half-detail zone so distant scallops can
-      // never merge into a fingerprint of thin parallel squiggles
-      float sc = abs(fract(arcC * uCapScallop * (detail > 0.5 ? 1.0 : 0.55)) - 0.5) * 2.0;
-      float capW = uCrestCapW * (0.55 + 0.45 * sc);           // scalloped cap width, m
-      if (arcOn > uCapArcCut && dEdge < capW) {
-        // interior cut: on ~half the arcs a bite is taken from the landward
-        // edge, its depth quantized per arc — foam bodies get holes
-        float cutH = hash12(vec2(arcId * 2.71, 9.0) + tqC * 0.17);
-        float biteEdge = capW * (0.3 + 0.25 * fract(cutH * 7.31));
-        if (cutH <= 0.5 || dEdge < biteEdge) col = mix(col, uColorFoam, detail);
-      }
-    }
-  }
-
-  // --- 4. sun-glitter lane: plus/diamond glints in 3 discrete sizes -------
-  // Clustered into a hard band around the sun azimuth (sparse outside),
-  // blinking on/off in hard time steps. Contrast dies in two hard distance
-  // steps so far glitter can never turn into horizon speckle.
-  if (dist < uGlintFadeB) {
-    vec2 toFrag = vOrigXZ - cameraPosition.xz;
-    float laneD = dot(toFrag / max(length(toFrag), 1e-3), normalize(uSunDir.xz));
-    float lane = laneD > uGlintLaneCos ? 1.0 : (laneD > uGlintLaneSoft ? 0.15 : 0.0);
-    float dens = mix(uGlintDensOut, uGlintDensIn, lane);
-    float tq = floor(uTime * uGlintFps);
-    bool glint = false;
-    // small diamonds — upper wave faces only
-    if (vHw > uGlintCrest) {
-      vec2 cell = vOrigXZ / uGlintSizeA;
-      vec2 f = abs(fract(cell) - 0.5);
-      if (f.x + f.y < 0.38 && hash12(floor(cell) + tq * 0.618) > 1.0 - dens * 0.5) glint = true;
-    }
-    // medium diamonds — slim, anywhere in the lane (pluses read as X crosses
-    // at grazing angles; diamonds stay "glitter" from every view)
-    {
-      vec2 cell = vOrigXZ / uGlintSizeB + 17.3;
-      vec2 f = abs(fract(cell) - 0.5);
-      if (f.x + f.y < 0.3 && hash12(floor(cell) + tq * 0.392) > 1.0 - dens * 0.22) glint = true;
-    }
-    // BIG diamonds — sparse, deep band only: the deep band's glint content.
-    // Kept small enough to never read as a crashed white "airplane" up close.
-    if (vHw <= uBandDeep) {
-      vec2 cell = vOrigXZ / uGlintSizeC + 41.1;
-      vec2 f = abs(fract(cell) - 0.5);
-      if (f.x + f.y < 0.16 && hash12(floor(cell) + tq * 0.233) > 1.0 - dens * 0.09) glint = true;
-    }
-    if (glint) col = mix(col, uColorSparkle, dist < uGlintFadeA ? 1.0 : 0.5);
-  }
+  // Whitecaps are gameplay information: only high, steep, rising faces earn
+  // them. Broad noise breaks coverage without recoloring the rest of the sea.
+  float dhdt = waveDerivT(vOrigXZ, uTime);
+  float crest = smoothstep(uCrestHeight, uCrestHeight + 0.18, vH);
+  float steep = smoothstep(uCrestSlope, uCrestSlope + 0.065, slope);
+  float rising = smoothstep(uCrestRise, uCrestRise + 0.115, dhdt);
+  float foamNoise = vnoise(vOrigXZ / 4.8 + vec2(uTime * 0.045, -uTime * 0.025));
+  float foamBreak = smoothstep(0.38, 0.68, foamNoise);
+  float whitecap = crest * steep * rising * foamBreak * uFoamStrength;
+  whitecap = smoothstep(0.035, 0.46, whitecap) * 0.78;
+  whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
+  col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
 
   // --- 5. hull/buoy foam collar: biased depth difference vs the prepass ---
   // For a visible ocean fragment, any ink solid at this pixel is BEHIND the
@@ -445,10 +341,9 @@ void main() {
     }
   }
 
-  // --- 6. hard distance fog bands: horizon melts into the sky -------------
-  if (dist > uFogFar) col = uColorHorizon;
-  else if (dist > uFogMid) col = mix(col, uColorHorizon, uFogFarMix);
-  else if (dist > uFogStart) col = mix(col, uColorHorizon, uFogMidMix);
+  // Continuous material collapse prevents a second graphic horizon band.
+  float fog = smoothstep(uFogStart, uFogFar, dist);
+  col = mix(col, uColorHorizon, fog);
 
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
@@ -478,41 +373,16 @@ export class Ocean {
       uCameraFar: { value: opts.cameraFar },
 
       uMaxAmp: { value: MAX_AMPLITUDE },
-      uBandDeep: { value: -0.45 },
-      uBandCrest: { value: 0.45 },
-      uBandBlend: { value: 0.13 },
-      uPatchScale: { value: 18.0 },
-      uPatchStrength: { value: 0.01 },
-
-      uWarpAmp: { value: 0.045 },
-      uWarpScaleA: { value: 11.0 },
-      uWarpScaleB: { value: 5.0 },
-      uWarpScaleC: { value: 64.0 },
-      uWarpFade: { value: 350.0 },
-
-      uDeepStreakScale: { value: 28.0 },
-      uDeepStreakDuty: { value: 0.35 },
-      uDeepStreakStrength: { value: 0.02 },
-      uDeepStreakDrift: { value: 1.2 },
-
-      uCrestCapW: { value: 0.65 },
-      uCapScallop: { value: 0.3 },
-      uCapArcLen: { value: 6.0 },
-      uCapArcCut: { value: 0.78 },
-      uCapFps: { value: 4.0 },
-      uCapRiseGate: { value: 0.05 },
-
-      uGlintFps: { value: 6.0 },
-      uGlintLaneCos: { value: 0.9 },
-      uGlintLaneSoft: { value: 0.72 },
-      uGlintDensIn: { value: 0.04 },
-      uGlintDensOut: { value: 0.0008 },
-      uGlintSizeA: { value: 0.5 },
-      uGlintSizeB: { value: 1.0 },
-      uGlintSizeC: { value: 3.6 },
-      uGlintCrest: { value: 0.05 },
-      uGlintFadeA: { value: 70.0 },
-      uGlintFadeB: { value: 160.0 },
+      uRippleStrength: { value: 0.055 },
+      uRippleFadeStart: { value: 58.0 },
+      uRippleFadeEnd: { value: 155.0 },
+      uCrestHeight: { value: 0.24 },
+      uCrestSlope: { value: 0.01 },
+      uCrestRise: { value: 0.015 },
+      uFoamStrength: { value: 0.96 },
+      uSunGloss: { value: 34.0 },
+      uSunStrength: { value: 0.46 },
+      uFresnelStrength: { value: 0.34 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },
@@ -524,14 +394,8 @@ export class Ocean {
       uRingContactShade: { value: 0.72 },
       uRingMaxDist: { value: 150.0 },
 
-      uDetailFadeA: { value: 90.0 },
-      uDetailFadeB: { value: 170.0 },
-
-      uFogStart: { value: 150.0 },
-      uFogMid: { value: 650.0 },
+      uFogStart: { value: 210.0 },
       uFogFar: { value: 2800.0 },
-      uFogMidMix: { value: 0.45 },
-      uFogFarMix: { value: 0.8 },
 
       uColorDeep: { value: deepColor },
       uColorMid: { value: midColor },
@@ -552,6 +416,7 @@ export class Ocean {
     });
 
     this.mesh = new THREE.Mesh(buildOceanGeometry(), material);
+    this.mesh.name = 'ocean';
     this.mesh.frustumCulled = false;
     this.object = this.mesh;
   }

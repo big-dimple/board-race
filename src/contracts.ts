@@ -326,6 +326,8 @@ export interface ICourse {
   routeTangentAt(routeId: CourseRouteId, u: number, out: THREE.Vector3): THREE.Vector3;
   /** Nearest-spline lookup for progress + wrong-way detection. */
   sample(pos: THREE.Vector3, out: CourseSample, routeHint?: CourseRouteId): CourseSample;
+  /** Surface lookup constrained around a previously accepted canonical position. */
+  sampleSurfaceNear(pos: THREE.Vector3, referenceU: number, maxDeltaU: number, out: CourseSample): CourseSample;
   routeForBoat(id: number): CourseRouteId;
   flightTurnWarning(id: number): boolean;
   /** Swept, bidirectional crossing of the visible golden Final portal. */

@@ -75,9 +75,15 @@
 - `Course.sample()` 收到显式 flight route hint 时必须把该分支视为权威，不能因为离
   分支较远就偷偷回退到全局最近的 surface 段。branch -> surface 交接时 `Race` 只
   重建采样基线并保留连续比赛进度，不能把投影差误当倒退。
-- recovery 期间不累计 surface off-course / wrong-way timer。普通飞行交接后，surface
-  投影必须沿上一帧连续推进；小步物理运动却跳到非相邻 `u` 时锁住原路线所有权，按
-  off-course 窗口纠正 / 判负，不能把空间上邻近的后半圈绿线认成合法捷径。逆行同时
+- recovery 期间不累计 surface off-course / wrong-way timer。所有船在连续 surface
+  运动中都必须沿上一帧已接受的 `u` 做局部投影：世界步长不超过 `4m` 时调用
+  `sampleSurfaceNear()`，搜索半径取 `min(.02, (worldStep + 2m) / course.length)`；Race
+  的碰撞位置同步和 AI 自己的线路采样使用同一原则。全局 nearest 只允许在初始化、明确
+  route ownership 切换或超过该步长的 staging / teleport 时接管进度；玩家已偏离
+  `24m` 后可只读比较全局候选，以识别正冲向另一折面的捷径并提前启动原 `0.8s` 纠正窗，
+  但绝不能采纳该候选的 `u`。小步物理运动却跳到非相邻
+  `u` 时必须锁住原路线所有权，不能把空间上邻近的折返段认成合法前进。船体碰撞和渲染
+  始终使用同一个世界 transform；名次、AI 和可见性不得各自选择不同的赛道折面。逆行同时
   观察船头方向和真实水平速度，避免惯性仍向前时反向船体只偶发提示。
   唯一例外是第七飞已经 arm Final：此时两种 timer 和 warning 永久清零直到冲线。
   HUD 必须分别显示“偏离航线”和“方向反了”，不能共用含糊的 `WRONG WAY!`。
@@ -355,10 +361,13 @@ DriverSelect / READY
   `CelToon` 使用 `.46/.54/.62/.70/.78/.86/.93/1` 八级光照，shadow tint 为 `.42`，
   rim 强度按原值乘 `.82`，up tint 为 `.096`，高光阈值至少 `.95/.995`。这组参数的
   目标是缩小大块明暗跳变，不是改成无轮廓写实材质。
-- 海面两道主色带各使用 `.13` 的过渡半宽；中段向深水色收 `25%`，浪峰向原中段色收
-  `42%`。patch / warp / deep streak 分别为 `.01/.045/.02`，crest cap 宽 `.65`、
-  保留阈值 `.78`，lane glint 密度 `.04`。物理波形、海面网格、路线对比和墨线不随
-  这次降噪改变；后续调海面必须同时跑水面路线像素方差合同。
+- 海面位移与 CPU 船体采样继续共用原 Gerstner 波形；材质不再按浪高切赛璐珞色带，
+  而是由连续法线、视线、日照和 Fresnel 共同塑形。两组仅影响法线的近场细浪强度为
+  `.055`，从 `58m` 到 `155m` 连续淡出，不能把远景变成闪烁纹理。
+- 日照只形成宽而连续的高光。白浪只允许出现在同时够高、够陡、正在上升的浪面，基础
+  阈值为 `.24/.01/.015`，再经大尺度噪声打碎，并在 `170-340m` 淡出；旧的高度色块、
+  量化闪点和菱形 glint 已退役。海面保持单个不透明、写深度的跟随式 draw，原船体吃水
+  泡沫圈保留；后续调参必须同时通过海面材质合同和水面路线像素方差合同。
 
 ## 验证与 harness
 
@@ -403,6 +412,10 @@ canonical 首页包含相同完整 SHA。三项不能全部成立就继续失败
   route handoff，再继续至少 `2.5s`，中间不得 reset、teleport 或调用下一飞 helper。
 - 第 4-7 飞必须分别证明 pass 只增加一次、fail 为零、全程最多一条分支、没有警告
   预累计、没有位置跳跃或水平速度归零，且连续进度不会因路线投影切换明显倒退。
+- 折返赛道上的连续 surface 采样必须逐船锁 `Race` 与 AI 的最大 `du`、进度单步和 resync
+  次数；第四飞解除编队后还要让玩家与一名强敌在同一水面真实完成一次近距离超越和反超。
+  反超证据必须同时包含接近的世界坐标、连续 progress、追车镜头内 NDC 和实际 WebGL
+  像素差；只看名次数值、碰撞触发或 object `visible=true` 都不能证明对手仍然显示。
 - `medalRecoveryCase()` 必须真实跑第三门 -> medal freeze -> resume countdown -> 下降 ->
   落水 -> handoff，证明合法惯性无 warning/event，且 Final 未 arm；第二飞现有越线与
   逆行合同必须同时通过，锁住局部修复不外泄。
@@ -535,17 +548,19 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
   直线输出 `1`，拥堵、打转或 mistake 可以降到 `0`，帧开始已在水面时绝不输出负值；
   空中仍由独立 vector air-brake 包络负责减速。禁止 teleport、位置插值、假 progress、
   免碰撞或玩家减速。
-- 连漂表现必须来自真实状态：所有实际进入 drift 的对手都使用同一个
-  `opponent-drift-wind`，由三段、每段三层的暖色折线从艇尾上方展开；长度跟真实 charge
-  走，下一次真实 hold 随相反舵向换侧。只有真实松开兑现 Boat BOOST 的 rising edge
-  才把同一组风切切成 `0.22s` 绿色释放节拍。旧的对手漂移粒子、漂移白水、BOOST 水花
-  和独立绿色扇面全部退役，不能再叠回来。该风切在 `55m` 内完整显示，至 `150m` 线性
-  淡出；普通对手尾流倍率降为 `.68`，只负责船体贴水，不与技巧提示争画面。
+- 连漂表现必须来自真实状态：所有实际进入 drift 的对手共用 `opponent-drift-smoke`。
+  Boat 在真实 hold 时每 `.12s` 从当前受力艇尾侧发出一组不规则灰白烟，烟留在世界中并
+  按自身速度拉长、上升、散开；charge 只扩大这串烟的展开，不能换成 HUD 角标或贴船折线。
+  只有真实松开并兑现 BOOST 的 rising edge 才额外发出一次更快、更集中的突发，绿色只
+  允许作为艇尾根部极短的 BOOST 核心，不得包住整团烟。固定池每名对手最多 `32` 个 puff、
+  合成一个 Points draw；`55m` 内完整显示，至 `150m` 线性淡出。旧漂移粒子、漂移白水、
+  三段风切、独立绿色扇面和 BOOST 水花全部退役；普通尾流倍率仍为 `.68`，只负责贴水。
 - harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`、AI accepted cycle 与
-  Boat BOOST rising edge 数量完全一致、READY 九个 instance matrix 全清零，并同时证明
-  两名 rival 位于普通玩家追车视角、风切实际改变 WebGL canvas 像素；累计计数或只用
-  贴近自由相机都不能冒充可读性。第四飞后还要连续采样至少五秒，证明 player-gap 指令
-  全为零、实际水面输入无负油门，同时仍观察到真实 chain hold 与 BOOST。
+  Boat BOOST rising edge 数量完全一致、READY 时 smoke draw range 清零，并分别从普通追车
+  视角和近景证明 hold / release / rechain 的真实烟雾改变 WebGL canvas 像素；累计计数、
+  object `visible=true` 或贴近自由相机都不能单独冒充可读性。第四飞后还要连续采样至少
+  五秒，证明 player-gap 指令全为零、实际水面输入无负油门，同时仍观察到真实 chain hold
+  与 BOOST。
 - 电台是纯 `RadioDirector` 单槽仲裁，优先级为 `critical > tactical > flavor`；危险警告、
   键位引导、飞行提示和表现层冻结时暂停，不与它们争屏。每条消息有 run key、TTL、
   duration，可选 session key；不得用多个独立 timer 叠出一排 toast。

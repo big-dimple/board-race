@@ -111,23 +111,7 @@ const TAB_TZ = new Float32Array(TABLE_N);
 /** Module temp for nearestOnSpline — reused, never allocated per call. */
 const _near = { u: 0, x: 0, z: 0, tx: 0, tz: 1 };
 
-/**
- * Nearest point on the spline to world (x, z): coarse scan over the 2048-entry
- * table + local parabolic refine between the best sample's neighbours.
- * Result in _near (u arc-length 0..1, point, unit XZ tangent).
- */
-function nearestOnSpline(x: number, z: number): void {
-  let bi = 0;
-  let bd = Infinity;
-  for (let i = 0; i < TABLE_N; i++) {
-    const dx = x - TAB_X[i];
-    const dz = z - TAB_Z[i];
-    const d = dx * dx + dz * dz;
-    if (d < bd) {
-      bd = d;
-      bi = i;
-    }
-  }
+function refineNearestOnSpline(x: number, z: number, bi: number, bd: number): void {
   const im = (bi - 1 + TABLE_N) % TABLE_N;
   const ip = (bi + 1) % TABLE_N;
   const dxm = x - TAB_X[im];
@@ -155,6 +139,49 @@ function nearestOnSpline(x: number, z: number): void {
   const il = 1 / (Math.hypot(_near.tx, _near.tz) || 1);
   _near.tx *= il;
   _near.tz *= il;
+}
+
+/**
+ * Nearest point on the spline to world (x, z): coarse scan over the 2048-entry
+ * table + local parabolic refine between the best sample's neighbours.
+ * Result in _near (u arc-length 0..1, point, unit XZ tangent).
+ */
+function nearestOnSpline(x: number, z: number): void {
+  let bi = 0;
+  let bd = Infinity;
+  for (let i = 0; i < TABLE_N; i++) {
+    const dx = x - TAB_X[i];
+    const dz = z - TAB_Z[i];
+    const d = dx * dx + dz * dz;
+    if (d < bd) {
+      bd = d;
+      bi = i;
+    }
+  }
+  refineNearestOnSpline(x, z, bi, bd);
+}
+
+/** Nearest surface point inside a bounded arc window around an accepted u. */
+function nearestOnSplineNear(x: number, z: number, referenceU: number, maxDeltaU: number): void {
+  const radius = Math.max(2, Math.min(Math.floor(TABLE_N / 2) - 1, Math.ceil(maxDeltaU * TABLE_N)));
+  if (radius >= Math.floor(TABLE_N / 2) - 1) {
+    nearestOnSpline(x, z);
+    return;
+  }
+  const center = Math.round((((referenceU % 1) + 1) % 1) * TABLE_N) % TABLE_N;
+  let bi = center;
+  let bd = Infinity;
+  for (let offset = -radius; offset <= radius; offset++) {
+    const i = (center + offset + TABLE_N) % TABLE_N;
+    const dx = x - TAB_X[i];
+    const dz = z - TAB_Z[i];
+    const d = dx * dx + dz * dz;
+    if (d < bd) {
+      bd = d;
+      bi = i;
+    }
+  }
+  refineNearestOnSpline(x, z, bi, bd);
 }
 
 // ------------------------------------------------------------ checkpoints ----
@@ -1485,17 +1512,7 @@ export class Course implements ICourse {
    */
   sample(pos: THREE.Vector3, out: CourseSample, routeHint: CourseRouteId = 'surface'): CourseSample {
     nearestOnSpline(pos.x, pos.z);
-    let u = _near.u;
-    CURVE.getPointAt(u, _sp);
-    this.tangentAt(u, out.tangent);
-    const du = ((pos.x - _sp.x) * out.tangent.x + (pos.z - _sp.z) * out.tangent.z) / LAP_LENGTH;
-    u = wrapU(u + du);
-    CURVE.getPointAt(u, _sp);
-    this.tangentAt(u, out.tangent);
-    out.u = u;
-    out.point.set(_sp.x, 0, _sp.z);
-    out.distance = Math.hypot(pos.x - _sp.x, pos.z - _sp.z);
-    out.routeId = 'surface';
+    this.writeSurfaceSample(pos, out);
 
     if (routeHint !== 'surface') {
       const runtime = flightRuntime(routeHint);
@@ -1511,6 +1528,46 @@ export class Course implements ICourse {
       out.distance = near.distance;
       out.routeId = routeHint;
     }
+    return out;
+  }
+
+  sampleSurfaceNear(pos: THREE.Vector3, referenceU: number, maxDeltaU: number, out: CourseSample): CourseSample {
+    const boundedDeltaU = Math.max(1 / TABLE_N, maxDeltaU);
+    nearestOnSplineNear(pos.x, pos.z, referenceU, boundedDeltaU);
+    return this.writeSurfaceSample(pos, out, referenceU, boundedDeltaU);
+  }
+
+  private writeSurfaceSample(
+    pos: THREE.Vector3,
+    out: CourseSample,
+    referenceU?: number,
+    maxDeltaU?: number,
+  ): CourseSample {
+    let u = _near.u;
+    CURVE.getPointAt(u, _sp);
+    this.tangentAt(u, out.tangent);
+    let du = ((pos.x - _sp.x) * out.tangent.x + (pos.z - _sp.z) * out.tangent.z) / LAP_LENGTH;
+    if (referenceU !== undefined && maxDeltaU !== undefined) {
+      // The true-curve correction only compensates table interpolation. When
+      // the boat is far off this local segment it must not project along the
+      // tangent into a different fold of the course.
+      const refineLimit = 2 / TABLE_N;
+      du = Math.max(-refineLimit, Math.min(refineLimit, du));
+    }
+    u = wrapU(u + du);
+    if (referenceU !== undefined && maxDeltaU !== undefined) {
+      let bounded = u - referenceU;
+      if (bounded < -0.5) bounded += 1;
+      else if (bounded > 0.5) bounded -= 1;
+      bounded = Math.max(-maxDeltaU, Math.min(maxDeltaU, bounded));
+      u = wrapU(referenceU + bounded);
+    }
+    CURVE.getPointAt(u, _sp);
+    this.tangentAt(u, out.tangent);
+    out.u = u;
+    out.point.set(_sp.x, 0, _sp.z);
+    out.distance = Math.hypot(pos.x - _sp.x, pos.z - _sp.z);
+    out.routeId = 'surface';
     return out;
   }
 

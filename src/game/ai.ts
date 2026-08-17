@@ -21,6 +21,7 @@ import type {
   BoatInput,
   Personality,
   CourseSample,
+  CourseRouteId,
   RivalPaceDirective,
 } from '../contracts';
 
@@ -28,6 +29,9 @@ const VMAX = 34; // normalization reference top speed (m/s)
 const A_LAT = 6.5; // lateral grip budget (m/s^2) behind the corner speed table
 const V_MIN_CORNER = 10; // corner speed floor (m/s)
 const AVOID_DIST = 5.6; // m; close enough that contact remains a deliberate racing option
+const SURFACE_CONTINUITY_MAX_STEP_M = 4;
+const SURFACE_PROJECTION_SLACK_M = 2;
+const SURFACE_PROJECTION_MAX_U = 0.02;
 
 interface PersonalityTune {
   cornerMul: number; // multiplier on the curvature-table speed targets
@@ -151,6 +155,12 @@ export class AIController {
   private pursuitBoostCycles = 0;
   private pursuitEdge = 1;
   private formationAirBraking = false;
+  private projectionReady = false;
+  private projectionU = 0;
+  private projectionDelta = 0;
+  private projectionWorldStep = 0;
+  private projectionRoute: CourseRouteId = 'surface';
+  private readonly projectionWorld = new THREE.Vector3();
 
   // curvature / speed tables, built once from the course
   private tableN = 0;
@@ -202,6 +212,10 @@ export class AIController {
     this.pursuitBoostCycles = 0;
     this.pursuitEdge = (this.seed & 1) === 0 ? 1 : -1;
     this.formationAirBraking = false;
+    this.projectionReady = false;
+    this.projectionDelta = 0;
+    this.projectionWorldStep = 0;
+    this.projectionRoute = 'surface';
   }
 
   private buildTables(): void {
@@ -268,7 +282,29 @@ export class AIController {
     this.t += dt;
     const speed = Math.max(0, me.state.speed);
 
-    this.course.sample(me.state.position, _sample, this.course.routeForBoat(me.id));
+    const route = this.course.routeForBoat(me.id);
+    const worldStep = this.projectionReady
+      ? this.projectionWorld.distanceTo(me.state.position)
+      : Infinity;
+    if (this.projectionReady && route === 'surface' && this.projectionRoute === 'surface' &&
+        worldStep <= SURFACE_CONTINUITY_MAX_STEP_M) {
+      const maxDeltaU = Math.min(
+        SURFACE_PROJECTION_MAX_U,
+        (worldStep + SURFACE_PROJECTION_SLACK_M) / this.course.length,
+      );
+      this.course.sampleSurfaceNear(me.state.position, this.projectionU, maxDeltaU, _sample);
+    } else {
+      this.course.sample(me.state.position, _sample, route);
+    }
+    let projectionDelta = this.projectionReady ? _sample.u - this.projectionU : 0;
+    if (projectionDelta < -0.5) projectionDelta += 1;
+    else if (projectionDelta > 0.5) projectionDelta -= 1;
+    this.projectionReady = true;
+    this.projectionU = _sample.u;
+    this.projectionDelta = projectionDelta;
+    this.projectionWorldStep = Number.isFinite(worldStep) ? worldStep : 0;
+    this.projectionRoute = _sample.routeId;
+    this.projectionWorld.copy(me.state.position);
     const myU = _sample.u;
     const idx = Math.floor(myU * this.tableN) % this.tableN;
 
@@ -584,12 +620,17 @@ export class AIController {
     return out;
   }
 
-  debugPursuit(): Record<string, number | boolean> {
+  debugPursuit(): Record<string, number | string | boolean> {
     return {
       active: this.pursuitDrifting,
       cooldown: this.pursuitCooldown,
       boostCycles: this.pursuitBoostCycles,
       edge: this.pursuitEdge,
+      projectionReady: this.projectionReady,
+      projectionU: this.projectionU,
+      projectionDelta: this.projectionDelta,
+      projectionWorldStep: this.projectionWorldStep,
+      projectionRoute: this.projectionRoute,
     };
   }
 }

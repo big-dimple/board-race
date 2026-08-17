@@ -745,6 +745,7 @@ const ZERO_INPUT: BoatInput = {
 let harnessPlayerInput: BoatInput | null = null;
 let harnessFlightTriggerPulse = false;
 const harnessLastBoatInputs: BoatInput[] = boats.map(() => ({ ...ZERO_INPUT }));
+const harnessBoatInputOverrides: Array<Partial<BoatInput> | null> = boats.map(() => null);
 
 function step(dt: number, _t: number): void {
   gamepadInput.poll(race.phase === 'ready' && !interruptionActive);
@@ -952,6 +953,8 @@ function step(dt: number, _t: number): void {
       inp = { ...inp, flightTrigger: false };
     }
     if (i === 0 && harnessFlightTriggerPulse) inp = { ...inp, flightTrigger: true };
+    const harnessOverride = HARNESS ? harnessBoatInputOverrides[i] : null;
+    if (harnessOverride) inp = { ...inp, ...harnessOverride };
     const finalReturnBrake = i === 0 && course.finalStationArmed();
     if (finalReturnBrake) {
       const returnBrake = inp.drift || inp.airBrake;
@@ -1433,6 +1436,63 @@ const tmpP = new THREE.Vector3();
 const tmpT = new THREE.Vector3();
 const harnessPilotPoint = new THREE.Vector3();
 const harnessPilotTangent = new THREE.Vector3();
+
+function harnessRenderEvidence(object: THREE.Object3D): Record<string, number | boolean> {
+  const canvas = stage.renderer.domElement;
+  const read = (): Uint8ClampedArray => {
+    render(16.7);
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const context = copy.getContext('2d', { willReadFrequently: true });
+    if (!context) return new Uint8ClampedArray();
+    context.drawImage(canvas, 0, 0);
+    return context.getImageData(0, 0, copy.width, copy.height).data;
+  };
+  let effectivelyVisible = true;
+  for (let current: THREE.Object3D | null = object; current; current = current.parent) {
+    if (!current.visible) effectivelyVisible = false;
+  }
+  const wasVisible = object.visible;
+  object.visible = false;
+  const withoutObject = read();
+  object.visible = true;
+  const withObject = read();
+  object.visible = wasVisible;
+  render(16.7);
+  let changedPixels = 0;
+  let deltaSum = 0;
+  for (let i = 0; i < withObject.length; i += 4) {
+    const delta = Math.abs(withObject[i] - withoutObject[i]) +
+      Math.abs(withObject[i + 1] - withoutObject[i + 1]) +
+      Math.abs(withObject[i + 2] - withoutObject[i + 2]);
+    if (delta <= 8) continue;
+    changedPixels++;
+    deltaSum += delta;
+  }
+  return {
+    effectivelyVisible,
+    cameraLayer: stage.camera.layers.test(object.layers),
+    changedPixels,
+    meanDelta: changedPixels > 0 ? deltaSum / changedPixels : 0,
+  };
+}
+
+function harnessRivalVisibilityEvidence(id: number): Record<string, number | boolean> {
+  const boat = boats[id];
+  const projected = boat.state.position.clone();
+  projected.y += 0.7;
+  projected.project(stage.camera);
+  return {
+    id,
+    ndcX: projected.x,
+    ndcY: projected.y,
+    ndcZ: projected.z,
+    inView: Math.abs(projected.x) <= 1 && Math.abs(projected.y) <= 1 &&
+      projected.z >= -1 && projected.z <= 1,
+    ...harnessRenderEvidence(boat.object),
+  };
+}
 const harnessPilotSample: CourseSample = {
   u: 0,
   point: new THREE.Vector3(),
@@ -3501,6 +3561,7 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
   // action below are authored as explicit BoatInput holds/edges, so boat 0 can
   // never fall through to ais[0] as the old false-positive benchmark did.
   const linePilot = new AIController('aggressive', course, 0x5eed, 1.08, 0, true);
+  const postReleaseLinePilot = new AIController('clean', course, 0xc011, 1, 0, true);
   const pilotSample: CourseSample = {
     u: 0,
     distance: 0,
@@ -3635,17 +3696,63 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
   let playerWasBoosting = boats[0].state.boosting;
   let fourthReleaseFrame = -1;
   let passThreeTime = -1;
-  const postReleaseProbeFrames = 5 * 60;
+  let postReleaseBattlePhase: 'waiting' | 'catch' | 'yield' | 'complete' = 'waiting';
+  let postReleaseTargetId = -1;
+  let postReleaseInitialGap = 0;
+  let playerPassEvidence: Record<string, unknown> | null = null;
+  let rivalRepassEvidence: Record<string, unknown> | null = null;
+  const postReleaseBattleEnabled = roster[0].profileId === 'sol';
+  const projectionPrevious = lifecycleIds.map((id) => ({
+    u: Number(race.debugProjection(id).u),
+    route: String(race.debugProjection(id).route),
+    progress: race.racers[id].progress,
+  }));
+  const projectionMaxDelta = lifecycleIds.map(() => 0);
+  const projectionMaxProgressStep = lifecycleIds.map(() => 0);
+  const projectionResyncFrames = lifecycleIds.map(() => 0);
+  const aiProjectionMaxDelta = rivalIds.map(() => 0);
+  const previousAiProjectionRoute = rivalIds.map((id) => String(ais[id].debugPursuit().projectionRoute));
+  const postReleaseProbeMinFrames = 5 * 60;
+  const postReleaseProbeMaxFrames = 30 * 60;
+
+  const battleEvidence = (id: number, includeRender: boolean): Record<string, unknown> => {
+    const playerState = boats[0].state;
+    const rivalState = boats[id].state;
+    const dx = rivalState.position.x - playerState.position.x;
+    const dz = rivalState.position.z - playerState.position.z;
+    const distance = Math.hypot(dx, dz);
+    const aheadMeters = dx * Math.sin(playerState.heading) + dz * Math.cos(playerState.heading);
+    return {
+      frame: frames,
+      time: Number((racingFrames / 60).toFixed(3)),
+      progressGap: Number((race.racers[id].progress - race.racers[0].progress).toFixed(3)),
+      worldDistance: Number(distance.toFixed(3)),
+      aheadMeters: Number(aheadMeters.toFixed(3)),
+      aheadDot: Number((distance > 1e-6 ? aheadMeters / distance : 0).toFixed(4)),
+      heightDelta: Number((rivalState.position.y - playerState.position.y).toFixed(3)),
+      playerPhase: playerState.flightPhase,
+      rivalPhase: rivalState.flightPhase,
+      playerRouteState: playerState.flightRouteState,
+      rivalRouteState: rivalState.flightRouteState,
+      playerProjection: race.debugProjection(0),
+      rivalProjection: race.debugProjection(id),
+      aiProjection: ais[id].debugPursuit(),
+      visibility: includeRender ? harnessRivalVisibilityEvidence(id) : null,
+    };
+  };
+
   while (race.phase !== 'defeated' && race.phase !== 'finished' && race.phase !== 'ready' &&
-      (fourthReleaseFrame < 0 || frames - fourthReleaseFrame <= postReleaseProbeFrames) &&
-      frames++ < 60 * 128) {
+      (fourthReleaseFrame < 0 || frames - fourthReleaseFrame <= postReleaseProbeMaxFrames) &&
+      (postReleaseBattlePhase !== 'complete' || fourthReleaseFrame < 0 ||
+        frames - fourthReleaseFrame < postReleaseProbeMinFrames) &&
+      frames++ < 60 * 160) {
     const wasRacing = race.phase === 'racing';
     const flightsBeforeStep = boats[0].state.flightsCleared;
     if (wasRacing) {
       const playerBoat = boats[0];
       const state = playerBoat.state;
       course.sample(state.position, pilotSample, course.routeForBoat(0));
-      const line = linePilot.update(
+      const line = (fourthReleaseFrame >= 0 ? postReleaseLinePilot : linePilot).update(
         1 / 60,
         playerBoat,
         boats,
@@ -3679,10 +3786,12 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
       launchIntent = wantsLaunch;
       const airBrake = state.flightPhase !== 'surface' && line.airBrake && Math.abs(line.steer) >= 0.12;
       if (airBrake && Math.abs(line.steer) > 0.06) airBrakeTurnFrames++;
+      const postFourthDrive = fourthReleaseFrame >= 0;
+      const battleYield = postReleaseBattlePhase === 'yield';
       setHarnessInput({
-        throttle: 1,
+        throttle: battleYield ? 0 : postFourthDrive ? line.throttle : 1,
         steer: line.steer,
-        drift: driftHeld,
+        drift: postFourthDrive ? line.drift : driftHeld,
         flightTrigger,
         airBrake,
       });
@@ -3694,17 +3803,50 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
       rivalWasSurfaceBeforeStep[role] = boats[rivalIds[role]].state.flightPhase === 'surface';
     }
     loop.advance(1 / 60);
+    const frameWorldSteps = boats.map((boat, id) => previousPositions[id].distanceTo(boat.state.position));
     for (let i = 0; i < boats.length; i++) {
-      maxStep = Math.max(maxStep, previousPositions[i].distanceTo(boats[i].state.position));
+      maxStep = Math.max(maxStep, frameWorldSteps[i]);
       previousPositions[i].copy(boats[i].state.position);
     }
     if (!wasRacing) continue;
     racingFrames++;
     const player = race.racers[0];
+    for (let slot = 0; slot < lifecycleIds.length; slot++) {
+      const id = lifecycleIds[slot];
+      const projection = race.debugProjection(id);
+      const u = Number(projection.u);
+      const route = String(projection.route);
+      let delta = u - projectionPrevious[slot].u;
+      if (delta < -0.5) delta += 1;
+      else if (delta > 0.5) delta -= 1;
+      if (route === 'surface' && projectionPrevious[slot].route === 'surface' && frameWorldSteps[id] <= 4) {
+        projectionMaxDelta[slot] = Math.max(projectionMaxDelta[slot], Math.abs(delta));
+        projectionMaxProgressStep[slot] = Math.max(
+          projectionMaxProgressStep[slot],
+          Math.abs(race.racers[id].progress - projectionPrevious[slot].progress),
+        );
+      }
+      if (projection.resynced) projectionResyncFrames[slot]++;
+      projectionPrevious[slot].u = u;
+      projectionPrevious[slot].route = route;
+      projectionPrevious[slot].progress = race.racers[id].progress;
+    }
+    for (let role = 0; role < rivalIds.length; role++) {
+      const projection = ais[rivalIds[role]].debugPursuit();
+      const route = String(projection.projectionRoute);
+      if (route === 'surface' && previousAiProjectionRoute[role] === 'surface' &&
+          Number(projection.projectionWorldStep) <= 4) {
+        aiProjectionMaxDelta[role] = Math.max(
+          aiProjectionMaxDelta[role],
+          Math.abs(Number(projection.projectionDelta)),
+        );
+      }
+      previousAiProjectionRoute[role] = route;
+    }
     const segment = Math.max(0, Math.min(3, flightsBeforeStep));
     const playerSegment = playerSegments[segment];
     const playerState = boats[0].state;
-    if (!playerWasBoosting && playerState.boosting) playerBoostEdges++;
+    if (fourthReleaseFrame < 0 && !playerWasBoosting && playerState.boosting) playerBoostEdges++;
     playerWasBoosting = playerState.boosting;
     playerSegment.frames++;
     if (playerState.flightPhase !== 'surface') {
@@ -3967,6 +4109,27 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
         rivalAirBrake: rivalIds.map((id) => harnessLastBoatInputs[id].airBrake),
       });
     }
+    if (postReleaseTargetId >= 0) {
+      const targetState = boats[postReleaseTargetId].state;
+      const targetGap = race.racers[postReleaseTargetId].progress - player.progress;
+      const dx = targetState.position.x - playerState.position.x;
+      const dz = targetState.position.z - playerState.position.z;
+      const worldDistance = Math.hypot(dx, dz);
+      const aheadMeters = dx * Math.sin(playerState.heading) + dz * Math.cos(playerState.heading);
+      const bothOnSurface = playerState.flightPhase === 'surface' && targetState.flightPhase === 'surface';
+      if (postReleaseBattlePhase === 'catch' && targetGap <= -0.75 && bothOnSurface &&
+          worldDistance <= 10 && aheadMeters <= 1) {
+        playerPassEvidence = battleEvidence(postReleaseTargetId, false);
+        postReleaseBattlePhase = 'yield';
+        harnessBoatInputOverrides[postReleaseTargetId] = {
+          flightTrigger: false,
+        };
+      } else if (postReleaseBattlePhase === 'yield' && targetGap >= 0.75 && bothOnSurface &&
+          worldDistance >= 0.5 && worldDistance <= 12 && aheadMeters >= 0.5) {
+        rivalRepassEvidence = battleEvidence(postReleaseTargetId, true);
+        postReleaseBattlePhase = 'complete';
+      }
+    }
     const flights = boats[0].state.flightsCleared;
     if (flights > previousFlights) {
       const director = rivalDirector.debugState();
@@ -3976,6 +4139,23 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
       if (flights === 3) passThreeTime = racingFrames / 60;
       if (flights === 4) {
         fourthReleaseFrame = frames;
+        if (postReleaseBattleEnabled) {
+          postReleaseTargetId = rivalIds.reduce((nearestId, id) => {
+            const gap = race.racers[id].progress - player.progress;
+            const nearestGap = race.racers[nearestId].progress - player.progress;
+            if (gap > 0 && nearestGap <= 0) return id;
+            if (gap <= 0 && nearestGap > 0) return nearestId;
+            return Math.abs(gap) < Math.abs(nearestGap) ? id : nearestId;
+          }, rivalIds[0]);
+          postReleaseInitialGap = race.racers[postReleaseTargetId].progress - player.progress;
+          postReleaseBattlePhase = 'catch';
+          harnessBoatInputOverrides[postReleaseTargetId] = {
+            throttle: 0,
+            flightTrigger: false,
+          };
+        } else {
+          postReleaseBattlePhase = 'complete';
+        }
         for (let role = 0; role < rivalIds.length; role++) {
           postReleaseWasBoosting[role] = boats[rivalIds[role]].state.boosting;
         }
@@ -4017,8 +4197,30 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
     }
   }
   const director = rivalDirector.debugState();
+  const outcomeGlobalSample: CourseSample = {
+    u: 0,
+    distance: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    routeId: 'surface',
+  };
+  const outcomeLocalSample: CourseSample = {
+    u: 0,
+    distance: 0,
+    point: new THREE.Vector3(),
+    tangent: new THREE.Vector3(),
+    routeId: 'surface',
+  };
+  course.sample(boats[0].state.position, outcomeGlobalSample, 'surface');
+  course.sampleSurfaceNear(
+    boats[0].state.position,
+    Number(race.debugProjection(0).u),
+    0.003,
+    outcomeLocalSample,
+  );
   const playerOutcome = {
     phase: race.phase,
+    courseWarning: race.racers[0].courseWarning,
     flightsCleared: boats[0].state.flightsCleared,
     routeState: boats[0].state.flightRouteState,
     failReason: boats[0].state.flightRouteFailReason,
@@ -4026,6 +4228,19 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
     routeCursor: boats[0].state.flightRouteCursor,
     gateProgress: boats[0].state.flightGateProgress,
     failure: boats[0].state.flightFailure ? { ...boats[0].state.flightFailure } : null,
+    position: {
+      x: Number(boats[0].state.position.x.toFixed(3)),
+      y: Number(boats[0].state.position.y.toFixed(3)),
+      z: Number(boats[0].state.position.z.toFixed(3)),
+      heading: Number(boats[0].state.heading.toFixed(4)),
+    },
+    surfaceProjection: {
+      acceptedU: Number(Number(race.debugProjection(0).u).toFixed(6)),
+      globalU: Number(outcomeGlobalSample.u.toFixed(6)),
+      globalDistance: Number(outcomeGlobalSample.distance.toFixed(3)),
+      localU: Number(outcomeLocalSample.u.toFixed(6)),
+      localDistance: Number(outcomeLocalSample.distance.toFixed(3)),
+    },
     preFailure2s: boats[0].state.flightRouteState === 'failed'
       ? playerControlHistory.map((sample) => ({ ...sample }))
       : [],
@@ -4115,6 +4330,26 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
     chainAfterFourth: rivalIds.map((id) => rivalDirector.chainFor(id)),
     runSeed: director.runSeed,
     fourthReleaseFrame,
+    projectionContinuity: lifecycleIds.map((id, slot) => ({
+      id,
+      profileId: roster[id].profileId,
+      maxSurfaceDeltaU: Number(projectionMaxDelta[slot].toFixed(6)),
+      maxSurfaceProgressStep: Number(projectionMaxProgressStep[slot].toFixed(3)),
+      resyncFrames: projectionResyncFrames[slot],
+      aiMaxSurfaceDeltaU: id === 0
+        ? 0
+        : Number(aiProjectionMaxDelta[rivalIds.indexOf(id)].toFixed(6)),
+    })),
+    postReleaseBattle: {
+      enabled: postReleaseBattleEnabled,
+      phase: postReleaseBattlePhase,
+      targetId: postReleaseTargetId,
+      targetProfileId: postReleaseTargetId >= 0 ? roster[postReleaseTargetId].profileId : 'none',
+      initialGap: Number(postReleaseInitialGap.toFixed(3)),
+      playerPass: playerPassEvidence,
+      rivalRepass: rivalRepassEvidence,
+      probeFrames: fourthReleaseFrame >= 0 ? frames - fourthReleaseFrame : 0,
+    },
     postReleaseGapProbe,
     postRelease: postReleaseStats.map((stats, role) => ({
       role,
@@ -4166,6 +4401,7 @@ function runRivalFormationProbe(rivalIds: readonly number[]): Record<string, unk
       : [],
     };
   } finally {
+    for (let id = 0; id < harnessBoatInputOverrides.length; id++) harnessBoatInputOverrides[id] = null;
     harnessEndlessMode = previousEndlessMode;
     harnessUsePlayerInput = previousUsePlayerInput;
     const liveCoach = records.data.coach;
@@ -4406,7 +4642,7 @@ function scenario(name: string): void {
         const rivals = rivalDirector.debugState().rivals.map((id) => boats[id]);
         return rivals.every((boat) => {
           const fx = boat.debugDriftEffects();
-          return boat.state.drifting && fx.windStrength >= 0.9 && fx.windActiveInstances === 9;
+          return boat.state.drifting && fx.smokeStrength >= 0.78 && fx.smokeActivePuffs >= 6;
         });
       }, 8);
       break;
@@ -4798,15 +5034,16 @@ if (HARNESS) {
         ready: boat.state.driftReleaseReady,
         charge: boat.state.boostCharge,
         boosting: boat.state.boosting,
-        windScale: fx.windScale,
+        smokeScale: fx.smokeScale,
         releaseBeats: fx.releaseBeats,
         phase: fx.phase,
         holdStarts: fx.holdStarts,
-        windStrength: fx.windStrength,
-        windMatrixScale: fx.windMatrixScale,
-        windSide: fx.windSide,
-        windActiveInstances: fx.windActiveInstances,
-        windLocalHeight: fx.windLocalHeight,
+        smokeStrength: fx.smokeStrength,
+        smokeSide: fx.smokeSide,
+        smokeActivePuffs: fx.smokeActivePuffs,
+        smokeCorePuffs: fx.smokeCorePuffs,
+        smokeEmittedPuffs: fx.smokeEmittedPuffs,
+        smokeRise: fx.smokeRise,
         wakeScale: fx.wakeScale,
         boostCycles: Number(ais[id].debugPursuit().boostCycles),
       };
@@ -5030,24 +5267,25 @@ if (HARNESS) {
       const opponents = boats.slice(1);
       const fx = opponents.map((boat) => boat.debugDriftEffects());
       const rivalIds = rivalDirector.debugState().rivals;
-      const strongestWind = fx.reduce((strongest, item) =>
-        item.windStrength > strongest.windStrength ? item : strongest, fx[0]);
+      const strongestSmoke = fx.reduce((strongest, item) =>
+        item.smokeStrength > strongest.smokeStrength ? item : strongest, fx[0]);
       return {
         drifting: opponents.filter((boat) => boat.state.drifting).length,
         rivalDrifting: rivalIds.filter((id) => boats[id].state.drifting).length,
         rivalBoosting: rivalIds.filter((id) => boats[id].state.boosting).length,
-        windActiveInstances: fx.reduce((sum, item) => sum + item.windActiveInstances, 0),
-        maxWindActiveInstances: Math.max(...fx.map((item) => item.windActiveInstances)),
+        smokeActivePuffs: fx.reduce((sum, item) => sum + item.smokeActivePuffs, 0),
+        maxSmokeActivePuffs: Math.max(...fx.map((item) => item.smokeActivePuffs)),
+        smokeCorePuffs: fx.reduce((sum, item) => sum + item.smokeCorePuffs, 0),
+        smokeEmittedPuffs: fx.reduce((sum, item) => sum + item.smokeEmittedPuffs, 0),
         releaseBeats: fx.reduce((sum, item) => sum + item.releaseBeats, 0),
         boostCycles: rivalIds.reduce((sum, id) => sum + Number(ais[id].debugPursuit().boostCycles), 0),
-        minWindScale: Math.min(...fx.map((item) => item.windScale)),
-        maxWindScale: Math.max(...fx.map((item) => item.windScale)),
+        minSmokeScale: Math.min(...fx.map((item) => item.smokeScale)),
+        maxSmokeScale: Math.max(...fx.map((item) => item.smokeScale)),
         phase: fx.map((item) => item.phase).join(','),
         holdStarts: fx.reduce((sum, item) => sum + item.holdStarts, 0),
-        windStrength: strongestWind.windStrength,
-        windMatrixScale: Math.max(...fx.map((item) => item.windMatrixScale)),
-        windSide: strongestWind.windSide,
-        windLocalHeight: Math.max(...fx.map((item) => item.windLocalHeight)),
+        smokeStrength: strongestSmoke.smokeStrength,
+        smokeSide: strongestSmoke.smokeSide,
+        smokeRise: Math.max(...fx.map((item) => item.smokeRise)),
         wakeScale: Math.max(...fx.map((item) => item.wakeScale)),
       };
     },

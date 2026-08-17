@@ -152,7 +152,6 @@ const _fxMatrix = new THREE.Matrix4();
 const _fxPos = new THREE.Vector3();
 const _fxScale = new THREE.Vector3();
 const _fxIdentityQ = new THREE.Quaternion();
-const _fxQDrift = new THREE.Quaternion();
 const _fxQBoost = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const _fxAxisY = new THREE.Vector3(0, 1, 0);
 const _fxAxisZ = new THREE.Vector3(0, 0, 1);
@@ -255,61 +254,372 @@ interface ThrustVisual {
   rings: THREE.InstancedMesh;
 }
 
-const DRIFT_WIND_LAYERS = 3;
-const DRIFT_WIND_SEGMENTS = 3;
-const DRIFT_WIND_INSTANCES = DRIFT_WIND_LAYERS * DRIFT_WIND_SEGMENTS;
-const DRIFT_WIND_RELEASE_TIME = 0.22;
+const DRIFT_SMOKE_CAPACITY = 32;
+const DRIFT_SMOKE_HOLD_PERIOD = 0.12;
+const DRIFT_SMOKE_RELEASE_TIME = 0.62;
+const DRIFT_SMOKE_BODY_DARK = 0x465461;
+const DRIFT_SMOKE_BODY_LIGHT = 0xaeb9c1;
 
-/** Raised stern wind derived from the opponent's real drift/BOOST state. */
-function buildDriftWindVisual(): THREE.InstancedMesh {
+let _driftSmokeTex: THREE.CanvasTexture | null = null;
+function driftSmokeTexture(): THREE.CanvasTexture {
+  if (_driftSmokeTex) return _driftSmokeTex;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const context = canvas.getContext('2d')!;
+  const lobes = [
+    [29, 72, 26, 0.48],
+    [43, 52, 33, 0.7],
+    [65, 66, 40, 0.82],
+    [82, 43, 29, 0.62],
+    [101, 60, 25, 0.54],
+    [88, 82, 28, 0.5],
+    [57, 91, 24, 0.4],
+  ] as const;
+  for (const [x, y, radius, alpha] of lobes) {
+    const gradient = context.createRadialGradient(x, y, radius * 0.08, x, y, radius);
+    gradient.addColorStop(0, `rgba(255,255,255,${alpha})`);
+    gradient.addColorStop(0.42, `rgba(255,255,255,${alpha * 0.72})`);
+    gradient.addColorStop(0.76, `rgba(255,255,255,${alpha * 0.24})`);
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient;
+    context.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  _driftSmokeTex = new THREE.CanvasTexture(canvas);
+  _driftSmokeTex.colorSpace = THREE.NoColorSpace;
+  return _driftSmokeTex;
+}
+
+interface DriftSmokeVisual {
+  points: THREE.Points;
+  position: THREE.BufferAttribute;
+  tint: THREE.BufferAttribute;
+  size: THREE.BufferAttribute;
+  opacity: THREE.BufferAttribute;
+  rotation: THREE.BufferAttribute;
+  velocity: THREE.BufferAttribute;
+  stretch: THREE.BufferAttribute;
+}
+
+function buildDriftSmokeVisual(): DriftSmokeVisual {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
-    -0.18, 0, 0,
-    0.18, 0, 0,
-    0.28, 0.10, -0.30,
-    0.17, 0.22, -0.62,
-    0.06, 0.08, -1,
-    -0.06, 0.08, -1,
-    -0.17, 0.22, -0.62,
-    -0.28, 0.10, -0.30,
-  ], 3));
-  geometry.setIndex([
-    0, 1, 2,
-    0, 2, 7,
-    7, 2, 3,
-    7, 3, 6,
-    6, 3, 4,
-    6, 4, 5,
-  ]);
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+  const position = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY * 3), 3);
+  const tint = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY * 3), 3);
+  const size = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
+  const opacity = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
+  const rotation = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
+  const velocity = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY * 3), 3);
+  const stretch = new THREE.BufferAttribute(new Float32Array(DRIFT_SMOKE_CAPACITY), 1);
+  position.setUsage(THREE.DynamicDrawUsage);
+  tint.setUsage(THREE.DynamicDrawUsage);
+  size.setUsage(THREE.DynamicDrawUsage);
+  opacity.setUsage(THREE.DynamicDrawUsage);
+  rotation.setUsage(THREE.DynamicDrawUsage);
+  velocity.setUsage(THREE.DynamicDrawUsage);
+  stretch.setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute('position', position);
+  geometry.setAttribute('aTint', tint);
+  geometry.setAttribute('aSize', size);
+  geometry.setAttribute('aOpacity', opacity);
+  geometry.setAttribute('aRotation', rotation);
+  geometry.setAttribute('aVelocity', velocity);
+  geometry.setAttribute('aStretch', stretch);
+  geometry.setDrawRange(0, 0);
+  const material = new THREE.ShaderMaterial({
+    uniforms: { uMap: { value: driftSmokeTexture() } },
     transparent: true,
-    opacity: 1,
     depthTest: true,
     depthWrite: false,
-    side: THREE.DoubleSide,
     toneMapped: false,
+    side: THREE.DoubleSide,
+    vertexShader: /* glsl */ `
+      attribute vec3 aTint;
+      attribute float aSize;
+      attribute float aOpacity;
+      attribute float aRotation;
+      attribute vec3 aVelocity;
+      attribute float aStretch;
+      varying vec3 vColor;
+      varying float vOpacity;
+      varying float vRotation;
+      varying float vStretch;
+      void main() {
+        vec4 center = viewMatrix * vec4(position, 1.0);
+        vec3 direction = length(aVelocity) > 0.001 ? normalize(aVelocity) : vec3(0.0, 0.0, -1.0);
+        vec4 tip = projectionMatrix * (viewMatrix * vec4(position + direction * max(0.4, aSize), 1.0));
+        vec4 centerClip = projectionMatrix * center;
+        vec2 screenDirection = tip.xy / max(0.001, tip.w) -
+          centerClip.xy / max(0.001, centerClip.w);
+        screenDirection.x *= projectionMatrix[1][1] / projectionMatrix[0][0];
+        float distanceAssist = mix(1.0, 1.28, smoothstep(18.0, 70.0, -center.z));
+        gl_PointSize = clamp(
+          aSize * distanceAssist * 980.0 * projectionMatrix[1][1] / max(1.0, -center.z),
+          2.0,
+          180.0
+        );
+        vColor = aTint;
+        vOpacity = aOpacity;
+        vRotation = atan(screenDirection.y, screenDirection.x) + aRotation;
+        vStretch = aStretch;
+        gl_Position = centerClip;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D uMap;
+      varying vec3 vColor;
+      varying float vOpacity;
+      varying float vRotation;
+      varying float vStretch;
+      void main() {
+        vec2 point = gl_PointCoord - 0.5;
+        float c = cos(vRotation);
+        float s = sin(vRotation);
+        vec2 oriented = mat2(c, -s, s, c) * point;
+        oriented.y *= vStretch;
+        vec2 smokeUv = oriented + 0.5;
+        float body = texture2D(uMap, smokeUv).a;
+        float alpha = body * vOpacity;
+        if (alpha < 0.012) discard;
+        vec3 color = mix(vColor * 0.58, vColor * 1.08, smoothstep(0.08, 0.72, body));
+        gl_FragColor = vec4(color, alpha);
+        #include <colorspace_fragment>
+      }
+    `,
   });
-  const mesh = new THREE.InstancedMesh(geometry, material, DRIFT_WIND_INSTANCES);
-  mesh.name = 'opponent-drift-wind';
-  mesh.renderOrder = 8;
-  mesh.frustumCulled = false;
-  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  mesh.layers.enable(LAYER_ENERGY);
-  const layerColors = [PALETTE.ink, PALETTE.sunFlare, PALETTE.sunCore];
-  for (let segment = 0; segment < DRIFT_WIND_SEGMENTS; segment++) {
-    for (let layer = 0; layer < DRIFT_WIND_LAYERS; layer++) {
-      mesh.setColorAt(
-        segment * DRIFT_WIND_LAYERS + layer,
-        _fxColor.setHex(layerColors[layer], THREE.NoColorSpace),
+  const points = new THREE.Points(geometry, material);
+  points.name = 'opponent-drift-smoke';
+  points.visible = false;
+  points.renderOrder = 8;
+  points.frustumCulled = false;
+  return { points, position, tint, size, opacity, rotation, velocity, stretch };
+}
+
+class DriftSmokePool {
+  readonly visual = buildDriftSmokeVisual();
+  private readonly age = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly life = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly x = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly y = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly z = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly vx = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly vy = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly vz = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly sizeA = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly sizeB = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly alpha = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly spin = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly spinRate = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly stretch = new Float32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly color = new Uint32Array(DRIFT_SMOKE_CAPACITY);
+  private readonly core = new Uint8Array(DRIFT_SMOKE_CAPACITY);
+  private cursor = 0;
+  private randomState: number;
+  private emitted = 0;
+  private active = 0;
+  private activeCore = 0;
+  private maxOpacity = 0;
+  private maxWorldY = 0;
+
+  constructor(seed: number) {
+    this.randomState = seed >>> 0;
+  }
+
+  private random(): number {
+    this.randomState = (this.randomState + 0x6d2b79f5) | 0;
+    let n = this.randomState;
+    n = Math.imul(n ^ (n >>> 15), 1 | n);
+    n = (n + Math.imul(n ^ (n >>> 7), 61 | n)) ^ n;
+    return ((n ^ (n >>> 14)) >>> 0) / 4294967296;
+  }
+
+  private emit(
+    x: number,
+    y: number,
+    z: number,
+    vx: number,
+    vy: number,
+    vz: number,
+    life: number,
+    sizeA: number,
+    sizeB: number,
+    alpha: number,
+    stretch: number,
+    color: number,
+    core: boolean,
+  ): void {
+    let slot = this.cursor;
+    for (let i = 0; i < DRIFT_SMOKE_CAPACITY; i++) {
+      const candidate = (this.cursor + i) % DRIFT_SMOKE_CAPACITY;
+      if (this.life[candidate] <= 0) {
+        slot = candidate;
+        break;
+      }
+    }
+    this.cursor = (slot + 1) % DRIFT_SMOKE_CAPACITY;
+    this.age[slot] = 0;
+    this.life[slot] = life;
+    this.x[slot] = x;
+    this.y[slot] = y;
+    this.z[slot] = z;
+    this.vx[slot] = vx;
+    this.vy[slot] = vy;
+    this.vz[slot] = vz;
+    this.sizeA[slot] = sizeA;
+    this.sizeB[slot] = sizeB;
+    this.alpha[slot] = alpha;
+    this.stretch[slot] = stretch;
+    this.spin[slot] = (this.random() * 2 - 1) * 0.24;
+    this.spinRate[slot] = (this.random() * 2 - 1) * 0.42;
+    this.color[slot] = color;
+    this.core[slot] = core ? 1 : 0;
+    this.emitted++;
+  }
+
+  emitHold(
+    x: number,
+    y: number,
+    z: number,
+    fwdX: number,
+    fwdZ: number,
+    portX: number,
+    portZ: number,
+    side: number,
+    charge: number,
+    lod: number,
+  ): void {
+    for (let i = 0; i < 3; i++) {
+      const lateral = side * (0.28 + this.random() * 0.72) + (this.random() - 0.5) * 0.22;
+      const stern = 1.85 + i * 0.24 + this.random() * 0.35;
+      const tone = i === 0 || this.random() < 0.45 ? DRIFT_SMOKE_BODY_DARK : DRIFT_SMOKE_BODY_LIGHT;
+      this.emit(
+        x - fwdX * stern + portX * lateral,
+        y + 0.48 + this.random() * 0.32,
+        z - fwdZ * stern + portZ * lateral,
+        -fwdX * (2.7 + this.random() * 1.8) + portX * side * (0.45 + this.random() * 0.7),
+        0.62 + this.random() * 0.58,
+        -fwdZ * (2.7 + this.random() * 1.8) + portZ * side * (0.45 + this.random() * 0.7),
+        0.42 + this.random() * 0.1,
+        0.56 + this.random() * 0.2,
+        1.5 + charge * 0.34 + this.random() * 0.32,
+        (0.76 + this.random() * 0.12) * lod,
+        1.45 + this.random() * 0.55,
+        tone,
+        false,
       );
     }
   }
-  const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
-  for (let i = 0; i < DRIFT_WIND_INSTANCES; i++) mesh.setMatrixAt(i, hidden);
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  return mesh;
+
+  emitRelease(
+    x: number,
+    y: number,
+    z: number,
+    fwdX: number,
+    fwdZ: number,
+    portX: number,
+    portZ: number,
+    side: number,
+    lod: number,
+  ): void {
+    for (let i = 0; i < 11; i++) {
+      const isCore = i < 2;
+      const lateral = side * (0.12 + this.random() * 0.58) + (this.random() - 0.5) * 0.78;
+      const stern = 1.72 + this.random() * 0.62;
+      this.emit(
+        x - fwdX * stern + portX * lateral,
+        y + 0.52 + this.random() * 0.42,
+        z - fwdZ * stern + portZ * lateral,
+        -fwdX * (isCore ? 6.2 : 4.6 + this.random() * 3.0) + portX * side * (this.random() * 1.5),
+        isCore ? 0.55 : 0.92 + this.random() * 0.86,
+        -fwdZ * (isCore ? 6.2 : 4.6 + this.random() * 3.0) + portZ * side * (this.random() * 1.5),
+        isCore ? 0.18 : 0.34 + this.random() * 0.09,
+        isCore ? 0.34 : 0.68 + this.random() * 0.22,
+        isCore ? 0.82 : 2.02 + this.random() * 0.56,
+        (isCore ? 0.82 : 0.91 + this.random() * 0.07) * lod,
+        isCore ? 2.35 : 1.38 + this.random() * 0.62,
+        isCore ? PALETTE.boost : (i % 2 === 0 ? DRIFT_SMOKE_BODY_DARK : DRIFT_SMOKE_BODY_LIGHT),
+        isCore,
+      );
+    }
+  }
+
+  update(dt: number): void {
+    const drag = Math.exp(-1.45 * dt);
+    let rendered = 0;
+    let activeCore = 0;
+    let maxOpacity = 0;
+    let maxWorldY = -Infinity;
+    for (let i = 0; i < DRIFT_SMOKE_CAPACITY; i++) {
+      if (this.life[i] <= 0) continue;
+      this.age[i] += dt;
+      if (this.age[i] >= this.life[i]) {
+        this.life[i] = 0;
+        continue;
+      }
+      this.vx[i] *= drag;
+      this.vz[i] *= drag;
+      this.x[i] += this.vx[i] * dt;
+      this.y[i] += this.vy[i] * dt;
+      this.z[i] += this.vz[i] * dt;
+      const p = this.age[i] / this.life[i];
+      const attack = smooth01(Math.min(1, p / 0.08));
+      const fade = 1 - smooth01(Math.max(0, (p - (this.core[i] ? 0.46 : 0.52)) / (this.core[i] ? 0.54 : 0.48)));
+      const opacity = this.alpha[i] * attack * fade;
+      const size = this.sizeA[i] + (this.sizeB[i] - this.sizeA[i]) * smooth01(p);
+      this.visual.position.setXYZ(rendered, this.x[i], this.y[i], this.z[i]);
+      _fxColor.setHex(this.color[i], THREE.NoColorSpace);
+      this.visual.tint.setXYZ(rendered, _fxColor.r, _fxColor.g, _fxColor.b);
+      this.visual.size.setX(rendered, size);
+      this.visual.opacity.setX(rendered, opacity);
+      this.visual.rotation.setX(rendered, this.spin[i] + this.spinRate[i] * this.age[i]);
+      this.visual.velocity.setXYZ(rendered, this.vx[i], this.vy[i], this.vz[i]);
+      this.visual.stretch.setX(rendered, this.stretch[i]);
+      rendered++;
+      if (this.core[i]) activeCore++;
+      maxOpacity = Math.max(maxOpacity, opacity);
+      maxWorldY = Math.max(maxWorldY, this.y[i]);
+    }
+    this.active = rendered;
+    this.activeCore = activeCore;
+    this.maxOpacity = maxOpacity;
+    this.maxWorldY = maxWorldY === -Infinity ? 0 : maxWorldY;
+    this.visual.points.geometry.setDrawRange(0, rendered);
+    this.visual.points.visible = rendered > 0;
+    this.visual.position.needsUpdate = true;
+    this.visual.tint.needsUpdate = true;
+    this.visual.size.needsUpdate = true;
+    this.visual.opacity.needsUpdate = true;
+    this.visual.rotation.needsUpdate = true;
+    this.visual.velocity.needsUpdate = true;
+    this.visual.stretch.needsUpdate = true;
+  }
+
+  clear(): void {
+    this.life.fill(0);
+    this.age.fill(0);
+    this.cursor = 0;
+    this.emitted = 0;
+    this.active = 0;
+    this.activeCore = 0;
+    this.maxOpacity = 0;
+    this.maxWorldY = 0;
+    this.visual.points.geometry.setDrawRange(0, 0);
+    this.visual.points.visible = false;
+  }
+
+  debug(boatY: number): {
+    active: number;
+    core: number;
+    emitted: number;
+    maxOpacity: number;
+    rise: number;
+  } {
+    return {
+      active: this.active,
+      core: this.activeCore,
+      emitted: this.emitted,
+      maxOpacity: this.maxOpacity,
+      rise: this.active > 0 ? this.maxWorldY - boatY : 0,
+    };
+  }
 }
 
 function buildThrustVisual(): ThrustVisual {
@@ -785,10 +1095,8 @@ export class Boat implements IBoat {
   private opponentTechniqueFxScale = 1;
   private driftHoldStarts = 0;
   private driftVisualSide = 1;
-  private driftWindFx = 0;
-  private driftWindRenderedStrength = 0;
-  private driftWindReleaseTimer = 0;
-  private driftWindActiveInstances = 0;
+  private driftSmokeEmitCd = 0;
+  private driftSmokeReleaseTimer = 0;
   private opponentBoostWasActive = false;
   private opponentReleaseBeats = 0;
   private lastT = 0;
@@ -798,7 +1106,7 @@ export class Boat implements IBoat {
   private readonly thrustOuter: THREE.InstancedMesh;
   private readonly thrustCore: THREE.InstancedMesh;
   private readonly thrustRings: THREE.InstancedMesh;
-  private readonly driftWind: THREE.InstancedMesh;
+  private readonly driftSmoke: DriftSmokePool;
   private boostFx = 0;
   private flightFx = 0;
   private liftBurstTimer = 0;
@@ -841,9 +1149,14 @@ export class Boat implements IBoat {
     this.thrustOuter = thrust.outer;
     this.thrustCore = thrust.core;
     this.thrustRings = thrust.rings;
-    this.driftWind = buildDriftWindVisual();
-    this.driftWind.visible = false;
-    this.object.add(this.thrustShell, this.thrustOuter, this.thrustCore, this.thrustRings, this.driftWind);
+    this.driftSmoke = new DriftSmokePool(0x51f15e + opts.id * 0x9e37);
+    this.object.add(
+      this.thrustShell,
+      this.thrustOuter,
+      this.thrustCore,
+      this.thrustRings,
+      this.driftSmoke.visual.points,
+    );
 
     this.state = {
       position: this.object.position, // live reference — never reassigned
@@ -1261,7 +1574,6 @@ export class Boat implements IBoat {
     const opponentBoostStarted = this.id > 0 && boosting && !this.opponentBoostWasActive &&
       !st.airborne && st.flightClearance < 1.2;
     if (opponentBoostStarted) {
-      this.driftWindReleaseTimer = DRIFT_WIND_RELEASE_TIME;
       this.opponentReleaseBeats++;
     }
 
@@ -1293,7 +1605,17 @@ export class Boat implements IBoat {
       );
     }
 
-    this.updateDriftWindVisual(dt, t, surfaceDrift, speedAbs, st.boostCharge);
+    this.updateDriftSmokeVisual(
+      dt,
+      surfaceDrift,
+      speedAbs,
+      st.boostCharge,
+      opponentBoostStarted,
+      fwdX,
+      fwdZ,
+      portX,
+      portZ,
+    );
     this.updateThrustVisual(dt, t, boosting, st.flightThrust, fwdX, fwdZ, portX, portZ);
     this.opponentBoostWasActive = boosting;
 
@@ -1496,84 +1818,55 @@ export class Boat implements IBoat {
     }
   }
 
-  private updateDriftWindVisual(
+  private updateDriftSmokeVisual(
     dt: number,
-    t: number,
     surfaceDrift: boolean,
     speedAbs: number,
     charge: number,
+    boostStarted: boolean,
+    fwdX: number,
+    fwdZ: number,
+    portX: number,
+    portZ: number,
   ): void {
     if (this.id === 0) return;
     const holding = surfaceDrift && speedAbs > TUNING.driftMinSpeed;
-    const target = holding ? this.opponentTechniqueFxScale : 0;
-    const rate = target > this.driftWindFx ? 18 : 28;
-    this.driftWindFx += (target - this.driftWindFx) * (1 - Math.exp(-rate * dt));
-    const releasing = this.driftWindReleaseTimer > 0 && this.opponentTechniqueFxScale > 0;
-    const releaseProgress = releasing
-      ? 1 - this.driftWindReleaseTimer / DRIFT_WIND_RELEASE_TIME
-      : 0;
-    const releaseFade = releasing
-      ? 1 - smooth01(clamp((releaseProgress - 0.7) / 0.3, 0, 1))
-      : 0;
-    const releasePulse = releasing ? 1 + Math.sin(releaseProgress * Math.PI) * 0.32 : 1;
-    const strength = releasing
-      ? this.opponentTechniqueFxScale * releaseFade
-      : this.driftWindFx;
-    this.driftWindRenderedStrength = strength;
-    const n = smooth01(clamp(charge / 0.55, 0, 1));
-    const pulse = 0.96 + 0.04 * Math.sin(t * 16 + this.id * 1.7);
-    const side = this.driftVisualSide * (releasing ? 1 - releaseProgress : 1);
-    const visible = strength > 0.01;
-    this.driftWind.visible = visible;
-    this.driftWindActiveInstances = visible ? DRIFT_WIND_INSTANCES : 0;
-    const primaryLength = (2.25 + n * 1.2) * releasePulse;
-    const segmentLengthScale = [1, 0.6, 0.38];
-    const segmentWidthScale = [1, 0.82, 0.66];
-    const segmentOffset = [
-      0,
-      primaryLength * 0.92 + 0.32,
-      primaryLength * 1.58 + 0.72,
-    ];
-    const colors = releasing
-      ? [PALETTE.ink, PALETTE.boost, 0xb7ffcf]
-      : [PALETTE.ink, PALETTE.sunFlare, PALETTE.sunCore];
-    for (let segment = 0; segment < DRIFT_WIND_SEGMENTS; segment++) {
-      for (let layer = 0; layer < DRIFT_WIND_LAYERS; layer++) {
-        const width = layer === 0 ? 0.98 : layer === 1 ? 0.72 : 0.25;
-        const length = layer === 0 ? 1 : layer === 1 ? 0.92 : 0.78;
-        const lateral = side * (0.42 + segment * 0.3);
-        _fxPos.set(
-          lateral,
-          0.98 + segment * 0.16 + layer * 0.015,
-          -2.5 - segmentOffset[segment],
+    if (holding && this.opponentTechniqueFxScale > 0.01) {
+      this.driftSmokeEmitCd -= dt;
+      if (this.driftSmokeEmitCd <= 0) {
+        this.driftSmokeEmitCd = DRIFT_SMOKE_HOLD_PERIOD;
+        this.driftSmoke.emitHold(
+          this.object.position.x,
+          this.object.position.y,
+          this.object.position.z,
+          fwdX,
+          fwdZ,
+          portX,
+          portZ,
+          this.driftVisualSide,
+          charge,
+          this.opponentTechniqueFxScale,
         );
-        _fxScale.set(
-          visible ? width * segmentWidthScale[segment] * strength * pulse : 0,
-          1,
-          visible ? primaryLength * segmentLengthScale[segment] * length * strength : 0,
-        );
-        _euler.set(0.1 + segment * 0.015, -side * (0.1 + segment * 0.045), 0, 'YXZ');
-        _fxQDrift.setFromEuler(_euler);
-        _fxMatrix.compose(_fxPos, _fxQDrift, _fxScale);
-        const index = segment * DRIFT_WIND_LAYERS + layer;
-        this.driftWind.setMatrixAt(index, _fxMatrix);
-        this.driftWind.setColorAt(index, _fxColor.setHex(colors[layer], THREE.NoColorSpace));
       }
+    } else {
+      this.driftSmokeEmitCd = 0;
     }
-    this.driftWind.instanceMatrix.needsUpdate = true;
-    if (this.driftWind.instanceColor) this.driftWind.instanceColor.needsUpdate = true;
-    this.driftWindReleaseTimer = Math.max(0, this.driftWindReleaseTimer - dt);
-  }
-
-  private hideDriftWindVisual(): void {
-    _fxPos.set(0, 0, 0);
-    _fxScale.set(0, 0, 0);
-    _fxMatrix.compose(_fxPos, _fxIdentityQ, _fxScale);
-    for (let i = 0; i < DRIFT_WIND_INSTANCES; i++) this.driftWind.setMatrixAt(i, _fxMatrix);
-    this.driftWind.instanceMatrix.needsUpdate = true;
-    this.driftWind.visible = false;
-    this.driftWindRenderedStrength = 0;
-    this.driftWindActiveInstances = 0;
+    if (boostStarted && this.opponentTechniqueFxScale > 0.01) {
+      this.driftSmokeReleaseTimer = DRIFT_SMOKE_RELEASE_TIME;
+      this.driftSmoke.emitRelease(
+        this.object.position.x,
+        this.object.position.y,
+        this.object.position.z,
+        fwdX,
+        fwdZ,
+        portX,
+        portZ,
+        this.driftVisualSide,
+        this.opponentTechniqueFxScale,
+      );
+    }
+    this.driftSmoke.update(dt);
+    this.driftSmokeReleaseTimer = Math.max(0, this.driftSmokeReleaseTimer - dt);
   }
 
   private setThrustInstance(
@@ -1704,45 +1997,36 @@ export class Boat implements IBoat {
 
   /** Deterministic harness evidence for AI technique visibility. */
   debugDriftEffects(): {
-    windScale: number;
+    smokeScale: number;
     releaseBeats: number;
     boosting: boolean;
     phase: 'idle' | 'holding' | 'charged' | 'release';
     holdStarts: number;
-    windStrength: number;
-    windMatrixScale: number;
-    windSide: number;
-    windActiveInstances: number;
-    windLocalHeight: number;
+    smokeStrength: number;
+    smokeSide: number;
+    smokeActivePuffs: number;
+    smokeCorePuffs: number;
+    smokeEmittedPuffs: number;
+    smokeRise: number;
     wakeScale: number;
   } {
-    let windMatrixScale = 0;
-    let windLocalHeight = 0;
-    for (let i = 0; i < DRIFT_WIND_INSTANCES; i++) {
-      this.driftWind.getMatrixAt(i, _fxMatrix);
-      const e = _fxMatrix.elements;
-      windMatrixScale = Math.max(
-        windMatrixScale,
-        Math.hypot(e[0], e[1], e[2]),
-        Math.hypot(e[8], e[9], e[10]),
-      );
-      if (Math.hypot(e[0], e[1], e[2]) > 0.001) windLocalHeight = Math.max(windLocalHeight, e[13]);
-    }
+    const smoke = this.driftSmoke.debug(this.object.position.y);
     return {
-      windScale: this.opponentTechniqueFxScale,
+      smokeScale: this.opponentTechniqueFxScale,
       releaseBeats: this.opponentReleaseBeats,
       boosting: this.state.boosting,
-      phase: this.driftWindReleaseTimer > 0
+      phase: this.driftSmokeReleaseTimer > 0
         ? 'release'
         : this.state.drifting
         ? (this.state.driftReleaseReady ? 'charged' : 'holding')
         : 'idle',
       holdStarts: this.driftHoldStarts,
-      windStrength: this.driftWindRenderedStrength,
-      windMatrixScale,
-      windSide: this.driftVisualSide,
-      windActiveInstances: this.driftWindActiveInstances,
-      windLocalHeight,
+      smokeStrength: smoke.maxOpacity,
+      smokeSide: this.driftVisualSide,
+      smokeActivePuffs: smoke.active,
+      smokeCorePuffs: smoke.core,
+      smokeEmittedPuffs: smoke.emitted,
+      smokeRise: smoke.rise,
       wakeScale: this.id === 0 ? 1 : TUNING.opponentWakeScale,
     };
   }
@@ -1942,10 +2226,9 @@ export class Boat implements IBoat {
     this.opponentReleaseBeats = 0;
     this.driftHoldStarts = 0;
     this.driftVisualSide = 1;
-    this.driftWindFx = 0;
-    this.driftWindRenderedStrength = 0;
-    this.driftWindReleaseTimer = 0;
-    this.hideDriftWindVisual();
+    this.driftSmokeEmitCd = 0;
+    this.driftSmokeReleaseTimer = 0;
+    this.driftSmoke.clear();
     this.boostFx = 0;
     this.flightFx = 0;
     this.liftBurstTimer = 0;
