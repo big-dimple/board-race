@@ -211,6 +211,10 @@ uniform float uSunGloss;
 uniform float uSunStrength;
 uniform float uGlintStrength;
 uniform float uFresnelStrength;
+uniform float uWindNormalStrength;
+uniform float uWindFadeStart;
+uniform float uWindFadeEnd;
+uniform float uWindSpecStrength;
 
 // continuous distance fade into the horizon
 uniform float uFogStart;
@@ -279,6 +283,23 @@ void main() {
     vec2(-0.94, -0.18) * cos(dot(vOrigXZ, vec2(-0.94, -0.18)) * 5.1 - uTime * 2.7) * 0.24;
   n = normalize(n + vec3(rippleSlope.x, 0.0, rippleSlope.y) * uRippleStrength * rippleFade);
 
+  // First-stage wind layer: a pair of mid-scale travelling fields adds the
+  // broad, connected lift that the physical swell alone cannot show at a
+  // racing distance. It only changes the material normal; buoyancy, wake and
+  // collision continue to read the shared Gerstner field from waves.ts.
+  float windFade = 1.0 - smoothstep(uWindFadeStart, uWindFadeEnd, dist);
+  vec2 windDir = vec2(0.94, 0.34);
+  vec2 crossWind = vec2(-windDir.y, windDir.x);
+  vec2 crossBlend = normalize(windDir * 0.86 + crossWind * 0.51);
+  float windPhaseA = dot(vOrigXZ, windDir) * 0.22 + uTime * 0.62;
+  float windPhaseB = dot(vOrigXZ, crossWind) * 0.37 - uTime * 0.48;
+  float windPhaseC = dot(vOrigXZ, crossBlend) * 0.31 + uTime * 0.76;
+  vec2 windSlope =
+    windDir * cos(windPhaseA) * 0.48 +
+    crossWind * cos(windPhaseB) * 0.25 +
+    crossBlend * cos(windPhaseC) * 0.18;
+  n = normalize(n + vec3(windSlope.x, 0.0, windSlope.y) * uWindNormalStrength * windFade);
+
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   vec3 sunDir = normalize(uSunDir);
   float ndl = clamp(dot(n, sunDir) * 0.5 + 0.5, 0.0, 1.0);
@@ -297,6 +318,17 @@ void main() {
   float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength;
   sunSpec *= 0.42 + 0.58 * rippleFade;
   col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
+
+  // Wind-facing runs are broad and continuous rather than isolated sparkles.
+  // Derivative filtering keeps their edge stable as the camera skims the sea.
+  float windField = 0.5 +
+    0.28 * sin(windPhaseA * 1.35 + windPhaseB * 0.42) +
+    0.22 * sin(windPhaseB * 1.55 - windPhaseC * 0.3);
+  float windAa = max(fwidth(windField) * 1.25, 0.014);
+  float windRuns = smoothstep(0.54 - windAa, 0.78 + windAa, windField);
+  float windSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss * 1.2) *
+    windRuns * uWindSpecStrength * windFade;
+  col = mix(col, uColorSparkle, clamp(windSpec, 0.0, 0.24));
 
   // Fine directional facets turn the broad response into short, moving glints.
   // Every term is continuous and derivative-filtered: no hash cells, symbols,
@@ -403,6 +435,10 @@ export class Ocean {
       uSunStrength: { value: 0.4 },
       uGlintStrength: { value: 0.5 },
       uFresnelStrength: { value: 0.34 },
+      uWindNormalStrength: { value: 0.038 },
+      uWindFadeStart: { value: 18.0 },
+      uWindFadeEnd: { value: 210.0 },
+      uWindSpecStrength: { value: 0.16 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },

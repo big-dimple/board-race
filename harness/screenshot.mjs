@@ -530,6 +530,9 @@ async function verifyOceanMaterialContract(page) {
       crest:[uniforms.uCrestHeight?.value, uniforms.uCrestSlope?.value, uniforms.uCrestRise?.value],
       foamStrength:uniforms.uFoamStrength?.value,
       glintStrength:uniforms.uGlintStrength?.value,
+      windNormalStrength:uniforms.uWindNormalStrength?.value,
+      windFade:[uniforms.uWindFadeStart?.value, uniforms.uWindFadeEnd?.value],
+      windSpecStrength:uniforms.uWindSpecStrength?.value,
       fog:[uniforms.uFogStart?.value, uniforms.uFogFar?.value],
     };
   });
@@ -545,6 +548,11 @@ async function verifyOceanMaterialContract(page) {
   `whitecaps must stay sparse and tied to a high, steep, rising face: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.glintStrength >= 0.35 && ocean.glintStrength <= 0.6,
     `moving glints must restore surface life without becoming a sparkle field: ${JSON.stringify(ocean)}`);
+  assert.ok(ocean.windNormalStrength >= 0.02 && ocean.windNormalStrength <= 0.05 &&
+    ocean.windFade[0] >= 12 && ocean.windFade[0] <= 40 &&
+    ocean.windFade[1] >= 160 && ocean.windFade[1] <= 240 &&
+    ocean.windSpecStrength >= 0.08 && ocean.windSpecStrength <= 0.24,
+  `mid-scale wind detail must stay restrained and distance-faded: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.fog[0] >= 200 && ocean.fog[1] >= 2500,
     `ocean detail must collapse continuously into the horizon: ${JSON.stringify(ocean)}`);
   assert.match(ocean.vertexShader, /vWorldPos = disp/);
@@ -554,6 +562,10 @@ async function verifyOceanMaterialContract(page) {
   assert.match(ocean.fragmentShader, /whitecap \*= 1\.0 - smoothstep\(170\.0, 340\.0, dist\)/);
   assert.match(ocean.fragmentShader, /fwidth\(glintField\)/,
     'micro glints must be derivative-filtered instead of aliasing across the water');
+  assert.match(ocean.fragmentShader, /float windFade = 1\.0 - smoothstep\(uWindFadeStart, uWindFadeEnd, dist\)/,
+    'wind detail must fade continuously before the horizon');
+  assert.match(ocean.fragmentShader, /fwidth\(windField\)/,
+    'mid-scale wind highlights must be derivative-filtered instead of shimmering');
   assert.doesNotMatch(ocean.fragmentShader, /uBand|vHw|deepToMid|midToCrest|floor\(vH/,
     'retired height slabs and graphic sparkle fields must not return');
 
