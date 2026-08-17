@@ -74,7 +74,16 @@ npm run dev
 
 ## 开发参与
 
-项目使用 TypeScript、Vite、Three.js 和 Playwright。
+项目使用 TypeScript 编写游戏逻辑，Vite 启动开发环境并打包网页，Three.js 绘制实时
+3D 画面，Playwright 则让游戏在真实浏览器里自动跑完关键验收。Node.js 是这些开发、
+构建和验收工具的运行环境。
+
+发布时，Vite 会把开发代码整理成浏览器能直接运行的
+JavaScript；玩家不需要安装任何东西，Chrome 或 Safari 打开页面就能接住游戏逻辑，
+再通过浏览器自带的 3D 绘图能力 WebGL 把画面交给显卡。
+
+它没有套用完整的游戏引擎：船感、海面、赛道与飞行规则都由这些小系统一层层组织，
+你看到的效果，来自它们在浏览器里彼此咬合。
 
 ```bash
 npm run build
