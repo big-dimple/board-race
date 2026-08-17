@@ -85,10 +85,10 @@ automatically; players steer, drift/air-brake, and trigger flight.
   on the exact fourth-pass frame. Fixed chain-drift personality may remain afterward,
   but its surface auto-throttle may only lift for traffic or recovery and never become
   reverse braking. Teleport, fake progress, collision immunity, and player slowdown are
-  forbidden. Every real opponent drift emits a world-anchored grey stern-smoke trail;
-  the real BOOST rising edge adds one compact release burst, and ordinary rival wake
-  stays subordinate. These visuals must derive from Boat state, never a cosmetic loop
-  detached from input, charge, or BOOST payout.
+  forbidden. Drift holds keep a clean stern; the real BOOST rising edge alone adds one
+  short white-core blue flame directed rearward and upward. Do not fake heat distortion
+  with a translucent cone; ordinary rival wake stays subordinate. These visuals must derive from Boat state,
+  never a cosmetic loop detached from input, charge, or BOOST payout.
   All continuously moving surface boats and their AI must project inside a bounded
   neighbourhood of the previously accepted spline `u`; a folded course may not swap
   them to the globally nearest non-adjacent segment. Collision and rendering continue
@@ -135,7 +135,7 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Ocean displacement remains shared with boat physics, while its material uses
   continuous directional normals, broad sun response, near-only ripple detail,
   and sparse whitecaps tied to high, steep, rising waves. Retired cel-height slabs
-  and graphic sparkle fields must not return or compete with routes and rival smoke.
+  and graphic sparkle fields must not return or compete with routes and rival technique cues.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.

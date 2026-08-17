@@ -534,6 +534,56 @@ async function verifyOceanMaterialContract(page) {
     'retired height slabs and graphic sparkle fields must not return');
 }
 
+async function verifyWakeMaterialContract(page) {
+  await page.evaluate(() => window.__harness.scenario('start'));
+  const wakes = await page.evaluate(() => Array.from({ length: 6 }, (_, id) => {
+    const mesh = window.__scene.getObjectByName(`wake-${id}`);
+    const material = mesh?.material;
+    return {
+      id,
+      isMesh: Boolean(mesh?.isMesh),
+      childCount: mesh?.children?.length ?? -1,
+      positionCount: mesh?.geometry?.attributes?.position?.count ?? -1,
+      indexCount: mesh?.geometry?.index?.count ?? -1,
+      drawRange: mesh?.geometry?.drawRange?.count ?? -1,
+      transparent: material?.transparent ?? null,
+      depthWrite: material?.depthWrite ?? null,
+      side: material?.side ?? -1,
+      vertexShader: material?.vertexShader ?? '',
+      fragmentShader: material?.fragmentShader ?? '',
+      life: material?.uniforms?.uLife?.value ?? -1,
+      visualScale: material?.uniforms?.uVisualScale?.value ?? -1,
+    };
+  }));
+
+  assert.equal(wakes.length, 6);
+  for (const wake of wakes) {
+    assert.ok(wake.isMesh && wake.childCount === 0,
+      `wake ${wake.id} must stay one direct mesh/draw path: ${JSON.stringify(wake)}`);
+    assert.equal(wake.positionCount, 720,
+      `wake ${wake.id} must keep the preallocated smooth ring geometry: ${JSON.stringify(wake)}`);
+    assert.equal(wake.indexCount, 2154,
+      `wake ${wake.id} must use one indexed triangle strip: ${JSON.stringify(wake)}`);
+    assert.ok(wake.drawRange >= 0 && wake.drawRange <= wake.indexCount && wake.drawRange % 6 === 0,
+      `wake ${wake.id} has an invalid live draw range: ${JSON.stringify(wake)}`);
+    assert.equal(wake.transparent, true);
+    assert.equal(wake.depthWrite, false);
+    assert.equal(wake.side, 2, 'wake should render both sides without a second mesh pass');
+    assert.match(wake.vertexShader, /vWorldPos = \(modelMatrix \* vec4/);
+    assert.match(wake.fragmentShader, /gerstnerNormal\(vWorldPos\.xz, uTime\)/,
+      'wake highlights must use the same live normal field as the ocean');
+    assert.match(wake.fragmentShader, /float contact =/);
+    assert.match(wake.fragmentShader, /float shoulderHalo =/);
+    assert.match(wake.fragmentShader, /float bodyAlpha =/);
+    assert.doesNotMatch(wake.fragmentShader, /hash12|uGapW|uGapL|floor\(vAlong/,
+      'wake foam must not regress to hash-cell or stamped-bar breakup');
+    assert.ok(wake.life >= 4.8 && wake.life <= 5.6,
+      `wake lifetime must preserve a readable near-field trail: ${JSON.stringify(wake)}`);
+    assert.ok(wake.visualScale >= 0.75 && wake.visualScale <= 1,
+      `wake visual scale must remain a bounded clutter control: ${JSON.stringify(wake)}`);
+  }
+}
+
 async function verifyFlightGuideVisualContract(page) {
   const materialContract = await page.evaluate(() => Array.from({ length: 7 }, (_, index) => {
     const ribbon = window.__scene.getObjectByName(`flight-${index + 1}-ribbon`);
@@ -1134,21 +1184,18 @@ async function verifyFlightContract(page) {
     window.__harness.rivalChainState(0),
     window.__harness.rivalChainState(1),
   ]);
-  assert.ok(leadHoldEvidence.every((item) => item.holdStarts >= 1 && item.smokeStrength >= 0.65 &&
-    item.smokeActivePuffs >= 6 && item.smokeEmittedPuffs >= 6),
-    `both lead rivals must visibly pulse smoke from real drift input: ${JSON.stringify(leadHoldEvidence)}`);
-  assert.ok(opponentFx.smokeActivePuffs >= 12 && opponentFx.maxSmokeActivePuffs >= 6,
-    `both lead rivals need a readable stern-smoke rhythm: ${JSON.stringify(opponentFx)}`);
-  assert.ok(opponentFx.minSmokeScale >= 0 && opponentFx.maxSmokeScale <= 1,
-    `opponent drift smoke must remain inside its distance LOD: ${JSON.stringify(opponentFx)}`);
-  assert.ok(opponentFx.smokeRise >= 0.5,
-    `the technique smoke must rise above the wake and water surface: ${JSON.stringify(opponentFx)}`);
+  assert.ok(leadHoldEvidence.every((item) => item.holdStarts >= 1 && item.drifting && item.burstStrength === 0),
+    `real drift holds must not leave a cosmetic exhaust loop: ${JSON.stringify(leadHoldEvidence)}`);
+  assert.equal(opponentFx.activeBursts, 0,
+    `a hold must stay visually quiet until a real BOOST release: ${JSON.stringify(opponentFx)}`);
+  assert.ok(opponentFx.minBurstScale >= 0 && opponentFx.maxBurstScale <= 1,
+    `opponent burst LOD must remain bounded: ${JSON.stringify(opponentFx)}`);
   assert.ok(opponentFx.wakeScale >= 0.66 && opponentFx.wakeScale <= 0.7,
     `ordinary rival wake must retain water volume while yielding to the chain cue: ${JSON.stringify(opponentFx)}`);
   let chainFx = await page.evaluate(() => {
     const h = window.__harness;
     let state = h.rivalChainState(0);
-    for (let frame = 0; frame < 150 && !(state.drifting && state.smokeStrength >= 0.65); frame++) {
+    for (let frame = 0; frame < 150 && !(state.drifting && state.holdStarts >= 1); frame++) {
       h.advance(1 / 60);
       state = h.rivalChainState(0);
     }
@@ -1158,34 +1205,30 @@ async function verifyFlightContract(page) {
   const startingReleaseBeats = chainFx.releaseBeats;
   const startingHoldStarts = chainFx.holdStarts;
   const startingSmokeSide = chainFx.smokeSide;
-  const holdingPuffs = chainFx.smokeActivePuffs;
-  assert.ok(chainFx.drifting && chainFx.smokeStrength >= 0.65 && holdingPuffs >= 6 &&
-    chainFx.smokeRise >= 0.5 && Math.abs(startingSmokeSide) === 1,
-    `the hold frame needs a raised live smoke burst, not a detached cosmetic loop: ${JSON.stringify(chainFx)}`);
+  assert.ok(chainFx.drifting && chainFx.burstStrength === 0 && Math.abs(startingSmokeSide) === 1,
+    `the hold frame must remain free of detached exhaust: ${JSON.stringify(chainFx)}`);
   for (let frame = 0; frame < 120 &&
       !(chainFx.releaseBeats > startingReleaseBeats && chainFx.boosting && !chainFx.drifting); frame++) {
     await page.evaluate(() => window.__harness.advance(1 / 60));
     chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
   assert.ok(chainFx.releaseBeats > startingReleaseBeats && chainFx.boosting && !chainFx.drifting &&
-    chainFx.phase === 'release' && chainFx.smokeActivePuffs > 0 && chainFx.smokeCorePuffs > 0,
-    `a real drift release must add the brief colored core to the smoke burst: ${JSON.stringify(chainFx)}`);
+    chainFx.phase === 'release' && chainFx.burstStrength > 0 && chainFx.heatStrength > 0 && chainFx.burstActive,
+    `a real drift release must create the short stern pulse: ${JSON.stringify(chainFx)}`);
   for (let frame = 0; frame < 150 &&
-      !(chainFx.holdStarts > startingHoldStarts && chainFx.drifting && chainFx.smokeStrength >= 0.65); frame++) {
+      !(chainFx.holdStarts > startingHoldStarts && chainFx.drifting && chainFx.burstStrength === 0); frame++) {
     await page.evaluate(() => window.__harness.advance(1 / 60));
     chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
   }
   assert.ok(chainFx.boostCycles > startingCycles && chainFx.holdStarts > startingHoldStarts && chainFx.drifting &&
-    chainFx.smokeActivePuffs >= 6,
-  `a lead rival must visibly re-enter a real hold after payout: ${JSON.stringify(chainFx)}`);
+    chainFx.burstStrength === 0,
+  `a lead rival must re-enter a clean real hold after the burst: ${JSON.stringify(chainFx)}`);
   assert.equal(chainFx.smokeSide, -startingSmokeSide,
     `successive real chain holds must switch their loaded stern-smoke side: ${JSON.stringify(chainFx)}`);
   await page.evaluate(() => window.__harness.scenario('ready'));
   chainFx = await page.evaluate(() => window.__harness.rivalChainState(0));
-  assert.equal(chainFx.smokeActivePuffs, 0,
-    `READY reset must clear every drift-smoke puff: ${JSON.stringify(chainFx)}`);
-  assert.equal(chainFx.smokeCorePuffs, 0,
-    `READY reset must clear every BOOST smoke core: ${JSON.stringify(chainFx)}`);
+  assert.equal(chainFx.burstActive, false,
+    `READY reset must clear every drift-release burst: ${JSON.stringify(chainFx)}`);
 
   await page.evaluate(() => window.__harness.scenario('flight-combo'));
   state = await page.evaluate(() => window.__harness.playerState());
@@ -1589,6 +1632,7 @@ async function verifyFlightContract(page) {
 
   await verifySurfaceGuideVisualContract(page);
   await verifyOceanMaterialContract(page);
+  await verifyWakeMaterialContract(page);
   await verifyFlightGuideVisualContract(page);
 
   await page.evaluate(() => window.__harness.scenario('flight-route4-prepare'));
@@ -4024,7 +4068,7 @@ async function main() {
         await page.evaluate(() => {
           const h = window.__harness;
           let state = h.rivalChainState(1);
-          for (let frame = 0; frame < 150 && !(state.drifting && state.smokeStrength >= 0.78); frame++) {
+          for (let frame = 0; frame < 150 && !(state.drifting && state.holdStarts >= 1); frame++) {
             h.advance(1 / 60);
             state = h.rivalChainState(1);
           }
@@ -4194,9 +4238,8 @@ async function main() {
           }, chainRole);
         };
         const hold = await captureChaseBeat('hold', 1 / 60);
-        assert.ok(hold.drifting && hold.smokeStrength >= 0.78 && hold.smokeActivePuffs >= 6 &&
-          hold.smokeRise >= 0.5 && Math.abs(hold.smokeSide) === 1,
-          `hold chase screenshot must show the real pulsed stern smoke: ${JSON.stringify(hold)}`);
+        assert.ok(hold.drifting && hold.burstStrength === 0 && Math.abs(hold.smokeSide) === 1,
+          `hold chase screenshot must stay free of continuous exhaust: ${JSON.stringify(hold)}`);
         await focusRival();
         const smokePixels = await page.evaluate((role) => {
           const h = window.__harness;
@@ -4233,8 +4276,6 @@ async function main() {
           }
           return { changed, meanDelta:deltaSum / Math.max(1, changed) };
         }, chainRole);
-        assert.ok(smokePixels && smokePixels.changed >= 300 && smokePixels.meanDelta >= 12,
-          `the pulsed stern smoke must contribute visible canvas pixels: ${JSON.stringify(smokePixels)}`);
         await page.screenshot({ path: path.join(OUT, `opponent-drift-hold${mobileSuffix}.png`) });
         const release = await page.evaluate(({ startReleaseBeats, role }) => {
           const h = window.__harness;
@@ -4247,13 +4288,49 @@ async function main() {
           return state;
         }, { startReleaseBeats: hold.releaseBeats, role: chainRole });
         assert.ok(release.releaseBeats > hold.releaseBeats && release.boosting && !release.drifting &&
-          release.phase === 'release' && release.smokeActivePuffs > 0 && release.smokeCorePuffs > 0,
-          `release screenshot must come from a real payout: ${JSON.stringify(release)}`);
+          release.phase === 'release' && release.burstStrength > 0 && release.heatStrength > 0 && release.burstActive,
+          `release screenshot must come from a real stern burst payout: ${JSON.stringify(release)}`);
         const releaseChase = await captureChaseBeat('release', 0.12);
         assert.ok(releaseChase.boosting && !releaseChase.drifting && releaseChase.phase === 'release' &&
-          releaseChase.smokeStrength > 0 && releaseChase.smokeActivePuffs > 0 && releaseChase.smokeCorePuffs > 0,
-          `release chase screenshot must show the real colored smoke core: ${JSON.stringify(releaseChase)}`);
+          releaseChase.burstStrength > 0 && releaseChase.heatStrength > 0 && releaseChase.burstActive,
+          `release chase screenshot must show the real stern pulse: ${JSON.stringify(releaseChase)}`);
         await focusRival();
+        const burstPixels = await page.evaluate((role) => {
+          const h = window.__harness;
+          const canvas = document.querySelector('#app > canvas');
+          const state = h.rivalChainState(role);
+          const burst = window.__scene.getObjectByName(`boat-${state.id}`)?.getObjectByName('opponent-drift-burst');
+          if (!(canvas instanceof HTMLCanvasElement) || !burst) return null;
+          const read = () => {
+            h.render();
+            const copy = document.createElement('canvas');
+            copy.width = canvas.width;
+            copy.height = canvas.height;
+            const context = copy.getContext('2d', { willReadFrequently:true });
+            context.drawImage(canvas, 0, 0);
+            return context.getImageData(0, 0, copy.width, copy.height).data;
+          };
+          const wasVisible = burst.visible;
+          burst.visible = false;
+          const withoutBurst = read();
+          burst.visible = true;
+          const withBurst = read();
+          burst.visible = wasVisible;
+          h.render();
+          let changed = 0;
+          let deltaSum = 0;
+          for (let i = 0; i < withBurst.length; i += 4) {
+            const delta = Math.abs(withBurst[i] - withoutBurst[i]) +
+              Math.abs(withBurst[i + 1] - withoutBurst[i + 1]) +
+              Math.abs(withBurst[i + 2] - withoutBurst[i + 2]);
+            if (delta <= 8) continue;
+            changed++;
+            deltaSum += delta;
+          }
+          return { changed, meanDelta: deltaSum / Math.max(1, changed) };
+        }, chainRole);
+        assert.ok(burstPixels && burstPixels.changed >= 45 && burstPixels.meanDelta >= 10,
+          `the release burst must add readable pixels without becoming a beam: ${JSON.stringify(burstPixels)}`);
         await page.screenshot({ path: path.join(OUT, `opponent-drift-release${mobileSuffix}.png`) });
         const rechain = await page.evaluate(({ start, role }) => {
           const h = window.__harness;
@@ -4261,19 +4338,17 @@ async function main() {
           for (let frame = 0; frame < 150; frame++) {
             h.advance(1 / 60);
             state = h.rivalChainState(role);
-            if (state.holdStarts > start.holdStarts && state.drifting &&
-                state.smokeStrength >= 0.78 && state.smokeActivePuffs >= 6) break;
+            if (state.holdStarts > start.holdStarts && state.drifting && state.burstStrength === 0) break;
           }
           return state;
         }, { start: { holdStarts: hold.holdStarts }, role: chainRole });
-        assert.ok(rechain.holdStarts > hold.holdStarts && rechain.drifting && rechain.smokeActivePuffs >= 6,
-          `rechain screenshot must show a new real hold: ${JSON.stringify(rechain)}`);
+        assert.ok(rechain.holdStarts > hold.holdStarts && rechain.drifting && rechain.burstStrength === 0,
+          `rechain screenshot must return to a clean real hold: ${JSON.stringify(rechain)}`);
         assert.equal(rechain.smokeSide, -hold.smokeSide,
           `rechain screenshot must switch the real loaded side: ${JSON.stringify({ hold, rechain })}`);
         const rechainChase = await captureChaseBeat('rechain', 1 / 60);
-        assert.ok(rechainChase.drifting && rechainChase.smokeStrength >= 0.78 &&
-          rechainChase.smokeActivePuffs >= 6,
-          `rechain chase screenshot must restore the pulsed stern smoke: ${JSON.stringify(rechainChase)}`);
+        assert.ok(rechainChase.drifting && rechainChase.burstStrength === 0,
+          `rechain chase screenshot must restore a clean stern: ${JSON.stringify(rechainChase)}`);
         await focusRival();
         await page.screenshot({ path: path.join(OUT, `opponent-drift-rechain${mobileSuffix}.png`) });
         const readySmoke = await page.evaluate((role) => {
@@ -4282,10 +4357,8 @@ async function main() {
           h.render();
           return h.rivalChainState(role);
         }, chainRole);
-        assert.equal(readySmoke.smokeActivePuffs, 0,
-          `READY must clear every rival drift-smoke puff after the screenshot sequence: ${JSON.stringify(readySmoke)}`);
-        assert.equal(readySmoke.smokeCorePuffs, 0,
-          `READY must clear every BOOST smoke core after the screenshot sequence: ${JSON.stringify(readySmoke)}`);
+        assert.equal(readySmoke.burstActive, false,
+          `READY must clear every rival drift-release burst: ${JSON.stringify(readySmoke)}`);
       }
       if (name === 'final-station') {
         const impactState = await page.evaluate(() => window.__harness.playerState());

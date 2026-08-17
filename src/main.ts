@@ -4642,7 +4642,7 @@ function scenario(name: string): void {
         const rivals = rivalDirector.debugState().rivals.map((id) => boats[id]);
         return rivals.every((boat) => {
           const fx = boat.debugDriftEffects();
-          return boat.state.drifting && fx.smokeStrength >= 0.78 && fx.smokeActivePuffs >= 6;
+          return boat.state.drifting && fx.holdStarts >= 1 && fx.burstStrength === 0;
         });
       }, 8);
       break;
@@ -5034,16 +5034,14 @@ if (HARNESS) {
         ready: boat.state.driftReleaseReady,
         charge: boat.state.boostCharge,
         boosting: boat.state.boosting,
-        smokeScale: fx.smokeScale,
+        burstScale: fx.burstScale,
         releaseBeats: fx.releaseBeats,
         phase: fx.phase,
         holdStarts: fx.holdStarts,
-        smokeStrength: fx.smokeStrength,
+        burstStrength: fx.burstStrength,
+        heatStrength: fx.heatStrength,
+        burstActive: fx.burstActive,
         smokeSide: fx.smokeSide,
-        smokeActivePuffs: fx.smokeActivePuffs,
-        smokeCorePuffs: fx.smokeCorePuffs,
-        smokeEmittedPuffs: fx.smokeEmittedPuffs,
-        smokeRise: fx.smokeRise,
         wakeScale: fx.wakeScale,
         boostCycles: Number(ais[id].debugPursuit().boostCycles),
       };
@@ -5267,25 +5265,22 @@ if (HARNESS) {
       const opponents = boats.slice(1);
       const fx = opponents.map((boat) => boat.debugDriftEffects());
       const rivalIds = rivalDirector.debugState().rivals;
-      const strongestSmoke = fx.reduce((strongest, item) =>
-        item.smokeStrength > strongest.smokeStrength ? item : strongest, fx[0]);
+      const strongestBurst = fx.reduce((strongest, item) =>
+        item.burstStrength > strongest.burstStrength ? item : strongest, fx[0]);
       return {
         drifting: opponents.filter((boat) => boat.state.drifting).length,
         rivalDrifting: rivalIds.filter((id) => boats[id].state.drifting).length,
         rivalBoosting: rivalIds.filter((id) => boats[id].state.boosting).length,
-        smokeActivePuffs: fx.reduce((sum, item) => sum + item.smokeActivePuffs, 0),
-        maxSmokeActivePuffs: Math.max(...fx.map((item) => item.smokeActivePuffs)),
-        smokeCorePuffs: fx.reduce((sum, item) => sum + item.smokeCorePuffs, 0),
-        smokeEmittedPuffs: fx.reduce((sum, item) => sum + item.smokeEmittedPuffs, 0),
+        activeBursts: fx.filter((item) => item.burstActive).length,
         releaseBeats: fx.reduce((sum, item) => sum + item.releaseBeats, 0),
         boostCycles: rivalIds.reduce((sum, id) => sum + Number(ais[id].debugPursuit().boostCycles), 0),
-        minSmokeScale: Math.min(...fx.map((item) => item.smokeScale)),
-        maxSmokeScale: Math.max(...fx.map((item) => item.smokeScale)),
+        minBurstScale: Math.min(...fx.map((item) => item.burstScale)),
+        maxBurstScale: Math.max(...fx.map((item) => item.burstScale)),
         phase: fx.map((item) => item.phase).join(','),
         holdStarts: fx.reduce((sum, item) => sum + item.holdStarts, 0),
-        smokeStrength: strongestSmoke.smokeStrength,
-        smokeSide: strongestSmoke.smokeSide,
-        smokeRise: Math.max(...fx.map((item) => item.smokeRise)),
+        burstStrength: strongestBurst.burstStrength,
+        heatStrength: strongestBurst.heatStrength,
+        smokeSide: strongestBurst.smokeSide,
         wakeScale: Math.max(...fx.map((item) => item.wakeScale)),
       };
     },

@@ -373,15 +373,15 @@ export class Ocean {
       uCameraFar: { value: opts.cameraFar },
 
       uMaxAmp: { value: MAX_AMPLITUDE },
-      uRippleStrength: { value: 0.055 },
+      uRippleStrength: { value: 0.042 },
       uRippleFadeStart: { value: 58.0 },
       uRippleFadeEnd: { value: 155.0 },
       uCrestHeight: { value: 0.24 },
       uCrestSlope: { value: 0.01 },
       uCrestRise: { value: 0.015 },
-      uFoamStrength: { value: 0.96 },
+      uFoamStrength: { value: 0.78 },
       uSunGloss: { value: 34.0 },
-      uSunStrength: { value: 0.46 },
+      uSunStrength: { value: 0.34 },
       uFresnelStrength: { value: 0.34 },
 
       uFoamRingWidth: { value: 1.6 },

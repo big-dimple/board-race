@@ -1,7 +1,7 @@
 /**
  * wake.ts — persistent stylized wake ribbon behind a boat.
  *
- * Ring buffer of ~220 deposited stern points (min spacing 0.8 m), rendered
+ * Ring buffer of ~360 deposited stern points (min spacing 0.45 m), rendered
  * as a single triangle strip — one draw call, one preallocated geometry,
  * zero per-frame allocation (attributes are rewritten in place only when a
  * new deposit lands).
@@ -10,18 +10,14 @@
  *  - ribbon is 2.5 m wide at the transom and spreads with DISTANCE ASTERN
  *    (fixed geometric V angle, speed-independent), capped by a speed-scaled
  *    max width — slow boats leave a narrow V, fast boats a wide one
- *  - silhouette = scalloped turbulent wash core + TWO DIVERGING V-ARMS at
- *    the ribbon rim, with negative space between; the arms persist longer
- *    than the core as the wake ages
- *  - interior breakup = STREAK GAPS cut in ribbon-UV space: cells elongated
- *    ~4:1 along the travel direction, every lateral row jittered along so
- *    holes never line up in neat rows. Cutouts use a shaped two-step
- *    threshold — a boundary cell shrinks to its center chunk instead of
- *    vanishing — so cutout edges step in 2-3 chunky blocks, never
- *    single-pixel staircase noise
- *  - scalloped foam-cap stamps at fixed distance intervals along the wash,
- *    broken into 2-3 lateral chunks (never full-width tread bars)
- *  - dissipation in HARD alpha steps + breakup-density steps, never smooth
+ *  - silhouette = TWO close-in split foam lanes that diverge into the wake,
+ *    with a short turbulent center churn and open water between the lanes
+ *  - interior variation is a continuous low-frequency flow field; no cell
+ *    discard, pixel mosaic, or stamped tread bars are allowed in the foam
+ *  - a live Gerstner normal is blended with broad shoulder ripples so the
+ *    white water carries one coherent soft highlight instead of flat rails
+ *  - dissipation is a smooth distance/freshness envelope, preserving a
+ *    readable near-field contact layer and a restrained far-field trace
  *  - intensity 0 (airborne) emits nothing — the strip segment just fades
  *  - Y rides waveHeight(worldXZ, uTime) + lift so the wake sits on the
  *    swell and never clips through waves
@@ -33,8 +29,8 @@ import type { IWake } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { WAVES_GLSL } from './waves';
 
-const MAX_POINTS = 220; // ring capacity -> 440 verts, 438 tris
-const MIN_SPACING = 0.8; // meters between deposits
+const MAX_POINTS = 360; // ring capacity -> 720 verts, 718 tris
+const MIN_SPACING = 0.45; // meters between deposits; keeps turning shoulders round
 const TELEPORT_DIST = 8.0; // jump larger than this -> hard reset, no streak
 
 const VERT = /* glsl */ `
@@ -61,6 +57,7 @@ varying float vAlong;
 varying float vHalfW;
 varying float vDist;
 varying float vBehind;
+varying vec3 vWorldPos;
 
 ${WAVES_GLSL}
 
@@ -88,6 +85,7 @@ void main() {
   vBehind = behind;
 
   vec4 mv = modelViewMatrix * vec4(wxz.x, y, wxz.y, 1.0);
+  vWorldPos = (modelMatrix * vec4(wxz.x, y, wxz.y, 1.0)).xyz;
   vDist = -mv.z;
   gl_Position = projectionMatrix * mv;
 }
@@ -98,10 +96,7 @@ uniform vec3 uColorFoam;
 uniform vec3 uColorWash; // mid-age foam: one tone step between fresh and aged
 uniform vec3 uColorAged; // aged foam: stepped toward the water tone (interior variation)
 uniform float uTime;
-uniform float uStamp; // meters per scallop stamp along the ribbon
-uniform float uFps;   // breakup flip rate (steps/sec)
-uniform float uGapW;  // streak-gap cell width ACROSS the ribbon (m)
-uniform float uGapL;  // streak-gap cell length ALONG the ribbon (m) — 3-5x uGapW
+uniform float uStamp; // broad rhythm scale for the continuous flow field
 uniform float uVisualScale;
 
 varying float vLat;
@@ -111,13 +106,9 @@ varying float vAlong;
 varying float vHalfW;
 varying float vDist;
 varying float vBehind;
+varying vec3 vWorldPos;
 
-// stable 2D -> 1D hash for the breakup cells
-float hash12(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
+${WAVES_GLSL}
 
 void main() {
   // emission off (airborne / dead slot): no foam at all
@@ -136,82 +127,63 @@ void main() {
   }
 
   // ---- silhouette, indexed by METERS ASTERN -------------------------------
-  // Scalloped wash core that pinches out with age + two diverging V-arms
-  // that break into dashes astern. Dissipation is DENSITY (keep/discard),
-  // never low alpha: semi-transparent white over deep navy reads mud-gray.
-  float s = fract(vAlong / uStamp);
-  float tri = abs(s - 0.5) * 2.0;               // 0..1..0 rhythm per stamp
+  // A production wake is layered in coverage, not stamped into cells:
+  // one low-opacity body for displaced water, two soft shoulder crests for
+  // the readable V, and a short rounded contact pool under the transom.
+  float rhythm = 0.5 + 0.5 * sin(vAlong / (uStamp * 2.8) - uTime * 0.45);
+  float close = 1.0 - smoothstep(0.0, 10.0, vBehind);
+  float railCenter = mix(0.58, 0.34, exp(-vBehind * 0.032));
+  float laneWob = 0.045 * sin(vAlong * 0.19 + sin(vAlong * 0.045) * 1.8);
+  float lanePulse = 0.92 + 0.08 * rhythm;
+  float laneWidth = mix(0.11, 0.23, close) * lanePulse;
+  float laneCenter = railCenter + laneWob;
+  float laneDistance = abs(lat - laneCenter);
+  float shoulder = 1.0 - smoothstep(laneWidth * 0.52, laneWidth * 1.3, laneDistance);
+  float shoulderHalo = 1.0 - smoothstep(laneWidth * 0.8, laneWidth * 2.5, laneDistance);
+  float lanePresence = 1.0 - smoothstep(28.0, 92.0, vBehind);
 
-  // wash core: scalloped half-width, narrowing astern, pinches out ~80m
-  float pinch = vBehind < 50.0 ? 1.0 : max(0.0, 1.0 - (vBehind - 50.0) / 30.0);
-  // A reduced rival scale narrows the continuous churn but keeps the V arms
-  // and opaque foam chunks. This reads as displaced water rather than the
-  // same broad plastic sheet rendered at lower alpha.
-  float coreW = 0.45 * (0.72 + 0.28 * tri) * pinch * uVisualScale;
-  bool core = lat < coreW;
+  // The body is deliberately wide and quiet. It prevents the wake from
+  // reading as three floating rails while keeping the route and hull visible.
+  float bodyWidth = mix(0.68, 0.38, smoothstep(0.0, 62.0, vBehind));
+  float body = 1.0 - smoothstep(bodyWidth * 0.48, bodyWidth, lat);
+  float bodyFade = 1.0 - smoothstep(36.0, 132.0, vBehind);
 
-  // V arms at the rim. Edges WOBBLE along the ribbon (per-stamp hash) so the
-  // arm outline never reads as a drafted straight line; solid near the
-  // transom, dashed astern, gone by ~50m.
-  float armCell = floor(vAlong / (uStamp * 1.6));
-  float armWob = (hash12(vec2(armCell, 31.0)) - 0.5) * 0.22;
-  float armIn = 0.72 + armWob;
-  float armOut = 0.92 + armWob * 0.6;
-  float armDash = hash12(vec2(armCell, 7.0));
-  bool arm = lat > armIn && lat < armOut && (vBehind < 24.0 || armDash > (vBehind - 24.0) / 26.0);
-  if (!core && !arm) discard;
+  // A rounded pool at the contact point gives the stern a believable push of
+  // water before the shoulder crests peel away into the V.
+  float contact = (1.0 - smoothstep(0.0, 7.5, vBehind)) *
+    (1.0 - smoothstep(0.70, 1.0, lat));
+  float coverage = max(body * bodyFade, max(shoulder * lanePresence, contact));
+  if (coverage < 0.012) discard;
 
-  // ---- streak-gap breakup in ribbon-UV space ------------------------------
-  // Gaps are cells elongated ~4:1 ALONG the travel direction (streaks, not
-  // squares); every lateral row is jittered along by its own hash so holes
-  // can never line up in neat axis-aligned rows. Near the transom the ribbon
-  // is narrow, so the cells (and their notches) SHRINK — full-size cells at
-  // close range read as blue lightning cracks in the foam, not breakup.
-  float gapW = vBehind < 8.0 ? uGapW * 0.55 : uGapW;
-  float gapL = vBehind < 8.0 ? uGapL * 0.55 : uGapL;
-  float latM = vLat * vHalfW;                       // lateral meters
-  float row = floor(latM / gapW);
-  float rowJit = hash12(vec2(row * 3.7, 13.0)) * gapL;
-  float colId = floor((vAlong + rowJit) / gapL);
-  float tq = floor(uTime * uFps);
-  float m = hash12(vec2(colId, row * 1.31) + tq * 0.37);
+  // Broad, continuous flow modulation replaces cell-discard breakup. It
+  // keeps the wake lively while retaining long coherent foam shoulders.
+  float flow = 0.5 + 0.5 * sin(vBehind * 0.58 - uTime * 0.9 + sin(vBehind * 0.13) * 1.1 + lat * 2.0);
+  float softBreak = mix(0.76, 1.0, smoothstep(0.12, 0.9, flow));
+  float ageFade = 1.0 - smoothstep(52.0, 108.0, vBehind);
 
-  // density thins with distance astern (hard steps)
-  float keep = vBehind < 10.0 ? 0.85 : (vBehind < 30.0 ? 0.55 : (vBehind < 55.0 ? 0.3 : 0.15));
-  keep = max(0.08, keep - (1.0 - uVisualScale) * 0.65);
-  if (arm) keep = min(1.0, keep + 0.25);
-  // solid white churn at the transom
-  if (vBehind < 2.5 && lat < 0.85) keep = 1.0;
-  // scallop arc: half-ellipse cap opening astern, stamped at fixed intervals,
-  // broken into lateral chunks so it never reads as a full-width tread bar
-  if (s < 0.3) {
-    float arc = (s - 0.15) / 0.15;
-    float capHalf = (coreW + 0.16) * sqrt(max(0.0, 1.0 - arc * arc));
-    float stampRow = hash12(vec2(row * 2.9, floor(vAlong / uStamp) * 0.7 + 3.0));
-    if (lat < capHalf && stampRow > 0.3) keep = max(keep, 0.98);
-  }
+  // Reconstruct a rounded foam normal from the live ocean normal plus a pair
+  // of long, low-amplitude shoulder ripples. The low frequency is deliberate:
+  // specular bands stay connected and read as refracted water, never mosaic.
+  vec3 waterN = gerstnerNormal(vWorldPos.xz, uTime);
+  float ridge = sin(vBehind * 0.78 - uTime * 1.05 + lat * 2.0);
+  vec3 foamN = normalize(vec3(ridge * 0.095, 1.0, cos(vBehind * 0.52 + uTime * 0.65) * 0.075));
+  vec3 n = normalize(mix(waterN, foamN, 0.56));
+  vec3 viewDir = normalize(cameraPosition - vWorldPos);
+  vec3 lightDir = normalize(vec3(-0.34, 0.86, 0.39));
+  float ndl = clamp(dot(n, lightDir) * 0.5 + 0.5, 0.0, 1.0);
+  float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 2.0);
+  float specular = pow(max(dot(reflect(-lightDir, n), viewDir), 0.0), 30.0);
 
-  // shaped two-step cut: cells deep past the threshold vanish, boundary
-  // cells shrink to a DIAMOND core in a per-cell rotated frame — cutout
-  // edges never align into axis-aligned tetris blocks
-  if (m > keep + 0.14) discard;
-  if (m > keep) {
-    vec2 gUV = vec2(fract((vAlong + rowJit) / gapL), fract(latM / gapW));
-    float ra = (hash12(vec2(colId * 1.7, row * 2.3)) - 0.5) * 1.2;
-    vec2 q = gUV - 0.5;
-    vec2 qr = vec2(q.x * cos(ra) - q.y * sin(ra), q.x * sin(ra) + q.y * cos(ra));
-    // shallower notches near the transom (smaller cells, smaller cracks)
-    if (abs(qr.x) + abs(qr.y) > (vBehind < 8.0 ? 0.3 : 0.42)) discard;
-  }
-
-  // ---- opaque foam: alpha stays high, structure comes from the mask -------
-  float a = vBehind < 10.0 ? 1.0 : (vBehind < 30.0 ? 0.95 : 0.85);
-  // Preserve body in each surviving foam chunk. Rival de-cluttering comes
-  // from shaped negative space above, not from making the whole wake ghostly.
-  a *= (vIntensity > 0.5 ? 1.0 : 0.8) * mix(0.78, 1.0, uVisualScale);
-  // aged foam steps toward the water tone astern (hard cel transitions) so
-  // long sheets never read as one flat white plane: fresh / wash / aged
-  vec3 col = vBehind < 10.0 ? uColorFoam : (vBehind < 26.0 ? uColorWash : uColorAged);
+  float freshness = 1.0 - smoothstep(8.0, 30.0, vBehind);
+  vec3 baseFoam = mix(uColorAged, uColorFoam, freshness);
+  float crestMix = clamp(0.28 + shoulder * 0.58 + contact * 0.18 + ndl * 0.28 + specular * 0.16 + fresnel * 0.08, 0.0, 1.0);
+  vec3 col = mix(uColorWash, baseFoam, crestMix);
+  float bodyAlpha = body * bodyFade * (0.052 + 0.065 * freshness + 0.065 * ndl);
+  float haloAlpha = shoulderHalo * lanePresence * (0.055 + 0.06 * freshness);
+  float crestAlpha = shoulder * lanePresence * (0.25 + 0.30 * freshness + 0.16 * ndl + 0.10 * specular);
+  float contactAlpha = contact * (0.10 + 0.18 * freshness + 0.10 * ndl);
+  float a = (bodyAlpha + haloAlpha + crestAlpha + contactAlpha) * softBreak * ageFade;
+  a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.78, 1.0, uVisualScale);
   gl_FragColor = vec4(col, a);
   #include <colorspace_fragment>
 }
@@ -286,24 +258,21 @@ export class WakeRibbon implements IWake {
 
     this.uniforms = {
       uTime: { value: 0 },
-      uLife: { value: 6.0 },
-      uWidth0: { value: 1.0 },
-      uSpread: { value: 0.16 },
-      uWidthMin: { value: 1.7 },
-      uWidthMax: { value: 2.8 },
+      uLife: { value: 5.2 },
+      uWidth0: { value: 0.78 },
+      uSpread: { value: 0.13 },
+      uWidthMin: { value: 1.35 },
+      uWidthMax: { value: 2.35 },
       uLift: { value: 0.14 },
       uHeadAlong: { value: 0 },
       uVisualScale: { value: 1 },
       uStamp: { value: 2.4 },
-      uFps: { value: 6.0 },
-      uGapW: { value: 0.45 },
-      uGapL: { value: 1.8 },
       uColorFoam: { value: new THREE.Color(PALETTE.foam) },
       uColorWash: {
-        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.18),
+        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.34),
       },
       uColorAged: {
-        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.38),
+        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.58),
       },
     };
 
@@ -318,6 +287,8 @@ export class WakeRibbon implements IWake {
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
+    mesh.renderOrder = 2;
+
     this.object = mesh;
   }
 

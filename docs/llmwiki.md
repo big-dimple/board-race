@@ -548,16 +548,13 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
   直线输出 `1`，拥堵、打转或 mistake 可以降到 `0`，帧开始已在水面时绝不输出负值；
   空中仍由独立 vector air-brake 包络负责减速。禁止 teleport、位置插值、假 progress、
   免碰撞或玩家减速。
-- 连漂表现必须来自真实状态：所有实际进入 drift 的对手共用 `opponent-drift-smoke`。
-  Boat 在真实 hold 时每 `.12s` 从当前受力艇尾侧发出一组不规则灰白烟，烟留在世界中并
-  按自身速度拉长、上升、散开；charge 只扩大这串烟的展开，不能换成 HUD 角标或贴船折线。
-  只有真实松开并兑现 BOOST 的 rising edge 才额外发出一次更快、更集中的突发，绿色只
-  允许作为艇尾根部极短的 BOOST 核心，不得包住整团烟。固定池每名对手最多 `32` 个 puff、
-  合成一个 Points draw；`55m` 内完整显示，至 `150m` 线性淡出。旧漂移粒子、漂移白水、
-  三段风切、独立绿色扇面和 BOOST 水花全部退役；普通尾流倍率仍为 `.68`，只负责贴水。
+- 连漂表现必须来自真实状态：所有对手在真实 hold 时保持干净艇尾，只有真实松开并兑现
+  BOOST 的 rising edge 才触发 `opponent-drift-burst`。它从艇尾以约 40 度朝后上方短促喷出白芯蓝焰，
+  在同一 `.34s` 窗口内轻微抖动；不得复用飞行向下喷口、持续排气、灰烟、假热雾锥体、
+  白色角标或脱离 `BoatInput` 的循环。普通尾流倍率仍为 `.68`，只负责贴水。
 - harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`、AI accepted cycle 与
-  Boat BOOST rising edge 数量完全一致、READY 时 smoke draw range 清零，并分别从普通追车
-  视角和近景证明 hold / release / rechain 的真实烟雾改变 WebGL canvas 像素；累计计数、
+  Boat BOOST rising edge 数量完全一致、hold 时 burst 为零、release 时白芯蓝焰出现、READY 时 burst
+  清零，并从追车视角证明 release 真实改变 WebGL canvas 像素；累计计数、
   object `visible=true` 或贴近自由相机都不能单独冒充可读性。第四飞后还要连续采样至少
   五秒，证明 player-gap 指令全为零、实际水面输入无负油门，同时仍观察到真实 chain hold
   与 BOOST。
