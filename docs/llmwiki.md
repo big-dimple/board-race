@@ -225,8 +225,10 @@
   `GO` 始终保留自己的同步请求，测试必须区分“调用过”与“失败后能够重试”。
   已从主屏幕以 standalone 启动时本身就是沉浸窗口，不得再嵌套请求 fullscreen。
 - 勋章 / Final 截图预览属于全屏 viewer：出现时必须隐藏并释放所有移动游戏控件，不能让
-  空刹命中区盖住分享。系统分享或下载导致 `fullscreenchange` 退出时必须恢复请求资格；
-  点关闭要在同一 trusted gesture 内立即重试，若被拒绝，下一次真实控件触摸继续重试。
+  空刹命中区盖住分享。预览页必须提供明确的“回到游戏”出口；它和右上角关闭都只关闭
+  viewer、回到底层冻结的勋章 / Final 画面，不跳过展示或重置比赛。系统分享或下载导致
+  `fullscreenchange` 退出时必须恢复请求资格；点“回到游戏”或关闭要在同一 trusted gesture
+  内立即重试，若被拒绝，下一次真实控件触摸继续重试。
   Escape 或程序化关闭不伪造用户手势，也不能在 frozen finale / dossier 后错误露出控件。
 - iOS standalone 的全屏根层必须使用 `100vh` 覆盖 Home Indicator 区，不能用 `svh`、
   `visualViewport.height` 或一次性的 `innerHeight` 猜高度。Three.js Stage 以 `#app` 的实际

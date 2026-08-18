@@ -186,9 +186,12 @@ async function verifyCaptureContract(browser, desktopPage) {
     visible:document.querySelector('.capture-preview')?.classList.contains('on'),
     primary:document.querySelector('.capture-preview-primary')?.textContent,
     secondary:document.querySelector('.capture-preview-secondary')?.textContent,
+    returnButton:document.querySelector('.capture-preview-return')?.textContent,
     title:document.querySelector('#capture-preview-title')?.textContent,
   }));
-  assert.deepEqual(desktopUi, { visible:true, primary:'保存 PNG', secondary:'复制图片', title:'Final 截图' });
+  assert.deepEqual(desktopUi, {
+    visible:true, primary:'保存 PNG', secondary:'复制图片', returnButton:'回到游戏', title:'Final 截图',
+  });
   await desktopPage.evaluate(() => window.__harness.advance(1));
   const frozenPreview = await desktopPage.evaluate(() => window.__harness.playerState());
   assert.equal(frozenPreview.phase, beforePreview.phase, 'capture preview must freeze the countdown lifecycle');
@@ -218,6 +221,10 @@ async function verifyCaptureContract(browser, desktopPage) {
   await desktopPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('已取消'));
   assert.equal(await desktopPage.locator('.capture-preview.on').count(), 1,
     'cancelling the picker must keep the generated preview available');
+  await desktopPage.locator('.capture-preview-return').click();
+  assert.equal(await desktopPage.locator('.capture-preview.on').count(), 0,
+    'return to game must close the capture viewer without exporting');
+  await desktopPage.evaluate(async () => window.__harness.openCapturePreview('medal'));
   await desktopPage.keyboard.press('Escape');
   await desktopPage.evaluate(() => window.__harness.advance(1 / 60));
   assert.equal(await desktopPage.locator('.capture-preview.on').count(), 0);
@@ -266,6 +273,7 @@ async function verifyCaptureContract(browser, desktopPage) {
   await androidPage.evaluate(() => window.__harness.openCapturePreview('finale'));
   assert.equal(await androidPage.locator('.capture-preview-primary').textContent(), '下载 PNG');
   assert.equal(await androidPage.locator('.capture-preview-secondary').textContent(), '分享');
+  assert.equal(await androidPage.locator('.capture-preview-return').textContent(), '回到游戏');
   assert.match(await androidPage.locator('.capture-preview-hint').textContent() ?? '', /“下载”目录/);
   assert.equal((await androidPage.evaluate(() => window.__harness.mobileStatus())).overlayHidden, true,
     'a mobile capture preview must remove the drift/air-brake controls from its touch surface');
@@ -280,7 +288,7 @@ async function verifyCaptureContract(browser, desktopPage) {
     'native share exiting fullscreen must reopen immersive eligibility');
   const fullscreenCallsBeforeClose = await androidPage.evaluate(() => window.__captureProbe.fullscreenCalls);
   await androidPage.evaluate(() => window.__captureProbe.rejectNextFullscreen());
-  await androidPage.locator('.capture-preview-close').click();
+  await androidPage.locator('.capture-preview-return').click();
   await androidPage.waitForFunction((before) => {
     const status = window.__harness.mobileStatus();
     return window.__captureProbe.fullscreenCalls === before + 1 && status.fullscreenOutcome === 'rejected';
@@ -315,6 +323,7 @@ async function verifyCaptureContract(browser, desktopPage) {
   await iosPage.evaluate(() => window.__harness.openCapturePreview('medal'));
   assert.equal(await iosPage.locator('.capture-preview-primary').textContent(), '存储 / 分享');
   assert.equal(await iosPage.locator('.capture-preview-secondary').textContent(), '下载到“文件”');
+  assert.equal(await iosPage.locator('.capture-preview-return').textContent(), '回到游戏');
   assert.match(await iosPage.locator('.capture-preview-hint').textContent() ?? '', /“存储图像”/);
   await iosPage.locator('.capture-preview-primary').click();
   await iosPage.waitForFunction(() => document.querySelector('.capture-preview-status')?.textContent?.includes('系统面板'));

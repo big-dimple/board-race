@@ -59,6 +59,11 @@
   cursor: pointer;
 }
 .capture-preview-actions .capture-preview-primary { border-color: #39ff88; color: #04131b; background: #39ff88; }
+.capture-preview-actions .capture-preview-return {
+  border-color: rgba(85, 231, 255, .58);
+  color: rgba(244, 254, 255, .88);
+  background: rgba(85, 231, 255, .06);
+}
 .capture-preview-actions button:disabled { cursor: wait; opacity: .48; }
 .capture-preview-actions button:focus-visible,
 .capture-preview-close:focus-visible { outline: 3px solid #f4feff; outline-offset: 3px; }

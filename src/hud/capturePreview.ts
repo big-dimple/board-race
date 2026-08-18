@@ -23,6 +23,7 @@ export class CapturePreview {
   private readonly status: HTMLDivElement;
   private readonly primary: HTMLButtonElement;
   private readonly secondary: HTMLButtonElement;
+  private readonly returnButton: HTMLButtonElement;
   private readonly closeButton: HTMLButtonElement;
   private request: CaptureRequest | null = null;
   private objectUrl = '';
@@ -54,6 +55,7 @@ export class CapturePreview {
           <div class="capture-preview-actions">
             <button class="capture-preview-primary" type="button"></button>
             <button class="capture-preview-secondary" type="button"></button>
+            <button class="capture-preview-return" type="button">回到游戏</button>
           </div>
           <div class="capture-preview-status" role="status" aria-live="polite"></div>
         </div>
@@ -66,16 +68,21 @@ export class CapturePreview {
     this.status = root.querySelector('.capture-preview-status')!;
     this.primary = root.querySelector('.capture-preview-primary')!;
     this.secondary = root.querySelector('.capture-preview-secondary')!;
+    this.returnButton = root.querySelector('.capture-preview-return')!;
     this.closeButton = root.querySelector('.capture-preview-close')!;
     this.primary.addEventListener('click', () => void this.run(this.primaryAction));
     this.secondary.addEventListener('click', () => {
       if (this.secondaryAction) void this.run(this.secondaryAction);
     });
+    this.returnButton.addEventListener('click', () => {
+      // Keep the fullscreen request on the same trusted gesture that dismisses
+      // the preview. Waiting until after hide loses browser activation.
+      this.dismissFromGesture();
+    });
     this.closeButton.addEventListener('click', () => {
       // Keep the fullscreen request on the same trusted gesture that dismisses
       // the preview. Waiting until after hide loses browser activation.
-      this.onDismissGesture();
-      this.hide();
+      this.dismissFromGesture();
     });
     root.addEventListener('keydown', (event) => {
       event.stopPropagation();
@@ -115,6 +122,11 @@ export class CapturePreview {
   }
 
   visible(): boolean { return this.root.classList.contains('on'); }
+
+  private dismissFromGesture(): void {
+    this.onDismissGesture();
+    this.hide();
+  }
 
   private configureActions(platform: CapturePlatform, blob: Blob, filename: string): void {
     if (platform === 'android') {
