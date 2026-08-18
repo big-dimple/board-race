@@ -986,6 +986,7 @@ function step(dt: number, _t: number): void {
       finalReturnBrake ? 'return-brake' : 'drift',
       rivalControl.surfaceTargetScale,
       rivalControl.flightTargetScale,
+      wakes,
     );
     if (i === 0) harnessFlightTriggerPulse = false;
   }
@@ -1428,6 +1429,7 @@ interface Harness {
   perfSample(frames: number): Promise<Record<string, number | string>>;
   perfFrames(frameMs: number, frames: number): void;
   collisionCase(name: string): Record<string, number | string | boolean>;
+  hullInteractionCase(): Record<string, number | string | boolean>;
   recordsState(): Record<string, unknown>;
   recordsExport(): string;
   recordsImport(raw: string): { selectedDriverId: string | null };
@@ -3249,6 +3251,54 @@ function runCollisionFeedbackCase(): Record<string, unknown> {
     lightRadioQueued: tower.radioStatus().queued,
     finite: boats.every((boat) => [boat.state.position.x, boat.state.position.y, boat.state.position.z, boat.state.speed]
       .every(Number.isFinite)),
+  };
+}
+
+function runHullInteractionCase(): Record<string, number | string | boolean> {
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  const sourceWake = wakes[1];
+  sourceWake.clear();
+  sourceWake.update(0, worldTime);
+
+  // Place a deterministic wake across the player's line, then move its owner
+  // away so the test isolates water-body coupling from hull-vs-hull contact.
+  boats[1].setCollisionTestMotion(12, 0, 0, 0, 0);
+  boats[0].setCollisionTestMotion(12, -2.4, 0, 22, 0);
+  const wakePoint = new THREE.Vector3(12, 0, 0);
+  sourceWake.push(wakePoint, 0, 1, 1);
+  wakePoint.z = -0.5;
+  sourceWake.push(wakePoint, 0, 1, 1);
+  wakePoint.z = -1;
+  sourceWake.push(wakePoint, 0, 1, 1);
+  sourceWake.update(0, worldTime);
+  boats[1].setCollisionTestMotion(50, 50, 0, 0, 0);
+
+  const previousInput = harnessPlayerInput;
+  setHarnessInput({ throttle: 0, steer: 0, drift: false, flightTrigger: false, airBrake: false });
+  let peakStrength = 0;
+  let peakLift = 0;
+  let peakRoll = 0;
+  for (let i = 0; i < 36; i++) {
+    loop.advance(1 / 60);
+    const interaction = boats[0].debugWaterInteraction();
+    peakStrength = Math.max(peakStrength, interaction.strength);
+    peakLift = Math.max(peakLift, interaction.bowPort, interaction.bowStarboard,
+      interaction.midPort, interaction.midStarboard, interaction.stern);
+    peakRoll = Math.max(peakRoll, Math.abs(boats[0].state.quaternion.z));
+  }
+  const settled = boats[0].debugWaterInteraction();
+  harnessPlayerInput = previousInput;
+  return {
+    peakStrength,
+    peakLift,
+    peakRoll,
+    settledStrength: settled.strength,
+    settledLift: Math.max(settled.bowPort, settled.bowStarboard, settled.midPort,
+      settled.midStarboard, settled.stern),
+    enteredWake: peakStrength > 0.15 && peakLift > 0.03,
+    settled: settled.strength < 0.01 && Number.isFinite(boats[0].state.position.y),
   };
 }
 
@@ -5223,6 +5273,7 @@ if (HARNESS) {
     playerState: () => {
       const s = boats[0].state;
       const handling = boats[0].debugDriverHandling();
+      const waterInteraction = boats[0].debugWaterInteraction();
       const failure = race.challengeResult?.failure;
       return {
         speed: s.speed,
@@ -5255,6 +5306,10 @@ if (HARNESS) {
         flightRouteIndex: s.flightRouteIndex,
         flightPressure: s.flightPressure,
         flightPenaltyRemaining: s.flightPenaltyRemaining,
+        wakeInteractionStrength: waterInteraction.strength,
+        wakeInteractionLift: Math.max(waterInteraction.bowPort, waterInteraction.bowStarboard,
+          waterInteraction.midPort, waterInteraction.midStarboard, waterInteraction.stern),
+        wakeInteractionLateral: waterInteraction.lateral,
         place: race.racers[0].place,
         courseWarning: race.racers[0].courseWarning,
         wrongWay: race.racers[0].courseWarning === 'wrong_way',
@@ -5405,6 +5460,7 @@ if (HARNESS) {
     resumeInterruption,
     collisionCase: runCollisionCase,
     collisionFeedbackCase: runCollisionFeedbackCase,
+    hullInteractionCase: runHullInteractionCase,
     cameraImpactCase: runCameraImpactCase,
     recordsState: recordsSnapshot,
     recordsExport: () => records.exportJson(selectedDriverId),

@@ -23,6 +23,7 @@ import type {
   BoatState,
   FlightFailureSnapshot,
   FlightPhase,
+  HullWaterInteraction,
   IBoat,
   IJetTrail,
   ISpray,
@@ -140,11 +141,16 @@ const TUNING = {
   slamSprayMax: 36,
 } as const;
 
+// Wake coupling is a body-readability cue, not a hidden steering assist. Keep
+// the physics contribution below the threshold that can create a wave launch.
+const WAKE_HULL_LIFT_SCALE = 0.22;
+
 // -------------------------------------------------- module-scope temps ----
 // Zero per-frame allocations: every update() scratches through these.
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _wakeSample = new THREE.Vector3();
 const _nrm = new THREE.Vector3();
 const _euler = new THREE.Euler();
 const _blobQ = new THREE.Quaternion();
@@ -1095,6 +1101,16 @@ export class Boat implements IBoat {
   private boostSprayCd = 0;
   private trailCd = 0;
   private driftTrailCd = 0;
+  private wakeSprayCd = 0;
+  private wakeInteractionStrength = 0;
+  private wakeInteractionLift = 0;
+  private wakeInteractionLateral = 0;
+  private wakePreviousStrength = 0;
+  private wakeBowPortLift = 0;
+  private wakeBowStarboardLift = 0;
+  private wakeMidPortLift = 0;
+  private wakeMidStarboardLift = 0;
+  private wakeSternLift = 0;
   private opponentFxScale = 1;
   private opponentTechniqueFxScale = 1;
   private driftHoldStarts = 0;
@@ -1217,6 +1233,7 @@ export class Boat implements IBoat {
     surfaceAction: SurfaceActionMode,
     surfaceTargetScale = 1,
     flightTargetScale = 1,
+    wakeFields: readonly IWake[] = [],
   ): void {
     this.lastT = t;
     const st = this.state;
@@ -1262,6 +1279,11 @@ export class Boat implements IBoat {
     // velocity in the boat frame
     let vF = this.velX * fwdX + this.velZ * fwdZ; // signed forward speed
     let vL = this.velX * portX + this.velZ * portZ; // + = sliding to port
+
+    // A fresh wake can lift and cant the hull for a few frames. Sample the
+    // five same points used by buoyancy so the response belongs to the body,
+    // not to a detached screen-space effect.
+    this.sampleWakeInteraction(wakeFields, t, fwdX, fwdZ, portX, portZ);
 
     if (!st.airborne || flightWasActive) {
       // longitudinal: tapered engine + quadratic drag (+ drift scrub)
@@ -1460,6 +1482,14 @@ export class Boat implements IBoat {
     const stbdH = (hBowR + hMidR) * 0.5;
     let pitchT = Math.atan2(bowH - hSt, L * 2); // bow-up positive
     let rollT = Math.atan2(portH - stbdH, W * 2); // port-up positive
+    // The wake is a visual/body response here; keep the authored water height
+    // untouched so route ownership and launch thresholds remain deterministic.
+    const wakeBow = (this.wakeBowPortLift + this.wakeBowStarboardLift) * 0.5;
+    const wakeMid = (this.wakeMidPortLift + this.wakeMidStarboardLift) * 0.5;
+    const wakePitch = (wakeBow - this.wakeSternLift) * WAKE_HULL_LIFT_SCALE / Math.max(L * 2, 1);
+    const wakeRoll = (this.wakeMidPortLift - this.wakeMidStarboardLift) * WAKE_HULL_LIFT_SCALE / Math.max(W * 2, 1);
+    pitchT += wakePitch;
+    rollT += wakeRoll;
 
     // idle bob: lean into the local water normal when slow
     const idleW = clamp(1 - speedAbs / TUNING.idleBobFadeSpeed, 0, 1);
@@ -1540,6 +1570,20 @@ export class Boat implements IBoat {
     // instead of drawing an unbroken confetti trail beneath a flying boat.
     const flightWake = 1 - clamp(Math.max(0, st.flightClearance) / 1.5, 0, 1);
     this.wake.push(_v1, fwdX, fwdZ, st.airborne ? 0 : Math.min(1, wakeI) * flightWake);
+
+    // Fresh wake contact breaks at the bow once, then settles. The cue is
+    // intentionally smaller than a landing splash: it tells the player the
+    // hull has crossed another boat's water without masking the line.
+    this.wakeSprayCd = Math.max(0, this.wakeSprayCd - dt);
+    const wakeRise = this.wakeInteractionStrength - this.wakePreviousStrength;
+    if (!st.airborne && st.flightPhase === 'surface' && this.wakeInteractionStrength > 0.36 &&
+        wakeRise > 0.055 && this.wakeSprayCd <= 0) {
+      this.wakeSprayCd = 0.18;
+      _v2.set(pos.x + fwdX * L, (hBowL + hBowR) * 0.5 + 0.08, pos.z + fwdZ * L);
+      const count = this.id === 0 ? 4 : Math.max(1, Math.round(2 * this.opponentFxScale));
+      this.spray.burst(_v2, count, 1.6 + speedAbs * 0.12);
+    }
+    this.wakePreviousStrength = this.wakeInteractionStrength;
 
     // ---- turn spray off the leeward chine ----
     if (!st.airborne && st.flightPhase === 'surface' && Math.abs(this.lateralG) > TUNING.turnSprayG &&
@@ -2027,6 +2071,82 @@ export class Boat implements IBoat {
       st.flightRouteState !== 'failed';
   }
 
+  private sampleWakeProbe(
+    wakeFields: readonly IWake[],
+    x: number,
+    z: number,
+    t: number,
+    out: THREE.Vector3,
+  ): void {
+    let lift = 0;
+    let lateral = 0;
+    let strength = 0;
+    for (const field of wakeFields) {
+      if (field === this.wake) continue;
+      field.sampleInteraction(x, z, t, _wakeSample);
+      lift = Math.min(0.42, lift + _wakeSample.x);
+      lateral += _wakeSample.y * _wakeSample.z;
+      strength = Math.min(1, strength + _wakeSample.z);
+    }
+    out.set(lift, clamp(lateral, -1, 1), strength);
+  }
+
+  private sampleWakeInteraction(
+    wakeFields: readonly IWake[],
+    t: number,
+    fwdX: number,
+    fwdZ: number,
+    portX: number,
+    portZ: number,
+  ): void {
+    const previous = this.wakeInteractionStrength;
+    this.wakePreviousStrength = previous;
+    this.wakeBowPortLift = 0;
+    this.wakeBowStarboardLift = 0;
+    this.wakeMidPortLift = 0;
+    this.wakeMidStarboardLift = 0;
+    this.wakeSternLift = 0;
+    this.wakeInteractionStrength = 0;
+    this.wakeInteractionLift = 0;
+    this.wakeInteractionLateral = 0;
+    if (wakeFields.length < 2 || this.state.flightPhase !== 'surface' || this.state.airborne) return;
+
+    const p = this.object.position;
+    const L = TUNING.sampleLong;
+    const W = TUNING.sampleLat;
+    this.sampleWakeProbe(wakeFields, p.x + fwdX * L + portX * W, p.z + fwdZ * L + portZ * W, t, _wakeSample);
+    this.wakeBowPortLift = _wakeSample.x;
+    this.wakeInteractionStrength = Math.max(this.wakeInteractionStrength, _wakeSample.z);
+    this.sampleWakeProbe(wakeFields, p.x + fwdX * L - portX * W, p.z + fwdZ * L - portZ * W, t, _wakeSample);
+    this.wakeBowStarboardLift = _wakeSample.x;
+    this.wakeInteractionStrength = Math.max(this.wakeInteractionStrength, _wakeSample.z);
+    this.sampleWakeProbe(wakeFields, p.x + portX * W, p.z + portZ * W, t, _wakeSample);
+    this.wakeMidPortLift = _wakeSample.x;
+    this.wakeInteractionStrength = Math.max(this.wakeInteractionStrength, _wakeSample.z);
+    this.sampleWakeProbe(wakeFields, p.x - portX * W, p.z - portZ * W, t, _wakeSample);
+    this.wakeMidStarboardLift = _wakeSample.x;
+    this.wakeInteractionStrength = Math.max(this.wakeInteractionStrength, _wakeSample.z);
+    this.sampleWakeProbe(wakeFields, p.x - fwdX * L, p.z - fwdZ * L, t, _wakeSample);
+    this.wakeSternLift = _wakeSample.x;
+    this.wakeInteractionStrength = Math.max(this.wakeInteractionStrength, _wakeSample.z);
+    this.sampleWakeProbe(wakeFields, p.x, p.z, t, _wakeSample);
+    this.wakeInteractionLift = (_wakeSample.x + this.wakeBowPortLift + this.wakeBowStarboardLift +
+      this.wakeMidPortLift + this.wakeMidStarboardLift + this.wakeSternLift) / 6;
+    this.wakeInteractionLateral = _wakeSample.y;
+  }
+
+  debugWaterInteraction(): HullWaterInteraction {
+    return {
+      bowPort: this.wakeBowPortLift,
+      bowStarboard: this.wakeBowStarboardLift,
+      midPort: this.wakeMidPortLift,
+      midStarboard: this.wakeMidStarboardLift,
+      stern: this.wakeSternLift,
+      lateral: this.wakeInteractionLateral,
+      strength: this.wakeInteractionStrength,
+    };
+  }
+
   collisionVelocity(out: THREE.Vector2): THREE.Vector2 {
     return out.set(this.velX, this.velZ);
   }
@@ -2166,6 +2286,16 @@ export class Boat implements IBoat {
     this.boostSprayCd = 0;
     this.trailCd = 0;
     this.driftTrailCd = 0;
+    this.wakeSprayCd = 0;
+    this.wakeInteractionStrength = 0;
+    this.wakeInteractionLift = 0;
+    this.wakeInteractionLateral = 0;
+    this.wakePreviousStrength = 0;
+    this.wakeBowPortLift = 0;
+    this.wakeBowStarboardLift = 0;
+    this.wakeMidPortLift = 0;
+    this.wakeMidStarboardLift = 0;
+    this.wakeSternLift = 0;
     this.opponentBoostWasActive = false;
     this.opponentReleaseBeats = 0;
     this.driftHoldStarts = 0;

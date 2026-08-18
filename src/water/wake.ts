@@ -32,6 +32,13 @@ import { WAVES_GLSL } from './waves';
 const MAX_POINTS = 360; // ring capacity -> 720 verts, 718 tris
 const MIN_SPACING = 0.45; // meters between deposits; keeps turning shoulders round
 const TELEPORT_DIST = 8.0; // jump larger than this -> hard reset, no streak
+const INTERACTION_LIFE = 2.35; // only the fresh, energetic part can move a hull
+const INTERACTION_SAMPLES = 96; // bounded recent history; older foam is visual only
+
+function smooth01(value: number): number {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
+}
 
 const VERT = /* glsl */ `
 uniform float uTime;
@@ -332,6 +339,54 @@ export class WakeRibbon implements IWake {
     this.lastZ = pos.z;
     this.hasLast = true;
     this.dirty = true;
+  }
+
+  /**
+   * Return the live crest of this wake at one hull probe.
+   *
+   * The renderer keeps a much longer ribbon, but only the newest samples are
+   * energetic enough to move another boat. The result is packed into a caller
+   * supplied vector: x = lift (m), y = signed cross-wake side, z = strength.
+   */
+  sampleInteraction(x: number, z: number, t: number, out: THREE.Vector3): void {
+    let lift = 0;
+    let side = 0;
+    let strength = 0;
+    const samples = Math.min(this.count, INTERACTION_SAMPLES);
+    for (let n = 0; n < samples; n++) {
+      const slot = (this.cursor - 1 - n + MAX_POINTS) % MAX_POINTS;
+      const age = t - this.birth[slot];
+      if (age < 0 || age > INTERACTION_LIFE) continue;
+
+      const dx = x - this.cx[slot];
+      const dz = z - this.cz[slot];
+      // px/pz is the stored cross-wake direction. Recover the forward vector
+      // used when the stern point was deposited; only the astern side carries
+      // the wake crest.
+      const forwardX = this.pz[slot];
+      const forwardZ = -this.px[slot];
+      const behind = -(dx * forwardX + dz * forwardZ);
+      if (behind < -1.8 || behind > 22) continue;
+
+      const cross = dx * this.px[slot] + dz * this.pz[slot];
+      const radius = 1.25 + this.inten[slot] * 0.9 + Math.min(0.75, Math.max(behind, 0) * 0.035);
+      const corridor = 1 - smooth01(Math.abs(cross) / radius);
+      if (corridor <= 0) continue;
+      const fresh = 1 - smooth01(age / INTERACTION_LIFE);
+      const distanceFade = 1 - smooth01(Math.max(behind, 0) / 22);
+      const hit = corridor * fresh * distanceFade * this.inten[slot];
+      if (hit <= 0) continue;
+
+      // Two alternating crest beats make a boat rise and settle instead of
+      // receiving a constant lift. This is deliberately restrained arcade
+      // coupling, not a second buoyancy solver.
+      const crest = 0.5 + 0.5 * Math.sin(Math.max(behind, 0) * 0.62 - t * 1.65 + slot * 0.17);
+      const crestLift = hit * (0.08 + crest * 0.22);
+      lift = Math.min(0.42, lift + crestLift);
+      side += (cross / Math.max(radius, 0.001)) * hit;
+      strength = Math.min(1, strength + hit * 0.72);
+    }
+    out.set(lift, Math.max(-1, Math.min(1, side)), strength);
   }
 
   update(dt: number, t: number): void {

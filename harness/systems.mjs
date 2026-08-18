@@ -848,6 +848,15 @@ try {
   assert.equal(radio.secondVisible, true, 'an unmastered technique may be taught again in a later run');
   assert.equal(radio.secondQueued, 0);
 
+  const hullInteraction = await recordsPage.evaluate(() => window.__harness.hullInteractionCase());
+  assert.equal(hullInteraction.enteredWake, true,
+    `a fresh rival wake must produce a bounded hull response: ${JSON.stringify(hullInteraction)}`);
+  assert.ok(hullInteraction.peakStrength <= 1 && hullInteraction.peakLift <= 0.42 &&
+    hullInteraction.peakRoll <= 0.5,
+  `wake coupling must stay inside the arcade envelope: ${JSON.stringify(hullInteraction)}`);
+  assert.equal(hullInteraction.settled, true,
+    `wake interaction must decay after the fresh crest passes: ${JSON.stringify(hullInteraction)}`);
+
   await recordsPage.evaluate(() => window.__harness.scenario('ready'));
   const cameraButton = recordsPage.locator('.audio-mixer-camera-impact');
   assert.equal(await cameraButton.textContent(), '镜头冲击 · 标准');

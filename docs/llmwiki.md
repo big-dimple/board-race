@@ -403,6 +403,11 @@ DriverSelect / READY
   Kelvin 肩浪只能作为低透明、分段出现的次级细节，禁止重新形成两条连续白轨，也不能
   填成一条发光道路。泡沫高光继续读取与海面相同的 Gerstner 法线，近场中心命中、覆盖
   宽度和空隙率都由 wake 像素合同约束。
+- 尾流交互只读取 `WakeRibbon.sampleInteraction()` 的最近 `96` 个沉积点和 `2.35s` 新鲜窗口。
+  `Boat.update()` 将它投影到 bow-port、bow-starboard、mid-port、mid-starboard、stern 五点，
+  仅生成受 `0.22` 缩放限制的艇身俯仰 / 横倾和一次艇首碎喷；它不写回 `waves.ts`，不施加
+  横向速度、不触发起飞、不改变路线 / 碰撞 / BOOST 数值。自身 wake 必须跳过，飞行和空中
+  回收阶段必须清零；`hullInteractionCase()` 负责验证进入、峰值和衰减。
 - 所有船体和车手无论质量档是否生成倒壳描边，都必须在 `LAYER_INK` 法线/深度预通道中
   获得完整实体覆盖。船的静态外观固定为 shell、safety trim、mechanical、flight hardware、
   paired number 五个材质批次；物理、碰撞和画面仍共享外层 `boat-*` transform，合批不得产生

@@ -27,6 +27,21 @@ export interface BoatInput {
 }
 
 /**
+ * A compact water disturbance sampled from another hull's recent wake.
+ * Values are meters of local lift at the five hull probes; the signed side
+ * value is retained for restrained body feedback and diagnostics.
+ */
+export interface HullWaterInteraction {
+  bowPort: number;
+  bowStarboard: number;
+  midPort: number;
+  midStarboard: number;
+  stern: number;
+  lateral: number;
+  strength: number;
+}
+
+/**
  * Read-only race-director signal for AI boats. One stable directive carries
  * separately bounded surface and controlled-flight targets, so changing route
  * ownership cannot silently drop formation pressure or apply a surface chase
@@ -248,6 +263,7 @@ export interface IBoat {
     surfaceAction: SurfaceActionMode,
     surfaceTargetScale?: number,
     flightTargetScale?: number,
+    wakeFields?: readonly IWake[],
   ): void;
   teleport(x: number, z: number, heading: number): void;
   beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void;
@@ -269,6 +285,8 @@ export interface IWake {
   setVisualScale(scale: number): void;
   /** Deposit a wake point at the stern. dirX/dirZ = normalized boat forward direction. intensity 0..1. */
   push(pos: THREE.Vector3, dirX: number, dirZ: number, intensity: number): void;
+  /** Sample recent physical wake disturbance without allocating. */
+  sampleInteraction(x: number, z: number, t: number, out: THREE.Vector3): void;
   update(dt: number, t: number): void;
   clear(): void;
 }
