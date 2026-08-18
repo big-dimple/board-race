@@ -927,6 +927,7 @@ export class Boat implements IBoat {
   private readonly wake: IWake;
   private readonly spray: ISpray;
   private readonly trail: IJetTrail;
+  private readonly presentation: THREE.Group;
   private readonly hullMaterial: THREE.ShaderMaterial;
   private handling: DriverHandling = { acceleration: 1, steering: 1, driftCharge: 1, airControl: 1 };
 
@@ -1006,8 +1007,12 @@ export class Boat implements IBoat {
 
     this.object = new THREE.Group();
     this.object.name = `boat-${opts.id}`;
+    const presentation = new THREE.Group();
+    presentation.name = 'boat-presentation';
+    this.presentation = presentation;
+    this.object.add(presentation);
     const visual = buildBoatVisual(opts.id, opts.color);
-    this.object.add(visual.root);
+    presentation.add(visual.root);
     this.riderMount = visual.riderMount;
     this.hullMaterial = visual.hullMaterial;
 
@@ -1024,16 +1029,16 @@ export class Boat implements IBoat {
     // Ink blob shadow — added AFTER outline/prepass registration so it stays out of
     // both (transparent, world-flat; posed each frame in update()).
     this.blob = buildBlobShadow();
-    this.object.add(this.blob);
+    presentation.add(this.blob);
     this.footprint = buildFlightFootprint();
     this.footprint.layers.enable(LAYER_ENERGY);
-    this.object.add(this.footprint);
+    presentation.add(this.footprint);
     const thrust = buildThrustVisual();
     this.thrustShell = thrust.shell;
     this.thrustOuter = thrust.outer;
     this.thrustCore = thrust.core;
     this.thrustRings = thrust.rings;
-    this.object.add(
+    presentation.add(
       this.thrustShell,
       this.thrustOuter,
       this.thrustCore,
@@ -1097,6 +1102,9 @@ export class Boat implements IBoat {
     this.lastT = t;
     const st = this.state;
     const pos = this.object.position;
+    // Physics owns the root position once the race starts; any frozen opening
+    // offset belongs only to the presentation group and is cleared here.
+    this.presentation.position.y = 0;
 
     const thr = clamp(input.throttle, -1, 1);
     const steer = clamp(input.steer, -1, 1);
@@ -1572,14 +1580,19 @@ export class Boat implements IBoat {
     // stacking three bright plumes on the launch frame.
     const boostVisual = (this.id === 0 ? this.boostFx : this.boostFx * 1.0 * this.opponentTechniqueFxScale) *
       (1 - this.flightFx * 0.92);
-    const opponentReadability = this.id > 0 ? 1 + this.opponentFxScale * 0.42 : 1;
-    const boostLen = (0.06 + boostVisual * 3.45 * boostPulse) * opponentReadability;
+    // A rival's release must survive the chase camera and water contrast. The
+    // same pooled emitter is used for the player, but rivals get a restrained
+    // readability lift so the real BOOST payout reads as a short stern pulse
+    // instead of disappearing behind their hull and wake.
+    const opponentReadability = this.id > 0 ? 1.72 + this.opponentFxScale * 0.72 : 1;
+    const boostLen = (0.06 + boostVisual * 4.35 * boostPulse) * opponentReadability;
+    const boostY = this.id > 0 ? 0.34 : 0.2;
     this.setThrustInstance(
-      'outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost,
+      'outer', 0, 0, boostY, -2.64 - boostLen * 0.5, _fxQBoost,
       0.42 * boostVisual * opponentReadability, boostLen,
     );
     this.setThrustInstance(
-      'core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost,
+      'core', 0, 0, boostY, -2.64 - boostLen * 0.42, _fxQBoost,
       0.125 * boostVisual * opponentReadability, boostLen * 0.72,
     );
 
@@ -1845,6 +1858,27 @@ export class Boat implements IBoat {
   setOpponentEffectDistance(distance: number): void {
     this.opponentFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);
     this.opponentTechniqueFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 55) / 95, 0, 1);
+  }
+
+  /** Keep the authored READY/countdown presentation seated on the moving swell.
+   * Physics is intentionally frozen before GO, so this updates only the visual
+   * hull origin; the first racing fixed step resumes full buoyancy normally.
+   */
+  syncSurfacePresentation(t: number): void {
+    const pos = this.object.position;
+    const fwdX = Math.sin(this.heading);
+    const fwdZ = Math.cos(this.heading);
+    const portX = Math.cos(this.heading);
+    const portZ = -Math.sin(this.heading);
+    const hBowL = waterHeight(pos.x + portX * TUNING.sampleLat + fwdX * TUNING.sampleLong,
+      pos.z + portZ * TUNING.sampleLat + fwdZ * TUNING.sampleLong, t);
+    const hBowR = waterHeight(pos.x - portX * TUNING.sampleLat + fwdX * TUNING.sampleLong,
+      pos.z - portZ * TUNING.sampleLat + fwdZ * TUNING.sampleLong, t);
+    const hMidL = waterHeight(pos.x + portX * TUNING.sampleLat, pos.z + portZ * TUNING.sampleLat, t);
+    const hMidR = waterHeight(pos.x - portX * TUNING.sampleLat, pos.z - portZ * TUNING.sampleLat, t);
+    const hSt = waterHeight(pos.x - fwdX * TUNING.sampleLong, pos.z - fwdZ * TUNING.sampleLong, t);
+    const surfaceY = (hBowL + hBowR + hMidL + hMidR + hSt) / 5;
+    this.presentation.position.y = surfaceY - TUNING.draft - pos.y;
   }
 
   /** Deterministic harness evidence for AI technique visibility. */
@@ -2145,7 +2179,9 @@ export class Boat implements IBoat {
     speedAbs: number,
   ): void {
     const pos = this.object.position;
-    _v2.set(pos.x - fwdX * 0.28, surfaceY + 0.06, pos.z - fwdZ * 0.28);
+    // Lift the shared splash volume above the sampled plane so the ocean depth
+    // pass cannot swallow the first impact frame on a moving crest.
+    _v2.set(pos.x - fwdX * 0.28, surfaceY + 0.14, pos.z - fwdZ * 0.28);
     _v1.set(fwdX, 0, fwdZ);
     _v3.set(rightX, 0, rightZ);
     this.spray.landing(

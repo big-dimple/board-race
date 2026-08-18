@@ -1032,16 +1032,23 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float packet = smoothstep(0.04, 0.2, packetPhase) *
           (1.0 - smoothstep(0.66, 0.94, packetPhase));
         float drift = sin(vS * 0.19 - uTime * 1.7) * 0.025;
-        float flowA = 1.0 - smoothstep(0.022, 0.075, abs(vSide - (0.18 + drift)));
-        float flowB = 1.0 - smoothstep(0.022, 0.075, abs(vSide - (-0.18 - drift)));
-        float flow = max(flowA, flowB) * (0.46 + packet * 0.54);
-        float centerVeil = 1.0 - smoothstep(0.06, 0.7, side);
-        float navSpine = 1.0 - smoothstep(0.055, 0.145, side);
-        float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} + packet * 0.045);
-        float alpha = veil + centerVeil * 0.065 + navSpine * 0.34 + flow * 0.29;
+        float flowA = 1.0 - smoothstep(0.018, 0.066, abs(vSide - (0.22 + drift)));
+        float flowB = 1.0 - smoothstep(0.018, 0.066, abs(vSide - (-0.22 - drift)));
+        float flow = max(flowA, flowB) * (0.42 + packet * 0.58);
+        // The route is a wake laid over the water, not a painted lane. Keep
+        // enough body for long-range navigation, then carve it into moving
+        // translucent pockets so the wave texture remains the hero surface.
+        float current = 0.5 + 0.26 * sin(vS * 0.31 - uTime * 1.15 + vSide * 2.8) +
+          0.16 * sin(vS * 0.77 + uTime * 0.62 - vSide * 5.4) +
+          0.08 * sin(vS * 1.43 - uTime * 1.9);
+        float waterPocket = smoothstep(0.28, 0.78, current);
+        float centerVeil = (1.0 - smoothstep(0.08, 0.62, side)) * (0.34 + waterPocket * 0.66);
+        float navSpine = 1.0 - smoothstep(0.04, 0.12, side);
+        float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} * (0.48 + waterPocket * 0.52) + packet * 0.035);
+        float alpha = veil + centerVeil * 0.045 + navSpine * (0.34 + packet * 0.06) + flow * 0.26;
         float localFade = 1.0 - smoothstep(140.0, 170.0, ahead) * 0.18;
         float fade = (vDist < 220.0 ? 1.0 : 0.78) * localFade;
-        vec3 col = mix(uColor, uFoam, 0.14 + navSpine * 0.18 + flow * 0.32 + packet * 0.05);
+        vec3 col = mix(uColor, uFoam, 0.24 + navSpine * 0.22 + flow * 0.34 + packet * 0.08);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
         alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
@@ -2712,6 +2719,14 @@ export class Course implements ICourse {
           float turnZone = uHasTurn * turnIn * turnOut;
           float panelCell = smoothstep(0.04, 0.13, fract(vUv.y * 18.0)) *
             (1.0 - smoothstep(0.82, 0.96, fract(vUv.y * 18.0)));
+          // Low-frequency density changes make the corridor read as moving
+          // air and sea spray. The field never reaches zero, so the route
+          // remains stable while its surface stops looking like glass.
+          float mistWave = 0.5 + 0.24 * sin(vUv.y * 13.0 - uTime * 0.72 + vUv.x * 5.0) +
+            0.17 * sin(vUv.y * 31.0 + uTime * 0.38 - vUv.x * 9.0) +
+            0.09 * sin(vUv.y * 57.0 - uTime * 1.1 + vUv.x * 13.0);
+          float mistDensity = smoothstep(0.22, 0.72, mistWave);
+          float mistBreak = 0.36 + mistDensity * 0.64;
           float scan = step(0.78, fract(vUv.y * 22.0 - uTime * 0.8));
           vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12);
           vec3 edgeColor = uFlight;
@@ -2726,11 +2741,11 @@ export class Course implements ICourse {
           color = mix(color, uWarnColor, uWarn);
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float virtualPanel = (1.0 - inkEdge) *
-            (uPanelAlpha * mix(0.76, 1.0, panelCell) + scan * uPanelBeatAlpha + farBoost * 0.04);
-          float centerVeil = 1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5));
-          float alpha = virtualPanel + centerVeil * uCenterAlpha +
-            edgeBand * (uEdgeAlpha + farBoost * 0.15) +
-            inkEdge * (0.3 + farBoost * 0.12) +
+            (uPanelAlpha * mix(0.76, 1.0, panelCell) + scan * uPanelBeatAlpha + farBoost * 0.04) * 0.12;
+          float centerVeil = (1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5))) * mistBreak;
+          float alpha = virtualPanel * mistBreak + centerVeil * uCenterAlpha * 0.2 +
+            edgeBand * (uEdgeAlpha * 0.58 + farBoost * 0.08) +
+            inkEdge * (0.2 + farBoost * 0.06) +
             flow * (uFlowAlpha + farBoost * 0.14 + ready * 0.08);
           alpha += turnZone * (0.055 + packet * 0.05);
 
@@ -2745,16 +2760,16 @@ export class Course implements ICourse {
             (1.0 - smoothstep(1.0, 1.0 + recoveryInkWidth, recoveryNorm));
           float recoveryEdge = smoothstep(1.0 - recoveryEdgeWidth, 1.0 - recoveryInkWidth * 0.5,
             recoveryNorm) * (1.0 - recoveryInk * 0.8);
-          float recoveryVeil = 1.0 - smoothstep(0.78, 1.02, recoveryNorm);
-          float recoveryCenter = 1.0 - smoothstep(0.08, 0.7, recoveryNorm);
+          float recoveryVeil = (1.0 - smoothstep(0.78, 1.02, recoveryNorm)) * mistBreak;
+          float recoveryCenter = (1.0 - smoothstep(0.08, 0.7, recoveryNorm)) * mistBreak;
           float recoveryFlowWidth = max(0.022, uvPixel * 1.2);
           float recoveryFlow = (1.0 - smoothstep(recoveryFlowWidth * 0.35, recoveryFlowWidth,
             abs(recoverySide - recoveryHalf * 0.3))) * (0.34 + packet * 0.66);
           float recoveryAlpha = recoveryVeil *
-            (uPanelAlpha * mix(0.78, 1.0, panelCell) + farBoost * 0.04) +
-            recoveryCenter * uCenterAlpha +
-            recoveryEdge * (uEdgeAlpha + farBoost * 0.15) +
-            recoveryInk * (0.3 + farBoost * 0.12) +
+            (uPanelAlpha * mix(0.78, 1.0, panelCell) + farBoost * 0.04) * 0.12 +
+            recoveryCenter * uCenterAlpha * 0.2 +
+            recoveryEdge * (uEdgeAlpha * 0.58 + farBoost * 0.08) +
+            recoveryInk * (0.2 + farBoost * 0.06) +
             recoveryFlow * (uFlowAlpha * 0.9 + farBoost * 0.14);
           recoveryAlpha = min(recoveryAlpha, 0.82);
           float recoveryStart = max(uGateF - 0.003, uRecoveryProgress - 0.035);
@@ -2966,7 +2981,7 @@ export class Course implements ICourse {
     const railMat = new THREE.MeshBasicMaterial({
       color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
-      opacity: 0.68,
+      opacity: 0.42,
       depthWrite: false,
       toneMapped: false,
     });
@@ -2980,7 +2995,7 @@ export class Course implements ICourse {
         railPoints.push(new THREE.Vector3(p.x + t.z * HALF_W * side, p.y + 0.12, p.z - t.x * HALF_W * side));
       }
       const railCurve = new THREE.CatmullRomCurve3(railPoints, false, 'centripetal');
-      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.085, 5, false), railMat);
+      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.07, 5, false), railMat);
       rail.name = `${def.id}-rail-${side > 0 ? 'r' : 'l'}`;
       rail.renderOrder = 4;
       rail.layers.enable(LAYER_ENERGY);

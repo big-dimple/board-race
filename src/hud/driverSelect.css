@@ -108,7 +108,7 @@
 .driver-specialty { display:inline-block; padding:5px 9px; color:#14122b; background:var(--driver-color); font:900 13px/1 system-ui,sans-serif; }
 .driver-specialty,.driver-name,.driver-meta,.driver-quote { grid-column:1/-1; justify-self:center; }
 .driver-name { margin-top:8px; color:#fff; font:italic 900 56px/.82 'Arial Black',Impact,sans-serif; text-shadow:5px 5px 0 #14122b; }
-.driver-meta { margin-top:12px; color:var(--driver-color); font:900 17px/1 system-ui,sans-serif; }
+.driver-meta { margin-top:12px; color:var(--driver-color); font:900 24px/1.08 system-ui,'PingFang SC','Microsoft YaHei',sans-serif; letter-spacing:.02em; text-shadow:2px 2px 0 rgba(20,18,43,.82); }
 .driver-quote { margin:10px 0 0; max-width:620px; font:900 18px/1.25 system-ui,sans-serif; }
 .driver-trait { margin-top:10px; padding:8px 10px; border-left:4px solid; background:rgba(8,13,42,.78); font:800 13px/1.25 system-ui,sans-serif; }
 .driver-pro { border-color:#39ff88; }
@@ -374,7 +374,7 @@
   .driver-specialty { padding:3px 6px; font-size:9px; }
   .driver-identity { overflow:hidden; column-gap:4px; }
   .driver-name { margin-top:4px; font-size:32px; }
-  .driver-meta { margin-top:6px; font-size:10px; }
+  .driver-meta { margin-top:6px; font-size:14px; }
   .driver-quote { margin-top:4px; font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .driver-trait { margin-top:3px; padding:3px 5px; font-size:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .driver-radar-wrap { height:100%; padding:6px; }
@@ -399,6 +399,36 @@
   .driver-coach-advanced { margin-top:6px; }
   .driver-coach-advanced summary { font-size:10px; }
   .driver-coach-toggle { min-height:34px; margin-top:8px; font-size:10px; }
+}
+
+/* A short desktop landscape still has room for the authored three-column
+   stage. Keep the readable Chinese callsign beside the portrait instead of
+   collapsing it into a cramped row just because the viewport is under 900px.
+*/
+@media (pointer:fine) and (min-width:700px) and (max-width:1100px) and (min-height:360px) {
+  .driver-select {
+    grid-template-rows:auto minmax(0,1fr) 38px 42px;
+    gap:6px;
+  }
+  .driver-featured {
+    width:min(100%,720px);
+    grid-template-columns:minmax(150px,.78fr) minmax(250px,1.28fr) minmax(150px,.78fr);
+    grid-template-areas:'portrait identity radar';
+    grid-template-rows:minmax(0,1fr);
+    column-gap:20px;
+    row-gap:0;
+  }
+  .driver-portrait-frame { height:100%; max-height:none; aspect-ratio:2 / 3; }
+  .driver-portrait { min-height:0; }
+  .driver-identity { align-self:center; text-align:left; }
+  .driver-specialty,.driver-name,.driver-meta,.driver-quote { justify-self:start; }
+  .driver-name { margin-top:5px; font-size:38px; }
+  .driver-meta { margin-top:8px; font-size:18px; }
+  .driver-quote { margin-top:7px; font-size:13px; white-space:normal; }
+  .driver-trait { margin-top:6px; padding:5px 7px; font-size:10px; }
+  .driver-radar-wrap { height:100%; max-height:none; padding:8px; }
+  .driver-radar-title { font-size:9px; }
+  .driver-roster-index { left:25%; }
 }
 
 @media (pointer:coarse) and (orientation:landscape) {
@@ -455,7 +485,7 @@
   .driver-mood { padding:3px 4px; font-size:7px; }
   .driver-specialty { padding:2px 5px; font-size:7px; }
   .driver-name { margin-top:2px; font-size:26px; }
-  .driver-meta { margin-top:3px; font-size:8px; }
+  .driver-meta { margin-top:3px; font-size:11px; }
   .driver-quote { display:none; }
   .driver-trait { margin-top:2px; padding:2px 4px; font-size:7px; }
   .driver-radar-wrap { padding:4px; }
@@ -473,6 +503,7 @@
 @media (max-width:650px) and (orientation:landscape) {
   .driver-featured { width:min(100%,330px); grid-template-columns:repeat(2,minmax(112px,1fr)); }
   .driver-name { font-size:24px; }
+  .driver-meta { font-size:12px; }
   .driver-select-go { min-width:138px; }
   .driver-switch-previous { right:calc(100% + 7px); }
   .driver-switch-next { left:calc(100% + 7px); }
@@ -556,7 +587,7 @@
   .driver-specialty,.driver-name,.driver-meta { justify-self:start; }
   .driver-specialty { padding:3px 6px; font-size:8px; }
   .driver-name { margin-top:3px; font-size:30px; text-shadow:3px 3px 0 #14122b; }
-  .driver-meta { margin-top:4px; font-size:9px; }
+  .driver-meta { margin-top:4px; font-size:12px; }
   .driver-quote { display:none; }
   .driver-trait { margin-top:3px; padding:3px 4px; font-size:7px; }
   .driver-select-footer { min-height:40px; }
@@ -571,6 +602,7 @@
   .driver-switch-icon { font-size:43px; }
   .driver-switch-label { font-size:8px; }
   .driver-name { font-size:25px; }
+  .driver-meta { font-size:10px; }
   .driver-trait { font-size:6.5px; }
   .driver-select-go { min-height:35px; }
 }

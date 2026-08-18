@@ -67,10 +67,10 @@ void main() {
   float core = 1.0 - smoothstep(0.18, 0.72, d);
   vec3 foam = vec3(0.91, 0.98, 1.0);
   vec3 water = vec3(0.34, 0.79, 0.94);
-  vec3 col = mix(water, foam, 0.55 + core * 0.45);
+  vec3 col = mix(water, foam, 0.68 + core * 0.32);
   if (vShade > 1.5) col *= 0.7;
   else if (vShade > 0.5) col *= 0.86;
-  gl_FragColor = vec4(col, alpha * 0.8);
+  gl_FragColor = vec4(col, alpha * 0.95);
   #include <colorspace_fragment>
 }
 `;
@@ -91,16 +91,22 @@ function buildLandingVolumeGeometry(): THREE.BufferGeometry {
   const segments = 16;
   for (let i = 0; i < segments; i++) {
     const center = (i / segments) * Math.PI * 2;
-    const half = (Math.PI * 2 / segments) * 0.34;
+    // Adjacent shutters meet at the same angular edge. Duplicate vertices
+    // preserve the fixed triangle budget while closing the crown into one
+    // continuous curtain instead of a sixteen-spoke fan.
+    const half = (Math.PI * 2 / segments) * 0.5;
     const a0 = center - half;
     const a1 = center + half;
-    const inner = 0.34;
-    const outer = 1 + (i % 3) * 0.055;
-    const height = 0.62 + ((i * 7) % 5) * 0.075;
+    const inner = 0.22;
+    const outer = 0.6 + 0.055 * Math.sin(center * 2.0 + 0.8) + 0.03 * Math.sin(center * 5.0);
+    const height = 0.38 + 0.065 * Math.sin(center * 2.0 - 0.4) + 0.045 * Math.sin(center * 5.0 + 0.7);
+    const nextCenter = ((i + 1) / segments) * Math.PI * 2;
+    const nextOuter = 0.6 + 0.055 * Math.sin(nextCenter * 2.0 + 0.8) + 0.03 * Math.sin(nextCenter * 5.0);
+    const nextHeight = 0.38 + 0.065 * Math.sin(nextCenter * 2.0 - 0.4) + 0.045 * Math.sin(nextCenter * 5.0 + 0.7);
     const v0 = push(Math.cos(a0) * inner, 0.03, Math.sin(a0) * inner, 0, 0.42);
     const v1 = push(Math.cos(a1) * inner, 0.03, Math.sin(a1) * inner, 0, 0.42);
     const v2 = push(Math.cos(a0) * outer, height, Math.sin(a0) * outer, 0, 0.58);
-    const v3 = push(Math.cos(a1) * outer, height * 0.88, Math.sin(a1) * outer, 0, 0.52);
+    const v3 = push(Math.cos(a1) * nextOuter, nextHeight, Math.sin(a1) * nextOuter, 0, 0.58);
     indices.push(v0, v2, v1, v1, v2, v3);
   }
 
@@ -116,8 +122,8 @@ function buildLandingVolumeGeometry(): THREE.BufferGeometry {
       const zBase = 0.82 - u * 2.35;
       const endFade = Math.pow(Math.sin(u * Math.PI), 0.42);
       const crestVariation = 0.88 + 0.14 * Math.sin(u * Math.PI * 3 + (side + 1) * 0.7);
-      const reach = (0.9 + Math.sin(u * Math.PI) * 0.34) * crestVariation;
-      const peak = (0.72 + Math.sin(u * Math.PI) * 0.42) * crestVariation;
+      const reach = (0.72 + Math.sin(u * Math.PI) * 0.26) * crestVariation;
+      const peak = (0.3 + Math.sin(u * Math.PI) * 0.16) * crestVariation;
       const row: number[] = [];
       for (let rise = 0; rise <= riseSegments; rise++) {
         const p = rise / riseSegments;
@@ -210,8 +216,29 @@ void main() {
   float foamMix = mix(0.68 + vHeight * 0.24, 0.4 + vHeight * 0.4, sheet);
   float flow = 0.72 + 0.28 * smoothstep(-0.25, 0.65,
     sin(vFlowCoord.x * 7.1 + vFlowCoord.y * 4.8 - vAge * 11.0));
-  float alpha = vAlpha * mix(0.68, 0.46 * flow, sheet);
-  gl_FragColor = vec4(mix(water, foam, clamp(foamMix, 0.0, 1.0)), alpha);
+  // A crown should dissolve around its curved rim, not expose sixteen hard
+  // triangular shutters. The radial falloff and slow azimuthal breakup keep
+  // the single shared volume soft at close range without adding a texture.
+  float radius = length(vFlowCoord);
+  float crownRim = 1.0 - smoothstep(0.62, 0.94, radius);
+  float curtainRim = 1.0 - smoothstep(2.15, 3.25, radius);
+  float rim = mix(crownRim, curtainRim, sheet);
+  float azimuth = atan(vFlowCoord.y, vFlowCoord.x);
+  float breakup = 0.72 + 0.28 * sin(azimuth * 8.0 + vAge * 4.0 + sin(azimuth * 3.0) * 0.8);
+  float curtain = smoothstep(0.06, 0.28, vHeight) *
+    (1.0 - smoothstep(0.56, 0.94, vHeight));
+  float fold = 0.58 + 0.42 * smoothstep(-0.45, 0.55,
+    sin(vFlowCoord.x * 8.4 - vFlowCoord.y * 5.2 - vAge * 9.0));
+  // The side curtains are a supporting volume, never the silhouette of the
+  // impact. Keep them as a soft glint between droplets so the crown remains
+  // the readable event instead of turning into a pair of plastic fins.
+  float sheetAlpha = 0.28 * flow * curtain * fold;
+  // Keep both layers soft: the crown is a rounded pressure ring, while the
+  // chine sheets stretch back into the wake without becoming hard fins.
+  float alpha = vAlpha * mix(0.5, sheetAlpha, sheet) * rim * breakup;
+  vec3 col = mix(water, foam, clamp(foamMix + rim * 0.08, 0.0, 1.0));
+  col = mix(col, foam, smoothstep(0.45, 0.95, vHeight) * 0.12);
+  gl_FragColor = vec4(col, alpha);
   #include <colorspace_fragment>
 }
 `;
@@ -415,15 +442,15 @@ export class SpraySystem implements ISpray {
       const originAft = (this.random() - 0.35) * 1.5;
       this.spawn(
         pos.x + right.x * originSide - forward.x * originAft,
-        pos.y + 0.05 + this.random() * 0.12,
+        pos.y + 0.12 + this.random() * 0.16,
         pos.z + right.z * originSide - forward.z * originAft,
         right.x * lateral * eject + forward.x * (inherit - aft * eject),
         up * eject,
         right.z * lateral * eject + forward.z * (inherit - aft * eject),
         0.62 + this.random() * 0.28,
-        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale * 1.15,
+        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale * 1.55,
         this.random() < 0.28 ? 1 : 0,
-        1.7 + strength * 0.55 + this.random() * 0.5,
+        1.1 + strength * 0.28 + this.random() * 0.45,
       );
     }
   }

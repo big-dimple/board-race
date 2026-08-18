@@ -225,6 +225,8 @@ async function verifySurfaceGuideVisualContract(page) {
     'surface guide masking must use zero alpha instead of fragment discard');
   assert.match(visual.ribbonFragmentShader, /float visible = 1\.0/,
     'surface guide masking must expose its zero-alpha visibility path');
+  assert.match(visual.ribbonFragmentShader, /float waterPocket =/,
+    'surface guide body must be modulated as a water-density field, not a flat road');
   assert.match(visual.ribbonFragmentShader, /step\(uLaunchGateS, vS\) \* step\(vS, uLaunchGateEndS\)/,
     'the launch aperture must own one continuous surface-guide cut through the flight exit');
   assert.doesNotMatch(visual.arrowFragmentShader, /\bdiscard\b/,
@@ -687,6 +689,7 @@ async function verifyLandingSplashContract(page) {
       volumeVertices:volume?.geometry?.attributes?.position?.count ?? 0,
       volumeTriangles:(volume?.geometry?.index?.count ?? 0) / 3,
       volumeTextured:Boolean(volume?.material?.map),
+      volumeFragmentShader:volume?.material?.fragmentShader ?? '',
     };
   });
   assert.deepEqual(visual.state, {
@@ -705,6 +708,10 @@ async function verifyLandingSplashContract(page) {
   assert.ok(visual.volumeVertices >= 160 && visual.volumeTriangles >= 180 && visual.volumeTriangles <= 260,
     `landing water must use one bounded subdivided crown/sheet volume: ${JSON.stringify(visual)}`);
   assert.equal(visual.volumeTextured, false, 'landing water must not allocate a splash texture');
+  assert.match(visual.volumeFragmentShader, /float curtain =/,
+    'landing water side volume must use a soft curtain field, not hard mesh opacity');
+  assert.match(visual.volumeFragmentShader, /float rim =/,
+    'landing water crown must dissolve through a curved rim');
 
   await page.evaluate(() => window.__harness.scenario('flight-descent'));
   const contact = await advanceToControlledLandingImpact(page);
@@ -1121,6 +1128,8 @@ async function verifyFlightGuideVisualContract(page) {
       `flight ${route.route} must keep its lines screen-readable at distance`);
     assert.match(route.fragmentShader, /float packetHead =/,
       `flight ${route.route} needs a directional head and fading tail`);
+    assert.match(route.fragmentShader, /float mistDensity =/,
+      `flight ${route.route} mist must dissolve through a water-density field`);
     assert.doesNotMatch(route.fragmentShader, /\bdiscard\b/,
       `flight ${route.route} must stay on the early-test-friendly alpha path`);
     assert.match(route.fragmentShader, /vec3 edgeColor = uFlight/,
@@ -1247,6 +1256,10 @@ async function verifyFlightContract(page) {
   assert.equal(state.worldTime, readyPose.worldTime);
   await page.keyboard.down('Space');
   await page.evaluate(() => window.__harness.advance(1 / 30));
+  const openingPose = await page.evaluate(() => window.__harness.playerState());
+  assert.equal(openingPose.phase, 'ready', 'the input-locked opening must remain in READY until its showcase finishes');
+  assert.ok(Math.abs(openingPose.flightClearance + 0.42) <= 0.08,
+    `opening boats must stay seated on the live swell instead of sinking as the wave moves: ${JSON.stringify(openingPose)}`);
   // GO owns a short, input-locked opening showcase before the authored
   // countdown. Advance the fixed-step clock through that presentation here.
   await page.waitForTimeout(50);

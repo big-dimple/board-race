@@ -919,6 +919,7 @@ function step(dt: number, _t: number): void {
     ocean.update(readySceneTime, stage.camera.position);
     sky.update(readySceneTime, stage.camera.position);
     seaDecor.update(readySceneTime, stage.camera.position);
+    for (const boat of boats) boat.syncSurfacePresentation(readySceneTime);
     openingShowcase.update(dt);
     course.update(0, readySceneTime);
     tower.update(dt, race);
@@ -942,6 +943,7 @@ function step(dt: number, _t: number): void {
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
       seaDecor.update(worldTime, stage.camera.position);
+      for (const boat of boats) boat.syncSurfacePresentation(worldTime);
       course.update(0, worldTime);
     }
     tower.update(dt, race);

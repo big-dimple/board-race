@@ -90,10 +90,27 @@ void main() {
   float veilBand = smoothstep(0.052, 0.085, ang) * (1.0 - smoothstep(0.085, 0.28, ang));
   float veils = (lobeA * 0.65 + lobeB * 0.35) * veilBand;
   float atmosphericGlow = innerHalo * 0.14 + outerHalo * 0.038 + veils * 0.24;
+  // A narrow warm shaft is only visible when the chase camera crosses the
+  // sun's azimuth. It fades into the horizon instead of painting a permanent
+  // radial sticker across the sky.
+  vec2 sunAz = normalize(uSunVisualDir.xz);
+  vec2 viewAz = normalize(dir.xz);
+  float azimuthMatch = max(dot(viewAz, sunAz), 0.0);
+  float lowerSky = smoothstep(0.5, 0.04, dir.y);
+  float shaft = pow(azimuthMatch, 10.0) * lowerSky * smoothstep(0.025, 0.12, ang) *
+    (1.0 - smoothstep(0.18, 0.72, ang));
+  float crossFlare = pow(max(cos(az + rot * 0.35), 0.0), 18.0) *
+    smoothstep(0.025, 0.11, ang) * (1.0 - smoothstep(0.11, 0.3, ang));
+  atmosphericGlow += shaft * 0.28 + crossFlare * 0.11;
   atmosphericGlow *= 1.0 + uOpeningArt * 0.2;
   float warm = clamp(atmosphericGlow, 0.0, 0.38);
   vec3 sunMist = mix(uSunFlare, uSunCore, 0.48);
   col = mix(col, sunMist, warm);
+  // Give the directional shaft a real luminance contribution. It should
+  // appear only when the camera crosses the sun azimuth, not as a permanent
+  // radial sticker painted over the sky.
+  float shaftLight = clamp(shaft * 0.2 + crossFlare * 0.07, 0.0, 0.16);
+  col = mix(col, mix(sunMist, uSunCore, 0.28), shaftLight);
   col = mix(col, uSunCore, disc);
 
   gl_FragColor = vec4(col, 1.0);
