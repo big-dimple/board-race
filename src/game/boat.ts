@@ -121,6 +121,7 @@ const TUNING = {
   takeoffDwell: 0.1,     // s of continuous unload before the hull counts as airborne —
                          // micro-skips over chop keep thrust; only crest-lip launches latch
   slamThreshold: 7,      // m/s — landImpulse above this is a slam (camera shake + audio)
+  landingVisualCooldown: 1.1, // coalesce the immediate rebound from one water entry
 
   // -- orientation --
   tiltOmega: 7,          // rad/s, critically-damped pitch/roll spring frequency
@@ -137,8 +138,6 @@ const TUNING = {
   turnSprayPeriod: 0.09, // s between chine spray bursts
   boostSprayPeriod: 0.08,// s between stern spray bursts while boosting
   opponentWakeScale: 0.68, // retain water contact without competing with the raised chain-drift wind
-  slamSprayPer: 2.5,     // spray particles per m/s of landing impact
-  slamSprayMax: 36,
 } as const;
 
 // Wake coupling is a body-readability cue, not a hidden steering assist. Keep
@@ -1093,6 +1092,7 @@ export class Boat implements IBoat {
   private flightStartClearance = 0;
   private flightDesiredYPrev = 0;
   private flightTargetVy = 0;
+  private flightWaterContact = false;
   private flightPenaltyApplied = false;
   // bookkeeping
   private prevSpeed = 0;
@@ -1102,6 +1102,7 @@ export class Boat implements IBoat {
   private trailCd = 0;
   private driftTrailCd = 0;
   private wakeSprayCd = 0;
+  private landingVisualCooldown = 0;
   private wakeInteractionStrength = 0;
   private wakeInteractionLift = 0;
   private wakeInteractionLateral = 0;
@@ -1253,6 +1254,7 @@ export class Boat implements IBoat {
     st.flightExtended = false;
     st.flightRouteMiss = false;
     st.flightPenaltyRemaining = Math.max(0, st.flightPenaltyRemaining - dt);
+    this.landingVisualCooldown = Math.max(0, this.landingVisualCooldown - dt);
 
     // boost timer (release payout from a previous frame)
     if (this.boostTimer > 0) this.boostTimer = Math.max(0, this.boostTimer - dt);
@@ -1381,6 +1383,7 @@ export class Boat implements IBoat {
         st.flightGateProgress = 0;
         this.flightElapsed = 0;
         this.flightExtensionTime = 0;
+        this.flightWaterContact = false;
         st.flightExtensionReady = false;
         st.flightExtensionUsed = false;
         this.liftBurstTimer = 0.22;
@@ -1421,8 +1424,9 @@ export class Boat implements IBoat {
     const targetY = surfaceY - TUNING.draft;
 
     st.landImpulse = 0; // only landing frames report an impact
+    let landingImpact = 0;
     if (st.flightPhase !== 'surface') {
-      this.updateFlight(dt, surfaceY, targetY);
+      landingImpact = this.updateFlight(dt, surfaceY, targetY);
     } else if (st.airborne) {
       this.vy -= TUNING.gravity * dt;
       pos.y += this.vy * dt;
@@ -1436,12 +1440,7 @@ export class Boat implements IBoat {
         st.airborne = false;
         st.airTime = 0;
         st.landImpulse = impact;
-        _v1.set(pos.x - fwdX * 2.3, hSt + 0.05, pos.z - fwdZ * 2.3);
-        if (impact > 0.5) {
-          const n = Math.min(TUNING.slamSprayMax, Math.round(impact * TUNING.slamSprayPer));
-          this.spray.burst(_v1, n, 2 + impact * 0.6);
-        }
-        this.wake.push(_v1, fwdX, fwdZ, 1); // slam push
+        landingImpact = impact;
       }
     } else {
       // Water can only push, never pull: downward accel clamps at −g, so brief
@@ -1461,6 +1460,11 @@ export class Boat implements IBoat {
       } else {
         this.unloadTime = 0;
       }
+    }
+
+    if (landingImpact > 0.5 && this.landingVisualCooldown <= 0) {
+      this.emitLandingImpact(surfaceY, hSt, fwdX, fwdZ, portX, portZ, landingImpact, speedAbs);
+      this.landingVisualCooldown = TUNING.landingVisualCooldown;
     }
 
     // Input is sampled before the vertical integrator discovers water contact.
@@ -2183,7 +2187,7 @@ export class Boat implements IBoat {
     this.object.quaternion.setFromEuler(_euler);
   }
 
-  private updateFlight(dt: number, surfaceY: number, surfaceTargetY: number): void {
+  private updateFlight(dt: number, surfaceY: number, surfaceTargetY: number): number {
     const st = this.state;
     const ascendAt = TUNING.flightSpool;
     const cruiseAt = ascendAt + TUNING.flightAscend;
@@ -2244,20 +2248,63 @@ export class Boat implements IBoat {
     st.airborne = false;
     st.airTime = 0;
 
-    const landingTimedOut = this.flightElapsed >= total + 0.3;
-    if (this.flightElapsed >= total && (this.object.position.y <= surfaceTargetY + 0.25 || landingTimedOut)) {
+    let impact = 0;
+    // Contact belongs to the first fixed step inside the live float plane, but
+    // the authored flight controller keeps ownership until its original end
+    // time. This prevents underwater penetration without advancing the surface
+    // driving schedule and changing race pacing.
+    if (phase === 'descending' && this.object.position.y <= surfaceTargetY) {
+      if (!this.flightWaterContact) {
+        impact = Math.max(0, -this.vy);
+        this.flightWaterContact = true;
+        st.landImpulse = impact;
+      }
       this.object.position.y = surfaceTargetY;
       this.vy = 0;
+    }
+
+    const landingTimedOut = this.flightElapsed >= total + 0.3;
+    if (this.flightElapsed >= total && (this.flightWaterContact ||
+        this.object.position.y <= surfaceTargetY + 0.25 || landingTimedOut)) {
       this.unloadTime = 0;
       this.flightElapsed = 0;
       this.flightExtensionTime = 0;
       this.flightTargetVy = 0;
+      this.flightWaterContact = false;
       st.flightPhase = 'surface';
       st.flightRemaining = 0;
       st.flightExtensionReady = false;
       st.flightExtensionUsed = false;
       st.flightThrust = 0;
     }
+    return impact;
+  }
+
+  private emitLandingImpact(
+    surfaceY: number,
+    sternY: number,
+    fwdX: number,
+    fwdZ: number,
+    rightX: number,
+    rightZ: number,
+    impact: number,
+    speedAbs: number,
+  ): void {
+    const pos = this.object.position;
+    _v2.set(pos.x - fwdX * 0.28, surfaceY + 0.06, pos.z - fwdZ * 0.28);
+    _v1.set(fwdX, 0, fwdZ);
+    _v3.set(rightX, 0, rightZ);
+    this.spray.landing(
+      _v2,
+      _v1,
+      _v3,
+      impact,
+      speedAbs,
+      this.id === 0 ? 1 : this.opponentFxScale,
+      this.id,
+    );
+    _v2.set(pos.x - fwdX * 2.3, sternY + 0.05, pos.z - fwdZ * 2.3);
+    this.wake.push(_v2, fwdX, fwdZ, 1);
   }
 
   teleport(x: number, z: number, heading: number): void {
@@ -2276,6 +2323,7 @@ export class Boat implements IBoat {
     this.wasDrifting = false;
     this.flightElapsed = 0;
     this.flightExtensionTime = 0;
+    this.flightWaterContact = false;
     this.flightStartClearance = 0;
     this.flightDesiredYPrev = 0;
     this.flightTargetVy = 0;
@@ -2287,6 +2335,7 @@ export class Boat implements IBoat {
     this.trailCd = 0;
     this.driftTrailCd = 0;
     this.wakeSprayCd = 0;
+    this.landingVisualCooldown = 0;
     this.wakeInteractionStrength = 0;
     this.wakeInteractionLift = 0;
     this.wakeInteractionLateral = 0;

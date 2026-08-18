@@ -44,6 +44,7 @@
 
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
+import type { RenderQualityMode } from '../core/stage';
 import { WAVES_GLSL, MAX_AMPLITUDE } from './waves';
 
 // ------------------------------------------------------- geometry layout ----
@@ -243,35 +244,36 @@ float hash12(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-// Smooth value noise only breaks whitecap coverage into broad natural runs.
-float vnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
-  float a = hash12(i);
-  float b = hash12(i + vec2(1.0, 0.0));
-  float c = hash12(i + vec2(0.0, 1.0));
-  float d = hash12(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-// d(waveHeight)/dt — >0 on the leading (down-wave) face of a traveling crest
-float waveDerivT(vec2 p, float t) {
-  float d = 0.0;
+// Height, normal and vertical motion share the same phases. Keeping them in
+// one loop avoids five duplicate cosine evaluations on every ocean pixel.
+void oceanSurfaceState(vec2 p, float t, out float height, out vec3 normal, out float dhdt) {
+  height = 0.0;
+  float dhx = 0.0;
+  float dhz = 0.0;
+  dhdt = 0.0;
   for (int i = 0; i < NUM_WAVES; i++) {
     vec4 a = WAVE_A[i];
     vec4 b = WAVE_B[i];
-    d += b.x * a.w * cos(a.z * dot(a.xy, p) + a.w * t + b.z);
+    float phase = a.z * dot(a.xy, p) + a.w * t + b.z;
+    float s = sin(phase);
+    float c = cos(phase);
+    height += b.x * s;
+    float slope = b.x * a.z * c;
+    dhx += slope * a.x;
+    dhz += slope * a.y;
+    dhdt += b.x * a.w * c;
   }
-  return d;
+  normal = normalize(vec3(-dhx, 1.0, -dhz));
 }
 
 void main() {
   // Analytic surface state at this pixel — tessellation-independent, so the
   // LOD seam can never show in the shading.
-  float h = waveHeight(vOrigXZ, uTime);
+  float h;
+  float dhdt;
+  vec3 n;
+  oceanSurfaceState(vOrigXZ, uTime, h, n, dhdt);
   float vH = h / uMaxAmp;              // normalized crest height, ~[-1, 1]
-  vec3 n = gerstnerNormal(vOrigXZ, uTime);
   float dist = -vViewZ;
 
   // Visual-only ripples modify the material normal near the camera. The
@@ -308,9 +310,9 @@ void main() {
   float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 2.2);
 
   // Directional material response replaces the old height-colored slabs.
-  float faceLight = clamp(0.22 + ndl * 0.58 + slope * 0.34, 0.0, 1.0);
+  float faceLight = clamp(0.14 + ndl * 0.62 + slope * 0.46 + vH * 0.08, 0.0, 1.0);
   vec3 col = mix(uColorDeep, uColorMid, faceLight);
-  col = mix(col, uColorCrest, smoothstep(0.035, 0.22, slope) * 0.34);
+  col = mix(col, uColorCrest, smoothstep(0.025, 0.2, slope) * 0.42);
   col = mix(col, uColorHorizon, fresnel * uFresnelStrength);
 
   // A broad sun response gives the surface scale without a field of blinking
@@ -324,7 +326,7 @@ void main() {
   // ribbon. Wave-facing facets carry it; low-frequency roughness only breaks
   // the lobe into natural runs after the physical half-vector test succeeds.
   float sunFacing = clamp(dot(n, sunDir) * 0.5 + 0.5, 0.0, 1.0);
-  float waveMotion = abs(waveDerivT(vOrigXZ, uTime));
+  float waveMotion = abs(dhdt);
   float crestShimmer = smoothstep(0.025, 0.26, waveMotion);
   float roughnessField = 0.5 +
     0.24 * sin(dot(vOrigXZ, vec2(0.27, 0.93)) * 0.32 + uTime * 0.22) +
@@ -347,6 +349,13 @@ void main() {
     windRuns * uWindSpecStrength * windFade;
   col = mix(col, uColorSparkle, clamp(windSpec, 0.0, 0.24));
 
+  // A restrained sky-facing sheen keeps the non-sun side alive. It reuses the
+  // filtered wind field instead of adding another noise octave or texture.
+  float windSheen = windRuns * (0.1 + fresnel * 0.44 + slope * 0.24) *
+    uWindSpecStrength * windFade;
+  col = mix(col, uColorCrest, clamp(windSheen, 0.0, 0.15));
+
+#if OCEAN_FINE_DETAIL == 1
   // Fine directional facets turn the broad response into short, moving glints.
   // Every term is continuous and derivative-filtered: no hash cells, symbols,
   // or temporal pixel noise. The immediate action lane and horizon stay quiet.
@@ -363,29 +372,27 @@ void main() {
   float glint = glintSpec * glintRuns * glintDistance * uGlintStrength;
   col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.34));
 
-  // A second, finer glitter layer restores the small broken points visible in
-  // real sunlit water. It is still gated by the live micro-normal and
-  // half-vector, so it cannot become a flat animated noise overlay.
-  float microField = 0.5 +
-    0.24 * sin(dot(vOrigXZ, vec2(1.7, 0.42)) * 5.8 + uTime * 2.8) +
-    0.18 * sin(dot(vOrigXZ, vec2(-0.58, 1.52)) * 9.6 - uTime * 3.6);
-  float microAa = max(fwidth(microField) * 1.35, 0.009);
-  float microRuns = smoothstep(0.58 - microAa, 0.76 + microAa, microField);
+  // Recombine fields already paid for above into fine broken points. This
+  // replaces a separate pair of trigonometric fields from the old shader.
+  float microField = roughnessField * 0.46 + windField * 0.54;
+  float microAa = max(fwidth(microField) * 1.25, 0.01);
+  float microRuns = smoothstep(0.55 - microAa, 0.72 + microAa, microField);
   float microSpec = pow(max(dot(glintNormal, halfDir), 0.0), uSunGloss * 1.12);
   float microDistance = smoothstep(8.0, 22.0, dist) * (1.0 - smoothstep(150.0, 320.0, dist));
-  float microSparkle = microSpec * microRuns * microDistance * sunFacing * 0.24;
-  col = mix(col, uColorSparkle, clamp(microSparkle, 0.0, 0.18));
+  float microSparkle = microSpec * microRuns * microDistance * sunFacing * 0.3;
+  col = mix(col, uColorSparkle, clamp(microSparkle, 0.0, 0.21));
+#endif
 
   // Whitecaps are gameplay information: only high, steep, rising faces earn
-  // them. Broad noise breaks coverage without recoloring the rest of the sea.
-  float dhdt = waveDerivT(vOrigXZ, uTime);
-  float crest = smoothstep(uCrestHeight + 0.035, uCrestHeight + 0.21, vH);
-  float steep = smoothstep(uCrestSlope + 0.018, uCrestSlope + 0.078, slope);
-  float rising = smoothstep(uCrestRise + 0.02, uCrestRise + 0.13, dhdt);
-  float foamNoise = vnoise(vOrigXZ / 4.8 + vec2(uTime * 0.045, -uTime * 0.025));
-  float foamBreak = smoothstep(0.38, 0.68, foamNoise);
+  // them. Existing moving fields break coverage into runs without another
+  // four-corner noise sample.
+  float crest = smoothstep(uCrestHeight - 0.02, uCrestHeight + 0.15, vH);
+  float steep = smoothstep(uCrestSlope + 0.005, uCrestSlope + 0.065, slope);
+  float rising = smoothstep(uCrestRise, uCrestRise + 0.1, dhdt);
+  float foamField = roughnessField * 0.56 + windField * 0.44;
+  float foamBreak = smoothstep(0.46, 0.68, foamField);
   float whitecap = crest * steep * rising * foamBreak * uFoamStrength;
-  whitecap = smoothstep(0.06, 0.5, whitecap) * 0.58;
+  whitecap = smoothstep(0.035, 0.34, whitecap) * 0.72;
   whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
   col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
 
@@ -440,7 +447,15 @@ export class Ocean {
 
   private readonly mesh: THREE.Mesh;
 
-  constructor(opts: { depthTexture: THREE.Texture; cameraNear: number; cameraFar: number }) {
+  constructor(opts: {
+    depthTexture: THREE.Texture;
+    cameraNear: number;
+    cameraFar: number;
+    quality?: RenderQualityMode;
+  }) {
+    const quality = opts.quality ?? 'auto';
+    const performance = quality === 'performance';
+    const high = quality === 'high';
     const sun = PALETTE.sunDir;
     const deepColor = new THREE.Color(PALETTE.waterDeep);
     const originalMidColor = new THREE.Color(PALETTE.waterMid);
@@ -454,22 +469,22 @@ export class Ocean {
       uCameraFar: { value: opts.cameraFar },
 
       uMaxAmp: { value: MAX_AMPLITUDE },
-      uRippleStrength: { value: 0.056 },
+      uRippleStrength: { value: performance ? 0.05 : high ? 0.068 : 0.064 },
       uRippleFadeStart: { value: 58.0 },
-      uRippleFadeEnd: { value: 155.0 },
-      uCrestHeight: { value: 0.24 },
+      uRippleFadeEnd: { value: performance ? 135.0 : high ? 180.0 : 165.0 },
+      uCrestHeight: { value: 0.21 },
       uCrestSlope: { value: 0.01 },
       uCrestRise: { value: 0.015 },
-      uFoamStrength: { value: 0.9 },
-      uSunGloss: { value: 34.0 },
-      uSunStrength: { value: 0.44 },
-      uSunPathStrength: { value: 0.2 },
-      uGlintStrength: { value: 0.58 },
+      uFoamStrength: { value: performance ? 0.86 : 0.96 },
+      uSunGloss: { value: performance ? 30.0 : 27.0 },
+      uSunStrength: { value: performance ? 0.46 : high ? 0.54 : 0.51 },
+      uSunPathStrength: { value: performance ? 0.23 : high ? 0.31 : 0.28 },
+      uGlintStrength: { value: high ? 0.76 : 0.68 },
       uFresnelStrength: { value: 0.34 },
-      uWindNormalStrength: { value: 0.038 },
+      uWindNormalStrength: { value: performance ? 0.044 : high ? 0.056 : 0.052 },
       uWindFadeStart: { value: 18.0 },
-      uWindFadeEnd: { value: 210.0 },
-      uWindSpecStrength: { value: 0.16 },
+      uWindFadeEnd: { value: performance ? 185.0 : high ? 245.0 : 225.0 },
+      uWindSpecStrength: { value: performance ? 0.18 : high ? 0.25 : 0.23 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },
@@ -497,7 +512,11 @@ export class Ocean {
       uniforms: this.uniforms,
       vertexShader: VERT,
       fragmentShader: FRAG,
-      side: THREE.DoubleSide, // stitch strip winding is verified, but stay bulletproof
+      defines: { OCEAN_FINE_DETAIL: performance ? 0 : 1 },
+      // Gerstner displacement can briefly turn coarse horizon triangles away
+      // from the camera. Double-sided rasterization prevents rectangular sea
+      // holes without adding another mesh or draw call.
+      side: THREE.DoubleSide,
       transparent: false,
       depthWrite: true,
     });

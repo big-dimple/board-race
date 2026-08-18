@@ -70,6 +70,18 @@ const SCENARIOS = {
   'flight-route7-cruise': { scenario: 'flight-route7-cruise' },
   'flight-combo': { scenario: 'flight-combo', freeCamDynamic: { back: 7, up: 1.55, lookUp: 0.4 } },
   'flight-descent': { scenario: 'flight-descent' },
+  'landing-impact': {
+    scenario: 'landing-impact',
+    freeCamDynamic: { back: 7.5, side: 5, up: 3, lookAhead: -0.2, lookUp: 0.45 },
+  },
+  'landing-plume': {
+    scenario: 'landing-plume',
+    freeCamDynamic: { back: 7.5, side: 5, up: 3, lookAhead: -0.2, lookUp: 0.45 },
+  },
+  'landing-settle': {
+    scenario: 'landing-settle',
+    freeCamDynamic: { back: 7.5, side: 5, up: 3, lookAhead: -0.2, lookUp: 0.45 },
+  },
   'flight-miss': { scenario: 'flight-miss', settleMs: 760 },
   'flight-no-launch': { scenario: 'flight-no-launch', settleMs: 760 },
   'retry-lesson': { scenario: 'retry-lesson', settleMs: 380 },
@@ -139,6 +151,19 @@ async function advanceToControlledWaterContact(page, maxFrames = 180) {
       before = after;
     }
     throw new Error(`controlled flight did not contact water within ${limit} fixed steps`);
+  }, maxFrames);
+}
+
+async function advanceToControlledLandingImpact(page, maxFrames = 180) {
+  return page.evaluate((limit) => {
+    let before = window.__harness.playerState();
+    for (let frame = 1; frame <= limit; frame++) {
+      window.__harness.advance(1 / 60);
+      const after = window.__harness.playerState();
+      if (after.landImpulse > 0) return { before, after, frames:frame };
+      before = after;
+    }
+    throw new Error(`controlled flight did not impact water within ${limit} fixed steps`);
   }, maxFrames);
 }
 
@@ -522,11 +547,14 @@ async function verifyOceanMaterialContract(page) {
     const uniforms = mesh.material.uniforms;
     return {
       vertices:mesh.geometry.attributes.position.count,
+      triangles:(mesh.geometry.index?.count ?? 0) / 3,
       drawCalls:1,
       vertexShader:mesh.material.vertexShader,
       fragmentShader:mesh.material.fragmentShader,
       transparent:mesh.material.transparent,
       depthWrite:mesh.material.depthWrite,
+      side:mesh.material.side,
+      fineDetail:mesh.material.defines?.OCEAN_FINE_DETAIL,
       rippleStrength:uniforms.uRippleStrength?.value,
       rippleFade:[uniforms.uRippleFadeStart?.value, uniforms.uRippleFadeEnd?.value],
       crest:[uniforms.uCrestHeight?.value, uniforms.uCrestSlope?.value, uniforms.uCrestRise?.value],
@@ -539,29 +567,34 @@ async function verifyOceanMaterialContract(page) {
       fog:[uniforms.uFogStart?.value, uniforms.uFogFar?.value],
     };
   });
-  assert.ok(ocean && ocean.vertices > 100000 && ocean.drawCalls === 1,
+  assert.ok(ocean && ocean.vertices > 100000 && ocean.triangles === 246248 && ocean.drawCalls === 1,
     `the ocean must remain one camera-following LOD draw: ${JSON.stringify(ocean)}`);
   assert.equal(ocean.transparent, false);
   assert.equal(ocean.depthWrite, true);
-  assert.ok(ocean.rippleStrength > 0 && ocean.rippleStrength <= 0.06 &&
-    ocean.rippleFade[0] >= 50 && ocean.rippleFade[1] <= 160,
+  assert.equal(ocean.side, 2, 'the displaced coarse horizon must remain double-sided without a second draw');
+  assert.equal(ocean.fineDetail, 1, 'Auto quality must retain filtered fine water facets');
+  assert.ok(ocean.rippleStrength > 0 && ocean.rippleStrength <= 0.07 &&
+    ocean.rippleFade[0] >= 50 && ocean.rippleFade[1] <= 180,
   `near normal detail must fade before it can shimmer in the distance: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.crest[0] >= 0.2 && ocean.crest[0] <= 0.3 &&
     ocean.crest[1] >= 0.008 && ocean.crest[2] >= 0.01 && ocean.foamStrength <= 1,
   `whitecaps must stay sparse and tied to a high, steep, rising face: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.sunPathStrength >= 0.18 && ocean.sunPathStrength <= 0.34,
     `the sun path must be directional but restrained: ${JSON.stringify(ocean)}`);
-  assert.ok(ocean.glintStrength >= 0.35 && ocean.glintStrength <= 0.6,
+  assert.ok(ocean.glintStrength >= 0.35 && ocean.glintStrength <= 0.78,
     `moving glints must restore surface life without becoming a sparkle field: ${JSON.stringify(ocean)}`);
-  assert.ok(ocean.windNormalStrength >= 0.02 && ocean.windNormalStrength <= 0.05 &&
+  assert.ok(ocean.windNormalStrength >= 0.02 && ocean.windNormalStrength <= 0.06 &&
     ocean.windFade[0] >= 12 && ocean.windFade[0] <= 40 &&
-    ocean.windFade[1] >= 160 && ocean.windFade[1] <= 240 &&
-    ocean.windSpecStrength >= 0.08 && ocean.windSpecStrength <= 0.24,
+    ocean.windFade[1] >= 160 && ocean.windFade[1] <= 250 &&
+    ocean.windSpecStrength >= 0.08 && ocean.windSpecStrength <= 0.26,
   `mid-scale wind detail must stay restrained and distance-faded: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.fog[0] >= 200 && ocean.fog[1] >= 2500,
     `ocean detail must collapse continuously into the horizon: ${JSON.stringify(ocean)}`);
   assert.match(ocean.vertexShader, /vWorldPos = disp/);
-  assert.match(ocean.fragmentShader, /gerstnerNormal\(vOrigXZ, uTime\)/);
+  assert.match(ocean.fragmentShader, /oceanSurfaceState\(vOrigXZ, uTime, h, n, dhdt\)/,
+    'height, normal and vertical motion must share one five-wave evaluation');
+  assert.doesNotMatch(ocean.fragmentShader, /float vnoise\(/,
+    'whitecap breakup must reuse paid-for wave fields instead of four extra hash samples');
   assert.match(ocean.fragmentShader, /vec3 viewDir = normalize\(cameraPosition - vWorldPos\)/);
   assert.match(ocean.fragmentShader, /float whitecap = crest \* steep \* rising \* foamBreak/);
   assert.match(ocean.fragmentShader, /float sunFacing = clamp\(dot\(n, sunDir\) \* 0\.5 \+ 0\.5, 0\.0, 1\.0\)/,
@@ -637,6 +670,159 @@ async function verifyOceanMaterialContract(page) {
   assert.ok(temporal && temporal.changedRatio >= 0.08 && temporal.changedRatio <= 0.72 &&
     temporal.meanDelta >= 3 && temporal.luminanceDeviation >= 6,
   `the mid-distance ocean must move and sparkle without turning into full-frame noise: ${JSON.stringify(temporal)}`);
+}
+
+async function verifyLandingSplashContract(page) {
+  await page.evaluate(() => window.__harness.scenario('ready'));
+  let visual = await page.evaluate(() => {
+    const droplets = window.__scene.getObjectByName('spray-droplets');
+    const volume = window.__scene.getObjectByName('landing-splash-volume');
+    return {
+      state:window.__harness.sprayState(),
+      dropletVisible:droplets?.visible,
+      dropletInstances:droplets?.geometry?.instanceCount,
+      dropletHasVelocity:Boolean(droplets?.geometry?.attributes?.aVelocity),
+      volumeVisible:volume?.visible,
+      volumeInstances:volume?.geometry?.instanceCount,
+      volumeVertices:volume?.geometry?.attributes?.position?.count ?? 0,
+      volumeTriangles:(volume?.geometry?.index?.count ?? 0) / 3,
+      volumeTextured:Boolean(volume?.material?.map),
+    };
+  });
+  assert.deepEqual(visual.state, {
+    activeDroplets:0,
+    activeLandingVolumes:0,
+    dropletCapacity:1536,
+    landingVolumeCapacity:12,
+    landingEvents:0,
+    playerLandingEvents:0,
+  });
+  assert.equal(visual.dropletVisible, false);
+  assert.equal(visual.dropletInstances, 0, 'idle spray must submit zero droplet instances');
+  assert.equal(visual.volumeVisible, false);
+  assert.equal(visual.volumeInstances, 0, 'idle spray must submit zero landing volumes');
+  assert.equal(visual.dropletHasVelocity, true, 'spray streaks must align to their ballistic velocity');
+  assert.ok(visual.volumeVertices >= 160 && visual.volumeTriangles >= 180 && visual.volumeTriangles <= 260,
+    `landing water must use one bounded subdivided crown/sheet volume: ${JSON.stringify(visual)}`);
+  assert.equal(visual.volumeTextured, false, 'landing water must not allocate a splash texture');
+
+  await page.evaluate(() => window.__harness.scenario('flight-descent'));
+  const contact = await advanceToControlledLandingImpact(page);
+  assert.ok(contact.after.landImpulse >= 2,
+    `controlled descent must produce a real water impact: ${JSON.stringify(contact)}`);
+  assert.ok(Math.abs(contact.after.playerY - contact.before.playerY) <= 0.55,
+    `water contact must cross the live float plane instead of snapping from underwater: ${JSON.stringify(contact)}`);
+  assert.ok(contact.after.flightClearance >= -0.75 && contact.after.flightClearance <= -0.15,
+    `controlled landing must settle at the live hull draft: ${JSON.stringify(contact)}`);
+
+  await page.evaluate(() => window.__harness.scenario('landing-contact'));
+  visual = await page.evaluate(() => {
+    const droplets = window.__scene.getObjectByName('spray-droplets');
+    const volume = window.__scene.getObjectByName('landing-splash-volume');
+    return {
+      state:window.__harness.sprayState(),
+      landingImpulse:window.__harness.playerState().landImpulse,
+      dropletInstances:droplets?.geometry?.instanceCount,
+      volumeInstances:volume?.geometry?.instanceCount,
+    };
+  });
+  assert.equal(visual.state.landingEvents, 1, `one player contact must emit one landing event: ${JSON.stringify(visual)}`);
+  assert.equal(visual.state.playerLandingEvents, 1,
+    `one player contact must emit exactly one player-owned landing event: ${JSON.stringify(visual)}`);
+  assert.ok(visual.landingImpulse >= 2);
+  assert.ok(visual.state.activeDroplets > 0 && visual.state.activeDroplets <= 28);
+  assert.equal(visual.dropletInstances, visual.state.activeDroplets,
+    'the dense droplet pool must upload and draw only live slots');
+  assert.equal(visual.state.activeLandingVolumes, 1);
+  assert.equal(visual.volumeInstances, 1);
+
+  await page.evaluate(() => window.__harness.scenario('landing-plume'));
+  const pixels = await page.evaluate(() => {
+    const h = window.__harness;
+    const canvas = document.querySelector('#app > canvas');
+    const droplets = window.__scene.getObjectByName('spray-droplets');
+    const volume = window.__scene.getObjectByName('landing-splash-volume');
+    if (!(canvas instanceof HTMLCanvasElement) || !droplets || !volume) return null;
+    const p = h.playerPose();
+    const fx = Math.sin(p.heading);
+    const fz = Math.cos(p.heading);
+    h.freeCam(
+      p.x - fx * 7.5 + fz * 5, p.y + 3, p.z - fz * 7.5 - fx * 5,
+      p.x - fx * 0.2, p.y + 0.45, p.z - fz * 0.2,
+    );
+    const read = () => {
+      h.render();
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const context = copy.getContext('2d', { willReadFrequently:true });
+      context.drawImage(canvas, 0, 0);
+      return context.getImageData(0, 0, copy.width, copy.height).data;
+    };
+    const withSplash = read();
+    const callsWithSplash = h.stats().calls;
+    droplets.visible = false;
+    volume.visible = false;
+    const withoutSplash = read();
+    const callsWithoutSplash = h.stats().calls;
+    droplets.visible = true;
+    volume.visible = true;
+    let changed = 0;
+    let minX = canvas.width;
+    let minY = canvas.height;
+    let maxX = -1;
+    let maxY = -1;
+    let maxDelta = 0;
+    for (let i = 0; i < withSplash.length; i += 4) {
+      const delta = Math.abs(withSplash[i] - withoutSplash[i]) +
+        Math.abs(withSplash[i + 1] - withoutSplash[i + 1]) +
+        Math.abs(withSplash[i + 2] - withoutSplash[i + 2]);
+      maxDelta = Math.max(maxDelta, delta);
+      if (delta <= 24) continue;
+      const pixel = i / 4;
+      const x = pixel % canvas.width;
+      const y = Math.floor(pixel / canvas.width);
+      changed++;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    h.chaseCam();
+    h.render();
+    return {
+      changed,
+      width:maxX >= minX ? maxX - minX + 1 : 0,
+      height:maxY >= minY ? maxY - minY + 1 : 0,
+      maxDelta,
+      extraCalls:callsWithSplash - callsWithoutSplash,
+    };
+  });
+  assert.ok(pixels && pixels.changed >= 500 && pixels.width >= 80 && pixels.height >= 45 && pixels.maxDelta >= 70,
+    `landing splash must visibly clear the hull silhouette: ${JSON.stringify(pixels)}`);
+  assert.ok(pixels.extraCalls >= 1 && pixels.extraCalls <= 2,
+    `crown, sheets and droplets must stay within two shared draws: ${JSON.stringify(pixels)}`);
+
+  await page.evaluate(() => window.__harness.scenario('landing-settle'));
+  visual = await page.evaluate(() => {
+    const droplets = window.__scene.getObjectByName('spray-droplets');
+    const volume = window.__scene.getObjectByName('landing-splash-volume');
+    return {
+      state:window.__harness.sprayState(),
+      dropletVisible:droplets?.visible,
+      dropletInstances:droplets?.geometry?.instanceCount,
+      volumeVisible:volume?.visible,
+      volumeInstances:volume?.geometry?.instanceCount,
+    };
+  });
+  assert.ok(visual.state.landingEvents >= 1);
+  assert.equal(visual.state.playerLandingEvents, 1);
+  assert.equal(visual.state.activeDroplets, 0);
+  assert.equal(visual.state.activeLandingVolumes, 0);
+  assert.equal(visual.dropletVisible, false);
+  assert.equal(visual.dropletInstances, 0);
+  assert.equal(visual.volumeVisible, false);
+  assert.equal(visual.volumeInstances, 0);
 }
 
 async function verifyToonMaterialContract(page) {
@@ -1948,6 +2134,7 @@ async function verifyFlightContract(page) {
   await verifySkyMaterialContract(page);
   await verifyCommercialCopyContract(page);
   await verifyOceanMaterialContract(page);
+  await verifyLandingSplashContract(page);
   await verifyWakeMaterialContract(page);
   await verifyFlightGuideVisualContract(page);
 

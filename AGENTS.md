@@ -75,9 +75,13 @@ automatically; players steer, drift/air-brake, and trigger flight.
   the context is not running, one exact-time electronic fallback plays and no
   late signal is inserted.
 - Continuous water/air white-noise loops are disabled pending owner approval of
-  an environment recording. Landing splash is a player-only, rate-limited
-  event. Collision and landing haptics queue behind drift/air-brake control
-  pulses and route only to the most recently active device. Player collision
+  an environment recording. Landing audio remains player-only; every physical
+  boat may emit the shared visual landing event from its first descending contact
+  with the live float plane. Contact clamps vertical penetration immediately,
+  while the authored flight phase keeps its original surface-handoff frame so
+  race pacing and input ownership do not advance. Collision and landing haptics
+  queue behind drift/air-brake control pulses and route only to the most recently
+  active device. Player collision
   presentation coalesces per fixed step and uses the real contact side/point;
   directional camera impact is bounded and offers `standard / weak / off`.
 - Opening contact pressure is seeded and occasional. The two strongest rivals use
@@ -144,9 +148,13 @@ automatically; players steer, drift/air-brake, and trigger flight.
   two opposite exit-correction signs as secondary landmarks.
 - Ocean displacement remains shared with boat physics, while its material uses
   continuous directional normals, broad sun response, near-only ripple detail,
-  derivative-filtered mid-distance glint runs, and sparse whitecaps tied to high,
-  steep, rising waves. Retired cel-height slabs and graphic/hash sparkle fields
-  must not return or compete with routes and rival technique cues. Boat wakes use
+  derivative-filtered mid-distance glint runs, a restrained non-sun sheen, and
+  sparse whitecaps tied to high, steep, rising waves. Performance quality compiles
+  out the fine glint layer; no quality mode may alter `waves.ts`, buoyancy, route,
+  or collision. Retired cel-height slabs and graphic/hash sparkle fields must not
+  return or compete with routes and rival technique cues. Landing water uses one
+  pooled crown/sheet draw plus velocity-aligned droplets; idle pools submit zero
+  instances. Boat wakes use
   a broken central aerated wash with only faint, discontinuous Kelvin shoulders;
   they may be neither two continuous rails nor a filled road.
 - Each boat's authored static model is five material batches, while every rider

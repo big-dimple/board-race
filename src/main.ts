@@ -22,7 +22,7 @@ import { Haptics, type HapticCue } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
 import { Ocean } from './water/ocean';
 import { WakeRibbon } from './water/wake';
-import { SpraySystem } from './water/spray';
+import { SpraySystem, type SprayDebugState } from './water/spray';
 import { Sky } from './cel/sky';
 import { createPostPipeline } from './cel/postPipeline';
 import { Boat } from './game/boat';
@@ -97,10 +97,11 @@ const ocean = new Ocean({
   depthTexture: prePass.depthTexture,
   cameraNear: stage.camera.near,
   cameraFar: stage.camera.far,
+  quality: stage.quality.mode,
 });
 stage.scene.add(ocean.object);
 
-const spray = new SpraySystem();
+const spray = new SpraySystem(stage.quality.mode);
 spray.object.name = 'spray-system';
 stage.scene.add(spray.object);
 
@@ -685,6 +686,7 @@ function resetRace(): void {
   finaleCapturePending = false;
   course.resetFlightChallenge();
   collisions.reset();
+  spray.clear();
   input.reset();
   gamepadInput.reset();
   mobileInput.reset();
@@ -1424,6 +1426,7 @@ interface Harness {
   audioState(): Record<string, number | string | boolean>;
   audioEventLog(): ReadonlyArray<{ source: string; time: number; strength: number }>;
   opponentFx(): Record<string, number | string>;
+  sprayState(): SprayDebugState;
   setVisibility(hidden: boolean): void;
   resumeInterruption(): void;
   perfSample(frames: number): Promise<Record<string, number | string>>;
@@ -4650,6 +4653,7 @@ function scenario(name: string): void {
   freeCamPose = null;
   harnessUsePlayerInput = false;
   harnessSuppressAirborneFlightTrigger = false;
+  for (let id = 0; id < harnessBoatInputOverrides.length; id++) harnessBoatInputOverrides[id] = null;
   setHarnessInput(null);
   resetRace();
   if (name !== 'ready') startFreshCountdown();
@@ -4921,9 +4925,37 @@ function scenario(name: string): void {
       beginHarnessRouteFlight();
       boats[0].state.flightCharges = 0;
       advanceUntil(() => boats[0].state.flightRouteState === 'passed', 12);
+      spray.clear();
       setHarnessInput({ throttle: 1 });
       loop.advance(0.18);
       break;
+    case 'landing-contact':
+    case 'landing-impact':
+    case 'landing-plume':
+    case 'landing-settle': {
+      for (let id = 1; id < harnessBoatInputOverrides.length; id++) {
+        harnessBoatInputOverrides[id] = {
+          throttle: 0,
+          steer: 0,
+          drift: false,
+          airBrake: false,
+          flightTrigger: false,
+        };
+      }
+      advanceUntil(() => race.phase === 'racing', 8);
+      beginHarnessRouteFlight();
+      boats[0].state.flightCharges = 0;
+      advanceUntil(() => boats[0].state.flightRouteState === 'passed', 12);
+      spray.clear();
+      setHarnessInput({ throttle: 1 });
+      let guard = 0;
+      while (boats[0].state.landImpulse <= 0 && guard++ < 240) loop.advance(1 / 60);
+      if (boats[0].state.landImpulse <= 0) throw new Error('landing screenshot did not reach water');
+      const settle = name === 'landing-contact' ? 0 : name === 'landing-impact' ? 0.035 :
+        name === 'landing-plume' ? 0.11 : 1.35;
+      loop.advance(settle);
+      break;
+    }
     case 'flight-miss':
       advanceUntil(() => race.phase === 'racing', 8);
       beginHarnessRouteFlight();
@@ -5306,6 +5338,7 @@ if (HARNESS) {
         flightRouteIndex: s.flightRouteIndex,
         flightPressure: s.flightPressure,
         flightPenaltyRemaining: s.flightPenaltyRemaining,
+        landImpulse: s.landImpulse,
         wakeInteractionStrength: waterInteraction.strength,
         wakeInteractionLift: Math.max(waterInteraction.bowPort, waterInteraction.bowStarboard,
           waterInteraction.midPort, waterInteraction.midStarboard, waterInteraction.stern),
@@ -5456,6 +5489,7 @@ if (HARNESS) {
         wakeScale: Math.max(...fx.map((item) => item.wakeScale)),
       };
     },
+    sprayState: () => spray.debugState(),
     setVisibility: handleVisibility,
     resumeInterruption,
     collisionCase: runCollisionCase,

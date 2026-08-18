@@ -1,77 +1,44 @@
 /**
- * spray.ts — chunky anime spray droplets. ONE instanced draw call.
- *
- * Instanced billboards (custom shader, camera-facing quads from the view
- * matrix), hard-edged canvas droplet sprite (white pixel cluster, 1 px
- * darker-aqua rim, NearestFilter, alpha-cutout — no soft blending).
- *
- * CPU physics at this count is trivial and keeps the shader dumb:
- * up-biased cone velocity, gravity 14 m/s^2, linear drag, life 0.7-1.1 s,
- * size shrinks in 3 hard classes as the particle ages. Particles are killed
- * when they fall below the live wave surface (waterHeight from waves.ts);
- * fast impacts optionally pop one tiny secondary poof. Ring-cursor
- * recycling — zero allocation after construction.
+ * Shared water spray. Droplets and landing volumes are dense, allocation-free
+ * instance pools: idle effects submit no instances and update no dead slots.
  */
 
 import * as THREE from 'three';
 import type { ISpray } from '../contracts';
-import { PALETTE } from '../core/palette';
+import type { RenderQualityMode } from '../core/stage';
 import { waterHeight } from './waves';
 
-const GRAVITY = 14.0; // m/s^2
-const DRAG = 1.15; // linear damping factor per second
-const POOF_SPEED = -2.5; // downward impact speed that triggers a poof
+const GRAVITY = 14;
+const DRAG = 1.15;
+const POOF_SPEED = -2.5;
+const LANDING_VOLUME_CAPACITY = 12;
+const LANDING_DROPLETS: Record<RenderQualityMode, number> = {
+  performance: 18,
+  auto: 28,
+  high: 40,
+};
 
-/** Deterministic tiny PRNG for texture generation (stable screenshots). */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+export interface SprayDebugState {
+  activeDroplets: number;
+  activeLandingVolumes: number;
+  dropletCapacity: number;
+  landingVolumeCapacity: number;
+  landingEvents: number;
+  playerLandingEvents: number;
 }
 
-/** Hard-edged droplet: chunky white cluster with a 1 px darker aqua edge. */
-function makeDropletTexture(): THREE.CanvasTexture {
-  const S = 32;
-  const canvas = document.createElement('canvas');
-  canvas.width = S;
-  canvas.height = S;
-  const ctx = canvas.getContext('2d')!;
-  const img = ctx.createImageData(S, S);
-  const rng = mulberry32(1337);
-  const body = new THREE.Color(PALETTE.foam);
-  const edge = new THREE.Color(PALETTE.waterCrest).multiplyScalar(0.45); // darker aqua
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      const dx = x - 15.5;
-      const dy = (y - 15.5) * 1.25; // slightly tall droplet
-      // chebyshev distance + per-pixel jitter => blocky irregular blob
-      const d = Math.max(Math.abs(dx), Math.abs(dy)) + rng() * 3.2;
-      if (d >= 6.5) continue; // transparent outside
-      const c = d > 5.2 ? edge : body;
-      const i = (y * S + x) * 4;
-      img.data[i] = Math.round(c.r * 255);
-      img.data[i + 1] = Math.round(c.g * 255);
-      img.data[i + 2] = Math.round(c.b * 255);
-      img.data[i + 3] = 255;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.minFilter = THREE.NearestFilter;
-  tex.magFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+function markActive(attribute: THREE.InstancedBufferAttribute, count: number): void {
+  attribute.clearUpdateRanges();
+  if (count > 0) attribute.addUpdateRange(0, count * attribute.itemSize);
+  attribute.needsUpdate = true;
 }
 
-const VERT = /* glsl */ `
-attribute vec3 aPos;   // world position of the particle
-attribute float aSize; // world size of the quad (0 = dead, GPU culls it)
-attribute float aShade; // 0 bright / 1 mid / 2 poof — hard tint steps
+const DROPLET_VERT = /* glsl */ `
+attribute vec3 aPos;
+attribute vec3 aVelocity;
+attribute float aSize;
+attribute float aShade;
+attribute float aAspect;
 
 varying vec2 vUv;
 varying float vShade;
@@ -79,27 +46,172 @@ varying float vShade;
 void main() {
   vUv = uv;
   vShade = aShade;
-  // billboard: camera right/up are the view matrix rows
-  vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
-  vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-  vec3 wp = aPos + (right * position.x + up * position.y) * aSize;
-  gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(wp, 1.0);
+  vec4 center = viewMatrix * modelMatrix * vec4(aPos, 1.0);
+  vec2 travel = (mat3(viewMatrix * modelMatrix) * aVelocity).xy;
+  vec2 along = length(travel) > 0.01 ? normalize(travel) : vec2(0.0, 1.0);
+  vec2 across = vec2(-along.y, along.x);
+  center.xy += across * position.x * aSize + along * position.y * aSize * aAspect;
+  gl_Position = projectionMatrix * center;
 }
 `;
 
-const FRAG = /* glsl */ `
-uniform sampler2D uTex;
-
+const DROPLET_FRAG = /* glsl */ `
 varying vec2 vUv;
 varying float vShade;
 
 void main() {
-  vec4 tex = texture2D(uTex, vUv);
-  if (tex.a < 0.5) discard; // hard cutout — graphic, never soft
-  vec3 col = tex.rgb;
-  if (vShade > 1.5) col *= 0.72;
+  vec2 p = vUv * 2.0 - 1.0;
+  float taper = mix(0.72, 0.38, smoothstep(0.16, 1.0, abs(p.y)));
+  float d = length(vec2(p.x / taper, p.y));
+  float alpha = 1.0 - smoothstep(0.76, 1.0, d);
+  float core = 1.0 - smoothstep(0.18, 0.72, d);
+  vec3 foam = vec3(0.91, 0.98, 1.0);
+  vec3 water = vec3(0.34, 0.79, 0.94);
+  vec3 col = mix(water, foam, 0.55 + core * 0.45);
+  if (vShade > 1.5) col *= 0.7;
   else if (vShade > 0.5) col *= 0.86;
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col, alpha * 0.8);
+  #include <colorspace_fragment>
+}
+`;
+
+function buildLandingVolumeGeometry(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const parts: number[] = [];
+  const edges: number[] = [];
+  const indices: number[] = [];
+  const push = (x: number, y: number, z: number, part: number, edge: number): number => {
+    const index = positions.length / 3;
+    positions.push(x, y, z);
+    parts.push(part);
+    edges.push(edge);
+    return index;
+  };
+
+  const segments = 16;
+  for (let i = 0; i < segments; i++) {
+    const center = (i / segments) * Math.PI * 2;
+    const half = (Math.PI * 2 / segments) * 0.34;
+    const a0 = center - half;
+    const a1 = center + half;
+    const inner = 0.34;
+    const outer = 1 + (i % 3) * 0.055;
+    const height = 0.62 + ((i * 7) % 5) * 0.075;
+    const v0 = push(Math.cos(a0) * inner, 0.03, Math.sin(a0) * inner, 0, 0.42);
+    const v1 = push(Math.cos(a1) * inner, 0.03, Math.sin(a1) * inner, 0, 0.42);
+    const v2 = push(Math.cos(a0) * outer, height, Math.sin(a0) * outer, 0, 0.58);
+    const v3 = push(Math.cos(a1) * outer, height * 0.88, Math.sin(a1) * outer, 0, 0.52);
+    indices.push(v0, v2, v1, v1, v2, v3);
+  }
+
+  // One continuous curved curtain per chine. A subdivided surface with a
+  // scalloped top edge bends as a single volume, avoiding the radial shard
+  // silhouette produced by independent triangular spray cards.
+  for (const side of [-1, 1]) {
+    const lengthSegments = 8;
+    const riseSegments = 5;
+    const grid: number[][] = [];
+    for (let along = 0; along <= lengthSegments; along++) {
+      const u = along / lengthSegments;
+      const zBase = 0.82 - u * 2.35;
+      const endFade = Math.pow(Math.sin(u * Math.PI), 0.42);
+      const crestVariation = 0.88 + 0.14 * Math.sin(u * Math.PI * 3 + (side + 1) * 0.7);
+      const reach = (0.9 + Math.sin(u * Math.PI) * 0.34) * crestVariation;
+      const peak = (0.72 + Math.sin(u * Math.PI) * 0.42) * crestVariation;
+      const row: number[] = [];
+      for (let rise = 0; rise <= riseSegments; rise++) {
+        const p = rise / riseSegments;
+        const lift = Math.sin(p * Math.PI * 0.56);
+        const x = side * (0.43 + reach * (0.14 * p + 0.86 * p * p));
+        const y = 0.035 + peak * lift;
+        const z = zBase - p * (0.14 + u * 0.28);
+        const acrossFade = 0.12 + 0.88 * Math.sin(p * Math.PI * 0.82);
+        row.push(push(x, y, z, 1, endFade * acrossFade));
+      }
+      grid.push(row);
+    }
+    for (let along = 0; along < lengthSegments; along++) {
+      for (let rise = 0; rise < riseSegments; rise++) {
+        const a = grid[along][rise];
+        const b = grid[along + 1][rise];
+        const c = grid[along][rise + 1];
+        const d = grid[along + 1][rise + 1];
+        if (side < 0) indices.push(a, b, c, c, b, d);
+        else indices.push(a, c, b, c, d, b);
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('aPart', new THREE.Float32BufferAttribute(parts, 1));
+  geometry.setAttribute('aEdge', new THREE.Float32BufferAttribute(edges, 1));
+  geometry.setIndex(indices);
+  return geometry;
+}
+
+const LANDING_VERT = /* glsl */ `
+attribute float aPart;
+attribute float aEdge;
+attribute vec3 aOrigin;
+attribute vec2 aForward;
+attribute vec2 aRight;
+attribute float aStrength;
+attribute float aAge;
+attribute float aScale;
+
+varying float vPart;
+varying float vAlpha;
+varying float vHeight;
+varying vec2 vFlowCoord;
+varying float vAge;
+
+void main() {
+  float age = clamp(aAge, 0.0, 1.0);
+  float attack = smoothstep(0.0, 0.11, age);
+  float crownDecay = 1.0 - smoothstep(0.38, 0.92, age);
+  float sheetDecay = 1.0 - smoothstep(0.28, 0.78, age);
+  float decay = mix(crownDecay, sheetDecay, step(0.5, aPart));
+  float spread = mix(0.64, 1.48, smoothstep(0.0, 0.58, age));
+  float height = attack * decay * mix(0.82, 1.32, aStrength);
+
+  vec3 local = position;
+  local.xz *= spread * mix(0.9, 1.15, aStrength);
+  local.y *= height;
+  if (aPart > 0.5) {
+    local.x *= 0.9 + age * 0.42;
+    local.z -= age * (0.42 + aStrength * 0.3);
+    local.y -= max(0.0, age - 0.34) * max(0.0, age - 0.34) * 1.9;
+  }
+  local *= aScale;
+
+  vec2 worldXZ = aOrigin.xz + aRight * local.x + aForward * local.z;
+  vec3 world = vec3(worldXZ.x, aOrigin.y + local.y, worldXZ.y);
+  vPart = aPart;
+  vHeight = clamp(local.y / max(0.1, aScale * 2.2), 0.0, 1.0);
+  vAlpha = aEdge * attack * decay * mix(0.7, 1.0, aStrength);
+  vFlowCoord = local.xz;
+  vAge = age;
+  gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(world, 1.0);
+}
+`;
+
+const LANDING_FRAG = /* glsl */ `
+varying float vPart;
+varying float vAlpha;
+varying float vHeight;
+varying vec2 vFlowCoord;
+varying float vAge;
+
+void main() {
+  vec3 water = vec3(0.48, 0.8, 0.93);
+  vec3 foam = vec3(0.97, 0.995, 1.0);
+  float sheet = step(0.5, vPart);
+  float foamMix = mix(0.68 + vHeight * 0.24, 0.4 + vHeight * 0.4, sheet);
+  float flow = 0.72 + 0.28 * smoothstep(-0.25, 0.65,
+    sin(vFlowCoord.x * 7.1 + vFlowCoord.y * 4.8 - vAge * 11.0));
+  float alpha = vAlpha * mix(0.68, 0.46 * flow, sheet);
+  gl_FragColor = vec4(mix(water, foam, clamp(foamMix, 0.0, 1.0)), alpha);
   #include <colorspace_fragment>
 }
 `;
@@ -108,25 +220,49 @@ export class SpraySystem implements ISpray {
   readonly object: THREE.Object3D;
 
   private readonly capacity: number;
-
-  // particle state (structure-of-arrays, preallocated)
+  private readonly quality: RenderQualityMode;
   private readonly pos: Float32Array;
   private readonly vel: Float32Array;
   private readonly life: Float32Array;
   private readonly maxLife: Float32Array;
   private readonly size0: Float32Array;
   private readonly shade: Float32Array;
-  private cursor = 0;
-
-  // instanced attribute backing arrays
-  private readonly aPos: Float32Array;
-  private readonly aSize: Float32Array;
-  private readonly aShade: Float32Array;
+  private readonly renderSize: Float32Array;
+  private readonly aspect: Float32Array;
   private readonly attrPos: THREE.InstancedBufferAttribute;
+  private readonly attrVelocity: THREE.InstancedBufferAttribute;
   private readonly attrSize: THREE.InstancedBufferAttribute;
   private readonly attrShade: THREE.InstancedBufferAttribute;
+  private readonly attrAspect: THREE.InstancedBufferAttribute;
+  private readonly dropletGeometry: THREE.InstancedBufferGeometry;
+  private readonly dropletMesh: THREE.Mesh;
+  private activeCount = 0;
+  private replacementCursor = 0;
 
-  constructor(capacity: number = 1536) {
+  private readonly volumeOrigin = new Float32Array(LANDING_VOLUME_CAPACITY * 3);
+  private readonly volumeForward = new Float32Array(LANDING_VOLUME_CAPACITY * 2);
+  private readonly volumeRight = new Float32Array(LANDING_VOLUME_CAPACITY * 2);
+  private readonly volumeStrength = new Float32Array(LANDING_VOLUME_CAPACITY);
+  private readonly volumeAge = new Float32Array(LANDING_VOLUME_CAPACITY);
+  private readonly volumeDuration = new Float32Array(LANDING_VOLUME_CAPACITY);
+  private readonly volumeScale = new Float32Array(LANDING_VOLUME_CAPACITY);
+  private readonly attrVolumeOrigin: THREE.InstancedBufferAttribute;
+  private readonly attrVolumeForward: THREE.InstancedBufferAttribute;
+  private readonly attrVolumeRight: THREE.InstancedBufferAttribute;
+  private readonly attrVolumeStrength: THREE.InstancedBufferAttribute;
+  private readonly attrVolumeAge: THREE.InstancedBufferAttribute;
+  private readonly attrVolumeScale: THREE.InstancedBufferAttribute;
+  private readonly volumeGeometry: THREE.InstancedBufferGeometry;
+  private readonly volumeMesh: THREE.Mesh;
+  private activeVolumes = 0;
+  private volumeReplacementCursor = 0;
+  private volumeStaticDirty = false;
+  private landingEvents = 0;
+  private playerLandingEvents = 0;
+  private rngState = 0x51f15e7d;
+
+  constructor(quality: RenderQualityMode = 'auto', capacity = 1536) {
+    this.quality = quality;
     this.capacity = capacity;
     this.pos = new Float32Array(capacity * 3);
     this.vel = new Float32Array(capacity * 3);
@@ -134,63 +270,96 @@ export class SpraySystem implements ISpray {
     this.maxLife = new Float32Array(capacity);
     this.size0 = new Float32Array(capacity);
     this.shade = new Float32Array(capacity);
-    this.aPos = new Float32Array(capacity * 3);
-    this.aSize = new Float32Array(capacity);
-    this.aShade = new Float32Array(capacity);
+    this.renderSize = new Float32Array(capacity);
+    this.aspect = new Float32Array(capacity);
 
-    // base quad, instanced
-    const geometry = new THREE.InstancedBufferGeometry();
-    geometry.setAttribute(
-      'position',
-      new THREE.Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3),
-    );
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
-    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    const droplets = new THREE.InstancedBufferGeometry();
+    droplets.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
+    ], 3));
+    droplets.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    droplets.setIndex([0, 1, 2, 0, 2, 3]);
     const dyn = THREE.DynamicDrawUsage;
-    this.attrPos = new THREE.InstancedBufferAttribute(this.aPos, 3).setUsage(dyn);
-    this.attrSize = new THREE.InstancedBufferAttribute(this.aSize, 1).setUsage(dyn);
-    this.attrShade = new THREE.InstancedBufferAttribute(this.aShade, 1).setUsage(dyn);
-    geometry.setAttribute('aPos', this.attrPos);
-    geometry.setAttribute('aSize', this.attrSize);
-    geometry.setAttribute('aShade', this.attrShade);
-    geometry.instanceCount = capacity;
+    this.attrPos = new THREE.InstancedBufferAttribute(this.pos, 3).setUsage(dyn);
+    this.attrVelocity = new THREE.InstancedBufferAttribute(this.vel, 3).setUsage(dyn);
+    this.attrSize = new THREE.InstancedBufferAttribute(this.renderSize, 1).setUsage(dyn);
+    this.attrShade = new THREE.InstancedBufferAttribute(this.shade, 1).setUsage(dyn);
+    this.attrAspect = new THREE.InstancedBufferAttribute(this.aspect, 1).setUsage(dyn);
+    droplets.setAttribute('aPos', this.attrPos);
+    droplets.setAttribute('aVelocity', this.attrVelocity);
+    droplets.setAttribute('aSize', this.attrSize);
+    droplets.setAttribute('aShade', this.attrShade);
+    droplets.setAttribute('aAspect', this.attrAspect);
+    droplets.instanceCount = 0;
+    this.dropletGeometry = droplets;
 
-    const material = new THREE.ShaderMaterial({
-      uniforms: { uTex: { value: makeDropletTexture() } },
-      vertexShader: VERT,
-      fragmentShader: FRAG,
+    this.dropletMesh = new THREE.Mesh(droplets, new THREE.ShaderMaterial({
+      vertexShader: DROPLET_VERT,
+      fragmentShader: DROPLET_FRAG,
       side: THREE.FrontSide,
-      transparent: false, // alpha-cutout: stays in the opaque pass, writes depth
-      depthWrite: true,
-    });
+      transparent: true,
+      depthWrite: false,
+    }));
+    this.dropletMesh.name = 'spray-droplets';
+    this.dropletMesh.frustumCulled = false;
+    this.dropletMesh.visible = false;
+    this.dropletMesh.renderOrder = 7;
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.frustumCulled = false;
-    this.object = mesh;
+    const volumeBase = buildLandingVolumeGeometry();
+    const volumes = new THREE.InstancedBufferGeometry();
+    volumes.index = volumeBase.index;
+    for (const [name, attribute] of Object.entries(volumeBase.attributes)) volumes.setAttribute(name, attribute);
+    this.attrVolumeOrigin = new THREE.InstancedBufferAttribute(this.volumeOrigin, 3).setUsage(dyn);
+    this.attrVolumeForward = new THREE.InstancedBufferAttribute(this.volumeForward, 2).setUsage(dyn);
+    this.attrVolumeRight = new THREE.InstancedBufferAttribute(this.volumeRight, 2).setUsage(dyn);
+    this.attrVolumeStrength = new THREE.InstancedBufferAttribute(this.volumeStrength, 1).setUsage(dyn);
+    this.attrVolumeAge = new THREE.InstancedBufferAttribute(this.volumeAge, 1).setUsage(dyn);
+    this.attrVolumeScale = new THREE.InstancedBufferAttribute(this.volumeScale, 1).setUsage(dyn);
+    volumes.setAttribute('aOrigin', this.attrVolumeOrigin);
+    volumes.setAttribute('aForward', this.attrVolumeForward);
+    volumes.setAttribute('aRight', this.attrVolumeRight);
+    volumes.setAttribute('aStrength', this.attrVolumeStrength);
+    volumes.setAttribute('aAge', this.attrVolumeAge);
+    volumes.setAttribute('aScale', this.attrVolumeScale);
+    volumes.instanceCount = 0;
+    this.volumeGeometry = volumes;
+
+    this.volumeMesh = new THREE.Mesh(volumes, new THREE.ShaderMaterial({
+      vertexShader: LANDING_VERT,
+      fragmentShader: LANDING_FRAG,
+      side: THREE.DoubleSide,
+      transparent: true,
+      depthWrite: false,
+    }));
+    this.volumeMesh.name = 'landing-splash-volume';
+    this.volumeMesh.frustumCulled = false;
+    this.volumeMesh.visible = false;
+    this.volumeMesh.renderOrder = 6;
+
+    const root = new THREE.Group();
+    root.add(this.volumeMesh, this.dropletMesh);
+    this.object = root;
   }
 
   burst(pos: THREE.Vector3, count: number, speed: number): void {
     const n = Math.min(count, this.capacity);
     for (let i = 0; i < n; i++) {
-      // up-biased cone: random azimuth, limited horizontal spread, strong up
-      const az = Math.random() * Math.PI * 2;
-      const r = Math.random() * 0.6;
+      const az = this.random() * Math.PI * 2;
+      const r = this.random() * 0.6;
       const dx = Math.cos(az) * r;
-      const dy = 0.7 + Math.random() * 0.5;
+      const dy = 0.7 + this.random() * 0.5;
       const dz = Math.sin(az) * r;
       const il = 1 / Math.hypot(dx, dy, dz);
-      const s = speed * (0.5 + Math.random() * 0.6) * il;
+      const s = speed * (0.5 + this.random() * 0.6) * il;
       this.spawn(
-        pos.x + (Math.random() - 0.5) * 0.3,
+        pos.x + (this.random() - 0.5) * 0.3,
         pos.y + 0.05,
-        pos.z + (Math.random() - 0.5) * 0.3,
-        dx * s,
-        dy * s,
-        dz * s,
-        0.7 + Math.random() * 0.4,
-        // small hard droplets: tight size range, hard cap — no huge quads
-        Math.min(0.3, (0.06 + 0.014 * speed) * (0.7 + Math.random() * 0.4)),
-        Math.random() < 0.25 ? 1 : 0,
+        pos.z + (this.random() - 0.5) * 0.3,
+        dx * s, dy * s, dz * s,
+        0.7 + this.random() * 0.4,
+        Math.min(0.34, (0.07 + 0.015 * speed) * (0.72 + this.random() * 0.42)),
+        this.random() < 0.25 ? 1 : 0,
+        1.35 + this.random() * 0.65,
       );
     }
   }
@@ -199,34 +368,102 @@ export class SpraySystem implements ISpray {
     const n = Math.min(count, this.capacity);
     for (let i = 0; i < n; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const lateral = side * (0.65 + Math.random() * 0.65);
-      const aft = 0.65 + Math.random() * 0.7;
-      const up = 0.38 + Math.random() * 0.38;
-      const s = speed * (0.72 + Math.random() * 0.42);
+      const lateral = side * (0.65 + this.random() * 0.65);
+      const aft = 0.65 + this.random() * 0.7;
+      const up = 0.38 + this.random() * 0.38;
+      const s = speed * (0.72 + this.random() * 0.42);
       this.spawn(
-        pos.x + right.x * side * (0.35 + Math.random() * 0.65) - forward.x * Math.random() * 1.5,
-        pos.y + 0.03 + Math.random() * 0.12,
-        pos.z + right.z * side * (0.35 + Math.random() * 0.65) - forward.z * Math.random() * 1.5,
+        pos.x + right.x * side * (0.35 + this.random() * 0.65) - forward.x * this.random() * 1.5,
+        pos.y + 0.03 + this.random() * 0.12,
+        pos.z + right.z * side * (0.35 + this.random() * 0.65) - forward.z * this.random() * 1.5,
         (right.x * lateral - forward.x * aft) * s,
         up * s,
         (right.z * lateral - forward.z * aft) * s,
-        0.62 + Math.random() * 0.32,
-        Math.min(0.38, 0.11 + speed * 0.016 + Math.random() * 0.09),
-        Math.random() < 0.3 ? 1 : 0,
+        0.62 + this.random() * 0.32,
+        Math.min(0.42, 0.12 + speed * 0.017 + this.random() * 0.09),
+        this.random() < 0.3 ? 1 : 0,
+        1.25 + this.random() * 0.55,
+      );
+    }
+  }
+
+  landing(
+    pos: THREE.Vector3,
+    forward: THREE.Vector3,
+    right: THREE.Vector3,
+    impact: number,
+    forwardSpeed: number,
+    visualScale = 1,
+    sourceId = -1,
+  ): void {
+    if (impact <= 0.5 || visualScale <= 0) return;
+    const strength = THREE.MathUtils.clamp((impact - 3.5) / 10.5, 0.18, 1);
+    const scale = THREE.MathUtils.clamp(visualScale, 0.3, 1) * (0.9 + strength * 0.34);
+    this.spawnLandingVolume(pos, forward, right, strength, scale);
+    this.landingEvents++;
+    if (sourceId === 0) this.playerLandingEvents++;
+
+    const count = Math.max(8, Math.round(LANDING_DROPLETS[this.quality] * visualScale));
+    const eject = 4.8 + strength * 4.6;
+    for (let i = 0; i < count; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const lateral = side * (0.5 + this.random() * 0.82);
+      const aft = 0.5 + this.random() * 0.72;
+      const up = 0.62 + this.random() * 0.62;
+      const inherit = Math.min(4.2, Math.max(0, forwardSpeed) * 0.08);
+      const originSide = side * (0.42 + this.random() * 0.58);
+      const originAft = (this.random() - 0.35) * 1.5;
+      this.spawn(
+        pos.x + right.x * originSide - forward.x * originAft,
+        pos.y + 0.05 + this.random() * 0.12,
+        pos.z + right.z * originSide - forward.z * originAft,
+        right.x * lateral * eject + forward.x * (inherit - aft * eject),
+        up * eject,
+        right.z * lateral * eject + forward.z * (inherit - aft * eject),
+        0.62 + this.random() * 0.28,
+        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale,
+        this.random() < 0.28 ? 1 : 0,
+        1.7 + strength * 0.55 + this.random() * 0.5,
       );
     }
   }
 
   update(dt: number, t: number): void {
+    this.updateDroplets(dt, t);
+    this.updateLandingVolumes(dt);
+  }
+
+  clear(): void {
+    this.activeCount = 0;
+    this.activeVolumes = 0;
+    this.replacementCursor = 0;
+    this.volumeReplacementCursor = 0;
+    this.volumeStaticDirty = false;
+    this.landingEvents = 0;
+    this.playerLandingEvents = 0;
+    this.rngState = 0x51f15e7d;
+    this.dropletGeometry.instanceCount = 0;
+    this.volumeGeometry.instanceCount = 0;
+    this.dropletMesh.visible = false;
+    this.volumeMesh.visible = false;
+  }
+
+  debugState(): SprayDebugState {
+    return {
+      activeDroplets: this.activeCount,
+      activeLandingVolumes: this.activeVolumes,
+      dropletCapacity: this.capacity,
+      landingVolumeCapacity: LANDING_VOLUME_CAPACITY,
+      landingEvents: this.landingEvents,
+      playerLandingEvents: this.playerLandingEvents,
+    };
+  }
+
+  private updateDroplets(dt: number, t: number): void {
     const drag = Math.max(0, 1 - DRAG * dt);
-    const cap = this.capacity;
-    for (let i = 0; i < cap; i++) {
-      if (this.life[i] <= 0) {
-        this.aSize[i] = 0;
-        continue;
-      }
+    let i = 0;
+    while (i < this.activeCount) {
       const i3 = i * 3;
-      // integrate
       this.vel[i3 + 1] -= GRAVITY * dt;
       this.vel[i3] *= drag;
       this.vel[i3 + 1] *= drag;
@@ -236,53 +473,72 @@ export class SpraySystem implements ISpray {
       this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
       this.life[i] -= dt;
 
-      // kill at the live water surface, with an optional tiny poof
-      const surf = waterHeight(this.pos[i3], this.pos[i3 + 2], t);
-      if (this.pos[i3 + 1] < surf) {
-        if (this.vel[i3 + 1] < POOF_SPEED && this.shade[i] < 2) {
-          this.spawn(
-            this.pos[i3],
-            surf + 0.05,
-            this.pos[i3 + 2],
-            (Math.random() - 0.5) * 0.8,
-            0.9 + Math.random() * 0.4,
-            (Math.random() - 0.5) * 0.8,
-            0.32,
-            this.size0[i] * 0.65,
-            2,
-          );
-        }
-        this.life[i] = 0;
-        this.aSize[i] = 0;
-        continue;
-      }
-      if (this.life[i] <= 0) {
-        this.aSize[i] = 0;
+      const surface = waterHeight(this.pos[i3], this.pos[i3 + 2], t);
+      if (this.pos[i3 + 1] < surface && this.vel[i3 + 1] < POOF_SPEED && this.shade[i] < 2) {
+        this.pos[i3 + 1] = surface + 0.05;
+        this.vel[i3] = (this.random() - 0.5) * 0.8;
+        this.vel[i3 + 1] = 0.9 + this.random() * 0.4;
+        this.vel[i3 + 2] = (this.random() - 0.5) * 0.8;
+        this.life[i] = 0.32;
+        this.maxLife[i] = 0.32;
+        this.size0[i] *= 0.65;
+        this.aspect[i] = 1;
+        this.shade[i] = 2;
+      } else if (this.life[i] <= 0 || this.pos[i3 + 1] < surface) {
+        this.removeDroplet(i);
         continue;
       }
 
-      // stepped size classes as the particle ages — hard shrink, no lerp
-      const ageF = 1 - this.life[i] / this.maxLife[i];
-      const cls = ageF < 0.35 ? 1.0 : ageF < 0.7 ? 0.6 : 0.35;
-      this.aPos[i3] = this.pos[i3];
-      this.aPos[i3 + 1] = this.pos[i3 + 1];
-      this.aPos[i3 + 2] = this.pos[i3 + 2];
-      this.aSize[i] = this.size0[i] * cls;
-      this.aShade[i] = this.shade[i];
+      const age = 1 - this.life[i] / this.maxLife[i];
+      const fade = age < 0.68 ? 1 : Math.max(0, 1 - (age - 0.68) / 0.32);
+      this.renderSize[i] = this.size0[i] * fade;
+      i++;
     }
-    this.attrPos.needsUpdate = true;
-    this.attrSize.needsUpdate = true;
-    this.attrShade.needsUpdate = true;
+
+    this.dropletGeometry.instanceCount = this.activeCount;
+    this.dropletMesh.visible = this.activeCount > 0;
+    if (this.activeCount > 0) {
+      markActive(this.attrPos, this.activeCount);
+      markActive(this.attrVelocity, this.activeCount);
+      markActive(this.attrSize, this.activeCount);
+      markActive(this.attrShade, this.activeCount);
+      markActive(this.attrAspect, this.activeCount);
+    }
   }
 
-  /** Write one particle into the next ring slot. No allocation, ever. */
+  private updateLandingVolumes(dt: number): void {
+    let i = 0;
+    while (i < this.activeVolumes) {
+      this.volumeAge[i] += dt / this.volumeDuration[i];
+      if (this.volumeAge[i] >= 1) {
+        this.removeLandingVolume(i);
+        continue;
+      }
+      i++;
+    }
+    this.volumeGeometry.instanceCount = this.activeVolumes;
+    this.volumeMesh.visible = this.activeVolumes > 0;
+    if (this.activeVolumes > 0) {
+      if (this.volumeStaticDirty) {
+        markActive(this.attrVolumeOrigin, this.activeVolumes);
+        markActive(this.attrVolumeForward, this.activeVolumes);
+        markActive(this.attrVolumeRight, this.activeVolumes);
+        markActive(this.attrVolumeStrength, this.activeVolumes);
+        markActive(this.attrVolumeScale, this.activeVolumes);
+        this.volumeStaticDirty = false;
+      }
+      markActive(this.attrVolumeAge, this.activeVolumes);
+    }
+  }
+
   private spawn(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
-    life: number, size: number, shade: number,
+    life: number, size: number, shade: number, aspect: number,
   ): void {
-    const i = this.cursor;
-    this.cursor = (this.cursor + 1) % this.capacity;
+    const i = this.activeCount < this.capacity
+      ? this.activeCount++
+      : this.replacementCursor++ % this.capacity;
     const i3 = i * 3;
     this.pos[i3] = x;
     this.pos[i3 + 1] = y;
@@ -293,6 +549,79 @@ export class SpraySystem implements ISpray {
     this.life[i] = life;
     this.maxLife[i] = life;
     this.size0[i] = size;
+    this.renderSize[i] = size;
     this.shade[i] = shade;
+    this.aspect[i] = aspect;
+  }
+
+  private spawnLandingVolume(
+    pos: THREE.Vector3,
+    forward: THREE.Vector3,
+    right: THREE.Vector3,
+    strength: number,
+    scale: number,
+  ): void {
+    const i = this.activeVolumes < LANDING_VOLUME_CAPACITY
+      ? this.activeVolumes++
+      : this.volumeReplacementCursor++ % LANDING_VOLUME_CAPACITY;
+    const i3 = i * 3;
+    const i2 = i * 2;
+    this.volumeOrigin[i3] = pos.x;
+    this.volumeOrigin[i3 + 1] = pos.y;
+    this.volumeOrigin[i3 + 2] = pos.z;
+    this.volumeForward[i2] = forward.x;
+    this.volumeForward[i2 + 1] = forward.z;
+    this.volumeRight[i2] = right.x;
+    this.volumeRight[i2 + 1] = right.z;
+    this.volumeStrength[i] = strength;
+    this.volumeAge[i] = 0;
+    this.volumeDuration[i] = 0.68 + strength * 0.17;
+    this.volumeScale[i] = scale;
+    this.volumeStaticDirty = true;
+  }
+
+  private removeDroplet(index: number): void {
+    const last = --this.activeCount;
+    if (index === last) return;
+    const to3 = index * 3;
+    const from3 = last * 3;
+    for (let axis = 0; axis < 3; axis++) {
+      this.pos[to3 + axis] = this.pos[from3 + axis];
+      this.vel[to3 + axis] = this.vel[from3 + axis];
+    }
+    this.life[index] = this.life[last];
+    this.maxLife[index] = this.maxLife[last];
+    this.size0[index] = this.size0[last];
+    this.renderSize[index] = this.renderSize[last];
+    this.shade[index] = this.shade[last];
+    this.aspect[index] = this.aspect[last];
+  }
+
+  private removeLandingVolume(index: number): void {
+    const last = --this.activeVolumes;
+    if (index === last) return;
+    const to3 = index * 3;
+    const from3 = last * 3;
+    const to2 = index * 2;
+    const from2 = last * 2;
+    for (let axis = 0; axis < 3; axis++) this.volumeOrigin[to3 + axis] = this.volumeOrigin[from3 + axis];
+    for (let axis = 0; axis < 2; axis++) {
+      this.volumeForward[to2 + axis] = this.volumeForward[from2 + axis];
+      this.volumeRight[to2 + axis] = this.volumeRight[from2 + axis];
+    }
+    this.volumeStrength[index] = this.volumeStrength[last];
+    this.volumeAge[index] = this.volumeAge[last];
+    this.volumeDuration[index] = this.volumeDuration[last];
+    this.volumeScale[index] = this.volumeScale[last];
+    this.volumeStaticDirty = true;
+  }
+
+  private random(): number {
+    let x = this.rngState | 0;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    this.rngState = x >>> 0;
+    return this.rngState / 4294967296;
   }
 }

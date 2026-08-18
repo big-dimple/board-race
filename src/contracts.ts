@@ -296,7 +296,18 @@ export interface ISpray {
   burst(pos: THREE.Vector3, count: number, speed: number): void;
   /** Directional launch sheet: forward and right are planar unit vectors. */
   takeoff(pos: THREE.Vector3, forward: THREE.Vector3, right: THREE.Vector3, count: number, speed: number): void;
+  /** One-shot hull impact: a pooled water crown, side sheets, and directional droplets. */
+  landing(
+    pos: THREE.Vector3,
+    forward: THREE.Vector3,
+    right: THREE.Vector3,
+    impact: number,
+    forwardSpeed: number,
+    visualScale?: number,
+    sourceId?: number,
+  ): void;
   update(dt: number, t: number): void;
+  clear(): void;
 }
 
 export interface IJetTrail {
