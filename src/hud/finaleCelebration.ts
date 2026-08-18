@@ -20,7 +20,7 @@ interface Spark {
   phase: number;
 }
 
-const SPARKS: readonly Spark[] = Array.from({ length: 52 }, (_, index) => ({
+const SPARKS: readonly Spark[] = Array.from({ length: 38 }, (_, index) => ({
   angle: index * 2.399963 + (index % 3) * 0.12,
   distance: 0.14 + (index % 9) * 0.073,
   length: 0.04 + (index % 5) * 0.014,
@@ -61,7 +61,7 @@ export class FinaleCelebrationCanvas {
       : elapsed < 0.7 ? 'crown'
       : elapsed < 1.65 ? 'hero'
       : 'settled';
-    const flash = this.reducedMotion ? (elapsed > 0 ? 0.16 : 0) : Math.max(0, 1 - Math.abs(elapsed - 0.1) / 0.16);
+    const flash = this.reducedMotion ? (elapsed > 0 ? 0.1 : 0) : Math.max(0, 1 - Math.abs(elapsed - 0.06) / 0.1);
     const crown = this.reducedMotion ? 0.72 : Math.min(1, Math.max(0, (elapsed - 0.08) / 0.48));
     const impact = this.reducedMotion ? 0 : Math.max(0, 1 - elapsed / 0.52);
     this.state = { phase, progress, flash, crown, impact, actionsVisible };
@@ -76,11 +76,11 @@ export class FinaleCelebrationCanvas {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     if (flash > 0) {
-      ctx.fillStyle = `rgba(255,248,198,${flash * 0.52})`;
+      ctx.fillStyle = `rgba(255,248,198,${flash * 0.12})`;
       ctx.fillRect(0, 0, width, height);
     }
-    const radius = scale * (0.08 + crown * 0.16);
-    const crownAlpha = 0.25 + crown * 0.7;
+    const radius = scale * (0.07 + crown * 0.12);
+    const crownAlpha = 0.16 + crown * 0.5;
     const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 1.5);
     gradient.addColorStop(0, `rgba(255,250,197,${crownAlpha * 0.8})`);
     gradient.addColorStop(0.4, `rgba(255,207,74,${crownAlpha * 0.28})`);
@@ -128,7 +128,7 @@ export class FinaleCelebrationCanvas {
       const tx = x - Math.cos(spark.angle) * tail;
       const ty = y - Math.sin(spark.angle) * tail * 0.58;
       const alpha = Math.max(0, 1 - Math.max(0, elapsed - 0.15 - spark.phase * 0.55) / 1.5);
-      ctx.strokeStyle = `rgba(255,218,91,${alpha * 0.86})`;
+      ctx.strokeStyle = `rgba(255,218,91,${alpha * 0.62})`;
       ctx.lineWidth = Math.max(1.2, spark.size * (0.55 + impact * 0.7));
       ctx.beginPath();
       ctx.moveTo(tx, ty);

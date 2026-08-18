@@ -2950,3 +2950,50 @@
   }
   .hud-coach-spotlight.on { animation: none; }
 }
+
+/* M8 commercial pass: let the live racer and route carry the frame. */
+.hud {
+  --ink: #09232f;
+  --panel: rgba(5, 29, 42, .76);
+}
+.hud-inked { -webkit-text-stroke: .8px var(--ink); text-shadow: 2px 2px 0 var(--ink); }
+.hud-topleft { gap: 5px; }
+.hud-topleft .hud-panel {
+  background: rgba(5, 29, 42, .72);
+  border: 0;
+  border-left: 2px solid var(--flight);
+  box-shadow: none;
+}
+.hud-power { background: rgba(5, 29, 42, .68); border: 0; border-bottom: 2px solid var(--flight); box-shadow: none; }
+.hud-impact-flash { background: rgba(221, 246, 239, .055); }
+.hud-impact-lines { opacity: .72; }
+.hud-impact-kicker { font-size: 48px; }
+.hud-impact-title { font-size: 27px; }
+.hud-impact-detail { font-size: 15px; }
+.hud-turn-warning { background: rgba(5, 29, 42, .82); border-width: 2px; box-shadow: 4px 4px 0 var(--ink); }
+.hud-coach { background: rgba(5, 29, 42, .86); border-width: 2px 2px 2px 5px; box-shadow: 3px 3px 0 var(--ink); }
+@media (pointer: fine) {
+  .hud-pc-primer {
+    grid-template-columns: 78px minmax(0, 1fr);
+    column-gap: 11px;
+    width: 370px;
+    min-height: 84px;
+    padding: 10px 30px 10px 10px;
+    background: rgba(5, 29, 42, .86);
+    box-shadow: 0 7px 18px rgba(4, 20, 29, .28);
+  }
+  .hud-pc-primer-control,
+  .hud-pc-primer-key,
+  .hud-pc-primer-meter { width: 78px; }
+  .hud-pc-primer-control { gap: 7px; }
+  .hud-pc-primer-key { height: 40px; font-size: 13px; }
+  .hud-pc-primer-title { margin-top: 4px; font-size: 19px; }
+  .hud-pc-primer-detail { margin-top: 4px; font-size: 13px; }
+}
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-topleft { gap: 2px; }
+  .hud-topleft .hud-panel { background: rgba(5, 29, 42, .7); }
+  .hud-impact-kicker { font-size: 30px; }
+  .hud-impact-title { font-size: 22px; }
+  .hud-impact-detail { font-size: 12px; }
+}

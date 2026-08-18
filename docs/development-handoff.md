@@ -382,3 +382,32 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。本次 `origin/main`、Actions
   `docs/commercial-art-roadmap.md` 负责；`docs/llmwiki.md` 只保留 M7 合同和证据摘要；
   `docs/knowledge-map.json` 已同步 verifier / status / release metadata。删除候选
   仍待用户在完整汇报后明确确认，当前不清场。
+
+## M8 商业视觉整合交接（2026-08-19）
+
+- 状态：`candidate-ready / locally-verified / release-pending`。本轮只触碰允许的九个视觉
+  owner：`src/water/ocean.ts`、`src/water/wake.ts`、`src/water/spray.ts`、
+  `src/cel/postPipeline.ts`、`src/hud/hud.css`、`src/hud/raceTower.css`、
+  `src/hud/finaleCelebration.ts`、`src/hud/finaleOverlay.css`、`src/core/mobileControls.css`；
+  未触碰物理、输入、船 / 车手实体、路线判定、AI、合批合同、资源和任何门禁阈值。
+- 实际视觉改动是深青蓝方向性海面、受控波峰与 glint、断裂中央尾流、低对比肩浪、事件型池化
+  水花、中心 action-window 后处理压制、克制的青色仪表 HUD、轻量移动可见面和局部短促金色
+  Finale。移动控件的命中范围、左右 / 漂移 / 飞行位置与 PointerEvent ownership 保持原值。
+- 截图：`shots/visual-roadmap/M8/before/` 与 `shots/visual-roadmap/M8/after/` 各保留 desktop
+  和 mobile 六类关键帧，Final 另有 impact / hero / settled。桌面 viewport `1440x900`、PNG
+  `2880x1800`；手机 viewport `844x390`、PNG `2532x1170`；同 seed、Auto、fixed-step、固定相机。
+  before 是独立目录，未被 after 覆盖。
+- after 机器证据：桌面 start/hairpin/opponent/flight/landing/final draw calls 为
+  `335/173/300/225/95/204`，triangles 为 `383569/311391/381699/335599/306393/350997`；
+  手机为 `335/177/144/225/105/227` 与 `383569/313623/342703/334873/307903/373067`。
+  桌面统一 `2,025,000 px/frame, 16.7ms, DPR1.25`，手机统一 `2,057,250 px/frame, 16.7ms,
+  DPR2.5`。Pool / renderer evidence：ocean `246248 triangles, 1 mesh, 1 draw`；wake
+  `720 positions / 2154 indices, 1 mesh`；spray capacity `1536`，idle `0 droplet + 0 volume`
+  instances；没有新增 render target 或 fixed-step allocation。
+- 验证：`npm run build`、`npm run verify:performance`、`npm run verify:flight`、
+  `npm run verify:mobile`、`npm run verify:release` 全部通过。并发截图曾因严格 `5199` 端口竞争
+  产生一次非代码读帧失败，隔离 mobile opponent rerun 通过原有 release-pulse contract；未放宽
+  阈值。checked release、remote SHA、Actions、Pages 在本段发布后补写。
+- 遗留风险：Final station 的 authored white gate geometry 仍在 route owner 范围外，不能在本轮扩张；
+  本地视觉证据已改善其周围对比，但真实设备和线上 Pages 仍待 checked release 后核验。下一 task
+  由新的独立 session 依据发布后的实际状态决定。

@@ -8,7 +8,7 @@
   font-style: italic;
   letter-spacing: 0;
   color: #f4feff;
-  --mobile-ink: #14122b;
+  --mobile-ink: #09232f;
   --mobile-flight: #55e7ff;
   --mobile-drift: #39ff88;
   --mobile-drift-progress: 0;
@@ -179,17 +179,17 @@
   align-items: center;
   justify-content: center;
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(244, 254, 255, 0.46);
+  border: 1px solid rgba(215, 246, 239, 0.38);
   border-radius: 50%;
   box-sizing: border-box;
-  background: rgba(10, 16, 42, 0.68);
+  background: rgba(5, 29, 42, 0.52);
   box-shadow:
-    inset 0 0 0 5px rgba(20, 18, 43, 0.5),
-    inset 0 -12px 0 rgba(20, 18, 43, 0.24),
-    0 8px 20px rgba(0, 0, 0, 0.22),
-    0 0 14px color-mix(in srgb, currentColor 16%, transparent);
+    inset 0 0 0 4px rgba(9, 35, 47, 0.4),
+    inset 0 -10px 0 rgba(9, 35, 47, 0.2),
+    0 5px 13px rgba(0, 0, 0, 0.18),
+    0 0 9px color-mix(in srgb, currentColor 11%, transparent);
   line-height: 1;
-  text-shadow: 2px 2px 0 var(--mobile-ink), 0 0 12px currentColor;
+  text-shadow: 1px 1px 0 var(--mobile-ink), 0 0 7px currentColor;
   transition: transform 90ms ease-out, border-color 90ms ease-out, box-shadow 90ms ease-out;
 }
 
@@ -219,10 +219,10 @@
   font-size: clamp(54px, 10vh, 76px);
 }
 .mobile-steer-zones span {
-  width: clamp(72px, 20vh, 88px);
-  height: clamp(72px, 20vh, 88px);
-  background: rgba(10, 16, 42, 0.52);
-  opacity: 0.78;
+  width: clamp(66px, 19vh, 80px);
+  height: clamp(66px, 19vh, 80px);
+  background: rgba(5, 29, 42, 0.42);
+  opacity: 0.68;
 }
 .mobile-steer-zones [data-mobile-action="right"] span {
   left: calc(50% - var(--steer-right-face-inset));
@@ -234,13 +234,13 @@
 .mobile-action-zones button:last-child { color: var(--mobile-flight); }
 
 .mobile-action-zones [data-mobile-action="drift"] span {
-  width: clamp(84px, 24vh, 100px);
-  height: clamp(84px, 24vh, 100px);
+  width: clamp(76px, 22vh, 90px);
+  height: clamp(76px, 22vh, 90px);
 }
 
 .mobile-action-zones [data-mobile-action="flight"] span {
-  width: clamp(70px, 20vh, 84px);
-  height: clamp(70px, 20vh, 84px);
+  width: clamp(64px, 19vh, 76px);
+  height: clamp(64px, 19vh, 76px);
   font-size: .86em;
 }
 
@@ -255,7 +255,7 @@
   background: conic-gradient(from -90deg, currentColor calc(var(--rim-progress, 0) * 1turn), rgba(244,254,255,.16) 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
-  opacity: .72;
+  opacity: .58;
   pointer-events: none;
 }
 .mobile-action-zones [data-mobile-action="drift"] span { --rim-progress: var(--mobile-drift-progress); }
@@ -291,6 +291,15 @@
   border-color: currentColor;
   background: color-mix(in srgb, currentColor 18%, rgba(10, 16, 42, 0.82));
   box-shadow: inset 0 0 0 5px rgba(20,18,43,.58), 0 3px 10px rgba(0,0,0,.2), 0 0 24px color-mix(in srgb,currentColor 42%,transparent);
+}
+
+/* The touch targets remain full-width zones; only the painted faces yield to
+   the live boat and route in the narrow landscape frame. */
+.mobile-controls.controls-visible .mobile-action-zones button span,
+.mobile-controls.controls-visible .mobile-steer-zones button span {
+  background: rgba(5, 29, 42, .38) !important;
+  box-shadow: inset 0 0 0 3px rgba(9, 35, 47, .3), 0 4px 10px rgba(0, 0, 0, .14) !important;
+  text-shadow: 1px 1px 0 var(--mobile-ink), 0 0 5px currentColor;
 }
 
 .mobile-controls.flight-ready .mobile-action-zones button:last-child {

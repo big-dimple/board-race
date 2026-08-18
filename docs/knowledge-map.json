@@ -71,16 +71,16 @@
       "verifier": "git diff --check",
       "status": "current",
       "milestone": {
-        "current": "M7",
-        "status": "completed",
-        "evidence": "shots/visual-roadmap/M7/before/; shots/visual-roadmap/M7/evidence/course-fix-before/; shots/visual-roadmap/M7/evidence/course-fix-after/; commit 428120044836951e266583481be35bbcadbbaa1f; Actions run 32188235255; deploy job 95878185185; live build marker",
-        "baseline": "M7 release candidate after fresh desktop 1440x900 and landscape mobile 844x390 captures",
+        "current": "M8",
+        "status": "candidate-ready",
+        "evidence": "shots/visual-roadmap/M7/before/; shots/visual-roadmap/M8/before/; shots/visual-roadmap/M8/after/; local build and release verification output",
+        "baseline": "M8 candidate after same-seed desktop 1440x900 and landscape mobile 844x390 before/after captures",
         "owner": ["docs/development-handoff.md", "docs/llmwiki.md", "docs/knowledge-map.json"],
         "wavesChanged": false,
-        "verification": "fresh M7 screenshot matrix passed desktop/mobile capture; focused before/after probe passed unchanged surface-guide bounds after navSpine 0.18 -> 0.28; all 8 checked-release gates passed; release-time origin/main and local SHA match; Actions deploy job succeeded; live build marker matches the full candidate release SHA",
-        "pendingExperiment": "optional real-device listening and user-approved ignored-evidence cleanup remain outside this release; no M7 release blocker",
-        "poolEvidence": "M7 adds no source owner, mesh, material, render target, instance pool or fixed-step allocation; focused runtime probe observed world-nameplates 6/6, landing droplets 28 and landing volume 1",
-        "releaseStatus": "M7 completed: candidate release commit 428120044836951e266583481be35bbcadbbaa1f pushed to origin/main and release-time remote SHA verified; workflow 32188235255 deploy job 95878185185 succeeded; live Pages build-sha marker matches; independent verify-pages.sh ran but public deployment API returned 403, so no deployment id is claimed; post-push knowledge closeout is published through a second checked release"
+        "verification": "M8 build, verify:performance, verify:flight, verify:mobile, and full verify:release pass; desktop after is 2,025,000 drawing pixels/frame at 16.7ms and DPR1.25; mobile after is 2,057,250 at 16.7ms and DPR2.5; ocean remains 246248 triangles in one mesh/draw; wake remains 720 positions / 2154 indices; idle spray remains zero droplet/volume instances",
+        "pendingExperiment": "checked release, remote SHA, Actions, Pages and real-device verification remain pending; Final station authored white gate geometry remains outside the allowed M8 owner scope",
+        "poolEvidence": "M8 adds no mesh, render target or fixed-step allocation; spray capacity remains 1536; wake remains one preallocated 360-point ring; mobile controls only change painted faces, not hit zones or PointerEvent ownership",
+        "releaseStatus": "M8 candidate-ready locally; release metadata must be appended only after the checked release produces a real SHA and Pages evidence"
       }
     }
   ]

@@ -324,7 +324,7 @@ void main() {
   // Directional material response replaces the old height-colored slabs.
   float faceLight = clamp(0.14 + ndl * 0.62 + slope * 0.46 + vH * 0.08, 0.0, 1.0);
   vec3 col = mix(uColorDeep, uColorMid, faceLight);
-  col = mix(col, uColorCrest, smoothstep(0.025, 0.2, slope) * 0.42);
+  col = mix(col, uColorCrest, smoothstep(0.025, 0.2, slope) * 0.3);
   col = mix(col, uColorHorizon, fresnel * uFresnelStrength);
 
   // A broad sun response gives the surface scale without a field of blinking
@@ -333,7 +333,7 @@ void main() {
   float artSparkle = 1.0 + uOpeningArt * 0.28;
   float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength * artSparkle;
   sunSpec *= 0.42 + 0.58 * rippleFade;
-  col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
+  col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.46));
 
   // The broad sun path is a rough mirror response, not a painted world-space
   // ribbon. Wave-facing facets carry it; low-frequency roughness only breaks
@@ -409,7 +409,7 @@ void main() {
   // colour. The authored thresholds above require height, slope, and upward
   // motion together; this final ramp leaves the near action lane mostly open.
   whitecap = whitecap * uFoamStrength * (1.0 + uOpeningArt * 0.16);
-  whitecap = smoothstep(0.12, 0.42, whitecap) * 0.58;
+  whitecap = smoothstep(0.12, 0.42, whitecap) * 0.44;
   whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
   col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
 
@@ -474,10 +474,11 @@ export class Ocean {
     const performance = quality === 'performance';
     const high = quality === 'high';
     const sun = PALETTE.sunDir;
-    const deepColor = new THREE.Color(PALETTE.waterDeep);
-    const originalMidColor = new THREE.Color(PALETTE.waterMid);
-    const midColor = originalMidColor.clone().lerp(deepColor, 0.25);
-    const crestColor = new THREE.Color(PALETTE.waterCrest).lerp(originalMidColor, 0.42);
+    // Keep the sea in a deep teal lane so the magenta player, green route, and
+    // warm finish marker stay legible without relying on a full-screen fog lift.
+    const deepColor = new THREE.Color(0x063c54);
+    const midColor = new THREE.Color(0x0b7184);
+    const crestColor = new THREE.Color(0x5ac3bd);
     this.uniforms = {
       uTime: { value: 0 },
       uOpeningArt: { value: 0 },
@@ -493,16 +494,16 @@ export class Ocean {
       uCrestHeight: { value: 0.3 },
       uCrestSlope: { value: 0.028 },
       uCrestRise: { value: 0.045 },
-      uFoamStrength: { value: performance ? 0.74 : high ? 0.82 : 0.78 },
-      uSunGloss: { value: performance ? 29.0 : high ? 25.0 : 27.0 },
-      uSunStrength: { value: performance ? 0.46 : high ? 0.56 : 0.52 },
-      uSunPathStrength: { value: performance ? 0.23 : high ? 0.31 : 0.28 },
-      uGlintStrength: { value: high ? 0.76 : 0.68 },
-      uFresnelStrength: { value: 0.34 },
-      uWindNormalStrength: { value: performance ? 0.044 : high ? 0.056 : 0.052 },
+      uFoamStrength: { value: performance ? 0.44 : high ? 0.62 : 0.5 },
+      uSunGloss: { value: performance ? 31.0 : high ? 28.0 : 30.0 },
+      uSunStrength: { value: performance ? 0.34 : high ? 0.42 : 0.38 },
+      uSunPathStrength: { value: performance ? 0.18 : high ? 0.25 : 0.21 },
+      uGlintStrength: { value: high ? 0.6 : 0.48 },
+      uFresnelStrength: { value: 0.18 },
+      uWindNormalStrength: { value: performance ? 0.042 : high ? 0.06 : 0.056 },
       uWindFadeStart: { value: 18.0 },
       uWindFadeEnd: { value: performance ? 185.0 : high ? 245.0 : 225.0 },
-      uWindSpecStrength: { value: performance ? 0.18 : high ? 0.25 : 0.23 },
+      uWindSpecStrength: { value: performance ? 0.14 : high ? 0.21 : 0.17 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },
@@ -514,15 +515,15 @@ export class Ocean {
       uRingContactShade: { value: 0.72 },
       uRingMaxDist: { value: 150.0 },
 
-      uFogStart: { value: 210.0 },
-      uFogFar: { value: 2800.0 },
+      uFogStart: { value: 240.0 },
+      uFogFar: { value: 3000.0 },
 
       uColorDeep: { value: deepColor },
       uColorMid: { value: midColor },
       uColorCrest: { value: crestColor },
-      uColorFoam: { value: new THREE.Color(PALETTE.foam) },
-      uColorSparkle: { value: new THREE.Color(PALETTE.sparkle) },
-      uColorHorizon: { value: new THREE.Color(PALETTE.skyHorizon) },
+      uColorFoam: { value: new THREE.Color(0xd3eee9) },
+      uColorSparkle: { value: new THREE.Color(0xb7eee4) },
+      uColorHorizon: { value: new THREE.Color(0x6caeaa) },
       uSunDir: { value: new THREE.Vector3(sun[0], sun[1], sun[2]).normalize() },
     };
 

@@ -79,7 +79,7 @@ void main() {
   float driveWindow = 1.0 - smoothstep(0.20, 0.78, driveDistance);
   float actionSignal = clamp(max(max(uBoost, uFlight), max(uAirBrake, max(uDrift, max(uImpact, uBattle)))), 0.0, 1.0);
   float surfaceWindow = 1.0 - smoothstep(0.08, 0.28, uFlight);
-  float ambientCut = driveWindow * (0.34 - actionSignal * 0.10) * surfaceWindow;
+  float ambientCut = driveWindow * (0.4 - actionSignal * 0.14) * surfaceWindow;
 
   // The impact bends the image away from the vanishing point for only a few
   // frames. Energy luminance adds a small local heat-haze displacement.
@@ -115,7 +115,7 @@ void main() {
 
   // Air braking cuts transverse blue-white blades across the tunnel, making the
   // handling change visible before the player reads the HUD.
-  float brakeBands = smoothstep(0.08, 0.0, abs(fract((p.y + p.x * 0.18) * 9.0 - uTime * 7.0) - 0.5));
+  float brakeBands = smoothstep(0.06, 0.0, abs(fract((p.y + p.x * 0.18) * 9.0 - uTime * 7.0) - 0.5));
   brakeBands *= smoothstep(0.42, 0.72, abs(p.x)) * uAirBrake * motion;
 
   // Darken the plate behind additive energy so the storm has contrast instead
@@ -123,15 +123,15 @@ void main() {
   col *= 1.0 - min(0.16, uImpact * 0.11 + uFlight * 0.035);
   vec3 energy = texture2D(tEnergy, clamp(vUv + dir * eLum * 0.003, 0.001, 0.999)).rgb;
   energy *= (1.0 - inkSolid) * (1.0 - ambientCut);
-  col += energy * (0.20 + uFlight * 0.08 + uImpact * 0.10);
-  col += windColor * streak * (0.26 + uBoost * 0.44);
-  col += vec3(0.42, 0.94, 1.0) * brakeBands * 0.48;
+  col += energy * (0.16 + uFlight * 0.07 + uImpact * 0.06);
+  col += windColor * streak * (0.18 + uBoost * 0.3);
+  col += vec3(0.24, 0.68, 0.72) * brakeBands * 0.18;
 
   // Restore a small amount of the unwarped beauty plate over real inked
   // subjects in the action window. This is subtraction from the post layer,
   // not a brightness lift, and keeps rider / hull silhouettes stable during
   // high-energy frames.
-  float subjectClarity = smoothstep(0.05, 0.26, inkAlpha) * driveWindow * 0.20;
+  float subjectClarity = smoothstep(0.05, 0.26, inkAlpha) * driveWindow * 0.26;
   col = mix(col, texture2D(tDiffuse, vUv).rgb, subjectClarity);
 
   // Overtake celebration lives in the sky strip. The cockpit/track region is
@@ -147,7 +147,7 @@ void main() {
   float vignette = smoothstep(0.38, 0.86, r);
   col *= 1.0 - vignette * (0.10 + uBoost * 0.07 + uDrift * 0.04);
   col = mix(col, vec3(1.0, 0.16, 0.42), uWarning * vignette * 0.38);
-  float flashMask = uFlash * (1.0 - smoothstep(0.15, 0.72, r)) * mix(0.34, 0.08, inkSolid);
+  float flashMask = uFlash * (1.0 - smoothstep(0.18, 0.62, r)) * mix(0.18, 0.035, inkSolid);
   col = mix(col, vec3(0.92, 0.99, 1.0), flashMask);
   gl_FragColor = vec4(col, 1.0);
 }
@@ -268,7 +268,7 @@ export function createPostPipeline(
       const s = Math.max(0, Math.min(1.5, strength));
       const impactGain = kind === 'gate' ? 0.2 : kind === 'ready' ? 0.38 : kind === 'lost' ? 0.34 : kind === 'overtake' ? 0.32 : kind === 'collision' ? 0.48 : 1;
       impact = Math.max(impact, s * impactGain);
-      const flashGain = kind === 'defeat' ? 0.72 : kind === 'gate' ? 0.14 : kind === 'overtake' ? 0.15 : kind === 'lost' ? 0.12 : 0.48;
+      const flashGain = kind === 'defeat' ? 0.72 : kind === 'gate' ? 0.14 : kind === 'overtake' ? 0.15 : kind === 'lost' ? 0.12 : kind === 'finish' ? 0.18 : 0.48;
       flash = Math.max(flash, s * flashGain);
       if (kind === 'overtake') battle = Math.max(battle, s);
       if (kind === 'defeat' || kind === 'lost') warning = Math.max(warning, s);

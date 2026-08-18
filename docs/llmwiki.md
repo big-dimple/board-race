@@ -889,3 +889,42 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
   `github-pages` artifact 与 Pages URL `https://big-dimple.github.io/board-race/` 均可复核；
   live 首页的完整 `build-sha` marker 匹配该 SHA。独立 `verify-pages.sh` 已运行，但公共 API
   deployment 查询返回 `403`，没有把缺失的 deployment id 写成已知事实。
+
+## M8 商业视觉整合 session（2026-08-19）
+
+- 当前状态：`candidate-ready / locally-verified / release-pending`。本轮没有修改
+  `waves.ts`、BoatInput、固定步物理、boat/rider geometry、16 骨骼、rider mount、collision、AI、
+  ink/prepass、五批合批、实例化合同、路线判定或 harness 阈值。源码 owner 仅为九个允许视觉文件：
+  `src/water/ocean.ts`、`src/water/wake.ts`、`src/water/spray.ts`、`src/cel/postPipeline.ts`、
+  `src/hud/hud.css`、`src/hud/raceTower.css`、`src/hud/finaleCelebration.ts`、
+  `src/hud/finaleOverlay.css`、`src/core/mobileControls.css`。
+- 商业视觉收敛：海面固定为深青蓝到海天青的方向性层级（`0x063c54 -> 0x0b7184 -> 0x5ac3bd`），
+  收窄太阳 / glint / whitecap 强度并保留同一个 opaque depth-write ocean draw；尾流降低洗白，保留
+  单 mesh 的断裂中央含气带和低对比肩浪；水花只调整池化 shader 色值 / alpha 与落水尺寸，闲置池
+  仍为零实例。后处理压低中心 action window 的 energy / wind / air-brake bands，提升真实 ink
+  subject clarity，并把 finish flash 限为短促中心强调。HUD、排名塔、PC primer、移动可见面和
+  Finale overlay 使用深青面板、稳定边距和更低装饰强度；移动命中区、按钮位置、PointerEvent 所有权
+  没有改变。Finale Canvas2D 减少火花、全屏填充、光晕半径和 alpha，结果标题上移缩小，HUD 在结果层
+  降为半透明但门、艇、海面仍留在 live frozen scene。
+- 固定视觉证据：before 保存在 `shots/visual-roadmap/M8/before/desktop/` 与
+  `shots/visual-roadmap/M8/before/mobile/`，after 保存在对应的
+  `shots/visual-roadmap/M8/after/desktop/` 与 `shots/visual-roadmap/M8/after/mobile/`；文件名覆盖
+  `start`、`hairpin`、`opponent-drift-boost`、`flight-cruise`、`landing-impact`、Final 的
+  `impact/hero/settled`。同一 run seed、Auto quality、fixed-step、固定相机；viewport 为桌面
+  `1440x900`、横屏手机 `844x390`，PNG 分别为 `2880x1800` 与 `2532x1170`。M7 before 未覆盖。
+- after 机器读数：桌面 start/hairpin/opponent/flight/landing/final 分别为
+  `335/383569`、`173/311391`、`300/381699`、`225/335599`、`95/306393`、`204/350997`
+  （draw calls/triangles），统一 `2,025,000 drawing pixels/frame`、`16.7ms`、renderer DPR
+  `1.25`。手机对应为 `335/383569`、`177/313623`、`144/342703`、`225/334873`、
+  `105/307903`、`227/373067`，统一 `2,057,250 drawing pixels/frame`、`16.7ms`、renderer
+  DPR `2.5`。Ocean contract 仍为 `246248` triangles、单 mesh / 单 draw、opaque + depthWrite；
+  wake contract 为 `720` positions、`2154` indices、单 mesh；spray capacity `1536`，idle
+  droplet / landing-volume instances 为 `0/0`，landing 继续使用共享池。
+- 验证：`npm run build`、`npm run verify:performance`、`npm run verify:flight`、
+  `npm run verify:mobile`、`npm run verify:release` 均通过；完整 release gate 还通过
+  collision、audio、systems。一次把 desktop/mobile screenshot harness 并发启动的尝试触发严格
+  `5199` 端口竞争并使手机 opponent pulse 读帧不足，随后单独运行 mobile opponent 场景通过原有
+  `changedCss >= 220` / `meanDelta >= 12` 合同；没有改阈值，也没有留下 Vite 进程。
+- 发布状态仍未写入：checked release、remote SHA、Actions、Pages 和最终 pending 交接必须在本轮
+  后续发布后以真实输出补齐；Final gate 的既有白色 authored geometry 仍属于禁止扩张的 route owner，
+  本轮只通过海面 / 后处理 / 庆祝层改善辨识度，是真实遗留风险。
