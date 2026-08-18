@@ -399,6 +399,10 @@ try {
   assert.deepEqual(portraits.map((portrait) => portrait.name),
     ['GLM', 'ChatGPT', 'Gemini', 'Kimi', 'Claude', 'DeepSeek'],
     'driver names must remain the six published model identities');
+  const callsigns = await recordsPage.locator('.driver-card small').allTextContents();
+  assert.deepEqual(callsigns.map((text) => text.split(' · ')[0]),
+    ['格莱美', '欧朋智科', '杰米奈', '月之亮面', '反人类', '浅度求和'],
+    'driver cards must keep the approved Chinese joke callsigns beside the stable model names');
   assert.equal(await recordsPage.locator('.driver-card').count(), 6, 'six drivers must remain reachable');
   assert.equal(await recordsPage.locator('.driver-card:visible').count(), 6,
     'the desktop stage must expose all six stable roster destinations');

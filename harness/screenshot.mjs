@@ -531,6 +531,7 @@ async function verifyOceanMaterialContract(page) {
       rippleFade:[uniforms.uRippleFadeStart?.value, uniforms.uRippleFadeEnd?.value],
       crest:[uniforms.uCrestHeight?.value, uniforms.uCrestSlope?.value, uniforms.uCrestRise?.value],
       foamStrength:uniforms.uFoamStrength?.value,
+      sunPathStrength:uniforms.uSunPathStrength?.value,
       glintStrength:uniforms.uGlintStrength?.value,
       windNormalStrength:uniforms.uWindNormalStrength?.value,
       windFade:[uniforms.uWindFadeStart?.value, uniforms.uWindFadeEnd?.value],
@@ -548,6 +549,8 @@ async function verifyOceanMaterialContract(page) {
   assert.ok(ocean.crest[0] >= 0.2 && ocean.crest[0] <= 0.3 &&
     ocean.crest[1] >= 0.008 && ocean.crest[2] >= 0.01 && ocean.foamStrength <= 1,
   `whitecaps must stay sparse and tied to a high, steep, rising face: ${JSON.stringify(ocean)}`);
+  assert.ok(ocean.sunPathStrength >= 0.2 && ocean.sunPathStrength <= 0.34,
+    `the sun path must be directional but restrained: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.glintStrength >= 0.35 && ocean.glintStrength <= 0.6,
     `moving glints must restore surface life without becoming a sparkle field: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.windNormalStrength >= 0.02 && ocean.windNormalStrength <= 0.05 &&
@@ -561,6 +564,8 @@ async function verifyOceanMaterialContract(page) {
   assert.match(ocean.fragmentShader, /gerstnerNormal\(vOrigXZ, uTime\)/);
   assert.match(ocean.fragmentShader, /vec3 viewDir = normalize\(cameraPosition - vWorldPos\)/);
   assert.match(ocean.fragmentShader, /float whitecap = crest \* steep \* rising \* foamBreak/);
+  assert.match(ocean.fragmentShader, /vec2 sunAxis = normalize\(vec2\(sunDir\.x, sunDir\.z\)\)/,
+    'the broad water reflection must follow the authored sun direction');
   assert.match(ocean.fragmentShader, /whitecap \*= 1\.0 - smoothstep\(170\.0, 340\.0, dist\)/);
   assert.match(ocean.fragmentShader, /fwidth\(glintField\)/,
     'micro glints must be derivative-filtered instead of aliasing across the water');
@@ -693,14 +698,16 @@ async function verifySkyMaterialContract(page) {
     `sky must keep one dome and two batched cloud materials: ${JSON.stringify(sky)}`);
   assert.ok(sky.spriteInfo.slice(0, 8).every((cloud) => cloud.width === 256 && cloud.height === 160) &&
     sky.spriteInfo.slice(8).every((cloud) => cloud.width === 512 && cloud.height === 220 &&
-      cloud.opacity >= 0.7 && cloud.opacity <= 0.85),
+      cloud.opacity >= 0.55 && cloud.opacity <= 0.72),
   `far clouds must use the wide atmospheric texture without becoming a bright slab: ${JSON.stringify(sky.spriteInfo)}`);
   assert.ok(sky.uniformKeys.includes('uSunVisualDir'));
   assert.match(sky.fragmentShader, /uSunVisualDir/);
-  assert.match(sky.fragmentShader, /float disc = 1\.0 - smoothstep\(0\.026, 0\.040, ang\)/,
-    'the visible sun must remain a small, soft-edged disc');
-  assert.match(sky.fragmentShader, /pow\(max\(cos\(/,
-    'sun rays must use tapered angular lobes instead of equal rectangular dashes');
+  assert.match(sky.fragmentShader, /float disc = 1\.0 - smoothstep\(0\.022, 0\.038, ang\)/,
+    'the visible sun must remain a compact, soft-edged disc');
+  assert.match(sky.fragmentShader, /float innerHalo = 1\.0 - smoothstep\(0\.038, 0\.105, ang\)/,
+    'the visible sun must carry a continuous inner atmospheric halo');
+  assert.match(sky.fragmentShader, /float lobeA = pow\(max\(cos\(/,
+    'sun veils must use broad tapered angular lobes instead of hard rays');
 }
 
 async function verifyCommercialCopyContract(page) {

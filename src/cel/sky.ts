@@ -1,10 +1,7 @@
 /**
- * sky.ts — anime sky dome: banded gradient, hard sun disc with a ring of
- * separated rectangular rays, and flat cel clouds on two parallax layers.
- *
- * Everything here is graphic, never photographic: hard color bands, hard
- * disc, hard rectangular rays, crisp cloud silhouettes. No bloom anywhere —
- * the rays are geometry-in-shader, not glow.
+ * sky.ts — graphic sky dome with atmospheric cloud volumes and a restrained
+ * visible sun. The water and hulls keep the shared baked light direction;
+ * this file only owns the sky-facing presentation.
  *
  * The whole rig follows the camera (infinite-ocean illusion); clouds live
  * on fixed-radius rings around it at two depths, with the near layer
@@ -12,8 +9,8 @@
  * state is preallocated — update() allocates nothing.
  *
  * Color pipeline: palette hex values are used verbatim (NoColorSpace /
- * canvas bytes) and nothing in the pipeline tone-maps or converts, so
- * authored colors are exactly what hits the screen.
+ * canvas bytes). Cloud softness is authored into the alpha texture once at
+ * construction time, so the frame loop remains allocation-free.
  */
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
@@ -32,11 +29,6 @@ const SKY_SUN_DIR = SUN_DIR.clone().add(new THREE.Vector3(0, -0.13, 0.18)).norma
 function hash(i: number, k: number): number {
   const s = Math.sin(i * 127.1 + k * 311.7) * 43758.5453;
   return s - Math.floor(s);
-}
-
-/** Palette hex int → CSS '#rrggbb' for canvas fills. */
-function css(hex: number): string {
-  return `#${hex.toString(16).padStart(6, '0')}`;
 }
 
 /** Palette hex → THREE.Color, verbatim (no color-space conversion). */
@@ -79,29 +71,27 @@ void main() {
   col = mix(col, uZenith, smoothstep(0.28, 0.40, h));
 
   // ---------------------------------------------------------------
-  // SUN — ONE hard disc + a ring of separated rectangular rays
-  // (GGXrd-style graphic sun). Angular distance/azimuth around the
-  // sun direction drive everything; every shape is a hard step.
+  // SUN — a compact bright core, two soft atmospheric halos, and a pair of
+  // broad directional veils. The shapes fade continuously into the sky so
+  // the sun reads as light in the atmosphere instead of a HUD icon.
   // ---------------------------------------------------------------
   float ang = acos(clamp(dot(dir, uSunVisualDir), -1.0, 1.0)); // radians off-sun
   vec3 t0 = normalize(cross(uSunVisualDir, vec3(0.0, 1.0, 0.0)));
   vec3 t1 = cross(t0, uSunVisualDir);
   float az = atan(dot(dir, t1), dot(dir, t0)); // azimuth around the sun
 
-  // A small disc and a quiet atmospheric ring keep the sun occasional. The
-  // old equal rectangular rays read as a spinner; these tapered lobes vary in
-  // width and fade continuously into the sky instead of drawing a symbol.
-  float disc = 1.0 - smoothstep(0.026, 0.040, ang);
-  float halo = 1.0 - smoothstep(0.040, 0.145, ang);
-  float ring = smoothstep(0.040, 0.047, ang) * (1.0 - smoothstep(0.047, 0.060, ang));
-  float rot = floor(uTime * 0.35) * 0.025;
-  float raysA = pow(max(cos((az + rot) * 4.0), 0.0), 10.0);
-  float raysB = pow(max(cos((az - rot * 0.7) * 7.0 + 0.55), 0.0), 16.0);
-  float rayBand = smoothstep(0.062, 0.078, ang) * (1.0 - smoothstep(0.078, 0.17, ang));
-  float rays = (raysA * 0.72 + raysB * 0.28) * rayBand;
-
-  float warm = clamp(halo * 0.075 + ring * 0.16 + rays * 0.26, 0.0, 0.30);
-  col = mix(col, uSunFlare, warm);
+  float disc = 1.0 - smoothstep(0.022, 0.038, ang);
+  float innerHalo = 1.0 - smoothstep(0.038, 0.105, ang);
+  float outerHalo = 1.0 - smoothstep(0.105, 0.235, ang);
+  float rot = uTime * 0.018;
+  float lobeA = pow(max(cos((az + rot) * 2.0), 0.0), 3.5);
+  float lobeB = pow(max(cos((az - rot * 0.6) * 3.0 + 0.35), 0.0), 5.0);
+  float veilBand = smoothstep(0.052, 0.085, ang) * (1.0 - smoothstep(0.085, 0.28, ang));
+  float veils = (lobeA * 0.65 + lobeB * 0.35) * veilBand;
+  float atmosphericGlow = innerHalo * 0.14 + outerHalo * 0.038 + veils * 0.24;
+  float warm = clamp(atmosphericGlow, 0.0, 0.38);
+  vec3 sunMist = mix(uSunFlare, uSunCore, 0.48);
+  col = mix(col, sunMist, warm);
   col = mix(col, uSunCore, disc);
 
   gl_FragColor = vec4(col, 1.0);
@@ -110,77 +100,99 @@ void main() {
 
 // -------------------------------------------------------------- clouds ----
 
-/**
- * Puffy cloud silhouette on canvas: rim color first, body shifted down over
- * it (leaving a hard sun-side rim crescent on top), then a hard horizontal
- * shade band across the bottom clipped by the silhouette. Zero blur, zero
- * gradients — flat graphic shapes only.
- */
-function makeCloudTexture(): THREE.CanvasTexture {
-  const w = 256;
-  const h = 160;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
+type CloudLobe = readonly [number, number, number, number, number];
 
-  // One puffy silhouette path (flat-bottomed cluster of hard circles).
-  const puff = (dy: number, color: string): void => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.ellipse(128, 122 + dy, 84, 30, 0, 0, Math.PI * 2); // flat base
-    ctx.arc(84, 100 + dy, 30, 0, Math.PI * 2);
-    ctx.arc(124, 82 + dy, 40, 0, Math.PI * 2);
-    ctx.arc(168, 98 + dy, 32, 0, Math.PI * 2);
-    ctx.arc(196, 114 + dy, 22, 0, Math.PI * 2);
-    ctx.fill();
-  };
-
-  puff(0, css(PALETTE.cloudRim)); // full silhouette in the rim color
-  puff(8, css(PALETTE.cloudBody)); // body shifted down => hard top rim crescent
-  // Hard bottom shade band, clipped to the pixels drawn so far.
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.fillStyle = css(PALETTE.cloudShade);
-  ctx.fillRect(0, 116, w, h - 116);
-  ctx.globalCompositeOperation = 'source-over';
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.NoColorSpace; // canvas bytes verbatim
-  return tex;
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
 }
 
-/** A wide, low-contrast remote cloud bank; it reads as atmosphere, not a second set of icons. */
-function makeRemoteCloudTexture(): THREE.CanvasTexture {
-  const w = 512;
-  const h = 220;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
-
-  const puff = (dy: number, fill: string): void => {
-    ctx.fillStyle = fill;
-    ctx.beginPath();
-    ctx.ellipse(256, 162 + dy, 196, 38, 0, 0, Math.PI * 2);
-    ctx.ellipse(112, 142 + dy, 78, 48, 0, 0, Math.PI * 2);
-    ctx.ellipse(188, 116 + dy, 92, 67, 0, 0, Math.PI * 2);
-    ctx.ellipse(286, 102 + dy, 108, 79, 0, 0, Math.PI * 2);
-    ctx.ellipse(380, 127 + dy, 86, 58, 0, 0, Math.PI * 2);
-    ctx.ellipse(452, 148 + dy, 56, 40, 0, 0, Math.PI * 2);
-    ctx.fill();
+function noise2(x: number, y: number): number {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const fadeX = fx * fx * (3 - 2 * fx);
+  const fadeY = fy * fy * (3 - 2 * fy);
+  const corner = (cx: number, cy: number): number => {
+    const s = Math.sin(cx * 127.1 + cy * 311.7) * 43758.5453;
+    return s - Math.floor(s);
   };
+  return lerp(
+    lerp(corner(ix, iy), corner(ix + 1, iy), fadeX),
+    lerp(corner(ix, iy + 1), corner(ix + 1, iy + 1), fadeX),
+    fadeY,
+  );
+}
 
-  // A cool back bank prevents the far layer from repeating the near orange rim.
-  puff(0, 'rgba(174, 244, 255, 0.34)');
-  puff(14, 'rgba(255, 255, 255, 0.78)');
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.fillStyle = 'rgba(184, 224, 245, 0.72)';
-  ctx.fillRect(0, 148, w, h - 148);
-  ctx.globalCompositeOperation = 'source-over';
+function cloudFbm(x: number, y: number): number {
+  return noise2(x, y) * 0.58 + noise2(x * 2.03 + 7.1, y * 2.03 - 3.4) * 0.28 +
+    noise2(x * 4.07 - 2.2, y * 4.07 + 5.7) * 0.14;
+}
 
+function makeCloudTextureFromDensity(
+  width: number,
+  height: number,
+  lobes: readonly CloudLobe[],
+  alphaScale: number,
+  far: boolean,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(width, height);
+  const pixels = image.data;
+  for (let y = 0; y < height; y++) {
+    const v = y / (height - 1);
+    for (let x = 0; x < width; x++) {
+      const u = x / (width - 1);
+      let shape = 0;
+      for (const [cx, cy, rx, ry, weight] of lobes) {
+        const dx = (u - cx) / rx;
+        const dy = (v - cy) / ry;
+        shape += Math.exp(-(dx * dx + dy * dy) * 2.25) * weight;
+      }
+      const base = Math.exp(-Math.pow((v - (far ? 0.69 : 0.70)) / (far ? 0.17 : 0.2), 2));
+      shape = Math.min(1, shape * (far ? 0.7 : 0.82) + base * (far ? 0.14 : 0.18));
+      const detail = cloudFbm(u * (far ? 7.0 : 9.0), v * (far ? 4.0 : 5.4));
+      const density = Math.max(0, Math.min(1, (shape + (detail - 0.5) * (far ? 0.18 : 0.28) - 0.22) * 1.55));
+      const edge = Math.min(1, shape * 1.8);
+      const alpha = Math.round(density * edge * alphaScale * 255);
+      const underside = Math.max(0, Math.min(1, (v - (far ? 0.55 : 0.5)) * 2.4));
+      const light = Math.max(0, Math.min(1, 0.98 - underside * (far ? 0.23 : 0.34) + (detail - 0.5) * 0.14));
+      const i = (y * width + x) * 4;
+      pixels[i] = Math.round((far ? 222 : 250) * light);
+      pixels[i + 1] = Math.round((far ? 239 : 253) * light);
+      pixels[i + 2] = Math.round((far ? 247 : 255) * (light - underside * 0.06));
+      pixels[i + 3] = alpha;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.NoColorSpace;
   return tex;
+}
+
+/**
+ * Near cloud: translucent, irregular lobes with an internal cool underside.
+ * No outline or flat base is drawn; the alpha falloff is what supplies the
+ * volume when the sprite catches the bright sky behind it.
+ */
+function makeCloudTexture(): THREE.CanvasTexture {
+  return makeCloudTextureFromDensity(256, 160, [
+    [0.12, 0.64, 0.19, 0.27, 0.62], [0.29, 0.47, 0.2, 0.34, 0.88],
+    [0.48, 0.38, 0.22, 0.39, 0.96], [0.68, 0.46, 0.21, 0.36, 0.84],
+    [0.86, 0.63, 0.19, 0.27, 0.6], [0.42, 0.76, 0.5, 0.18, 0.35],
+  ], 0.84, false);
+}
+
+/** A wide, low-contrast remote cloud bank with a soft density gradient. */
+function makeRemoteCloudTexture(): THREE.CanvasTexture {
+  return makeCloudTextureFromDensity(512, 220, [
+    [0.1, 0.64, 0.22, 0.22, 0.28], [0.3, 0.53, 0.27, 0.28, 0.42],
+    [0.52, 0.45, 0.3, 0.31, 0.54], [0.74, 0.55, 0.26, 0.26, 0.44],
+    [0.94, 0.66, 0.2, 0.22, 0.25], [0.57, 0.78, 0.58, 0.16, 0.22],
+  ], 0.5, true);
 }
 
 // ------------------------------------------------------------------ Sky ----
@@ -224,7 +236,7 @@ export class Sky {
     dome.renderOrder = -1000; // first thing in the opaque pass
     group.add(dome);
 
-    // --- clouds: 2 parallax layers of flat billboards on rings ---
+    // --- clouds: two atmospheric billboard layers on rings ---
     const cloudTex = makeCloudTexture();
     const remoteCloudTex = makeRemoteCloudTexture();
     const nearMat = new THREE.SpriteMaterial({
@@ -236,7 +248,7 @@ export class Sky {
     const farMat = new THREE.SpriteMaterial({
       map: remoteCloudTex,
       color: flat(0xffffff),
-      opacity: 0.78,
+      opacity: 0.62,
       transparent: true,
       depthWrite: false,
       fog: false,
@@ -256,9 +268,9 @@ export class Sky {
       const dir = hash(i, 6) > 0.15 ? 1 : -1; // mostly one way, a few rebels
       this.cOmega[i] = dir * (far ? 0.0018 : 0.0042) * (0.7 + hash(i, 7) * 0.6);
 
-      const sx = far ? 760 + hash(i, 8) * 320 : 250 + hash(i, 9) * 130;
-      sprite.scale.set(sx, sx * (far ? 0.38 : 0.62), 1);
-      sprite.rotation.z = far ? (hash(i, 10) - 0.5) * 0.08 : 0;
+      const sx = far ? 780 + hash(i, 8) * 360 : 300 + hash(i, 9) * 170;
+      sprite.scale.set(sx, sx * (far ? 0.34 : 0.58), 1);
+      sprite.rotation.z = (hash(i, 10) - 0.5) * (far ? 0.12 : 0.06);
       this.sprites.push(sprite);
       group.add(sprite);
     }

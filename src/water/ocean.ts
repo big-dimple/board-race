@@ -209,6 +209,7 @@ uniform float uCrestRise;
 uniform float uFoamStrength;
 uniform float uSunGloss;
 uniform float uSunStrength;
+uniform float uSunPathStrength;
 uniform float uGlintStrength;
 uniform float uFresnelStrength;
 uniform float uWindNormalStrength;
@@ -318,6 +319,20 @@ void main() {
   float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength;
   sunSpec *= 0.42 + 0.58 * rippleFade;
   col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
+
+  // The sun path is a broad, broken reflection ribbon rather than a field of
+  // independent glitter pixels. Its long axis follows the authored sun
+  // direction, while the cross-axis breakup keeps it alive as the swell moves.
+  vec2 sunAxis = normalize(vec2(sunDir.x, sunDir.z));
+  vec2 sunCross = vec2(-sunAxis.y, sunAxis.x);
+  float sunPathA = 0.5 + 0.5 * sin(dot(vOrigXZ, sunAxis) * 0.22 + uTime * 0.32);
+  float sunPathB = 0.5 + 0.5 * sin(dot(vOrigXZ, sunCross) * 0.76 - uTime * 0.54);
+  float sunPathField = sunPathA * 0.7 + sunPathB * 0.3;
+  float sunPathRuns = smoothstep(0.66, 0.86, sunPathField);
+  float sunPathFade = smoothstep(12.0, 30.0, dist) * (1.0 - smoothstep(220.0, 430.0, dist));
+  float sunPath = pow(max(dot(n, halfDir), 0.0), uSunGloss * 1.18) *
+    sunPathRuns * uSunPathStrength * sunPathFade;
+  col = mix(col, uColorSparkle, clamp(sunPath, 0.0, 0.23));
 
   // Wind-facing runs are broad and continuous rather than isolated sparkles.
   // Derivative filtering keeps their edge stable as the camera skims the sea.
@@ -432,8 +447,9 @@ export class Ocean {
       uCrestRise: { value: 0.015 },
       uFoamStrength: { value: 0.9 },
       uSunGloss: { value: 34.0 },
-      uSunStrength: { value: 0.4 },
-      uGlintStrength: { value: 0.5 },
+      uSunStrength: { value: 0.44 },
+      uSunPathStrength: { value: 0.24 },
+      uGlintStrength: { value: 0.54 },
       uFresnelStrength: { value: 0.34 },
       uWindNormalStrength: { value: 0.038 },
       uWindFadeStart: { value: 18.0 },
