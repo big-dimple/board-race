@@ -16,6 +16,13 @@
       "status": "changed-and-verified"
     },
     {
+      "id": "art-performance-standard",
+      "authority": "docs/llmwiki.md",
+      "summaries": ["AGENTS.md", "docs/development-handoff.md"],
+      "verifier": "npm run verify:performance",
+      "status": "current"
+    },
+    {
       "id": "immersive-fullscreen",
       "authority": "docs/llmwiki.md",
       "summaries": ["README.md", "docs/development-handoff.md"],

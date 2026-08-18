@@ -172,6 +172,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
   sharing a transform, `InstancedMesh` for repeated geometry, and shared materials /
   textures. Keep independently animated, skinned, culled, or lifecycle-owned pieces
   separate; batching may not erase action information or create a second transform truth.
+- Global art and performance standards apply to every prop, scene, boat, rider, water,
+  and route change. Before implementation, record the ownership/batching choice, avoid
+  per-fixed-step allocations by reusing pools or typed arrays, and prefer opaque/depth-tested
+  paths over avoidable transparent overdraw. New culling bounds require a local conservative
+  envelope and fixed-camera pixel evidence. Any change that touches pixels, lifecycle, or
+  fixed-step state must add or update the matching harness contract and pass the release gates.
 - The seventh scored flight atomically retires route warnings and failures.
   Its recovery still completes, then the player may approach the visible gold
   Final portal from either direction; passing outside the columns is retryable.
