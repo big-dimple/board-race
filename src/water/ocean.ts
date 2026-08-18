@@ -320,18 +320,20 @@ void main() {
   sunSpec *= 0.42 + 0.58 * rippleFade;
   col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
 
-  // The sun path is a broad, broken reflection ribbon rather than a field of
-  // independent glitter pixels. Its long axis follows the authored sun
-  // direction, while the cross-axis breakup keeps it alive as the swell moves.
-  vec2 sunAxis = normalize(vec2(sunDir.x, sunDir.z));
-  vec2 sunCross = vec2(-sunAxis.y, sunAxis.x);
-  float sunPathA = 0.5 + 0.5 * sin(dot(vOrigXZ, sunAxis) * 0.22 + uTime * 0.32);
-  float sunPathB = 0.5 + 0.5 * sin(dot(vOrigXZ, sunCross) * 0.76 - uTime * 0.54);
-  float sunPathField = sunPathA * 0.7 + sunPathB * 0.3;
-  float sunPathRuns = smoothstep(0.66, 0.86, sunPathField);
+  // The broad sun path is a rough mirror response, not a painted world-space
+  // ribbon. Wave-facing facets carry it; low-frequency roughness only breaks
+  // the lobe into natural runs after the physical half-vector test succeeds.
+  float sunFacing = clamp(dot(n, sunDir) * 0.5 + 0.5, 0.0, 1.0);
+  float waveMotion = abs(waveDerivT(vOrigXZ, uTime));
+  float crestShimmer = smoothstep(0.025, 0.26, waveMotion);
+  float roughnessField = 0.5 +
+    0.24 * sin(dot(vOrigXZ, vec2(0.27, 0.93)) * 0.32 + uTime * 0.22) +
+    0.16 * sin(dot(vOrigXZ, vec2(-0.84, 0.31)) * 0.57 - uTime * 0.38);
+  float roughnessRuns = smoothstep(0.48, 0.76, roughnessField);
   float sunPathFade = smoothstep(12.0, 30.0, dist) * (1.0 - smoothstep(220.0, 430.0, dist));
-  float sunPath = pow(max(dot(n, halfDir), 0.0), uSunGloss * 1.18) *
-    sunPathRuns * uSunPathStrength * sunPathFade;
+  float sunPath = pow(max(dot(n, halfDir), 0.0), uSunGloss * 0.62) *
+    sunFacing * (0.62 + roughnessRuns * 0.38) * (0.68 + crestShimmer * 0.32) *
+    uSunPathStrength * sunPathFade;
   col = mix(col, uColorSparkle, clamp(sunPath, 0.0, 0.23));
 
   // Wind-facing runs are broad and continuous rather than isolated sparkles.
@@ -353,24 +355,37 @@ void main() {
     vec2(-0.48, 0.88) * cos(dot(vOrigXZ, vec2(-0.48, 0.88)) * 9.1 - uTime * 3.8) * 0.7;
   vec3 glintNormal = normalize(n + vec3(fineSlope.x, 0.0, fineSlope.y) * 0.024 * rippleFade);
   float glintSpec = pow(max(dot(glintNormal, halfDir), 0.0), uSunGloss * 1.65);
-  float glintField = 0.5 + 0.31 * sin(dot(vOrigXZ, vec2(0.91, 0.27)) * 1.9 + uTime * 1.8) +
-    0.19 * sin(dot(vOrigXZ, vec2(-0.34, 0.94)) * 3.1 - uTime * 2.25);
+  float glintField = 0.5 + 0.28 * sin(dot(vOrigXZ, vec2(0.91, 0.27)) * 4.2 + uTime * 2.15) +
+    0.22 * sin(dot(vOrigXZ, vec2(-0.34, 0.94)) * 6.8 - uTime * 2.75);
   float glintAa = max(fwidth(glintField) * 1.4, 0.012);
-  float glintRuns = smoothstep(0.73 - glintAa, 0.73 + glintAa, glintField);
-  float glintDistance = smoothstep(10.0, 34.0, dist) * (1.0 - smoothstep(230.0, 430.0, dist));
+  float glintRuns = smoothstep(0.78 - glintAa, 0.9 + glintAa, glintField);
+  float glintDistance = smoothstep(14.0, 32.0, dist) * (1.0 - smoothstep(190.0, 360.0, dist));
   float glint = glintSpec * glintRuns * glintDistance * uGlintStrength;
-  col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.46));
+  col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.34));
+
+  // A second, finer glitter layer restores the small broken points visible in
+  // real sunlit water. It is still gated by the live micro-normal and
+  // half-vector, so it cannot become a flat animated noise overlay.
+  float microField = 0.5 +
+    0.24 * sin(dot(vOrigXZ, vec2(1.7, 0.42)) * 5.8 + uTime * 2.8) +
+    0.18 * sin(dot(vOrigXZ, vec2(-0.58, 1.52)) * 9.6 - uTime * 3.6);
+  float microAa = max(fwidth(microField) * 1.35, 0.009);
+  float microRuns = smoothstep(0.58 - microAa, 0.76 + microAa, microField);
+  float microSpec = pow(max(dot(glintNormal, halfDir), 0.0), uSunGloss * 1.12);
+  float microDistance = smoothstep(8.0, 22.0, dist) * (1.0 - smoothstep(150.0, 320.0, dist));
+  float microSparkle = microSpec * microRuns * microDistance * sunFacing * 0.24;
+  col = mix(col, uColorSparkle, clamp(microSparkle, 0.0, 0.18));
 
   // Whitecaps are gameplay information: only high, steep, rising faces earn
   // them. Broad noise breaks coverage without recoloring the rest of the sea.
   float dhdt = waveDerivT(vOrigXZ, uTime);
-  float crest = smoothstep(uCrestHeight, uCrestHeight + 0.18, vH);
-  float steep = smoothstep(uCrestSlope, uCrestSlope + 0.065, slope);
-  float rising = smoothstep(uCrestRise, uCrestRise + 0.115, dhdt);
+  float crest = smoothstep(uCrestHeight + 0.035, uCrestHeight + 0.21, vH);
+  float steep = smoothstep(uCrestSlope + 0.018, uCrestSlope + 0.078, slope);
+  float rising = smoothstep(uCrestRise + 0.02, uCrestRise + 0.13, dhdt);
   float foamNoise = vnoise(vOrigXZ / 4.8 + vec2(uTime * 0.045, -uTime * 0.025));
   float foamBreak = smoothstep(0.38, 0.68, foamNoise);
   float whitecap = crest * steep * rising * foamBreak * uFoamStrength;
-  whitecap = smoothstep(0.035, 0.46, whitecap) * 0.78;
+  whitecap = smoothstep(0.06, 0.5, whitecap) * 0.58;
   whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
   col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
 
@@ -448,8 +463,8 @@ export class Ocean {
       uFoamStrength: { value: 0.9 },
       uSunGloss: { value: 34.0 },
       uSunStrength: { value: 0.44 },
-      uSunPathStrength: { value: 0.24 },
-      uGlintStrength: { value: 0.54 },
+      uSunPathStrength: { value: 0.2 },
+      uGlintStrength: { value: 0.58 },
       uFresnelStrength: { value: 0.34 },
       uWindNormalStrength: { value: 0.038 },
       uWindFadeStart: { value: 18.0 },

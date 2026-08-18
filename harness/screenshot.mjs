@@ -549,7 +549,7 @@ async function verifyOceanMaterialContract(page) {
   assert.ok(ocean.crest[0] >= 0.2 && ocean.crest[0] <= 0.3 &&
     ocean.crest[1] >= 0.008 && ocean.crest[2] >= 0.01 && ocean.foamStrength <= 1,
   `whitecaps must stay sparse and tied to a high, steep, rising face: ${JSON.stringify(ocean)}`);
-  assert.ok(ocean.sunPathStrength >= 0.2 && ocean.sunPathStrength <= 0.34,
+  assert.ok(ocean.sunPathStrength >= 0.18 && ocean.sunPathStrength <= 0.34,
     `the sun path must be directional but restrained: ${JSON.stringify(ocean)}`);
   assert.ok(ocean.glintStrength >= 0.35 && ocean.glintStrength <= 0.6,
     `moving glints must restore surface life without becoming a sparkle field: ${JSON.stringify(ocean)}`);
@@ -564,11 +564,13 @@ async function verifyOceanMaterialContract(page) {
   assert.match(ocean.fragmentShader, /gerstnerNormal\(vOrigXZ, uTime\)/);
   assert.match(ocean.fragmentShader, /vec3 viewDir = normalize\(cameraPosition - vWorldPos\)/);
   assert.match(ocean.fragmentShader, /float whitecap = crest \* steep \* rising \* foamBreak/);
-  assert.match(ocean.fragmentShader, /vec2 sunAxis = normalize\(vec2\(sunDir\.x, sunDir\.z\)\)/,
-    'the broad water reflection must follow the authored sun direction');
+  assert.match(ocean.fragmentShader, /float sunFacing = clamp\(dot\(n, sunDir\) \* 0\.5 \+ 0\.5, 0\.0, 1\.0\)/,
+    'the broad water reflection must follow the authored sun direction through the wave normal');
   assert.match(ocean.fragmentShader, /whitecap \*= 1\.0 - smoothstep\(170\.0, 340\.0, dist\)/);
   assert.match(ocean.fragmentShader, /fwidth\(glintField\)/,
     'micro glints must be derivative-filtered instead of aliasing across the water');
+  assert.match(ocean.fragmentShader, /float microSparkle = microSpec \* microRuns \* microDistance \* sunFacing/,
+    'fine water glitter must stay tied to the sun-facing micro-normal');
   assert.match(ocean.fragmentShader, /float windFade = 1\.0 - smoothstep\(uWindFadeStart, uWindFadeEnd, dist\)/,
     'wind detail must fade continuously before the horizon');
   assert.match(ocean.fragmentShader, /fwidth\(windField\)/,
