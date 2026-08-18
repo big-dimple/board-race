@@ -28,6 +28,7 @@ import { SpraySystem, type SprayDebugState } from './water/spray';
 import { Sky } from './cel/sky';
 import { createPostPipeline } from './cel/postPipeline';
 import { Boat } from './game/boat';
+import { WorldNameplates } from './game/worldNameplates';
 import { JetTrailSystem } from './game/jetTrail';
 import { Rider } from './game/rider';
 import { CHECKPOINT_US, Course, GRID_SLOTS } from './game/course';
@@ -139,6 +140,11 @@ for (const racer of roster) {
   boat.riderMount.add(rider.object);
   riders.push(rider);
 }
+const worldNameplates = new WorldNameplates(
+  stage.camera,
+  boats.map((boat, index) => ({ boat, name: roster[index].name })),
+);
+stage.scene.add(worldNameplates.object);
 
 const rivalDirector = new RivalDirector();
 rivalDirector.setRoster(roster);
@@ -353,6 +359,15 @@ const race = new Race(course, boats, {
   },
 }, roster);
 
+function worldNameplatesActive(): boolean {
+  // The armed gold portal owns the final approach. Keeping labels out of this
+  // short target-reading window also prevents text from changing the portal's
+  // existing depth/energy occlusion contract; the frozen Final Station keeps
+  // the labels visible after the crossing.
+  return race.phase !== 'ready' && !captureOverlayVisible &&
+    !(race.phase === 'racing' && course.finalStationArmed());
+}
+
 function buildAiControllers(): AIController[] {
   return roster.map((racer) => new AIController(
     racer.personality,
@@ -379,6 +394,7 @@ function applySelectedDriver(id: string): void {
   race.setDefinitions(roster);
   tower.setRoster(roster);
   openingShowcase.setRoster(roster);
+  worldNameplates.setNames(roster.map((definition) => definition.name));
   // Selection already happens on a frozen READY grid. Updating the six
   // definitions in place keeps the portrait reveal and its audio
   // transient alive; a full reset here would unnecessarily rebuild the
@@ -1355,6 +1371,7 @@ function step(dt: number, _t: number): void {
 
 function render(frameMs: number): void {
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
+  worldNameplates.update(worldNameplatesActive());
   pipeline.render();
   processCaptureQueue();
   stage.updatePerf(frameMs);
@@ -5262,6 +5279,7 @@ if (HARNESS) {
         stage.camera.lookAt(...freeCamPose.l);
       }
       stage.renderer.info.reset();
+      worldNameplates.update(worldNameplatesActive());
       pipeline.render();
       processCaptureQueue();
     },
@@ -5361,6 +5379,7 @@ if (HARNESS) {
     pcPrimerCase: harnessPcPrimerCase,
     openCapturePreview: async (kind) => {
       stage.renderer.info.reset();
+      worldNameplates.update(worldNameplatesActive());
       pipeline.render();
       const blob = await capture.create({
         kind,
@@ -5586,6 +5605,7 @@ if (HARNESS) {
         const frameMs = Math.max(0.01, now - previous);
         previous = now;
         stage.renderer.info.reset();
+        worldNameplates.update(worldNameplatesActive());
         pipeline.render();
         stage.updatePerf(frameMs);
         times.push(frameMs);

@@ -71,11 +71,22 @@ void main() {
   inkAlpha = max(inkAlpha, texture2D(tInk, vUv - vec2(0.0, inkTexel.y)).a);
   float inkSolid = step(0.12, inkAlpha);
 
+  // The center and lower-middle of the frame are the player's action window:
+  // hull / rider, route markers, landing contact and rivals must read before
+  // post motion. This mask only removes ambient composite energy from that
+  // window; state-owned action pulses continue to use the outer frame.
+  float driveDistance = length(vec2(p.x * 0.92, (p.y + 0.04) * 1.16));
+  float driveWindow = 1.0 - smoothstep(0.20, 0.78, driveDistance);
+  float actionSignal = clamp(max(max(uBoost, uFlight), max(uAirBrake, max(uDrift, max(uImpact, uBattle)))), 0.0, 1.0);
+  float surfaceWindow = 1.0 - smoothstep(0.08, 0.28, uFlight);
+  float ambientCut = driveWindow * (0.34 - actionSignal * 0.10) * surfaceWindow;
+
   // The impact bends the image away from the vanishing point for only a few
   // frames. Energy luminance adds a small local heat-haze displacement.
   vec3 e0 = texture2D(tEnergy, vUv).rgb;
   float eLum = dot(e0, vec3(0.22, 0.68, 0.10)) * (1.0 - inkSolid);
-  vec2 warpUv = vUv - dir * (uImpact * 0.008 + eLum * (0.0015 + uFlight * 0.002)) * motion;
+  vec2 warpUv = vUv - dir * (uImpact * 0.008 + eLum * (0.0015 + uFlight * 0.002)) *
+    (1.0 - driveWindow * 0.28 * (1.0 - uFlight)) * motion;
   vec2 aberr = dir * (uChroma * 2.0 + uBoost * 0.5) * motion / uResolution;
   vec3 col;
   col.r = texture2D(tDiffuse, clamp(warpUv + aberr, 0.001, 0.999)).r;
@@ -86,18 +97,21 @@ void main() {
   // and length, producing streaks rather than a uniform starburst.
   const float TAU = 6.28318530718;
   float angle = atan(p.y, p.x);
-  float laneF = (angle + 3.14159265359) / TAU * 116.0;
+  // Fewer, shorter lanes preserve the sense of speed without turning the
+  // whole frame into a cheap radial sticker. The water and wake must remain
+  // the hero even during a boost or flight handoff.
+  float laneF = (angle + 3.14159265359) / TAU * 84.0;
   float lane = floor(laneF);
   float laneCenter = abs(fract(laneF) - 0.5);
-  float laneWidth = mix(0.014, 0.045, hash11(lane + 17.0));
-  float thin = 1.0 - smoothstep(laneWidth, laneWidth + 0.022, laneCenter);
+  float laneWidth = mix(0.009, 0.026, hash11(lane + 17.0));
+  float thin = 1.0 - smoothstep(laneWidth, laneWidth + 0.016, laneCenter);
   float phase = hash11(lane * 3.71);
-  float travel = fract(r * 5.6 - uTime * (2.4 + uBoost * 6.0 + uPressure * 5.0) + phase);
-  float dash = smoothstep(0.62, 0.24, travel) * smoothstep(0.02, 0.12, travel);
-  float edgeMask = smoothstep(0.34, 0.58, r) * (1.0 - smoothstep(0.76, 1.02, r));
-  float windAmount = clamp(uBoost * 0.85 + uFlight * (0.10 + uPressure * 0.16) + uImpact * 0.28, 0.0, 0.9) * motion;
-  float streak = thin * dash * edgeMask * windAmount;
-  vec3 windColor = mix(vec3(0.18, 0.82, 1.0), vec3(0.48, 1.0, 0.05), clamp(uBoost * 1.2, 0.0, 1.0));
+  float travel = fract(r * 5.2 - uTime * (1.8 + uBoost * 4.8 + uPressure * 3.8) + phase);
+  float dash = smoothstep(0.58, 0.3, travel) * smoothstep(0.04, 0.17, travel);
+  float edgeMask = smoothstep(0.54, 0.72, r) * (1.0 - smoothstep(0.88, 1.02, r));
+  float windAmount = clamp(uBoost * 0.56 + uFlight * (0.06 + uPressure * 0.1) + uImpact * 0.2, 0.0, 0.62) * motion;
+  float streak = thin * dash * edgeMask * windAmount * (1.0 - driveWindow * 0.42);
+  vec3 windColor = mix(vec3(0.34, 0.86, 0.98), vec3(0.58, 1.0, 0.24), clamp(uBoost * 1.2, 0.0, 1.0));
 
   // Air braking cuts transverse blue-white blades across the tunnel, making the
   // handling change visible before the player reads the HUD.
@@ -108,10 +122,17 @@ void main() {
   // of clipping the entire frame to white.
   col *= 1.0 - min(0.16, uImpact * 0.11 + uFlight * 0.035);
   vec3 energy = texture2D(tEnergy, clamp(vUv + dir * eLum * 0.003, 0.001, 0.999)).rgb;
-  energy *= 1.0 - inkSolid;
+  energy *= (1.0 - inkSolid) * (1.0 - ambientCut);
   col += energy * (0.20 + uFlight * 0.08 + uImpact * 0.10);
-  col += windColor * streak * (0.42 + uBoost * 0.68);
+  col += windColor * streak * (0.26 + uBoost * 0.44);
   col += vec3(0.42, 0.94, 1.0) * brakeBands * 0.48;
+
+  // Restore a small amount of the unwarped beauty plate over real inked
+  // subjects in the action window. This is subtraction from the post layer,
+  // not a brightness lift, and keeps rider / hull silhouettes stable during
+  // high-energy frames.
+  float subjectClarity = smoothstep(0.05, 0.26, inkAlpha) * driveWindow * 0.20;
+  col = mix(col, texture2D(tDiffuse, vUv).rgb, subjectClarity);
 
   // Overtake celebration lives in the sky strip. The cockpit/track region is
   // deliberately untouched so a reward can never hide the next gate.

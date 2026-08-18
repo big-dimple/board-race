@@ -200,6 +200,8 @@ async function verifySurfaceGuideVisualContract(page) {
   assert.equal(visual.ribbonSide, 0, 'the surface veil must render once from above, not double-blend');
   assert.match(visual.ribbonVertexShader, /waveHeight\(p\.xz, uTime\)/,
     'the translucent veil must follow the live ocean displacement');
+  assert.match(visual.ribbonFragmentShader, /uniform vec3 uRibbonColor/,
+    'the route body must use a neutral mist color separate from green action markers');
   assert.doesNotMatch(visual.ribbonFragmentShader, /railInk|crossbar|arrowPhase/,
     'the retired thick rails and procedural V wallpaper must not return');
   assert.equal(visual.arrowIsInstanced, true, 'the visible arrow field must be a bounded moving instance set');

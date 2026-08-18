@@ -63,6 +63,25 @@
       "summaries": ["docs/development-handoff.md"],
       "verifier": "npm run build",
       "status": "current"
+    },
+    {
+      "id": "commercial-art-roadmap",
+      "authority": "docs/commercial-art-roadmap.md",
+      "summaries": ["docs/llmwiki.md", "docs/development-handoff.md"],
+      "verifier": "git diff --check",
+      "status": "current",
+      "milestone": {
+        "current": "M7",
+        "status": "pending",
+        "evidence": "shots/visual-roadmap/M7/before/; shots/visual-roadmap/M7/evidence/course-fix-before/; shots/visual-roadmap/M7/evidence/course-fix-after/; M7 focused blocker-repair records",
+        "baseline": "dirty M0-M6 candidate worktree after fresh M7 desktop 1440x900 and landscape mobile 844x390 captures",
+        "owner": ["docs/development-handoff.md", "docs/llmwiki.md", "docs/knowledge-map.json"],
+        "wavesChanged": false,
+        "verification": "fresh M7 screenshot matrix passed desktop/mobile capture; focused before/after probe passed unchanged surface-guide bounds after navSpine 0.18 -> 0.28; build and npm run verify:flight passed (gameplay/gamepad); full release remains pending",
+        "pendingExperiment": "no remaining surface-guide blocker; M0-M6 candidates, full verify:release, checked release, remote SHA, Actions, Pages and live verification remain pending",
+        "poolEvidence": "M7 adds no source owner, mesh, material, render target, instance pool or fixed-step allocation; focused runtime probe observed world-nameplates 6/6, landing droplets 28 and landing volume 1",
+        "releaseStatus": "M7 blocker repair completed; checked release remains pending until full verify:release and closeout; no M7 release commit, remote SHA, Actions, Pages deploy or live candidate verification"
+      }
     }
   ]
 }

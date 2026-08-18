@@ -88,7 +88,7 @@ function buildLandingVolumeGeometry(): THREE.BufferGeometry {
     return index;
   };
 
-  const segments = 16;
+  const segments = 18;
   for (let i = 0; i < segments; i++) {
     const center = (i / segments) * Math.PI * 2;
     // Adjacent shutters meet at the same angular edge. Duplicate vertices
@@ -98,11 +98,11 @@ function buildLandingVolumeGeometry(): THREE.BufferGeometry {
     const a0 = center - half;
     const a1 = center + half;
     const inner = 0.22;
-    const outer = 0.6 + 0.055 * Math.sin(center * 2.0 + 0.8) + 0.03 * Math.sin(center * 5.0);
-    const height = 0.38 + 0.065 * Math.sin(center * 2.0 - 0.4) + 0.045 * Math.sin(center * 5.0 + 0.7);
+    const outer = 1.34 + 0.09 * Math.sin(center * 2.0 + 0.8) + 0.05 * Math.sin(center * 5.0);
+    const height = 0.72 + 0.09 * Math.sin(center * 2.0 - 0.4) + 0.06 * Math.sin(center * 5.0 + 0.7);
     const nextCenter = ((i + 1) / segments) * Math.PI * 2;
-    const nextOuter = 0.6 + 0.055 * Math.sin(nextCenter * 2.0 + 0.8) + 0.03 * Math.sin(nextCenter * 5.0);
-    const nextHeight = 0.38 + 0.065 * Math.sin(nextCenter * 2.0 - 0.4) + 0.045 * Math.sin(nextCenter * 5.0 + 0.7);
+    const nextOuter = 1.34 + 0.09 * Math.sin(nextCenter * 2.0 + 0.8) + 0.05 * Math.sin(nextCenter * 5.0);
+    const nextHeight = 0.72 + 0.09 * Math.sin(nextCenter * 2.0 - 0.4) + 0.06 * Math.sin(nextCenter * 5.0 + 0.7);
     const v0 = push(Math.cos(a0) * inner, 0.03, Math.sin(a0) * inner, 0, 0.42);
     const v1 = push(Math.cos(a1) * inner, 0.03, Math.sin(a1) * inner, 0, 0.42);
     const v2 = push(Math.cos(a0) * outer, height, Math.sin(a0) * outer, 0, 0.58);
@@ -114,16 +114,18 @@ function buildLandingVolumeGeometry(): THREE.BufferGeometry {
   // scalloped top edge bends as a single volume, avoiding the radial shard
   // silhouette produced by independent triangular spray cards.
   for (const side of [-1, 1]) {
-    const lengthSegments = 8;
-    const riseSegments = 5;
+    // More subdivisions round the curtain silhouette without changing the
+    // bounded single-volume contract (252 triangles total).
+    const lengthSegments = 9;
+    const riseSegments = 6;
     const grid: number[][] = [];
     for (let along = 0; along <= lengthSegments; along++) {
       const u = along / lengthSegments;
       const zBase = 0.82 - u * 2.35;
       const endFade = Math.pow(Math.sin(u * Math.PI), 0.42);
       const crestVariation = 0.88 + 0.14 * Math.sin(u * Math.PI * 3 + (side + 1) * 0.7);
-      const reach = (0.72 + Math.sin(u * Math.PI) * 0.26) * crestVariation;
-      const peak = (0.3 + Math.sin(u * Math.PI) * 0.16) * crestVariation;
+      const reach = (0.38 + Math.sin(u * Math.PI) * 0.12) * crestVariation;
+      const peak = (0.25 + Math.sin(u * Math.PI) * 0.14) * crestVariation;
       const row: number[] = [];
       for (let rise = 0; rise <= riseSegments; rise++) {
         const p = rise / riseSegments;
@@ -131,7 +133,9 @@ function buildLandingVolumeGeometry(): THREE.BufferGeometry {
         const x = side * (0.43 + reach * (0.14 * p + 0.86 * p * p));
         const y = 0.035 + peak * lift;
         const z = zBase - p * (0.14 + u * 0.28);
-        const acrossFade = 0.12 + 0.88 * Math.sin(p * Math.PI * 0.82);
+        // Both the chine and the crest taper to a point. A non-zero top edge
+        // made the subdivided curtain read as a transparent wedge in profile.
+        const acrossFade = Math.pow(Math.sin(p * Math.PI), 0.72);
         row.push(push(x, y, z, 1, endFade * acrossFade));
       }
       grid.push(row);
@@ -178,7 +182,7 @@ void main() {
   float crownDecay = 1.0 - smoothstep(0.38, 0.92, age);
   float sheetDecay = 1.0 - smoothstep(0.28, 0.78, age);
   float decay = mix(crownDecay, sheetDecay, step(0.5, aPart));
-  float spread = mix(0.64, 1.48, smoothstep(0.0, 0.58, age));
+  float spread = mix(0.76, 1.52, smoothstep(0.0, 0.58, age));
   float height = attack * decay * mix(0.82, 1.32, aStrength);
 
   vec3 local = position;
@@ -220,22 +224,23 @@ void main() {
   // triangular shutters. The radial falloff and slow azimuthal breakup keep
   // the single shared volume soft at close range without adding a texture.
   float radius = length(vFlowCoord);
-  float crownRim = 1.0 - smoothstep(0.62, 0.94, radius);
+  float crownRim = 1.0 - smoothstep(0.68, 1.2, radius);
   float curtainRim = 1.0 - smoothstep(2.15, 3.25, radius);
   float rim = mix(crownRim, curtainRim, sheet);
   float azimuth = atan(vFlowCoord.y, vFlowCoord.x);
   float breakup = 0.72 + 0.28 * sin(azimuth * 8.0 + vAge * 4.0 + sin(azimuth * 3.0) * 0.8);
-  float curtain = smoothstep(0.06, 0.28, vHeight) *
-    (1.0 - smoothstep(0.56, 0.94, vHeight));
+  float curtain = smoothstep(0.12, 0.3, vHeight) *
+    (1.0 - smoothstep(0.42, 0.62, vHeight));
   float fold = 0.58 + 0.42 * smoothstep(-0.45, 0.55,
     sin(vFlowCoord.x * 8.4 - vFlowCoord.y * 5.2 - vAge * 9.0));
   // The side curtains are a supporting volume, never the silhouette of the
   // impact. Keep them as a soft glint between droplets so the crown remains
   // the readable event instead of turning into a pair of plastic fins.
-  float sheetAlpha = 0.28 * flow * curtain * fold;
+  float sheetBreak = smoothstep(0.46, 0.72, 0.5 + 0.5 * sin(vFlowCoord.y * 6.4 - vAge * 8.0));
+  float sheetAlpha = 0.11 * flow * curtain * fold * (0.2 + 0.8 * sheetBreak);
   // Keep both layers soft: the crown is a rounded pressure ring, while the
   // chine sheets stretch back into the wake without becoming hard fins.
-  float alpha = vAlpha * mix(0.5, sheetAlpha, sheet) * rim * breakup;
+  float alpha = vAlpha * mix(0.72, sheetAlpha, sheet) * rim * breakup;
   vec3 col = mix(water, foam, clamp(foamMix + rim * 0.08, 0.0, 1.0));
   col = mix(col, foam, smoothstep(0.45, 0.95, vHeight) * 0.12);
   gl_FragColor = vec4(col, alpha);
@@ -448,7 +453,7 @@ export class SpraySystem implements ISpray {
         up * eject,
         right.z * lateral * eject + forward.z * (inherit - aft * eject),
         0.62 + this.random() * 0.28,
-        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale * 1.55,
+        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale * 1.8,
         this.random() < 0.28 ? 1 : 0,
         1.1 + strength * 0.28 + this.random() * 0.45,
       );

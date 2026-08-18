@@ -305,6 +305,16 @@ void main() {
     crossBlend * cos(windPhaseC) * 0.18;
   n = normalize(n + vec3(windSlope.x, 0.0, windSlope.y) * uWindNormalStrength * windFade);
 
+  // A second, slower cross-sea layer gives the swells a broad shoulder and
+  // keeps the horizon from reading as a flat blue plate. It is normal-only:
+  // the CPU water height, hull draft and collision plane remain untouched.
+  vec2 stormSlope =
+    windDir * cos(windPhaseA * 0.52 - windPhaseC * 0.24) * 0.52 +
+    crossWind * cos(windPhaseB * 0.74 + windPhaseA * 0.18) * 0.34 +
+    crossBlend * cos(windPhaseC * 0.68 - windPhaseB * 0.22) * 0.2;
+  n = normalize(n + vec3(stormSlope.x, 0.0, stormSlope.y) * uWindNormalStrength *
+    (1.18 + uOpeningArt * 0.32) * windFade);
+
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   vec3 sunDir = normalize(uSunDir);
   float ndl = clamp(dot(n, sunDir) * 0.5 + 0.5, 0.0, 1.0);
@@ -335,7 +345,7 @@ void main() {
     0.24 * sin(dot(vOrigXZ, vec2(0.27, 0.93)) * 0.32 + uTime * 0.22) +
     0.16 * sin(dot(vOrigXZ, vec2(-0.84, 0.31)) * 0.57 - uTime * 0.38);
   float roughnessRuns = smoothstep(0.48, 0.76, roughnessField);
-  float sunPathFade = smoothstep(12.0, 30.0, dist) * (1.0 - smoothstep(220.0, 430.0, dist));
+  float sunPathFade = smoothstep(8.0, 34.0, dist) * (1.0 - smoothstep(150.0, 360.0, dist));
   float sunPath = pow(max(dot(n, halfDir), 0.0), uSunGloss * 0.62) *
     sunFacing * (0.62 + roughnessRuns * 0.38) * (0.68 + crestShimmer * 0.32) *
     uSunPathStrength * sunPathFade * (1.0 + uOpeningArt * 0.24);
@@ -350,13 +360,13 @@ void main() {
   float windRuns = smoothstep(0.54 - windAa, 0.78 + windAa, windField);
   float windSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss * 1.2) *
     windRuns * uWindSpecStrength * windFade;
-  col = mix(col, uColorSparkle, clamp(windSpec, 0.0, 0.24));
+  col = mix(col, uColorSparkle, clamp(windSpec, 0.0, 0.26));
 
   // A restrained sky-facing sheen keeps the non-sun side alive. It reuses the
   // filtered wind field instead of adding another noise octave or texture.
   float windSheen = windRuns * (0.1 + fresnel * 0.44 + slope * 0.24) *
     uWindSpecStrength * windFade;
-  col = mix(col, uColorCrest, clamp(windSheen, 0.0, 0.15));
+  col = mix(col, uColorCrest, clamp(windSheen, 0.0, 0.16));
 
 #if OCEAN_FINE_DETAIL == 1
   // Fine directional facets turn the broad response into short, moving glints.
@@ -370,8 +380,8 @@ void main() {
   float glintField = 0.5 + 0.28 * sin(dot(vOrigXZ, vec2(0.91, 0.27)) * 4.2 + uTime * 2.15) +
     0.22 * sin(dot(vOrigXZ, vec2(-0.34, 0.94)) * 6.8 - uTime * 2.75);
   float glintAa = max(fwidth(glintField) * 1.4, 0.012);
-  float glintRuns = smoothstep(0.78 - glintAa, 0.9 + glintAa, glintField);
-  float glintDistance = smoothstep(14.0, 32.0, dist) * (1.0 - smoothstep(190.0, 360.0, dist));
+  float glintRuns = smoothstep(0.72 - glintAa, 0.88 + glintAa, glintField);
+  float glintDistance = smoothstep(8.0, 34.0, dist) * (1.0 - smoothstep(150.0, 360.0, dist));
   float glint = glintSpec * glintRuns * glintDistance * uGlintStrength * (1.0 + uOpeningArt * 0.34);
   col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.34));
 
@@ -389,13 +399,17 @@ void main() {
   // Whitecaps are gameplay information: only high, steep, rising faces earn
   // them. Existing moving fields break coverage into runs without another
   // four-corner noise sample.
-  float crest = smoothstep(uCrestHeight - 0.02, uCrestHeight + 0.15, vH);
-  float steep = smoothstep(uCrestSlope + 0.005, uCrestSlope + 0.065, slope);
-  float rising = smoothstep(uCrestRise, uCrestRise + 0.1, dhdt);
+  float crest = smoothstep(uCrestHeight - 0.035, uCrestHeight + 0.075, vH);
+  float steep = smoothstep(uCrestSlope + 0.008, uCrestSlope + 0.055, slope);
+  float rising = smoothstep(uCrestRise, uCrestRise + 0.075, dhdt);
   float foamField = roughnessField * 0.56 + windField * 0.44;
-  float foamBreak = smoothstep(0.46, 0.68, foamField);
-  float whitecap = crest * steep * rising * foamBreak * uFoamStrength * (1.0 + uOpeningArt * 0.18);
-  whitecap = smoothstep(0.035, 0.34, whitecap) * 0.72;
+  float foamBreak = smoothstep(0.62, 0.82, foamField);
+  float whitecap = crest * steep * rising * foamBreak;
+  // Keep whitecaps as rare crest events rather than a second broad water
+  // colour. The authored thresholds above require height, slope, and upward
+  // motion together; this final ramp leaves the near action lane mostly open.
+  whitecap = whitecap * uFoamStrength * (1.0 + uOpeningArt * 0.16);
+  whitecap = smoothstep(0.12, 0.42, whitecap) * 0.58;
   whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
   col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
 
@@ -476,12 +490,12 @@ export class Ocean {
       uRippleStrength: { value: performance ? 0.05 : high ? 0.068 : 0.064 },
       uRippleFadeStart: { value: 58.0 },
       uRippleFadeEnd: { value: performance ? 135.0 : high ? 180.0 : 165.0 },
-      uCrestHeight: { value: 0.21 },
-      uCrestSlope: { value: 0.01 },
-      uCrestRise: { value: 0.015 },
-      uFoamStrength: { value: performance ? 0.86 : 0.96 },
-      uSunGloss: { value: performance ? 30.0 : 27.0 },
-      uSunStrength: { value: performance ? 0.46 : high ? 0.54 : 0.51 },
+      uCrestHeight: { value: 0.3 },
+      uCrestSlope: { value: 0.028 },
+      uCrestRise: { value: 0.045 },
+      uFoamStrength: { value: performance ? 0.74 : high ? 0.82 : 0.78 },
+      uSunGloss: { value: performance ? 29.0 : high ? 25.0 : 27.0 },
+      uSunStrength: { value: performance ? 0.46 : high ? 0.56 : 0.52 },
       uSunPathStrength: { value: performance ? 0.23 : high ? 0.31 : 0.28 },
       uGlintStrength: { value: high ? 0.76 : 0.68 },
       uFresnelStrength: { value: 0.34 },
