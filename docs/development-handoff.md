@@ -127,11 +127,10 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 - `npm run build`、`npm run verify:flight`、`npm run verify:mobile`、`npm run verify:systems`、
   `npm run verify:collision`、`npm run verify:audio` 和 `npm run verify:performance` 分项通过；
   build 只有既有的单包体积警告。
-- `ready`、`start`、`radio-technique`、`final-rival-portal` 及移动端 `start` / `radio-technique`
-  截图已人工复核；名次榜和浮动电台均显示新选手名称。
-- `landing-impact`、`landing-plume`、`landing-settle` 和 `water` 已分别在 `1440x900` 桌面与
-  `844x390` 横屏手机定格复核；水花在船体轮廓外可见、不遮操作区，`1.35s` 后两个实例池
-  都归零。Flight 合同同时锁定真实接触、单次事件、屏幕像素和最多两个附加 draw。
+- 桌面与移动端的 READY、比赛、电台、落水和 Final 视觉状态均已人工复核；名次榜和浮动电台
+  均显示新选手名称，水花在船体轮廓外可见且不遮操作区。
+- 落水合同同时锁定真实接触、单次事件、屏幕像素和最多两个附加 draw；短暂效果结束后两个
+  实例池均归零。
 - flight 合同实赚五格、验证第六次不溢出但仍兑现 BOOST、满仓起飞只扣一格，并在仍余
   三格时拒绝同一飞第二次续航；桌面和手机库存读数都锁定到真实状态。
 - systems 合同模拟了原生分享退出 fullscreen、关闭手势首次恢复被拒，以及下一次真实
