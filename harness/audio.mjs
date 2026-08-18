@@ -167,7 +167,7 @@ try {
   await mobilePage.goto(`http://127.0.0.1:${port}/?harness=1&mobile=1&quality=performance`, { waitUntil: 'load', timeout: 60000 });
   await mobilePage.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
   await mobilePage.locator('.driver-select-go').click();
-  await advanceWithWallClock(mobilePage, 6.2);
+  await advanceWithWallClock(mobilePage, 8.2);
   const mobileAudio = await mobilePage.evaluate(() => window.__harness.audioState());
   assert.equal((await mobilePage.evaluate(() => window.__harness.playerState())).phase, 'racing');
   assert.equal(mobileAudio.contextStateAtGo, 'running');

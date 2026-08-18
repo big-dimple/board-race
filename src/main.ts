@@ -22,6 +22,7 @@ import { Haptics, type HapticCue } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
 import { ImmersiveModeController } from './core/immersiveMode';
 import { Ocean } from './water/ocean';
+import { SeaDecor } from './water/seaDecor';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem, type SprayDebugState } from './water/spray';
 import { Sky } from './cel/sky';
@@ -57,6 +58,7 @@ import { HUD } from './hud/hud';
 import { GameAudio } from './audio/audio';
 import { MixerControls } from './audio/mixerControls';
 import { DriverSelect } from './hud/driverSelect';
+import { OpeningShowcase } from './hud/openingShowcase';
 import { RaceTower } from './hud/raceTower';
 import { FinaleOverlay } from './hud/finaleOverlay';
 import { ExpansionGallery } from './hud/expansionGallery';
@@ -101,6 +103,8 @@ const ocean = new Ocean({
   quality: stage.quality.mode,
 });
 stage.scene.add(ocean.object);
+const seaDecor = new SeaDecor(stage.quality.mode);
+stage.scene.add(seaDecor.object);
 
 const spray = new SpraySystem(stage.quality.mode);
 spray.object.name = 'spray-system';
@@ -199,6 +203,7 @@ const driverSelect = new DriverSelect(
   },
   toggleDrivingCoach,
 );
+const openingShowcase = new OpeningShowcase(hudLayer, stage.camera, stage.renderer.domElement, boats, roster);
 const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, openFinaleCapturePreview);
 const capturePreview = new CapturePreview(
   hudLayer,
@@ -265,6 +270,8 @@ let previousChallengeTier: ChallengeTier = 'unqualified';
 let currentRun = 0;
 let worldTime = 0;
 let presentationTime = 0;
+const OPENING_SHOWCASE_S = 3.6;
+let freshStartPending = false;
 let medalElapsed = 0;
 let finaleElapsed = 0;
 let finalePresentation = false;
@@ -371,17 +378,37 @@ function applySelectedDriver(id: string): void {
   ais = buildAiControllers();
   race.setDefinitions(roster);
   tower.setRoster(roster);
+  openingShowcase.setRoster(roster);
   // Selection already happens on a frozen READY grid. Updating the six
   // definitions in place keeps the portrait reveal and its audio
   // transient alive; a full reset here would unnecessarily rebuild the
   // presentation state on every tap.
 }
 
+function queueFreshStart(): void {
+  if (race.phase !== 'ready' || freshStartPending) return;
+  freshStartPending = true;
+  // The authored opening is already the active run's immersive phase. This
+  // keeps a rejected desktop fullscreen request recoverable while the
+  // presentation is still holding input before the countdown.
+  immersive.setPhase('active');
+  openingShowcase.start(OPENING_SHOWCASE_S);
+  seaDecor.setOpening(true);
+  ocean.setOpeningIntensity(1);
+  sky.setOpeningIntensity(1);
+  // The opening owns the whole visual stage; keep the READY sound utility
+  // from intercepting the immersive recovery affordance in the corner.
+  mixer.setVisible(false);
+  driverSelect.setLaunchPending(true);
+}
+
 function requestFreshStart(): void {
-  if (mobileInput.enabled) mobileInput.requestGo();
-  else {
+  if (mobileInput.enabled) {
+    mobileInput.requestGo();
+    queueFreshStart();
+  } else {
     immersive.requestGo();
-    startFreshCountdown();
+    queueFreshStart();
   }
 }
 
@@ -470,6 +497,12 @@ function resumeInterruption(): void {
 
 function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
+  freshStartPending = false;
+  openingShowcase.stop();
+  seaDecor.setOpening(false);
+  ocean.setOpeningIntensity(0);
+  sky.setOpeningIntensity(0);
+  driverSelect.setLaunchPending(false);
   immersive.setPhase('active');
   const coach = drivingCoach.progress;
   pcControlPrimer.arm(
@@ -668,6 +701,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     cameraRig.update(dt, boats[0], presentationTime);
     ocean.update(presentationTime, stage.camera.position);
     sky.update(presentationTime, stage.camera.position);
+    seaDecor.update(presentationTime, stage.camera.position);
     course.update(dt, presentationTime);
   }
   pipeline.update(dt, finalPresentation ? presentationTime : retryLessonFrozenT, frozen, phase);
@@ -676,6 +710,12 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
 }
 
 function resetRace(): void {
+  freshStartPending = false;
+  openingShowcase.stop();
+  seaDecor.setOpening(false);
+  ocean.setOpeningIntensity(0);
+  sky.setOpeningIntensity(0);
+  driverSelect.setLaunchPending(false);
   retryLessonActive = false;
   retryLessonTimer = 0;
   retryLessonDuration = 0;
@@ -783,6 +823,7 @@ function step(dt: number, _t: number): void {
   gamepadInput.poll(race.phase === 'ready' && !interruptionActive);
   updateActiveInputDevice();
   haptics.update();
+  immersive.update(dt);
   if (interruptionActive) {
     if (gamepadInput.consumeConfirm()) resumeInterruption();
     return;
@@ -794,7 +835,7 @@ function step(dt: number, _t: number): void {
     mobileInput.setControlPhase('inactive');
     return;
   }
-  const frozenDesktopReady = race.phase === 'ready' && DESKTOP_DRIVER_STAGE.matches;
+  const frozenDesktopReady = race.phase === 'ready' && DESKTOP_DRIVER_STAGE.matches && !openingShowcase.active;
   if (!frozenDesktopReady) presentationTime += dt;
   // Consume retry edges in every phase. Otherwise a key pressed during the
   // race remains queued and can erase the defeat screen on the failure frame.
@@ -867,21 +908,25 @@ function step(dt: number, _t: number): void {
     const mobileGo = mobileInput.consumeGoRequest();
     const selectLeft = input.consumePress('ArrowLeft') || input.consumePress('KeyA');
     const selectRight = input.consumePress('ArrowRight') || input.consumePress('KeyD');
-    if (selectLeft || gamepadInput.consumeSelectLeft()) driverSelect.move(-1);
-    if (selectRight || gamepadInput.consumeSelectRight()) driverSelect.move(1);
+    if (!freshStartPending && (selectLeft || gamepadInput.consumeSelectLeft())) driverSelect.move(-1);
+    if (!freshStartPending && (selectRight || gamepadInput.consumeSelectRight())) driverSelect.move(1);
     mobileInput.consumeAnyPress();
     mobileInput.setControlPhase('inactive');
     driverSelect.updateControllerStatus(gamepadInput.status());
     driverSelect.setCoachStatus(drivingCoach.progress.status);
     if (!frozenDesktopReady) cameraRig.update(dt, boats[0], presentationTime);
-    ocean.update(worldTime, stage.camera.position);
-    sky.update(worldTime, stage.camera.position);
-    course.update(0, worldTime);
+    const readySceneTime = openingShowcase.active ? presentationTime : worldTime;
+    ocean.update(readySceneTime, stage.camera.position);
+    sky.update(readySceneTime, stage.camera.position);
+    seaDecor.update(readySceneTime, stage.camera.position);
+    openingShowcase.update(dt);
+    course.update(0, readySceneTime);
     tower.update(dt, race);
     hud.update(dt, race, boats[0], boats);
     pipeline.update(dt, worldTime, boats[0].state, 'ready');
     audio.update(dt);
-    if (enterPressed || spaceConfirmPressed || mobileGo || gamepadConfirm) startFreshCountdown();
+    if (enterPressed || spaceConfirmPressed || mobileGo || gamepadConfirm) queueFreshStart();
+    if (freshStartPending && openingShowcase.finished && immersive.goStartReady()) startFreshCountdown();
     return;
   }
 
@@ -896,6 +941,7 @@ function step(dt: number, _t: number): void {
       cameraRig.update(dt, boats[0], presentationTime);
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
+      seaDecor.update(worldTime, stage.camera.position);
       course.update(0, worldTime);
     }
     tower.update(dt, race);
@@ -1201,6 +1247,7 @@ function step(dt: number, _t: number): void {
   cameraRig.update(dt, boats[0], worldTime);
   ocean.update(worldTime, stage.camera.position);
   sky.update(worldTime, stage.camera.position);
+  seaDecor.update(worldTime, stage.camera.position);
   course.update(dt, worldTime);
   for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
   spray.update(dt, worldTime);
@@ -1387,7 +1434,7 @@ window.addEventListener('keydown', (event) => {
   }
   // Keep the request inside the trusted READY keydown. The fixed-step loop
   // still consumes the edge and starts the countdown on its normal schedule.
-  if (race.phase === 'ready' && (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
+  if (race.phase === 'ready' && !freshStartPending && (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
     immersive.requestGo();
   }
 });

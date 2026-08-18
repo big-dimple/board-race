@@ -1071,6 +1071,9 @@ async function verifyFlightGuideVisualContract(page) {
       forceSinglePass: Boolean(material?.forceSinglePass),
       visualStartU: ribbon?.userData?.visualStartU ?? -1,
       authoredEntryU: ribbon?.userData?.authoredEntryU ?? -1,
+      endpointTaperF: ribbon?.userData?.endpointTaperF ?? -1,
+      endpointMinWidth: ribbon?.userData?.endpointMinWidth ?? -1,
+      endpointMinAlpha: ribbon?.userData?.endpointMinAlpha ?? -1,
       vertexShader: material?.vertexShader ?? '',
       fragmentShader: material?.fragmentShader ?? '',
     };
@@ -1081,6 +1084,12 @@ async function verifyFlightGuideVisualContract(page) {
     assert.equal(route.style, 'white-mist-corridor');
     assert.ok(Math.abs(route.visualStartU - route.authoredEntryU) <= 1e-6,
       `flight ${route.route} corridor must start at its real entry, with no pre-entry mist bridge: ${JSON.stringify(route)}`);
+    assert.equal(route.endpointTaperF, 0.07,
+      `flight ${route.route} corridor terminals need a authored taper: ${JSON.stringify(route)}`);
+    assert.equal(route.endpointMinWidth, 0.14,
+      `flight ${route.route} corridor terminals need a narrow residual veil, not a hard rectangle: ${JSON.stringify(route)}`);
+    assert.equal(route.endpointMinAlpha, 0.2,
+      `flight ${route.route} corridor terminals need a soft alpha floor: ${JSON.stringify(route)}`);
     assert.equal(route.mist, 0xffffff,
       `flight ${route.route} must use neutral white mist, not a second blue-green slab`);
     assert.equal(route.deep, 0xe8e8e8,
@@ -1118,6 +1127,8 @@ async function verifyFlightGuideVisualContract(page) {
       `flight ${route.route} edge flow must remain neutral instead of mixing blue-green uniforms`);
     assert.match(route.fragmentShader, /float recoveryEdge =/,
       `flight ${route.route} recovery must retain the same cel edge hierarchy`);
+    assert.match(route.fragmentShader, /float endpointFade = smoothstep\(0\.0, 0\.070, endpointDistance\)/,
+      `flight ${route.route} corridor ends must fade through mist instead of a clipped sheet`);
   }
   assert.equal(new Set(materialContract.map((route) => route.fragmentShader)).size, 1,
     'all seven flights and their recovery tails must share one visual grammar');
@@ -1236,6 +1247,10 @@ async function verifyFlightContract(page) {
   assert.equal(state.worldTime, readyPose.worldTime);
   await page.keyboard.down('Space');
   await page.evaluate(() => window.__harness.advance(1 / 30));
+  // GO owns a short, input-locked opening showcase before the authored
+  // countdown. Advance the fixed-step clock through that presentation here.
+  await page.waitForTimeout(50);
+  await page.evaluate(() => window.__harness.advance(3.7));
   state = await page.evaluate(() => window.__harness.playerState());
   assert.equal(state.phase, 'countdown', 'Space must start the same full countdown as Enter');
   assert.equal((await page.evaluate(() => window.__harness.audioState())).scene, 'countdown');
@@ -2119,6 +2134,12 @@ async function verifyFlightContract(page) {
     'moving direction markers need a readable but bounded route cadence');
   assert.equal(routeGuidance.surfaceGuideArrowSpeedMps, 10,
     'surface arrows must move forward rather than only pulsing in place');
+  assert.equal(routeGuidance.surfaceGuideTailFadeStartM, 12,
+    'the near surface tail must remain readable before it settles into the wake');
+  assert.equal(routeGuidance.surfaceGuideTailFadeEndM, 30,
+    'the near surface tail must dissolve over a real distance instead of snapping');
+  assert.equal(routeGuidance.surfaceGuideMaskFeatherM, 5,
+    'surface ownership edges need a short water-space feather');
   assert.ok(routeGuidance.surfaceGuideArrowCount >= 15 && routeGuidance.surfaceGuideArrowCount <= 17,
     `only the current lookahead needs moving arrows: ${JSON.stringify(routeGuidance)}`);
   assert.equal(routeGuidance.surfaceGuideTurnChevronCount, 3,
@@ -2782,8 +2803,11 @@ async function verifyGamepadContract(page) {
   let padStatus = await page.evaluate(() => window.__harness.gamepadStatus());
   assert.equal(padStatus.connected, true);
   assert.equal(padStatus.index, 1);
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'ready',
+    'the first A / Cross edge that reveals a controller must be accepted into the opening lock');
+  await page.evaluate(() => window.__harness.advance(3.7));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'countdown',
-    'the first A / Cross edge that reveals a controller must start READY immediately');
+    'the accepted controller edge must enter countdown after the opening showcase');
   await page.evaluate(() => {
     window.__gamepadFixture.padButton(1, 0, false);
     window.__harness.scenario('ready');
@@ -2817,8 +2841,11 @@ async function verifyGamepadContract(page) {
     window.__gamepadFixture.padButton(1, 0, true);
     window.__harness.advance(1 / 30);
   });
+  assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'ready',
+    'A / Cross must confirm the selected driver and enter the opening lock');
+  await page.evaluate(() => window.__harness.advance(3.7));
   assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'countdown',
-    'A / Cross must confirm the selected driver and start the countdown');
+    'A / Cross must confirm the selected driver and start the countdown after the showcase');
   await page.evaluate(() => window.__harness.advance(4.4));
   let heldCountdownState = await page.evaluate(() => window.__harness.playerState());
   assert.equal(heldCountdownState.phase, 'racing');
@@ -3436,7 +3463,7 @@ async function verifyMobileControls(page) {
   await page.locator('.hud-lesson-continue').click();
   assert.equal((await page.evaluate(() => window.__harness.playerState())).phase, 'ready');
   await page.locator('.driver-select-go').click();
-  await page.evaluate(() => window.__harness.advance(4.35));
+  await page.evaluate(() => window.__harness.advance(8.05));
   await page.evaluate(() => {
     for (let i = 0; i < 30 && !window.__harness.playerState().coachVisible; i++) window.__harness.advance(0.15);
   });

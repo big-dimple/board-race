@@ -55,6 +55,7 @@ uniform vec3 uSunVisualDir; // visible sun direction; lighting remains shared in
 uniform vec3 uSunCore;
 uniform vec3 uSunFlare;
 uniform float uTime;     // seconds — drives the slow ray rotation
+uniform float uOpeningArt;
 
 varying vec3 vDir;
 
@@ -89,6 +90,7 @@ void main() {
   float veilBand = smoothstep(0.052, 0.085, ang) * (1.0 - smoothstep(0.085, 0.28, ang));
   float veils = (lobeA * 0.65 + lobeB * 0.35) * veilBand;
   float atmosphericGlow = innerHalo * 0.14 + outerHalo * 0.038 + veils * 0.24;
+  atmosphericGlow *= 1.0 + uOpeningArt * 0.2;
   float warm = clamp(atmosphericGlow, 0.0, 0.38);
   vec3 sunMist = mix(uSunFlare, uSunCore, 0.48);
   col = mix(col, sunMist, warm);
@@ -222,6 +224,7 @@ export class Sky {
       uSunCore: { value: flat(PALETTE.sunCore) },
       uSunFlare: { value: flat(PALETTE.sunFlare) },
       uTime: { value: 0 },
+      uOpeningArt: { value: 0 },
     };
     const skyMat = new THREE.ShaderMaterial({
       name: 'CelSky',
@@ -287,5 +290,9 @@ export class Sky {
       const r = this.cRadius[i];
       this.sprites[i].position.set(Math.cos(a) * r, this.cAlt[i], Math.sin(a) * r);
     }
+  }
+
+  setOpeningIntensity(value: number): void {
+    this.skyUniforms.uOpeningArt.value = Math.max(0, Math.min(1, value));
   }
 }

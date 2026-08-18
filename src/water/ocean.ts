@@ -160,6 +160,7 @@ function buildOceanGeometry(): THREE.BufferGeometry {
 
 const VERT = /* glsl */ `
 uniform float uTime;
+uniform float uOpeningArt;
 
 varying vec2 vOrigXZ; // undisplaced world XZ — source of truth for all shading
 varying float vViewZ; // view-space Z of the displaced fragment (negative forward)
@@ -183,6 +184,7 @@ const FRAG = /* glsl */ `
 #include <packing>
 
 uniform float uTime;
+uniform float uOpeningArt;
 
 // hull foam collar (prepass depth)
 uniform sampler2D uDepthTex;
@@ -318,7 +320,8 @@ void main() {
   // A broad sun response gives the surface scale without a field of blinking
   // symbols. Near ripples naturally split it into short moving highlights.
   vec3 halfDir = normalize(sunDir + viewDir);
-  float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength;
+  float artSparkle = 1.0 + uOpeningArt * 0.28;
+  float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength * artSparkle;
   sunSpec *= 0.42 + 0.58 * rippleFade;
   col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.72));
 
@@ -335,7 +338,7 @@ void main() {
   float sunPathFade = smoothstep(12.0, 30.0, dist) * (1.0 - smoothstep(220.0, 430.0, dist));
   float sunPath = pow(max(dot(n, halfDir), 0.0), uSunGloss * 0.62) *
     sunFacing * (0.62 + roughnessRuns * 0.38) * (0.68 + crestShimmer * 0.32) *
-    uSunPathStrength * sunPathFade;
+    uSunPathStrength * sunPathFade * (1.0 + uOpeningArt * 0.24);
   col = mix(col, uColorSparkle, clamp(sunPath, 0.0, 0.23));
 
   // Wind-facing runs are broad and continuous rather than isolated sparkles.
@@ -369,7 +372,7 @@ void main() {
   float glintAa = max(fwidth(glintField) * 1.4, 0.012);
   float glintRuns = smoothstep(0.78 - glintAa, 0.9 + glintAa, glintField);
   float glintDistance = smoothstep(14.0, 32.0, dist) * (1.0 - smoothstep(190.0, 360.0, dist));
-  float glint = glintSpec * glintRuns * glintDistance * uGlintStrength;
+  float glint = glintSpec * glintRuns * glintDistance * uGlintStrength * (1.0 + uOpeningArt * 0.34);
   col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.34));
 
   // Recombine fields already paid for above into fine broken points. This
@@ -391,7 +394,7 @@ void main() {
   float rising = smoothstep(uCrestRise, uCrestRise + 0.1, dhdt);
   float foamField = roughnessField * 0.56 + windField * 0.44;
   float foamBreak = smoothstep(0.46, 0.68, foamField);
-  float whitecap = crest * steep * rising * foamBreak * uFoamStrength;
+  float whitecap = crest * steep * rising * foamBreak * uFoamStrength * (1.0 + uOpeningArt * 0.18);
   whitecap = smoothstep(0.035, 0.34, whitecap) * 0.72;
   whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
   col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
@@ -463,6 +466,7 @@ export class Ocean {
     const crestColor = new THREE.Color(PALETTE.waterCrest).lerp(originalMidColor, 0.42);
     this.uniforms = {
       uTime: { value: 0 },
+      uOpeningArt: { value: 0 },
       uDepthTex: { value: opts.depthTexture },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uCameraNear: { value: opts.cameraNear },
@@ -538,5 +542,9 @@ export class Ocean {
 
   setResolution(deviceW: number, deviceH: number): void {
     (this.uniforms.uResolution.value as THREE.Vector2).set(deviceW, deviceH);
+  }
+
+  setOpeningIntensity(value: number): void {
+    this.uniforms.uOpeningArt.value = Math.max(0, Math.min(1, value));
   }
 }

@@ -10,10 +10,10 @@
     },
     {
       "id": "technical-contracts",
-      "authority": "docs/llmwiki.md",
+      "authority": "src/contracts.ts",
       "summaries": ["README.md", "docs/development-handoff.md"],
       "verifier": "npm run verify:release",
-      "status": "changed-and-verified"
+      "status": "current"
     },
     {
       "id": "art-performance-standard",
@@ -24,24 +24,24 @@
     },
     {
       "id": "immersive-fullscreen",
-      "authority": "docs/llmwiki.md",
+      "authority": "src/core/immersiveMode.ts",
       "summaries": ["README.md", "docs/development-handoff.md"],
       "verifier": "npm run verify:systems",
-      "status": "changed-and-verified"
+      "status": "current"
     },
     {
       "id": "rival-drift-pulse",
-      "authority": "docs/llmwiki.md",
+      "authority": "src/game/boat.ts",
       "summaries": ["README.md", "docs/development-handoff.md"],
       "verifier": "npm run verify:flight",
-      "status": "changed-and-verified"
+      "status": "current"
     },
     {
       "id": "opening-radio-guidance",
-      "authority": "docs/llmwiki.md",
+      "authority": "src/hud/openingShowcase.ts",
       "summaries": ["README.md", "docs/development-handoff.md"],
       "verifier": "npm run verify:systems",
-      "status": "changed-and-verified"
+      "status": "current"
     },
     {
       "id": "project-status",

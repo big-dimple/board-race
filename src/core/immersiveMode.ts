@@ -10,6 +10,7 @@ export type FullscreenOutcome =
   | 'rejected';
 export type FullscreenRequestSource = 'none' | 'go' | 'control' | 'capture-return' | 'restore';
 type ImmersivePhase = 'ready' | 'active' | 'presentation';
+const CHROME_GO_BUFFER_S = 2.8;
 
 /**
  * Owns browser fullscreen separately from touch input. A fullscreen request
@@ -31,9 +32,14 @@ export class ImmersiveModeController {
   private fullscreenRequestSourceValue: FullscreenRequestSource = 'none';
   private fullscreenOutcomeValue: FullscreenOutcome = 'idle';
   private fullscreenFailuresValue = 0;
+  private goBufferRemaining = 0;
+  private goAccepted = false;
+  private readonly chromiumFamily: boolean;
 
   constructor(parent: HTMLElement, mobile: boolean) {
     this.mobile = mobile;
+    this.chromiumFamily = /Chrome|Chromium|CriOS/.test(navigator.userAgent) &&
+      !/Edg|OPR|SamsungBrowser/.test(navigator.userAgent);
     this.root = document.createElement('div');
     this.root.className = 'immersive-recovery';
     this.root.innerHTML = `
@@ -57,7 +63,11 @@ export class ImmersiveModeController {
   setPhase(phase: ImmersivePhase): void {
     if (phase === this.phase) return;
     this.phase = phase;
-    if (phase === 'ready') this.dismissedForPhase = false;
+    if (phase === 'ready') {
+      this.dismissedForPhase = false;
+      this.goBufferRemaining = 0;
+      this.goAccepted = false;
+    }
     this.syncUi();
   }
 
@@ -66,7 +76,20 @@ export class ImmersiveModeController {
     this.goAttempted = true;
     this.fullscreenGoGesturesValue++;
     this.dismissedForPhase = false;
+    this.goAccepted = false;
+    this.goBufferRemaining = 0;
     this.request('go');
+  }
+
+  /** Advance the browser-owned fullscreen notice buffer on the fixed step. */
+  update(dt: number): void {
+    this.goBufferRemaining = Math.max(0, this.goBufferRemaining - Math.max(0, dt));
+  }
+
+  /** True when a queued GO may safely enter the authored countdown. */
+  goStartReady(): boolean {
+    return !this.requestPending && (this.goAccepted || this.fullscreenOutcomeValue !== 'pending') &&
+      this.goBufferRemaining <= 0;
   }
 
   /** Retry only after the run has had a GO attempt or fullscreen exit. */
@@ -92,6 +115,8 @@ export class ImmersiveModeController {
     fullscreenGoGestures: number;
     fullscreenOutcome: FullscreenOutcome;
     fullscreenFailures: number;
+    fullscreenGoBufferRemaining: number;
+    fullscreenGoStartReady: boolean;
     recoveryVisible: boolean;
   } {
     return {
@@ -100,6 +125,8 @@ export class ImmersiveModeController {
       fullscreenGoGestures: this.fullscreenGoGesturesValue,
       fullscreenOutcome: this.fullscreenOutcomeValue,
       fullscreenFailures: this.fullscreenFailuresValue,
+      fullscreenGoBufferRemaining: this.goBufferRemaining,
+      fullscreenGoStartReady: this.goStartReady(),
       recoveryVisible: !this.root.hidden,
     };
   }
@@ -109,12 +136,14 @@ export class ImmersiveModeController {
     if (this.isStandaloneDisplay()) {
       this.fullscreenOutcomeValue = 'standalone';
       this.wasActive = true;
+      this.goAccepted = true;
       this.syncUi();
       return;
     }
     if (document.fullscreenElement) {
       this.fullscreenOutcomeValue = 'entered';
       this.wasActive = true;
+      this.goAccepted = true;
       this.syncUi();
       return;
     }
@@ -138,6 +167,8 @@ export class ImmersiveModeController {
     request.then(() => {
       this.wasActive = true;
       this.fullscreenOutcomeValue = 'entered';
+      this.goAccepted = true;
+      this.goBufferRemaining = source === 'go' && this.chromiumFamily ? CHROME_GO_BUFFER_S : 0;
       this.dismissedForPhase = false;
       this.syncUi();
     }).catch(() => {
@@ -153,6 +184,8 @@ export class ImmersiveModeController {
     this.fullscreenOutcomeValue = 'rejected';
     this.fullscreenFailuresValue++;
     this.requestPending = false;
+    this.goAccepted = true;
+    this.goBufferRemaining = 0;
     this.syncUi();
   }
 
@@ -160,12 +193,16 @@ export class ImmersiveModeController {
     if (this.isStandaloneDisplay()) {
       this.wasActive = true;
       this.fullscreenOutcomeValue = 'standalone';
+      this.goAccepted = true;
+      this.goBufferRemaining = 0;
       this.syncUi();
       return;
     }
     if (document.fullscreenElement) {
       this.wasActive = true;
       this.fullscreenOutcomeValue = 'entered';
+      this.goAccepted = true;
+      this.goBufferRemaining = this.chromiumFamily ? CHROME_GO_BUFFER_S : 0;
       this.dismissedForPhase = false;
       this.syncUi();
       return;
@@ -174,6 +211,8 @@ export class ImmersiveModeController {
     this.wasActive = false;
     this.requestPending = false;
     this.fullscreenOutcomeValue = 'exited';
+    this.goAccepted = true;
+    this.goBufferRemaining = 0;
     this.syncUi();
   }
 

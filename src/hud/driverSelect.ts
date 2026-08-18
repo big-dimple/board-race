@@ -27,6 +27,7 @@ export class DriverSelect {
   private readonly nextButton: HTMLButtonElement;
   private readonly previousLabel: HTMLElement;
   private readonly nextLabel: HTMLElement;
+  private readonly startButton: HTMLButtonElement;
   private readonly cards = new Map<string, HTMLButtonElement>();
   private readonly dots = new Map<string, HTMLButtonElement>();
   private selectedProfile: DriverProfile;
@@ -210,9 +211,9 @@ export class DriverSelect {
       this.coachPanel.classList.toggle('on', open);
       this.coachButton.setAttribute('aria-expanded', String(open));
     });
-    const go = element('button', 'driver-select-go', footer, 'GO · 签约出发');
-    go.type = 'button';
-    go.addEventListener('click', onStart);
+    this.startButton = element('button', 'driver-select-go', footer, 'GO · 签约出发');
+    this.startButton.type = 'button';
+    this.startButton.addEventListener('click', onStart);
     this.controllerStatus = element('div', 'driver-controller-status', footer);
     this.controllerStatus.setAttribute('role', 'status');
     this.controllerStatus.setAttribute('aria-live', 'polite');
@@ -286,6 +287,18 @@ export class DriverSelect {
 
   get selectedId(): string {
     return this.selectedProfile.id;
+  }
+
+  setLaunchPending(pending: boolean): void {
+    this.root.classList.toggle('launch-pending', pending);
+    this.root.setAttribute('aria-busy', String(pending));
+    this.startButton.disabled = pending;
+    this.startButton.textContent = pending ? '准备出发…' : 'GO · 签约出发';
+    this.previousButton.disabled = pending;
+    this.nextButton.disabled = pending;
+    this.coachButton.disabled = pending;
+    for (const button of this.cards.values()) button.disabled = pending;
+    for (const button of this.dots.values()) button.disabled = pending;
   }
 
   show(): void {

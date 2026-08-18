@@ -915,6 +915,11 @@ const SURFACE_GUIDE_ARROW_CADENCE_M = 10;
 const SURFACE_GUIDE_ARROW_SPEED_MPS = 10;
 const SURFACE_GUIDE_ARROW_START_M = 16;
 const SURFACE_GUIDE_ARROW_COUNT = Math.ceil((170 - SURFACE_GUIDE_ARROW_START_M) / SURFACE_GUIDE_ARROW_CADENCE_M);
+// Keep a short wake behind the hull, then let it settle into the swell instead
+// of cutting the authored guide off on a single fragment boundary.
+const SURFACE_GUIDE_TAIL_FADE_START_M = 12;
+const SURFACE_GUIDE_TAIL_FADE_END_M = 30;
+const SURFACE_GUIDE_MASK_FEATHER_M = 5;
 const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
 const SURFACE_GUIDE_LAUNCH_ALIGN_M = 40;
 const FLIGHT_GUIDE_STYLE = 'white-mist-corridor' as const;
@@ -930,6 +935,12 @@ const FLIGHT_GUIDE_EDGE_ALPHA = 0.34;
 const FLIGHT_GUIDE_FLOW_ALPHA = 0.54;
 const FLIGHT_GUIDE_FAR_START_M = 55;
 const FLIGHT_GUIDE_FAR_END_M = 145;
+// A corridor is a volume of mist, not a cut-out rectangle. The final few
+// metres taper its footprint and opacity so both authored terminals breathe
+// into the air instead of ending on a hard cross-section.
+const FLIGHT_GUIDE_ENDPOINT_TAPER_F = 0.07;
+const FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH = 0.14;
+const FLIGHT_GUIDE_ENDPOINT_MIN_ALPHA = 0.2;
 const LAUNCH_GATE_PREVIEW_M = 140;
 const LAUNCH_GATE_FOCUS_M = 30;
 
@@ -949,6 +960,7 @@ function createSurfaceGuideUniforms() {
     uLaunchGateActive: { value: 0 },
     uLaunchGateS: { value: 0 },
     uLaunchGateEndS: { value: 0 },
+    uMaskFeather: { value: SURFACE_GUIDE_MASK_FEATHER_M },
   };
 }
 
@@ -991,16 +1003,29 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       uniform float uLaunchGateActive;
       uniform float uLaunchGateS;
       uniform float uLaunchGateEndS;
+      uniform float uMaskFeather;
       varying float vS;
       varying float vSide;
       varying float vDist;
       void main() {
         float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
+        float forwardVisible = 1.0 - smoothstep(145.0, 170.0, ahead);
+        float trailingVisible = 1.0 - smoothstep(${SURFACE_GUIDE_TAIL_FADE_START_M.toFixed(1)}, ${SURFACE_GUIDE_TAIL_FADE_END_M.toFixed(1)}, behind);
+        float trailingSide = 1.0 - step(0.5 * uLapLength, behind);
+        float distanceVisible = mix(forwardVisible, trailingVisible, trailingSide);
         float visible = 1.0;
-        visible *= 1.0 - step(170.0, ahead) * step(12.0, behind);
-        visible *= 1.0 - uGuideActive * step(uMaskStart, vS) * step(vS, uMaskEnd);
-        visible *= 1.0 - uLaunchGateActive * step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
+        visible *= distanceVisible;
+        // Keep the exact ownership interval, but feather both ends over a few
+        // metres so the green route dissolves into the water rather than snaps.
+        float guideMask = step(uMaskStart, vS) * step(vS, uMaskEnd);
+        float guideMaskSoft = smoothstep(uMaskStart - uMaskFeather, uMaskStart + uMaskFeather, vS) *
+          (1.0 - smoothstep(uMaskEnd - uMaskFeather, uMaskEnd + uMaskFeather, vS));
+        visible *= 1.0 - uGuideActive * guideMaskSoft;
+        float launchMask = step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
+        float launchMaskSoft = smoothstep(uLaunchGateS - uMaskFeather, uLaunchGateS + uMaskFeather, vS) *
+          (1.0 - smoothstep(uLaunchGateEndS - uMaskFeather, uLaunchGateEndS + uMaskFeather, vS));
+        visible *= 1.0 - uLaunchGateActive * launchMaskSoft;
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
         float packetPhase = fract(vS / 21.0 - uTime * 0.42);
@@ -1015,7 +1040,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} + packet * 0.045);
         float alpha = veil + centerVeil * 0.065 + navSpine * 0.34 + flow * 0.29;
         float localFade = 1.0 - smoothstep(140.0, 170.0, ahead) * 0.18;
-        float fade = (vDist < 220.0 ? 1.0 : 0.78) * max(localFade, step(0.001, behind) * step(behind, 12.0));
+        float fade = (vDist < 220.0 ? 1.0 : 0.78) * localFade;
         vec3 col = mix(uColor, uFoam, 0.14 + navSpine * 0.18 + flow * 0.32 + packet * 0.05);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
@@ -1122,6 +1147,7 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false):
       uniform float uLaunchGateActive;
       uniform float uLaunchGateS;
       uniform float uLaunchGateEndS;
+      uniform float uMaskFeather;
       varying float vS;
       varying float vTurn;
       varying float vPhase;
@@ -1129,15 +1155,24 @@ function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false):
       void main() {
         float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
+        float forwardVisible = 1.0 - smoothstep(145.0, 170.0, ahead);
+        float trailingVisible = 1.0 - smoothstep(${SURFACE_GUIDE_TAIL_FADE_START_M.toFixed(1)}, ${SURFACE_GUIDE_TAIL_FADE_END_M.toFixed(1)}, behind);
+        float trailingSide = 1.0 - step(0.5 * uLapLength, behind);
         float visible = 1.0;
-        visible *= 1.0 - step(170.0, ahead) * step(12.0, behind);
-        visible *= 1.0 - uGuideActive * step(uMaskStart, vS) * step(vS, uMaskEnd);
-        visible *= 1.0 - uLaunchGateActive * step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
+        visible *= mix(forwardVisible, trailingVisible, trailingSide);
+        float guideMask = step(uMaskStart, vS) * step(vS, uMaskEnd);
+        float guideMaskSoft = smoothstep(uMaskStart - uMaskFeather, uMaskStart + uMaskFeather, vS) *
+          (1.0 - smoothstep(uMaskEnd - uMaskFeather, uMaskEnd + uMaskFeather, vS));
+        visible *= 1.0 - uGuideActive * guideMaskSoft;
+        float launchMask = step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
+        float launchMaskSoft = smoothstep(uLaunchGateS - uMaskFeather, uLaunchGateS + uMaskFeather, vS) *
+          (1.0 - smoothstep(uLaunchGateEndS - uMaskFeather, uLaunchGateEndS + uMaskFeather, vS));
+        visible *= 1.0 - uLaunchGateActive * launchMaskSoft;
         // Actual instance motion carries direction; the phase sweep keeps a
         // readable front-to-back rhythm without making arrows blink off.
         float travel = fract(uTime * 0.65 - vPhase);
         float pulse = 1.0 - smoothstep(0.02, 0.34, travel);
-        float nearFade = smoothstep(9.0, 16.0, ahead);
+        float nearFade = smoothstep(4.0, 12.0, ahead);
         float localFade = 1.0 - smoothstep(145.0, 170.0, ahead);
         float fade = nearFade * localFade * (vDist < 220.0 ? 1.0 : 0.78);
         vec3 base = mix(uColor, uTurnColor, vTurn);
@@ -1749,6 +1784,9 @@ export class Course implements ICourse {
       surfaceGuideArrowSpeedMps: SURFACE_GUIDE_ARROW_SPEED_MPS,
       surfaceGuideArrowCount: this.surfaceGuideArrowCount,
       surfaceGuideTurnArrowCount: this.surfaceGuideTurnArrowCount,
+      surfaceGuideTailFadeStartM: SURFACE_GUIDE_TAIL_FADE_START_M,
+      surfaceGuideTailFadeEndM: SURFACE_GUIDE_TAIL_FADE_END_M,
+      surfaceGuideMaskFeatherM: SURFACE_GUIDE_MASK_FEATHER_M,
       surfaceGuideLaunchTurnArrowCount: this.surfaceGuideLaunchTurnArrowCount,
       surfaceGuideTurnChevronCount: SURFACE_GUIDE_TURN_CHEVRON_COUNT,
       flightGuideStyle: FLIGHT_GUIDE_STYLE,
@@ -2531,13 +2569,18 @@ export class Course implements ICourse {
       this.routeTangentAt(def.id, u, t);
       const rx = t.z;
       const rz = -t.x;
+      const startTaper = THREE.MathUtils.smoothstep(f, 0, FLIGHT_GUIDE_ENDPOINT_TAPER_F);
+      const endTaper = THREE.MathUtils.smoothstep(1 - f, 0, FLIGHT_GUIDE_ENDPOINT_TAPER_F);
+      const endpointWidth = FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH +
+        (1 - FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH) * Math.min(startTaper, endTaper);
+      const width = HALF_W * endpointWidth;
       const o = i * 6;
-      pos[o] = p.x + rx * HALF_W;
+      pos[o] = p.x + rx * width;
       pos[o + 1] = p.y + 0.05;
-      pos[o + 2] = p.z + rz * HALF_W;
-      pos[o + 3] = p.x - rx * HALF_W;
+      pos[o + 2] = p.z + rz * width;
+      pos[o + 3] = p.x - rx * width;
       pos[o + 4] = p.y + 0.05;
-      pos[o + 5] = p.z - rz * HALF_W;
+      pos[o + 5] = p.z - rz * width;
       const q = i * 4;
       uv[q] = 0;
       uv[q + 1] = f;
@@ -2714,7 +2757,12 @@ export class Course implements ICourse {
             recoveryInk * (0.3 + farBoost * 0.12) +
             recoveryFlow * (uFlowAlpha * 0.9 + farBoost * 0.14);
           recoveryAlpha = min(recoveryAlpha, 0.82);
-          float recoveryVisible = step(max(uGateF - 0.003, uRecoveryProgress - 0.035), vUv.y);
+          float recoveryStart = max(uGateF - 0.003, uRecoveryProgress - 0.035);
+          float recoveryVisibleHard = step(recoveryStart, vUv.y);
+          float recoveryVisible = smoothstep(recoveryStart, min(1.0, recoveryStart + 0.035), vUv.y);
+          // Keep the ownership edge available for deterministic diagnostics,
+          // while the rendered mist eases in across the first few metres.
+          recoveryVisible = mix(recoveryVisibleHard, recoveryVisible, 0.94);
           vec3 recoveryColor = panelColor;
           recoveryColor = mix(recoveryColor, edgeColor, recoveryEdge * (0.72 + farBoost * 0.16));
           recoveryColor = mix(recoveryColor, flowColor, recoveryFlow * (0.76 + farBoost * 0.14));
@@ -2722,7 +2770,10 @@ export class Course implements ICourse {
           float recoveryMode = step(0.001, uRecovery);
           color = mix(color, recoveryColor, recoveryMode * recoveryVisible);
           alpha = mix(min(alpha, 0.82), recoveryAlpha * recoveryVisible * uRecovery, recoveryMode);
-          gl_FragColor = vec4(color, min(alpha, 0.82));
+          float endpointDistance = min(vUv.y, 1.0 - vUv.y);
+          float endpointFade = smoothstep(0.0, ${FLIGHT_GUIDE_ENDPOINT_TAPER_F.toFixed(3)}, endpointDistance);
+          float endpointAlpha = mix(${FLIGHT_GUIDE_ENDPOINT_MIN_ALPHA.toFixed(2)}, 1.0, endpointFade);
+          gl_FragColor = vec4(color, min(alpha * endpointAlpha, 0.82));
         }
       `,
       transparent: true,
@@ -2738,6 +2789,9 @@ export class Course implements ICourse {
     ribbon.userData.authoredEntryU = def.entryU;
     ribbon.userData.turnTintMax = ribbonMat.uniforms.uTurnTintMax.value;
     ribbon.userData.guideStyle = FLIGHT_GUIDE_STYLE;
+    ribbon.userData.endpointTaperF = FLIGHT_GUIDE_ENDPOINT_TAPER_F;
+    ribbon.userData.endpointMinWidth = FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH;
+    ribbon.userData.endpointMinAlpha = FLIGHT_GUIDE_ENDPOINT_MIN_ALPHA;
     ribbon.renderOrder = 3;
     ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);

@@ -1,0 +1,119 @@
+.opening-showcase {
+  position: absolute;
+  inset: 0;
+  z-index: 42;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 180ms ease, visibility 0s linear 180ms;
+}
+
+.opening-showcase.on {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.opening-driver-echo {
+  --echo-color: #55e7ff;
+  --echo-progress: 0;
+  position: absolute;
+  left: var(--echo-x, 50%);
+  top: var(--echo-y, 50%);
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: 1fr;
+  column-gap: 8px;
+  width: min(176px, 18vw);
+  min-height: 54px;
+  box-sizing: border-box;
+  padding: 6px 10px 6px 6px;
+  color: #f4feff;
+  background: rgba(4, 7, 20, .78);
+  border-left: 3px solid var(--echo-color);
+  border-bottom: 1px solid color-mix(in srgb, var(--echo-color) 70%, transparent);
+  box-shadow: 5px 5px 0 rgba(4, 7, 20, .62), 0 0 18px color-mix(in srgb, var(--echo-color) 18%, transparent);
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 7px 100%, 0 calc(100% - 7px));
+  transform: translate(-50%, calc(-100% - 14px)) translateY(10px) scale(.88);
+  transform-origin: 50% 100%;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 150ms ease, transform 360ms cubic-bezier(.18, .82, .2, 1), visibility 0s linear 360ms;
+}
+
+.opening-driver-echo.visible {
+  opacity: var(--echo-progress);
+  visibility: visible;
+  transform: translate(-50%, calc(-100% - 14px)) translateY(0) scale(1);
+  transition-delay: 0s;
+}
+
+.opening-driver-echo-rail {
+  position: absolute;
+  left: 9px;
+  right: 26%;
+  top: 0;
+  height: 2px;
+  background: var(--echo-color);
+  opacity: .8;
+}
+
+.opening-driver-echo-portrait {
+  width: 34px;
+  height: 42px;
+  align-self: center;
+  object-fit: cover;
+  border: 1px solid var(--echo-color);
+  background: #14122b;
+  filter: saturate(1.08) contrast(1.04);
+}
+
+.opening-driver-echo-copy {
+  min-width: 0;
+  align-self: center;
+}
+
+.opening-driver-echo-name,
+.opening-driver-echo-model {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opening-driver-echo-name {
+  color: var(--echo-color);
+  font: 950 14px/1.1 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.opening-driver-echo-model {
+  margin-top: 4px;
+  color: rgba(244, 254, 255, .76);
+  font: 800 9px/1.1 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+@media (max-width: 900px), (max-height: 520px) {
+  .opening-driver-echo {
+    grid-template-columns: 28px minmax(0, 1fr);
+    width: 132px;
+    min-height: 44px;
+    column-gap: 6px;
+    padding: 5px 7px 5px 5px;
+  }
+
+  .opening-driver-echo-portrait {
+    width: 28px;
+    height: 34px;
+  }
+
+  .opening-driver-echo-name { font-size: 11px; }
+  .opening-driver-echo-model { margin-top: 3px; font-size: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .opening-showcase,
+  .opening-driver-echo {
+    transition: none;
+  }
+}

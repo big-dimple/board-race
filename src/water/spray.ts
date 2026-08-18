@@ -357,7 +357,7 @@ export class SpraySystem implements ISpray {
         pos.z + (this.random() - 0.5) * 0.3,
         dx * s, dy * s, dz * s,
         0.7 + this.random() * 0.4,
-        Math.min(0.34, (0.07 + 0.015 * speed) * (0.72 + this.random() * 0.42)),
+        Math.min(0.38, (0.07 + 0.015 * speed) * (0.72 + this.random() * 0.42) * 1.12),
         this.random() < 0.25 ? 1 : 0,
         1.35 + this.random() * 0.65,
       );
@@ -380,7 +380,7 @@ export class SpraySystem implements ISpray {
         up * s,
         (right.z * lateral - forward.z * aft) * s,
         0.62 + this.random() * 0.32,
-        Math.min(0.42, 0.12 + speed * 0.017 + this.random() * 0.09),
+        Math.min(0.47, (0.12 + speed * 0.017 + this.random() * 0.09) * 1.12),
         this.random() < 0.3 ? 1 : 0,
         1.25 + this.random() * 0.55,
       );
@@ -398,13 +398,13 @@ export class SpraySystem implements ISpray {
   ): void {
     if (impact <= 0.5 || visualScale <= 0) return;
     const strength = THREE.MathUtils.clamp((impact - 3.5) / 10.5, 0.18, 1);
-    const scale = THREE.MathUtils.clamp(visualScale, 0.3, 1) * (0.9 + strength * 0.34);
+    const scale = THREE.MathUtils.clamp(visualScale, 0.3, 1) * (0.9 + strength * 0.34) * 1.2;
     this.spawnLandingVolume(pos, forward, right, strength, scale);
     this.landingEvents++;
     if (sourceId === 0) this.playerLandingEvents++;
 
     const count = Math.max(8, Math.round(LANDING_DROPLETS[this.quality] * visualScale));
-    const eject = 4.8 + strength * 4.6;
+    const eject = (4.8 + strength * 4.6) * 1.1;
     for (let i = 0; i < count; i++) {
       const side = i % 2 === 0 ? -1 : 1;
       const lateral = side * (0.5 + this.random() * 0.82);
@@ -421,7 +421,7 @@ export class SpraySystem implements ISpray {
         up * eject,
         right.z * lateral * eject + forward.z * (inherit - aft * eject),
         0.62 + this.random() * 0.28,
-        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale,
+        (0.095 + strength * 0.055) * (0.76 + this.random() * 0.44) * scale * 1.15,
         this.random() < 0.28 ? 1 : 0,
         1.7 + strength * 0.55 + this.random() * 0.5,
       );

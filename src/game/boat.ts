@@ -1573,14 +1573,14 @@ export class Boat implements IBoat {
     const boostVisual = (this.id === 0 ? this.boostFx : this.boostFx * 1.0 * this.opponentTechniqueFxScale) *
       (1 - this.flightFx * 0.92);
     const opponentReadability = this.id > 0 ? 1 + this.opponentFxScale * 0.42 : 1;
-    const boostLen = (0.06 + boostVisual * 2.85 * boostPulse) * opponentReadability;
+    const boostLen = (0.06 + boostVisual * 3.45 * boostPulse) * opponentReadability;
     this.setThrustInstance(
       'outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost,
-      0.36 * boostVisual * opponentReadability, boostLen,
+      0.42 * boostVisual * opponentReadability, boostLen,
     );
     this.setThrustInstance(
       'core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost,
-      0.105 * boostVisual * opponentReadability, boostLen * 0.72,
+      0.125 * boostVisual * opponentReadability, boostLen * 0.72,
     );
 
     const burst = clamp(this.liftBurstTimer / 0.22, 0, 1);

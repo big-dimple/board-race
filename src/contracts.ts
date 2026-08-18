@@ -425,6 +425,10 @@ export interface CourseGuidanceStatus {
   surfaceGuideArrowSpeedMps: number;
   surfaceGuideArrowCount: number;
   surfaceGuideTurnArrowCount: number;
+  /** The authored near-side tail fades instead of ending on a hard clip. */
+  surfaceGuideTailFadeStartM: number;
+  surfaceGuideTailFadeEndM: number;
+  surfaceGuideMaskFeatherM: number;
   /** Turn arrows currently aligning the boat before an authored launch. */
   surfaceGuideLaunchTurnArrowCount: number;
   surfaceGuideTurnChevronCount: number;

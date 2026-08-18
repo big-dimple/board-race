@@ -151,7 +151,9 @@ automatically; players steer, drift/air-brake, and trigger flight.
   `entryU`; do not restore a pre-entry mist surface or cloud bridge. Flight branches retain a neutral white-mist
   treatment with explicit panel, edge, and flow contrast floors through the
   scoring portal and recovery; flight five uses three entry-turn buoy signs and
-  two opposite exit-correction signs as secondary landmarks.
+  two opposite exit-correction signs as secondary landmarks. Surface tails and
+  mist terminals must feather into water/air; no hard near-side crop or straight
+  transparent cap may return.
 - Ocean displacement remains shared with boat physics, while its material uses
   continuous directional normals, broad sun response, near-only ripple detail,
   derivative-filtered mid-distance glint runs, a restrained non-sun sheen, and
@@ -189,6 +191,12 @@ automatically; players steer, drift/air-brake, and trigger flight.
 - Desktop READY uses a frozen three-column driver stage from 1366x768 upward,
   six stable roster destinations, a cancellable clip reveal, and a DPR-backed
   radar. The accepted coarse-pointer mobile portrait composition stays separate.
+- GO enters a roughly 3.6s input-locked opening presentation before countdown:
+  six real riders receive projected local portrait/callsign identity plates with
+  fixed-capacity screen-space avoidance. Chromium fullscreen success may add a
+  2.8s fixed-step buffer inside that presentation; the browser prompt itself is
+  not scriptable. Opening-only ocean/sky intensity and low-density instanced
+  sails, birds, and glints return to race density before the first countdown tick.
 - Final presentation uses a world-first frozen celebration: the live finish
   station remains visible while a code-authored Canvas2D flash, gold crown,
   radial particles, camera kick, and staged result actions play. The PNG
