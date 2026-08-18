@@ -1,6 +1,6 @@
 # Board Race 开发交接
 
-状态：`current / M7-release-pending`
+状态：`current / M7-live-verified`
 
 更新时间：2026-08-19
 
@@ -9,9 +9,8 @@
 
 ## 当前暂停点与下一轮路线
 
-本轮已经暂停代码实现，先把商业级美术目标拆成可独立交接的串行任务。已发布基线以最近
-一次 checked release 为准；当前工作树的以下视觉实验仍是未提交、未发布状态，不能写成
-用户已经看到的效果：
+本轮已经暂停代码实现，先把商业级美术目标拆成可独立交接的串行任务。M7 checked release
+已将以下视觉候选与 blocker repair 发布到 `main`，不能再把它们写成未发布实验：
 
 - `src/cel/postPipeline.ts`
 - `src/game/course.ts`
@@ -26,17 +25,19 @@
 承载全部里程碑，但每个 `M0-M7` 必须在独立 session 完成：完成当前 task 的代码、截图、
 性能和文档交接后才进入下一个，不能跨 task 带着未验证的半成品继续堆改。
 
-本轮事实状态：代码 `changed-and-verified`（M0-M6 实验 patch 与 M7 course owner 修复均未完成
-release）；运行态 `pending`（未发布新版本）；文档 `changed-and-verified`；规则
-`verified-current`；记忆 `generated-read-only`；工作区 `pending`（保留实验现场和 M7 截图，未清场）。
-M7 surface-guide blocker 已修复：只将 `src/game/course.ts` 的窄中心 `navSpine` alpha 基值由
-`0.18` 调到 `0.28`，`npm run build` 与 `npm run verify:flight`（含 gameplay/gamepad）通过。
-完整 `verify:release`、checked release、commit、push、GitHub、Pages 和 live 结果仍 pending。
+本轮事实状态：代码 `pushed-and-live-verified`；运行态 `live-verified`；文档
+`changed-and-verified`；规则 `verified-current`；记忆 `generated-read-only`；工作区 `clean`
+（保留忽略的实验现场和 M7 截图，未清场）。M7 surface-guide blocker 已修复：只将
+`src/game/course.ts` 的窄中心 `navSpine` alpha 基值由 `0.18` 调到 `0.28`。checked release 的
+candidate release commit / release-time `origin/main` 为 `428120044836951e266583481be35bbcadbbaa1f`；八道 release gate 全部
+通过，Actions deploy job `95878185185` 成功，Pages live marker 返回同一完整 SHA。独立
+`verify-pages.sh` 已执行，但其公共 API deployment 查询遇到 `403`，所以只记录可复核的 deploy
+job、Pages URL 和 exact marker，不补造 deployment id。
 
 ### M7 surface-guide blocker repair（2026-08-19）
 
-- 状态：`completed` 仅指本次 blocker repair；M7 checked release 仍 `pending`，本 session 没有
-  commit 或 push。
+- 状态：`completed` 仅指本次 blocker repair；以下记录形成于 checked release 之前，最终发布状态见
+  本节末的 M7 closeout。
 - owner：只修改 `src/game/course.ts` 的 surface-guide fragment shader，将窄中心
   `navSpine` alpha 基值从 `0.18` 调到 `0.28`。宽的中性半透明水面 veil、波浪位移、tessellation、
   masks、open chevrons、route/physics/collision/AI/fixed-step 和资源数量均未改变。
@@ -53,8 +54,8 @@ M7 surface-guide blocker 已修复：只将 `src/game/course.ts` 的窄中心 `n
   2,057,250 px/frame / 16.7ms`；renderer ratios 为 `1.25` / `2.5`。无新增 instance pool、
   render target 或 fixed-step allocation。
 - 验证：`npm run build` 通过，`npm run verify:flight` 通过（`gameplay contract: OK`、
-  `gamepad input contract: OK`）。尚未运行完整 `verify:release`，因此 M7 release、远端 SHA、
-  Actions、Pages 和 live verification 继续 pending。
+  `gamepad input contract: OK`）。这是发布前 blocker-repair 记录；完整 release 结果见下方
+  M7 closeout。
 
 M0 基线 session（2026-08-18）以 clean `HEAD == origin/main`
 `144c3bcce957417e8862e74f34637c93d44fb0f2` 完成：生成 18 张桌面 / 手机 before 截图，并通过
@@ -63,13 +64,14 @@ worktree 的未发布 `src/game/course.ts` 实验当时仍为 pending（其 `p90
 canonical baseline 分开保留。M1 独立复核已完成：临时目录 `/tmp/board-race-m1-review.WQGEga`
 以 clean HEAD 只叠加 `src/water/ocean.ts`，`build`、`verify:performance`、`verify:flight` 和
 `verify:mobile` 全部通过。该结果只证明 clean HEAD + M1 owner patch，不代表当时的 dirty
-workspace 或线上成果；M7 blocker-repair handoff 已在上文记录当前通过结果。M7 checked release
-仍未执行，提交和推送均未执行。
+workspace 或线上成果；M7 blocker-repair handoff 已在上文记录当时的通过结果。本次 checked
+release 结果见下方 M7 closeout。
 
 ## 当前版本
 
-以下条目描述 M7 前已存在的稳定基线；本工作树叠加的 M0-M6 visual candidate deltas 仍按本
-交接的 `pending / unpublished` 状态处理，不能据此推导它们已在线或已被用户看到。
+以下条目描述 M7 前已存在的稳定基线；M7 release 已将本工作树叠加的 M0-M6 visual candidate
+deltas 与 M7 blocker repair 纳入 `428120044836951e266583481be35bbcadbbaa1f` 并完成 live marker
+核验。
 
 - 当前交付包含全车手 Final Station 真实过线排名、终点强光前的实体遮挡、真实 BOOST
   同源尾焰、动态海面高光、真实落水水冠 / 两舷水幕、中央破碎尾迹，以及合批竞速艇与真实蒙皮车手。
@@ -77,7 +79,8 @@ workspace 或线上成果；M7 blocker-repair handoff 已在上文记录当前�
   不在交接正文复制一个随后必然过期的 SHA。
 - checked release 会在提交前重新执行 build、flight、mobile、collision、audio、systems、
   performance 和 closeout；交接中的“已发布”只以该脚本成功后的远端 SHA 为准。
-- 本项目发布默认不等待 GitHub Pages；“已推送”不等于“Pages 已 live 验证”，如需确认线上版本，单独检查 Actions 和页面资源版本。
+- 本项目发布默认不等待 GitHub Pages；本次已单独核对 Actions deploy job、Pages URL 和完整
+  build marker，确认 `428120044836951e266583481be35bbcadbbaa1f` live。
 - `dist/`、`node_modules/` 是生成或依赖目录，不是源码交接内容；临时视觉验收资料按需生成，
   不属于源码交接内容。
 
@@ -197,9 +200,10 @@ M1 session 的未发布材质实验只改了 `src/water/ocean.ts`：保留共享
 
 ### 线上状态
 
-GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `origin/main` 为准，部署是否
-完成以对应 SHA 的 Actions、`github-pages` deployment 和线上 build marker 为准；本文件
-不把发布候选、已推送和 live verified 混写成同一状态。
+GitHub Pages 从 `main` 的 `deploy.yml` 部署。本次 `origin/main`、Actions deploy job、
+`github-pages` artifact / environment 链接和线上 build marker 均指向
+`428120044836951e266583481be35bbcadbbaa1f`；公共 API deployment 查询在独立 verifier 中返回
+`403`，没有伪造 deployment id。
 
 ## 本轮验证
 
@@ -257,10 +261,11 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 - [x] 资料片、环境声音和人味内容的边界已明确。
 - [x] M7 blocker repair 已执行并记录；`npm run verify:flight` 的 gameplay/gamepad 与 surface-guide
       pixel contract 通过，未进入 commit / push。
-- [ ] 临时路线图的 `M0-M7` 全部完成，并为每个 task 留下独立截图、性能读数和 handoff。
-- [x] 本 task 已同步 `docs/llmwiki.md`、本文件和 `docs/knowledge-map.json`；blocker 已 resolved，
-      M7 release 仍保留为 unpublished / pending。
-- [ ] Pages live、Android / iOS 真机听感和任何新增资产的最终验收：按需完成，不属于本次交接已验证范围。
+- [x] 临时路线图的 `M0-M7` 全部完成，并为每个 task 留下独立截图、性能读数和 handoff。
+- [x] 本 task 已同步 `docs/llmwiki.md`、本文件和 `docs/knowledge-map.json`；blocker、checked
+      release、remote SHA 和 live marker 均已记录。
+- [x] Pages live 已按候选 SHA 核验；Android / iOS 真机听感和任何新增资产的最终验收仍按需完成，
+      不属于本次交接已验证范围。
 
 ## M2 尾流、水花与开场贴水交接（2026-08-19）
 
@@ -347,12 +352,12 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 
 ## M7 发布、洁癖与线上核验 session（2026-08-19）
 
-- 状态：`pending`。M0-M6 仍是隔离复核过但未提交、未推送、未部署的候选；本 session
-  没有修改 gameplay / visual source owner，也没有把任何候选写成 live 结果。
-- M7 只新增本次 closeout 记录和被忽略的截图证据；保留既有候选现场，未删除临时路线图、
-  截图、`/tmp` 隔离目录或用户变更。代码状态为 `changed-and-partially-verified`，运行态
-  `pending`，文档 `changed-and-verified`，规则 `verified-current`，记忆
-  `generated-read-only`，工作区 `pending`。
+- 状态：`completed / live-verified`。M0-M6 候选与 M7 course repair 已由 checked release
+  发布；本次 post-push 只更新知识收尾记录，没有继续修改 gameplay / visual source owner。
+- candidate release commit 与 release-time `origin/main`：`428120044836951e266583481be35bbcadbbaa1f`。代码状态为
+  `pushed-and-live-verified`，运行态 `live-verified`，文档 `changed-and-verified`，规则
+  `verified-current`，记忆 `generated-read-only`，工作区 `clean`；忽略的截图与临时路线图现场
+  仍保留，未执行清场。
 - 最终 before 证据在 `shots/visual-roadmap/M7/before/`：fresh `?harness=1`、run seed
   `1`、fixed-step、Auto quality；桌面 `1440x900` / browser DPR2 / PNG `2880x1800`
   共 15 张，手机横屏 `844x390` / browser DPR3 / PNG `2532x1170` 共 15 张。矩阵覆盖
@@ -364,20 +369,16 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
   desktop start `world-nameplates 6/6`, droplets `134`; landing `world-nameplates 6/6`,
   droplets `28`, landing volumes `1`。M7 没有新增 draw、instance pool、render target
   或 fixed-step allocation。
-- `npm run build` 通过。完整 dirty `npm run verify:release` 在 `verify:flight` 停止于
-  既有 `src/game/course.ts` surface-guide assertion：`p90Delta=86`，要求 `>=90`；本次
-  没有修改 `course.ts` 或 threshold。`node /mnt/c/Users/wanghongping/.codex/skills/
-  jiepi-clear/scripts/check-knowledge-map.mjs /home/github/board-race` 通过（10 facts,
-  10 authorities）。初始未暂存 closeout 检查正确拒绝 dirty / untracked residue；不得把
-  它写成发布成功。
-- 按 `github-operator` 路径检查了仓库 remote / branch；checked release 的 plan / execute
-  仍以相同 gate 为准，失败发生在 commit / push 前，因此没有发布 commit、远端 SHA、Actions
-  或 M7 Pages live marker。独立的 Pages 核验只针对未改变的 baseline `144c3bc`：workflow
-  `32147482888`、deployment `5964738832`、`https://big-dimple.github.io/board-race/`
-  的完整 SHA marker 均通过；这不是 M7 candidate 的部署证明。默认命令仍是
-  `npm run release:checked -- --no-wait-pages "feat: commercial art milestones"`；本次
-  M7 不满足通过条件，必须保持 pending，不能补造远端结果。
+- `npm run release:checked -- --plan --no-wait-pages "feat: commercial art milestones"` 计划通过；
+  随后执行同一 checked release，closeout、build、gameplay、mobile、collision、audio、systems、
+  performance 八道门禁通过并完成 commit / push / remote-SHA 校验。`node /mnt/c/Users/
+  wanghongping/.codex/skills/jiepi-clear/scripts/check-knowledge-map.mjs /home/github/board-race`
+  和 `git diff --check` 也通过。
+- Actions workflow `32188235255` 的 deploy job `95878185185` 成功，`github-pages` artifact 与
+  Pages URL `https://big-dimple.github.io/board-race/` 可复核；live 首页的完整 `build-sha`
+  marker 匹配上述 SHA。独立 `verify-pages.sh` 已执行，但公共 API deployment 查询返回 `403`，
+  没有把缺失的 deployment id 写成已知事实。
 - 事实归属：`project-status` 的完整状态由本文件负责；商业路线状态由
   `docs/commercial-art-roadmap.md` 负责；`docs/llmwiki.md` 只保留 M7 合同和证据摘要；
-  `docs/knowledge-map.json` 已同步 verifier / status / pending release metadata。删除候选
+  `docs/knowledge-map.json` 已同步 verifier / status / release metadata。删除候选
   仍待用户在完整汇报后明确确认，当前不清场。

@@ -848,9 +848,10 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
 
 ### M7 发布、洁癖与线上核验 session（2026-08-19）
 
-- M7 当前状态是 `blocker-resolved / release-pending`：M0-M6 仍只代表已在隔离目录复核过的
-  unpublished candidates，没有 commit、push、deploy、Pages 或 live claim。本 session 只修改
-  `src/game/course.ts` 的 surface-guide owner，并同步 closeout 文档与 ignored M7 evidence。
+- M7 当前状态是 `completed / live-verified`：M0-M6 candidates 与 M7 course owner repair 已由
+  checked release 发布。candidate release commit 与 release-time `origin/main` 均为
+  `428120044836951e266583481be35bbcadbbaa1f`；本次 post-push 只更新知识收尾记录，没有继续改
+  gameplay / visual source owner。
 - 最终 before screenshot 由同一 fresh `?harness=1` / run seed `1` / fixed-step / Auto
   capture 产生：desktop `1440x900` browser DPR2、PNG `2880x1800`，mobile landscape
   `844x390` browser DPR3、PNG `2532x1170`；`shots/visual-roadmap/M7/before/` 各有 15 张。
@@ -871,19 +872,20 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
   `softShare=.872`、`softMeanDelta=51.64`；mobile 为 `p90Delta=116`、`p95Delta=163`、
   `meanDelta=62.77`、`softShare=.876`、`softMeanDelta=50.75`。两端均满足不变的
   `p90 >= 90 && p90 < 185`、`p95 >= p90 + 10 && p95 < 260` 合同。
-- `npm run build` 通过；`npm run verify:flight` 通过（gameplay/gamepad）。Focused renderer
+- `npm run build`、`verify:flight`、`verify:mobile`、`verify:collision`、`verify:audio`、
+  `verify:systems`、`verify:performance` 与 `verify:closeout` 均通过。Focused renderer
   metrics 为 desktop `189 calls / 2,025,000 px/frame / 16.7ms / ratio 1.25`、mobile
   `189 calls / 2,057,250 px/frame / 16.7ms / ratio 2.5`。没有新增 instance pool、render target
-  或 fixed-step allocation。完整 `verify:release`、checked release、commit、push、Pages 和
-  live verification 仍为 `pending`。
+  或 fixed-step allocation。active nameplates 为 `6/6`，landing droplets 为 `28`、volume 为
+  `1`。
 - Ownership map checker 通过：`knowledge map: OK (10 facts, 10 authorities)`。本次收尾的
   `project-status` authority 是 `docs/development-handoff.md`；商业路线 authority 是
   `docs/commercial-art-roadmap.md`；本 wiki 只保留合同和验证摘要。规则为 `AGENTS.md`
-  `verified-current`，记忆为 `generated-read-only`，工作区保留现场并为 `pending`；没有
+  `verified-current`，记忆为 `generated-read-only`，工作区保留忽略现场并为 `clean`；没有
   删除任何 ignored route / screenshot / temporary isolation residue。
 - checked release 的唯一允许入口仍是
   `npm run release:checked -- --no-wait-pages "feat: commercial art milestones"`。本次 gate
-  blocker 发生在 commit / push 之前，所以没有 M7 发布 SHA、Actions、Pages 或用户可见新版本。
-  独立 Pages 核验仅证明未改变的 baseline `144c3bc` 已由 workflow `32147482888` / deployment
-  `5964738832` 成功服务并匹配完整 SHA marker；不得把该 baseline live 证据或本地 before
-  画面称为 M7 candidate 成果。
+  通过并创建上述 SHA。Actions workflow `32188235255` 的 deploy job `95878185185` 成功，
+  `github-pages` artifact 与 Pages URL `https://big-dimple.github.io/board-race/` 均可复核；
+  live 首页的完整 `build-sha` marker 匹配该 SHA。独立 `verify-pages.sh` 已运行，但公共 API
+  deployment 查询返回 `403`，没有把缺失的 deployment id 写成已知事实。
