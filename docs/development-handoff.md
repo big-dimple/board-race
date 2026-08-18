@@ -385,7 +385,7 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。本次 `origin/main`、Actions
 
 ## M8 商业视觉整合交接（2026-08-19）
 
-- 状态：`candidate-ready / locally-verified / release-pending`。本轮只触碰允许的九个视觉
+- 状态：`pending / pages-unverified`。本轮只触碰允许的九个视觉
   owner：`src/water/ocean.ts`、`src/water/wake.ts`、`src/water/spray.ts`、
   `src/cel/postPipeline.ts`、`src/hud/hud.css`、`src/hud/raceTower.css`、
   `src/hud/finaleCelebration.ts`、`src/hud/finaleOverlay.css`、`src/core/mobileControls.css`；
@@ -398,7 +398,7 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。本次 `origin/main`、Actions
   `2880x1800`；手机 viewport `844x390`、PNG `2532x1170`；同 seed、Auto、fixed-step、固定相机。
   before 是独立目录，未被 after 覆盖。
 - after 机器证据：桌面 start/hairpin/opponent/flight/landing/final draw calls 为
-  `335/173/300/225/95/204`，triangles 为 `383569/311391/381699/335599/306393/350997`；
+  `335/173/300/225/95/228`，triangles 为 `383569/311391/381699/335599/306393/372969`；
   手机为 `335/177/144/225/105/227` 与 `383569/313623/342703/334873/307903/373067`。
   桌面统一 `2,025,000 px/frame, 16.7ms, DPR1.25`，手机统一 `2,057,250 px/frame, 16.7ms,
   DPR2.5`。Pool / renderer evidence：ocean `246248 triangles, 1 mesh, 1 draw`；wake
@@ -407,7 +407,11 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。本次 `origin/main`、Actions
 - 验证：`npm run build`、`npm run verify:performance`、`npm run verify:flight`、
   `npm run verify:mobile`、`npm run verify:release` 全部通过。并发截图曾因严格 `5199` 端口竞争
   产生一次非代码读帧失败，隔离 mobile opponent rerun 通过原有 release-pulse contract；未放宽
-  阈值。checked release、remote SHA、Actions、Pages 在本段发布后补写。
+  阈值。checked release 已完成；remote SHA 与本地一致。首个 release SHA 为
+  `d8e012c4d388d08d4e0e855fadc617146267b022`。Actions 已观测到 workflow
+  `32195338481` / run `#84`，URL 为 `https://github.com/big-dimple/board-race/actions/runs/32195338481`。
+  官方 `verify-pages.sh --timeout 600` 真实结束为 `Pages workflow did not complete before timeout`；
+  期间 GitHub API 与页面请求反复 HTTP `403`，无 deployment id 或 live build-sha 成功证据。
 - 遗留风险：Final station 的 authored white gate geometry 仍在 route owner 范围外，不能在本轮扩张；
-  本地视觉证据已改善其周围对比，但真实设备和线上 Pages 仍待 checked release 后核验。下一 task
-  由新的独立 session 依据发布后的实际状态决定。
+  本地视觉证据已改善其周围对比，但真实设备和线上 Pages 仍待核验。当前代码已 pushed，工作项
+  保持 `pending / pages-unverified`，下一 task 应从该 workflow 和 GitHub Pages 可访问性继续。

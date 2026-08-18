@@ -72,15 +72,15 @@
       "status": "current",
       "milestone": {
         "current": "M8",
-        "status": "candidate-ready",
+      "status": "pending / pages-unverified",
         "evidence": "shots/visual-roadmap/M7/before/; shots/visual-roadmap/M8/before/; shots/visual-roadmap/M8/after/; local build and release verification output",
         "baseline": "M8 candidate after same-seed desktop 1440x900 and landscape mobile 844x390 before/after captures",
         "owner": ["docs/development-handoff.md", "docs/llmwiki.md", "docs/knowledge-map.json"],
         "wavesChanged": false,
-        "verification": "M8 build, verify:performance, verify:flight, verify:mobile, and full verify:release pass; desktop after is 2,025,000 drawing pixels/frame at 16.7ms and DPR1.25; mobile after is 2,057,250 at 16.7ms and DPR2.5; ocean remains 246248 triangles in one mesh/draw; wake remains 720 positions / 2154 indices; idle spray remains zero droplet/volume instances",
-        "pendingExperiment": "checked release, remote SHA, Actions, Pages and real-device verification remain pending; Final station authored white gate geometry remains outside the allowed M8 owner scope",
+      "verification": "M8 build, verify:performance, verify:flight, verify:mobile, and full verify:release pass; checked release plan and execution pass; release SHA d8e012c4d388d08d4e0e855fadc617146267b022 matches origin/main; desktop after is 2,025,000 drawing pixels/frame at 16.7ms and DPR1.25; mobile after is 2,057,250 at 16.7ms and DPR2.5; ocean remains 246248 triangles in one mesh/draw; wake remains 720 positions / 2154 indices; idle spray remains zero droplet/volume instances",
+      "pendingExperiment": "Actions workflow 32195338481 was observed, but verify-pages.sh timed out before workflow completion; GitHub API and Pages requests returned HTTP 403, so no deployment id or live build-sha evidence is claimed; real-device verification remains pending; Final station authored white gate geometry remains outside the allowed M8 owner scope",
         "poolEvidence": "M8 adds no mesh, render target or fixed-step allocation; spray capacity remains 1536; wake remains one preallocated 360-point ring; mobile controls only change painted faces, not hit zones or PointerEvent ownership",
-        "releaseStatus": "M8 candidate-ready locally; release metadata must be appended only after the checked release produces a real SHA and Pages evidence"
+      "releaseStatus": "M8 source release pushed at d8e012c4d388d08d4e0e855fadc617146267b022 and remote-matched; Pages remains unverified because the official 600-second verifier ended with workflow-not-complete and repeated HTTP 403 responses"
       }
     }
   ]

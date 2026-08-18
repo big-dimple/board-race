@@ -65,7 +65,7 @@ M7 已把 M0-M6 候选发布到 Pages，但固定截图的整体观感仍停留�
 
 ## 交接
 
-状态：`candidate-ready / locally-verified / release-pending`
+状态：`pending / pages-unverified`
 
 实际改动：只修改允许 owner：`ocean.ts` 以深青蓝 `0x063c54 -> 0x0b7184 -> 0x5ac3bd` 收敛海面
 纵深、波光和白浪；`wake.ts` / `spray.ts` 保留单 mesh / 池化事件路径并降低白色道路感；
@@ -80,8 +80,8 @@ after 保留于 `shots/visual-roadmap/M8/after/desktop/`、`shots/visual-roadmap
 覆盖 `finale-impact/hero/settled`。viewport 为桌面 `1440x900` 与横屏手机 `844x390`，PNG 为
 桌面 `2880x1800`、手机 `2532x1170`；before 未被 after 覆盖。
 
-机器证据：桌面六帧 draw calls 为 `335/173/300/225/95/204`，triangles 为
-`383569/311391/381699/335599/306393/350997`；手机为 `335/177/144/225/105/227` 与
+机器证据：桌面六帧 draw calls 为 `335/173/300/225/95/228`，triangles 为
+`383569/311391/381699/335599/306393/372969`；手机为 `335/177/144/225/105/227` 与
 `383569/313623/342703/334873/307903/373067`。桌面统一 `2,025,000 drawing pixels/frame`、
 `16.7ms`、`DPR1.25`；手机统一 `2,057,250`、`16.7ms`、`DPR2.5`。Pool evidence 为 ocean
 `246248 triangles / 1 mesh / 1 draw`、wake `720 positions / 2154 indices / 1 mesh`、spray
@@ -92,11 +92,20 @@ Harness：`npm run build`、`npm run verify:performance`、`npm run verify:fligh
 严格 `5199` 端口竞争，mobile opponent 随后隔离重跑并通过既有 `changedCss >= 220`、
 `meanDelta >= 12` release-pulse 合同；无 Vite 残留。
 
-文档同步：本段事实已同步到 `docs/llmwiki.md`、`docs/development-handoff.md`、
-`docs/knowledge-map.json`；checked release、release SHA、Actions 和 Pages 证据待发布后补齐。
+Release：`npm run release:checked -- --no-wait-pages "feat: commercial art integration pass"` 的
+plan 与正式执行均通过，八道 gate、commit、push、remote-SHA 校验完成。首个 release SHA 为
+`d8e012c4d388d08d4e0e855fadc617146267b022`，`origin/main` 与本地一致。Actions 已观测到
+workflow run `32195338481` / run `#84`，URL 为
+`https://github.com/big-dimple/board-race/actions/runs/32195338481`；官方
+`verify-pages.sh --timeout 600` 的真实结果是 `Pages workflow did not complete before timeout`，
+期间 GitHub API 与页面请求反复返回 HTTP `403`，因此没有记录或伪造 deployment id，也不能声称
+Pages live build-sha 已核验。
 
-遗留风险：Final station authored white gate geometry 属于本轮禁止扩张的 route owner，只能通过海面、
-后处理和庆祝层对比改善；真实设备视觉和线上 Pages 尚未核验。
+文档同步：本段事实同步到 `docs/llmwiki.md`、`docs/development-handoff.md`、
+`docs/knowledge-map.json`；文档收尾 release 仍需在本段更新后执行。遗留风险仍为 Final station
+authored white gate geometry 属于本轮禁止扩张的 route owner，只能通过海面、后处理和庆祝层对比
+改善；真实设备视觉和线上 Pages 仍未核验。
 
-下一 task：checked release 完成并补齐 remote / Actions / Pages 事实后，由新的独立 session 决定；
-在发布核验完成前不得把本 task 写成最终 completed。
+精确 blocker：代码发布已完成，但 Pages workflow 在官方 600 秒核验窗口内未完成，且公共 API / Pages
+请求受 HTTP `403` 阻塞，无法取得成功 deployment 或 live marker 证据。下一 task 应从该 workflow
+和 GitHub Pages 可访问性继续；在 blocker 消失前不得把本 task 写成 `completed`。

@@ -892,7 +892,7 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
 
 ## M8 商业视觉整合 session（2026-08-19）
 
-- 当前状态：`candidate-ready / locally-verified / release-pending`。本轮没有修改
+- 当前状态：`pending / pages-unverified`。本轮没有修改
   `waves.ts`、BoatInput、固定步物理、boat/rider geometry、16 骨骼、rider mount、collision、AI、
   ink/prepass、五批合批、实例化合同、路线判定或 harness 阈值。源码 owner 仅为九个允许视觉文件：
   `src/water/ocean.ts`、`src/water/wake.ts`、`src/water/spray.ts`、`src/cel/postPipeline.ts`、
@@ -913,7 +913,7 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
   `impact/hero/settled`。同一 run seed、Auto quality、fixed-step、固定相机；viewport 为桌面
   `1440x900`、横屏手机 `844x390`，PNG 分别为 `2880x1800` 与 `2532x1170`。M7 before 未覆盖。
 - after 机器读数：桌面 start/hairpin/opponent/flight/landing/final 分别为
-  `335/383569`、`173/311391`、`300/381699`、`225/335599`、`95/306393`、`204/350997`
+  `335/383569`、`173/311391`、`300/381699`、`225/335599`、`95/306393`、`228/372969`
   （draw calls/triangles），统一 `2,025,000 drawing pixels/frame`、`16.7ms`、renderer DPR
   `1.25`。手机对应为 `335/383569`、`177/313623`、`144/342703`、`225/334873`、
   `105/307903`、`227/373067`，统一 `2,057,250 drawing pixels/frame`、`16.7ms`、renderer
@@ -925,6 +925,12 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
   collision、audio、systems。一次把 desktop/mobile screenshot harness 并发启动的尝试触发严格
   `5199` 端口竞争并使手机 opponent pulse 读帧不足，随后单独运行 mobile opponent 场景通过原有
   `changedCss >= 220` / `meanDelta >= 12` 合同；没有改阈值，也没有留下 Vite 进程。
-- 发布状态仍未写入：checked release、remote SHA、Actions、Pages 和最终 pending 交接必须在本轮
-  后续发布后以真实输出补齐；Final gate 的既有白色 authored geometry 仍属于禁止扩张的 route owner，
-  本轮只通过海面 / 后处理 / 庆祝层改善辨识度，是真实遗留风险。
+- 发布事实：`npm run release:checked -- --no-wait-pages "feat: commercial art integration pass"` 的
+  plan 与正式执行均通过，八道 gate、commit、push、remote-SHA 校验完成。首个 release SHA 与
+  `origin/main` 均为 `d8e012c4d388d08d4e0e855fadc617146267b022`。Actions 已观测到 workflow
+  `32195338481` / run `#84`，URL 为 `https://github.com/big-dimple/board-race/actions/runs/32195338481`。
+  官方 `verify-pages.sh --timeout 600` 真实结束为 `Pages workflow did not complete before timeout`；
+  期间 GitHub API 与页面请求反复 HTTP `403`，没有 deployment id 或 live build-sha 成功证据。
+- 当前 blocker：代码已经 pushed 且远端一致，但 Pages workflow / API / live marker 尚未完成可复核闭环，
+  所以 M8 保持 `pending / pages-unverified`。Final gate 的既有白色 authored geometry 仍属于禁止扩张的
+  route owner，本轮只通过海面 / 后处理 / 庆祝层改善辨识度，是真实遗留风险。
