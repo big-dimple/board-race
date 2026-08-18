@@ -20,6 +20,7 @@ import { Input } from './core/input';
 import { GamepadInput } from './core/gamepadInput';
 import { Haptics, type HapticCue } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
+import { ImmersiveModeController } from './core/immersiveMode';
 import { Ocean } from './water/ocean';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem, type SprayDebugState } from './water/spray';
@@ -160,10 +161,14 @@ let medalCapture: Blob | null = null;
 let finaleCapture: Blob | null = null;
 let finaleCaptureRecorded = false;
 let captureOverlayVisible = false;
+const immersive = new ImmersiveModeController(
+  app,
+  params.has('mobile') || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches,
+);
 const mobileInput = new MobileControls(app, () => {
   audio.resume();
   audio.startReadyMusic();
-}, params.has('mobile'));
+}, params.has('mobile'), immersive);
 const hud = new HUD(
   hudLayer,
   course,
@@ -191,7 +196,6 @@ const driverSelect = new DriverSelect(
   () => {
     audio.resume();
     audio.startReadyMusic();
-    mobileInput.requestImmersiveFromGesture(true);
   },
   toggleDrivingCoach,
 );
@@ -302,12 +306,13 @@ const race = new Race(course, boats, {
     audio.countdownStage(n);
     audio.countdownBeep(false);
   },
-  go: (_resuming) => {
+  go: (resuming) => {
     audio.setScene('racing');
     const signaled = audio.startSignal() === 'played';
     if (!signaled) audio.countdownBeep(true);
     cameraRig.mode = 'chase';
     tower.announceGo(roster[0].name);
+    if (!resuming) tower.announceTechniqueTip();
   },
   lapDone: () => {},
   checkpoint: () => {
@@ -374,7 +379,10 @@ function applySelectedDriver(id: string): void {
 
 function requestFreshStart(): void {
   if (mobileInput.enabled) mobileInput.requestGo();
-  else startFreshCountdown();
+  else {
+    immersive.requestGo();
+    startFreshCountdown();
+  }
 }
 
 function toggleDrivingCoach(): void {
@@ -462,6 +470,7 @@ function resumeInterruption(): void {
 
 function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
+  immersive.setPhase('active');
   const coach = drivingCoach.progress;
   pcControlPrimer.arm(
     !mobileInput.enabled && activeInputDevice === 'keyboard' && records.data.bestFlights < 1 &&
@@ -490,6 +499,7 @@ function startFreshCountdown(): void {
 
 function startResumeCountdown(): void {
   if (!race.startResumeCountdown()) return;
+  immersive.setPhase('active');
   input.clearTransient();
   gamepadInput.clearTransient();
   mobileInput.resumeFromPresentation();
@@ -534,11 +544,12 @@ function openMedalCapturePreview(): void {
 
 function setCaptureOverlayVisible(visible: boolean): void {
   captureOverlayVisible = visible;
+  immersive.setPhase(visible ? 'presentation' : race.phase === 'ready' || race.phase === 'finished' ? 'ready' : 'active');
   mobileInput.setOverlayHidden(captureOverlayVisible || finalePresentation || expansionGallery.visible());
 }
 
 function restoreMobileImmersiveFromCaptureGesture(): void {
-  if (mobileInput.enabled) mobileInput.requestImmersiveFromGesture(true);
+  immersive.requestCaptureReturn();
 }
 
 function openFinaleCapturePreview(): void {
@@ -703,6 +714,7 @@ function resetRace(): void {
   hud.showPcControlPrimer(null);
   finale.hide();
   capturePreview.hide(false);
+  immersive.setPhase('ready');
   for (let i = 0; i < boats.length; i++) {
     const s = GRID_SLOTS[i];
     boats[i].object.visible = true;
@@ -1046,10 +1058,7 @@ function step(dt: number, _t: number): void {
     const pass = records.recordFlightPass(flights, selectedDriverId);
     newBestThisRun ||= pass.newBest;
     hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
-    const noviceAirBrakeTip = flights === 1 && pass.bestFlights < 2 &&
-      !drivingCoach.progress.mastery.airBrakedInTurn;
-    if (noviceAirBrakeTip) tower.announceTechniqueTip();
-    else tower.announceFlight(flights, pass.bestFlights);
+    tower.announceFlight(flights, pass.bestFlights);
     if (flights === 3 && race.challengeTier === 'unqualified') {
       drivingCoach.markExpert();
       syncDrivingCoachUi();
@@ -1374,6 +1383,12 @@ window.addEventListener('keydown', (event) => {
   if (interruptionActive && (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
     event.preventDefault();
     resumeInterruption();
+    return;
+  }
+  // Keep the request inside the trusted READY keydown. The fixed-step loop
+  // still consumes the edge and starts the countdown on its normal schedule.
+  if (race.phase === 'ready' && (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
+    immersive.requestGo();
   }
 });
 
@@ -1417,6 +1432,7 @@ interface Harness {
   guidance(): CourseGuidanceStatus;
   startGantryStatus(): Record<string, number>;
   finalStationStatus(): Record<string, number | string | boolean>;
+  immersiveStatus(): Record<string, number | string | boolean>;
   mobileStatus(): Record<string, number | string | boolean>;
   gamepadStatus(): Record<string, number | string | boolean>;
   hapticStatus(): Record<string, number | string | boolean>;
@@ -3325,15 +3341,22 @@ function runRadioTechniqueCase(): Record<string, unknown> {
   resetRace();
   startFreshCountdown();
   advanceUntil(() => race.phase === 'racing', 8);
+  tower.update(0.5, race, false, true);
+  const blockedVisible = document.querySelector<HTMLElement>('.race-radio')?.classList.contains('on') ?? false;
+  const blockedStatus = tower.radioStatus();
+  const blockedQueued = Number(blockedStatus.queued);
+  const blockedPending = blockedQueued + (blockedStatus.activeKey ? 1 : 0);
   pcControlPrimer.stop();
   pcPrimerPresentation = null;
   hud.showPcControlPrimer(null, false);
-  tower.resetRun(7103);
-  tower.announceTechniqueTip();
-  tower.update(0.5, race, false, true);
-  const blockedVisible = document.querySelector<HTMLElement>('.race-radio')?.classList.contains('on') ?? false;
-  const blockedQueued = tower.radioStatus().queued;
-  tower.update(1 / 60, race, false, false);
+  // Keep the notices produced by the real Race.go callback.  This case is
+  // deliberately paced beyond the global radio gap so it proves that the
+  // opening Gemini/SOL broadcast survives behind the GO line.
+  const openingStatus = tower.radioStatus();
+  const openingQueueBefore = Number(openingStatus.queued);
+  const openingPendingBefore = openingQueueBefore + (openingStatus.activeKey ? 1 : 0);
+  tower.update(0.5, race, false, false);
+  loop.advance(4.2);
   const radio = document.querySelector<HTMLElement>('.race-radio');
   const body = radio?.querySelector<HTMLElement>('.race-radio-body');
   const first = {
@@ -3348,6 +3371,7 @@ function runRadioTechniqueCase(): Record<string, unknown> {
     width: radio?.getBoundingClientRect().width ?? 0,
     ariaLabel: radio?.getAttribute('aria-label') ?? '',
   };
+  const openingActive = tower.radioStatus().activeKey === 'gemini-opening-airbrake-tip';
   const timerBeforePause = Number(tower.radioStatus().timer);
   tower.update(1, race, false, true);
   const timerAfterPause = Number(tower.radioStatus().timer);
@@ -3359,8 +3383,12 @@ function runRadioTechniqueCase(): Record<string, unknown> {
   tower.update(1 / 60, race, false, false);
   return {
     first,
+    openingQueueBefore,
+    openingPendingBefore,
+    openingActive,
     blockedVisible,
     blockedQueued,
+    blockedPending,
     timerBeforePause,
     timerAfterPause,
     sameRunQueued,
@@ -4735,14 +4763,7 @@ function scenario(name: string): void {
       handleVisibility(false);
       break;
     case 'radio-technique':
-      advanceUntil(() => race.phase === 'racing', 8);
-      loop.advance(2.2);
-      pcControlPrimer.stop();
-      pcPrimerPresentation = null;
-      hud.showPcControlPrimer(null, false, false);
-      tower.resetRun(7105);
-      tower.announceTechniqueTip();
-      tower.update(1 / 60, race, false, false);
+      runRadioTechniqueCase();
       break;
     case 'flight-rule':
       advanceUntil(() => race.phase === 'racing', 8);
@@ -5457,6 +5478,7 @@ if (HARNESS) {
       visible: course.finalStationArmed() || course.finaleCelebrating(),
       finalePhase: finale.visualState().phase,
     }),
+    immersiveStatus: () => immersive.status(),
     mobileStatus: () => mobileInput.status(),
     gamepadStatus: () => gamepadInput.status(),
     hapticStatus: () => haptics.status(),

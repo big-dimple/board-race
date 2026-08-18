@@ -63,13 +63,9 @@ export class DriverSelect {
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
     this.root.setAttribute('aria-label', '选择成年竞速选手');
-    // Selection clicks warm audio. GO itself owns fullscreen so an earlier
-    // portrait tap cannot leave its reliable click behind a rejected
-    // pointerdown request.
+    // Selection clicks only warm audio. GO owns the first fullscreen request;
+    // selector taps must not trigger Chrome's native exit hint before GO.
     this.root.addEventListener('click', (event) => {
-      // GO owns its own click boundary through requestGo(). Every other
-      // selector click may still enter fullscreen, but never double-request
-      // from the same event.
       const target = event.target;
       if (target instanceof Element && target.closest('.driver-select-go')) return;
       this.onFirstInteraction?.();

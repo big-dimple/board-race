@@ -10,7 +10,7 @@
 ## 当前版本
 
 - 当前交付包含全车手 Final Station 真实过线排名、终点强光前的实体遮挡、真实 BOOST
-  释放脉冲、动态海面高光、真实落水水冠 / 两舷水幕、中央破碎尾迹，以及合批竞速艇与真实蒙皮车手。
+  同源尾焰、动态海面高光、真实落水水冠 / 两舷水幕、中央破碎尾迹，以及合批竞速艇与真实蒙皮车手。
   精确版本以包含本文件的 Git commit 为准，
   不在交接正文复制一个随后必然过期的 SHA。
 - checked release 会在提交前重新执行 build、flight、mobile、collision、audio、systems、
@@ -38,9 +38,10 @@
 - 连续水面运动改为围绕上一帧 `u` 的有界局部投影，Race、AI 和碰撞修正不再在折返处
   各自跳到不同赛段；第四飞后的真实近距离超越 / 反超会验证对手确实进入追车镜头并
   贡献画面像素，而不是只剩名次数值。
-- 对手技巧视觉只由真实 BOOST rising edge 触发蓝白体积脉冲，漂移 hold 保持干净；
-  灰烟、漫画线、橙色尾焰和透明热雾锥体均已否决。精确时长、角度、结构和像素合同见
-  [`llmwiki.md`](llmwiki.md)，不要在本文件维护第二套参数。
+- 对手技巧视觉现在复用玩家已有的 `thrust-outer/core` 实例，只在真实 BOOST 时沿艇尾
+  短暂出现，漂移 hold 保持干净；旧的 12 片 billboard 蓝色脉冲、灰烟、漫画线、橙色尾焰
+  和透明热雾锥体均已移除。精确比例、生命周期和像素合同见 [`llmwiki.md`](llmwiki.md)，
+  不要在本文件维护第二套参数。
 - 海面物理波形不变，连续四向微法线、中尺度风浪受光、背光面微光、宽日照、更清楚的稀疏白浪和导数过滤
   的移动波光共同恢复运动感；Auto 风浪材质法线从 `18-225m` 连续淡出，近场不会出现闪烁马赛克，
   也不接触船体浮力、碰撞或尾流采样。船尾迹改为一条有开合缺口的中央含气水带，Kelvin
@@ -61,7 +62,7 @@
   自动衰减；不改水面路线、起飞阈值、速度和碰撞法线，也不增加 draw call。长跑系统合同
   已覆盖进入、峰值上限和离开后的归零。
 - 赛中挑战文案完成一轮目标玩家审阅：二飞冲击层固定为“你已超过天下 80%的男人”，三飞、
-  结算、战斗广播和 SOL 技巧提示统一改为短句、强动词、可立即理解的商业竞速口吻；操作提示
+  结算、战斗广播和 Gemini 技巧提示统一改为短句、强动词、可立即理解的商业竞速口吻；操作提示
   仍保持动作语义，不用夸张文案覆盖关键信息。
 - Final Station 解锁后六名车手按真实穿门先后排序；玩家故意最后过线会得到 `6 / 6`。
   已冲线对手仍保留实体、碰撞和画面，低画质终点强光也不能把它们洗成幽灵。具体扫掠、
@@ -74,6 +75,9 @@
   `格莱美`、`欧朋智科`、`杰米奈`、`月之亮面`、`反人类`、`浅度求和`；
   旧的内部 ID 和资源文件名保持不变，仅用于存档、资产兼容和行为配置。
 - 文档职责已经拆分：README 面向人，`llmwiki` 面向 AI 稳定契约，本文件面向当前开发交接。
+- 全屏由跨设备 `ImmersiveModeController` 统一管理：只有 GO 在 trusted gesture 内首次请求；
+  PC 在比赛中退出或拒绝后提供可关闭的“恢复全屏”，手机等下一次真实控制手势重试。Chrome
+  原生退出提示无法由网页缩短，GO 后立即隐藏选角层，提示只会落在倒计时。
 
 ## 未完成与暂缓
 
@@ -130,7 +134,8 @@ GitHub Pages 从 `main` 的 `deploy.yml` 部署。源码是否已推送以 `orig
 - flight 合同实赚五格、验证第六次不溢出但仍兑现 BOOST、满仓起飞只扣一格，并在仍余
   三格时拒绝同一飞第二次续航；桌面和手机库存读数都锁定到真实状态。
 - systems 合同模拟了原生分享退出 fullscreen、关闭手势首次恢复被拒，以及下一次真实
-  漂移触摸成功重试；预览期间移动操作区不可见且不再遮挡分享。
+  漂移触摸成功重试；移动截图合同还确认选角阶段零 fullscreen 请求，GO 只请求一次；预览期间
+  移动操作区不可见且不再遮挡分享。
 - `SHOT_PORT=5234 npm run shot -- ready start vehicle-three-quarter rider rider-side water wake-close opponent-drift boost-burst flight-ready flight-cruise flight-route4-prepare flight-route4-approach flight-route5-prepare flight-route5-launch flight-route5-turn flight-route5-counter flight-route6-prepare flight-route6-turn flight-route7-cruise final-station final-rival-portal`：
   桌面道具、船体、车手、海面、尾迹、对手脉冲、白雾航道和 Final 定向场景均已生成并逐张人工复核；
   另以 `--mobile` 复核船体、车手、海面、第四飞入口、第五飞转弯和 Final。未发现安全剔除漏画，

@@ -90,10 +90,11 @@ automatically; players steer, drift/air-brake, and trigger flight.
   on the exact fourth-pass frame. Fixed chain-drift personality may remain afterward,
   but its surface auto-throttle may only lift for traffic or recovery and never become
   reverse braking. Teleport, fake progress, collision immunity, and player slowdown are
-  forbidden. Drift holds keep a clean stern; the real BOOST rising edge alone adds one
-  short, rear-upward 12-lobe blue-white plasma pulse. Do not restore smoke, comic lines,
-  continuous exhaust, or a translucent heat cone; ordinary rival wake stays subordinate. These visuals must derive from Boat state,
-  never a cosmetic loop detached from input, charge, or BOOST payout.
+  forbidden. Drift holds keep a clean stern; the real BOOST rising edge alone exposes the
+  same pooled `thrust-outer/core` stern emitters used by the player, at a distance-scaled
+  rival strength. Do not restore billboard lobes, smoke, comic lines, continuous exhaust,
+  or a translucent heat cone; ordinary rival wake stays subordinate. These visuals must
+  derive from Boat state, never a cosmetic loop detached from input, charge, or BOOST payout.
   All continuously moving surface boats and their AI must project inside a bounded
   neighbourhood of the previously accepted spline `u`; a folded course may not swap
   them to the globally nearest non-adjacent segment. Collision and rendering continue
@@ -101,9 +102,14 @@ automatically; players steer, drift/air-brake, and trigger flight.
   real rival pixels in the player's chase camera.
   Race radio is one prioritized slot and yields to action guidance. Routine passes
   and light contact stay silent; heavy personality reactions are capped per run.
-  Gemini's unmastered air-brake technique is a once-per-run desktop broadcast and a
-  mobile race-slot message, with its reading clock paused by higher-priority play.
+  Gemini's air-brake technique is queued once after every fresh GO (not resume), with its
+  reading clock paused by higher-priority play. The visible card uses the small callsign
+  `杰米奈`; the stable internal profile id remains `sol`.
 - iPhone browser play remains capability-detected rather than fake-fullscreen.
+  `ImmersiveModeController` owns fullscreen for desktop and mobile: only GO makes the
+  first request, selector taps never trigger the native exit hint, desktop shows a
+  dismissible recovery action after an exit/rejection, and mobile retries on the next
+  real control gesture.
   Active game controls suppress Safari page-pinch defaults without releasing
   held pointers; selector and dossier surfaces do not. A relative standalone
   manifest supports optional Home Screen launch without a Service Worker;

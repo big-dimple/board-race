@@ -130,7 +130,7 @@ export class RaceTower {
     this.enqueue({
       key: 'go', speaker: TEAM_SPEAKER,
       message: `${playerName}，线路开放。先拿首飞。`,
-      priority: 'tactical', duration: 2.2, ttl: 3,
+      priority: 'tactical', duration: 2.2, ttl: 8,
     });
   }
 
@@ -161,7 +161,7 @@ export class RaceTower {
   announceTechniqueTip(): void {
     const sol = driverProfile('sol');
     this.enqueue({
-      key: 'sol-airbrake-tip',
+      key: 'gemini-opening-airbrake-tip',
       speaker: driverSpeaker(sol),
       meta: `${sol.name} // 线路读懂了`,
       message: '空刹压住速度，转向咬住弯心',
@@ -169,7 +169,9 @@ export class RaceTower {
       presentation: 'broadcast',
       priority: 'tactical',
       duration: 5.65,
-      ttl: 22,
+      // Opening guidance can wait behind the GO/team slot and the first
+      // action cue without disappearing before a returning player sees it.
+      ttl: 60,
     });
   }
 

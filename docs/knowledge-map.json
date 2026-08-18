@@ -13,7 +13,28 @@
       "authority": "docs/llmwiki.md",
       "summaries": ["README.md", "docs/development-handoff.md"],
       "verifier": "npm run verify:release",
-      "status": "current"
+      "status": "changed-and-verified"
+    },
+    {
+      "id": "immersive-fullscreen",
+      "authority": "docs/llmwiki.md",
+      "summaries": ["README.md", "docs/development-handoff.md"],
+      "verifier": "npm run verify:systems",
+      "status": "changed-and-verified"
+    },
+    {
+      "id": "rival-drift-pulse",
+      "authority": "docs/llmwiki.md",
+      "summaries": ["README.md", "docs/development-handoff.md"],
+      "verifier": "npm run verify:flight",
+      "status": "changed-and-verified"
+    },
+    {
+      "id": "opening-radio-guidance",
+      "authority": "docs/llmwiki.md",
+      "summaries": ["README.md", "docs/development-handoff.md"],
+      "verifier": "npm run verify:systems",
+      "status": "changed-and-verified"
     },
     {
       "id": "project-status",

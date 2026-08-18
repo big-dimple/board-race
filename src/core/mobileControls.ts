@@ -1,12 +1,12 @@
 import { MAX_FLIGHT_CHARGES, type BoatInput, type RouteTurnDirection } from '../contracts';
 import type { AbilityHudState } from './abilityTelemetry';
+import type { ImmersiveModeController } from './immersiveMode';
 import './mobileControls.css';
 
 type ControlMode = 'tilt' | 'touch';
 type ActivationState = 'idle' | 'requesting' | 'calibrating' | 'ready';
 type ControlPhase = 'inactive' | 'presentation' | 'preparing' | 'racing';
 type PointerAction = 'left' | 'right' | 'drift' | 'flight';
-type FullscreenOutcome = 'idle' | 'unsupported' | 'standalone' | 'pending' | 'entered' | 'exited' | 'rejected';
 
 const ZERO: BoatInput = {
   throttle: 0,
@@ -34,6 +34,7 @@ export class MobileControls {
   private readonly flightSubLabel: HTMLElement | null;
   private readonly tiltMeter: HTMLDivElement | null;
   private readonly onFirstGesture: () => void;
+  private readonly immersive: ImmersiveModeController;
   private readonly activePointers = new Map<number, PointerAction>();
   private readonly buttons = new Map<PointerAction, HTMLButtonElement>();
 
@@ -57,14 +58,6 @@ export class MobileControls {
   private showGo = false;
   private goLabel = '开始游戏';
   private landscape = matchMedia('(orientation: landscape)').matches;
-  private fullscreenRequests = 0;
-  private fullscreenRequestSource: 'none' | 'go' | 'control' = 'none';
-  private fullscreenGoGestures = 0;
-  private fullscreenRequestPending = false;
-  private fullscreenOutcome: FullscreenOutcome = 'idle';
-  private fullscreenFailures = 0;
-  private firstImmersiveGestureHandled = false;
-  private fullscreenWasActive = false;
   private gestureSuppressions = 0;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
@@ -90,9 +83,11 @@ export class MobileControls {
     };
   }
 
-  constructor(parent: HTMLElement, onFirstGesture: () => void, force = false) {
+  constructor(parent: HTMLElement, onFirstGesture: () => void, force = false, immersive?: ImmersiveModeController) {
     this.enabled = force || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
     this.onFirstGesture = onFirstGesture;
+    if (!immersive) throw new Error('MobileControls requires ImmersiveModeController');
+    this.immersive = immersive;
     if (!this.enabled) {
       this.root = null;
       this.start = null;
@@ -162,7 +157,6 @@ export class MobileControls {
     window.addEventListener('deviceorientation', (event) => this.orientation(event), { passive: true });
     window.addEventListener('orientationchange', () => this.orientationChanged());
     screen.orientation?.addEventListener?.('change', () => this.orientationChanged());
-    document.addEventListener('fullscreenchange', () => this.fullscreenChanged());
     window.addEventListener('blur', () => this.releaseAll());
     document.addEventListener('gesturestart', this.suppressPageGesture, { capture: true, passive: false });
     document.addEventListener('gesturechange', this.suppressPageGesture, { capture: true, passive: false });
@@ -256,8 +250,7 @@ export class MobileControls {
     // Fullscreen must be requested synchronously from the GO click. Waiting
     // for the sensor permission promise loses browser user activation.
     this.onFirstGesture();
-    this.fullscreenGoGestures++;
-    this.enterImmersiveMode('go');
+    this.immersive.requestGo();
     if (this.activation === 'ready') {
       this.goQueued = true;
       return;
@@ -267,12 +260,12 @@ export class MobileControls {
     else void this.activateTilt();
   }
 
-  /** Try immersive mode from any first pre-game touch, before async work. */
+  /** Retry fullscreen only from a real post-GO control gesture. */
   requestImmersiveFromGesture(force = false): void {
     if (!this.enabled) return;
     this.onFirstGesture();
-    if (this.firstImmersiveGestureHandled && !force) return;
-    this.enterImmersiveMode('control');
+    if (force) this.immersive.requestCaptureReturn();
+    else this.immersive.requestControlFromGesture();
   }
 
   setGoPrompt(show: boolean, label = '开始游戏'): void {
@@ -378,9 +371,9 @@ export class MobileControls {
     angle: number;
     landscape: boolean;
     fullscreenRequests: number;
-    fullscreenRequestSource: 'none' | 'go' | 'control';
+    fullscreenRequestSource: 'none' | 'go' | 'control' | 'capture-return' | 'restore';
     fullscreenGoGestures: number;
-    fullscreenOutcome: FullscreenOutcome;
+    fullscreenOutcome: import('./immersiveMode').FullscreenOutcome;
     fullscreenFailures: number;
     gestureSuppressions: number;
     pageScale: number;
@@ -393,11 +386,7 @@ export class MobileControls {
       sampleCount: this.calibrationSamples.length,
       angle: this.calibrationAngle,
       landscape: this.landscape,
-      fullscreenRequests: this.fullscreenRequests,
-      fullscreenRequestSource: this.fullscreenRequestSource,
-      fullscreenGoGestures: this.fullscreenGoGestures,
-      fullscreenOutcome: this.fullscreenOutcome,
-      fullscreenFailures: this.fullscreenFailures,
+      ...this.immersive.status(),
       gestureSuppressions: this.gestureSuppressions,
       pageScale: window.visualViewport?.scale ?? 1,
       overlayHidden: this.root?.classList.contains('overlay-hidden') ?? false,
@@ -440,97 +429,6 @@ export class MobileControls {
       this.useTouch();
     } finally {
       this.permissionPending = false;
-    }
-  }
-
-  private requestFullscreen(source: 'go' | 'control'): Promise<'entered' | 'unsupported' | 'standalone' | 'busy'> {
-    if (this.isStandaloneDisplay()) {
-      this.fullscreenOutcome = 'standalone';
-      return Promise.resolve('standalone');
-    }
-    if (document.fullscreenElement) {
-      this.fullscreenWasActive = true;
-      this.fullscreenOutcome = 'entered';
-      return Promise.resolve('entered');
-    }
-    if (!document.documentElement.requestFullscreen) {
-      this.fullscreenOutcome = 'unsupported';
-      return Promise.resolve('unsupported');
-    }
-    if (this.fullscreenRequestPending) return Promise.resolve('busy');
-    this.fullscreenRequests++;
-    this.fullscreenRequestSource = source;
-    this.fullscreenRequestPending = true;
-    this.fullscreenOutcome = 'pending';
-    let request: Promise<void>;
-    try {
-      request = document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-    } catch (error: unknown) {
-      this.fullscreenRequestPending = false;
-      this.fullscreenOutcome = 'rejected';
-      this.fullscreenFailures++;
-      return Promise.reject(error);
-    }
-    return request
-      .then(() => {
-        this.fullscreenWasActive = true;
-        this.fullscreenOutcome = 'entered';
-        return 'entered' as const;
-      })
-      .catch((error: unknown) => {
-        this.fullscreenOutcome = 'rejected';
-        this.fullscreenFailures++;
-        throw error;
-      })
-      .finally(() => { this.fullscreenRequestPending = false; });
-  }
-
-  private fullscreenChanged(): void {
-    if (this.isStandaloneDisplay()) {
-      this.fullscreenOutcome = 'standalone';
-      this.firstImmersiveGestureHandled = true;
-      return;
-    }
-    if (document.fullscreenElement) {
-      this.fullscreenWasActive = true;
-      this.fullscreenOutcome = 'entered';
-      this.firstImmersiveGestureHandled = true;
-      return;
-    }
-    if (!this.fullscreenWasActive) return;
-    this.fullscreenWasActive = false;
-    this.fullscreenRequestPending = false;
-    this.fullscreenOutcome = 'exited';
-    this.firstImmersiveGestureHandled = false;
-  }
-
-  private enterImmersiveMode(source: 'go' | 'control'): void {
-    void this.requestFullscreen(source)
-      .then((outcome) => {
-        if (outcome === 'entered' || outcome === 'unsupported' || outcome === 'standalone') {
-          this.firstImmersiveGestureHandled = true;
-        }
-        return this.lockLandscape();
-      })
-      .catch(() => {
-        this.firstImmersiveGestureHandled = false;
-        return this.lockLandscape();
-      });
-  }
-
-  private isStandaloneDisplay(): boolean {
-    const iosNavigator = navigator as Navigator & { standalone?: boolean };
-    return matchMedia('(display-mode: standalone)').matches || iosNavigator.standalone === true;
-  }
-
-  private async lockLandscape(): Promise<void> {
-    try {
-      const orientation = screen.orientation as ScreenOrientation & {
-        lock?: (orientation: 'landscape') => Promise<void>;
-      };
-      await orientation?.lock?.('landscape');
-    } catch {
-      // Portrait is still blocked by CSS when fullscreen/orientation lock is unavailable.
     }
   }
 

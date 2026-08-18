@@ -151,6 +151,74 @@ async function verifyPcPrimerPersistence(browser) {
   await passContext.close();
 }
 
+async function verifyImmersiveStartContract(page) {
+  await page.evaluate(() => {
+    window.__immersiveProbe = { calls:0, active:false };
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable:true,
+      get:() => window.__immersiveProbe.active ? document.documentElement : null,
+    });
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable:true,
+      value:() => {
+        window.__immersiveProbe.calls++;
+        if (window.__immersiveProbe.calls === 1) {
+          return Promise.reject(new DOMException('fixture rejection', 'NotAllowedError'));
+        }
+        window.__immersiveProbe.active = true;
+        document.dispatchEvent(new Event('fullscreenchange'));
+        return Promise.resolve();
+      },
+    });
+  });
+  await page.evaluate(() => window.__harness.scenario('ready'));
+  await page.locator('.driver-switch-next').click();
+  const beforeGo = await page.evaluate(() => ({
+    calls:window.__immersiveProbe.calls,
+    status:window.__harness.immersiveStatus(),
+  }));
+  assert.equal(beforeGo.calls, 0, 'driver selection must not consume the first fullscreen gesture');
+  assert.equal(beforeGo.status.fullscreenGoGestures, 0);
+  assert.equal(beforeGo.status.recoveryVisible, false);
+
+  await page.locator('.driver-select-go').click();
+  await page.waitForFunction(() => {
+    const status = window.__harness.immersiveStatus();
+    return status.fullscreenOutcome === 'rejected' && status.fullscreenFailures === 1;
+  });
+  const afterGo = await page.evaluate(() => ({
+    calls:window.__immersiveProbe.calls,
+    status:window.__harness.immersiveStatus(),
+  }));
+  assert.equal(afterGo.calls, 1, 'GO must make exactly one trusted fullscreen request');
+  assert.equal(afterGo.status.fullscreenRequestSource, 'go');
+  assert.equal(afterGo.status.fullscreenGoGestures, 1);
+  assert.equal(afterGo.status.recoveryVisible, true,
+    'desktop must offer recovery after a rejected GO request');
+
+  await page.locator('.immersive-recovery-action').click();
+  await page.waitForFunction(() => window.__harness.immersiveStatus().fullscreenOutcome === 'entered');
+  const restored = await page.evaluate(() => ({
+    calls:window.__immersiveProbe.calls,
+    status:window.__harness.immersiveStatus(),
+  }));
+  assert.equal(restored.calls, 2, 'the recovery button must retry fullscreen from a real click');
+  assert.equal(restored.status.fullscreenRequestSource, 'restore');
+  assert.equal(restored.status.recoveryVisible, false);
+
+  await page.evaluate(() => {
+    window.__immersiveProbe.active = false;
+    document.dispatchEvent(new Event('fullscreenchange'));
+  });
+  await page.waitForFunction(() => window.__harness.immersiveStatus().fullscreenOutcome === 'exited');
+  assert.equal(await page.locator('.immersive-recovery').isVisible(), true,
+    'an unexpected desktop fullscreen exit must remain recoverable during play');
+  await page.locator('.immersive-recovery-dismiss').click();
+  assert.equal(await page.locator('.immersive-recovery').isVisible(), false,
+    'the player must be able to dismiss the desktop recovery affordance');
+  await page.evaluate(() => window.__harness.scenario('ready'));
+}
+
 async function verifyCaptureContract(browser, desktopPage) {
   await desktopPage.evaluate(() => {
     window.__captureProbe = { names:[], writes:[], closes:0, copies:0 };
@@ -390,6 +458,8 @@ try {
   assert.equal(freshRecords.coach.status, 'dormant');
   assert.equal(freshRecords.coach.automaticEligible, true,
     'a brand-new v8 save must receive the one-time first-failure invitation');
+
+  await verifyImmersiveStartContract(recordsPage);
 
   const portraits = await recordsPage.locator('.driver-card').evaluateAll((cards) => cards.map((card) => {
     const image = card.querySelector('img');
@@ -837,8 +907,12 @@ try {
   const radio = await recordsPage.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radio.blockedVisible, false,
     'radio must yield while an actionable HUD presentation owns attention');
-  assert.equal(radio.blockedQueued, 1,
-    'yielding must preserve a still-relevant technique line instead of dropping it');
+  assert.equal(radio.openingPendingBefore, 2,
+    'a fresh GO must retain the team line and one Gemini opening line');
+  assert.equal(radio.blockedPending, 2,
+    'yielding must preserve both opening lines instead of dropping the technique line');
+  assert.equal(radio.openingActive, true,
+    'the real opening flow must eventually promote Gemini after the GO slot');
   assert.equal(radio.first.visible, true);
   assert.match(radio.first.speaker, /Gemini/);
   assert.equal(radio.first.text, '空刹压住速度，转向咬住弯心');

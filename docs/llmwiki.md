@@ -210,8 +210,8 @@
 
 - 三类设备最终只合并为一个 `BoatInput`，不得为教程增加第二套控制路径。
 - 手机默认触控转向并在 `GO` 后直接就绪；只有玩家主动切到重力转向才请求传感器权限并校准。
-  选角页任意真实 `click` 都可尝试全屏，`GO` 同时保留自己的同步请求；全局
-  `pointerdown` 只解锁音频，不能抢先创建 pending fullscreen promise 吞掉后续 click。
+  选角页的选手切换、模式切换和普通 `pointerdown` 只解锁音频；跨设备
+  `ImmersiveModeController` 只允许 `GO` 在 trusted gesture 内发出第一次 fullscreen 请求。
   倾斜 / 触控切换只允许改变左拇指区，右侧漂移与飞行位置不能移动。触控转向的
   两块命中区固定为各 140px，不随大屏手机继续外扩；右转可见圆钮向左内收 22px，
   但不得缩小或移动它背后的命中区。
@@ -222,7 +222,10 @@
   launcher 名称使用完整产品名，不能再用脱离品牌语境的缩写。
 - 支持 Fullscreen API 的浏览器若因系统 UI / 安装推广竞争而拒绝一次请求，下一次真实控件
   手势必须恢复重试资格；只有真正进入 fullscreen 或明确不支持 API 才消费一次性资格。
-  `GO` 始终保留自己的同步请求，测试必须区分“调用过”与“失败后能够重试”。
+  `GO` 始终保留自己的同步请求，测试必须区分“调用过”与“失败后能够重试”。桌面在比赛中
+  退出或拒绝后显示非模态“恢复全屏”按钮，关闭后本局保持窗口模式；READY、勋章、Final、资料片
+  和截图预览不显示该入口。Chrome 原生退出提示不能由网页缩短，只能通过 GO 后立即隐藏选角层，
+  让提示落在倒计时上。
   已从主屏幕以 standalone 启动时本身就是沉浸窗口，不得再嵌套请求 fullscreen。
 - 勋章 / Final 截图预览属于全屏 viewer：出现时必须隐藏并释放所有移动游戏控件，不能让
   空刹命中区盖住分享。预览页必须提供明确的“回到游戏”出口；它和右上角关闭都只关闭
@@ -641,23 +644,23 @@ Web Audio 总线，最后统一经过 master high-pass 和 limiter。它不是�
   空中仍由独立 vector air-brake 包络负责减速。禁止 teleport、位置插值、假 progress、
   免碰撞或玩家减速。
 - 连漂表现必须来自真实状态：所有对手在真实 hold 时保持干净艇尾，只有真实松开并兑现
-  BOOST 的 rising edge 才触发 `opponent-drift-burst`。它是一个朝后上方约 `28deg` 展开的
-  `.55s` 蓝白等离子脉冲，由 `12` 个互相覆盖的相机朝向 lobe 组成一个 depth-aware instanced
-  energy draw；长度随衰减在约 `3.8-5.2m` 内变化。不得复用飞行向下喷口、持续排气、
-  灰烟、假热雾锥体、白色角标或脱离 `BoatInput` 的循环。普通尾流倍率仍为 `.68`，只负责贴水。
+  BOOST 的 rising edge 才触发同源尾焰。它直接复用每艘艇已有的 `thrust-outer/core` 实例批次，
+  近距离使用与玩家同源的强度，再乘距离 LOD 与对手可读性，形态、方向、颜色和渐隐完全同源；
+  生命周期跟随真实 BOOST，不得用 billboard、固定定时器、灰烟或脱离 `BoatInput` 的循环伪造链漂。
+  普通尾流倍率仍为 `.68`，只负责贴水。
 - harness 要锁同一名 rival 的 `drifting -> boosting -> drifting`、AI accepted cycle 与
-  Boat BOOST rising edge 数量完全一致、hold 时 burst 为零、release 时蓝白脉冲出现、READY 时 burst
-  清零，并从正常 `10-35m` 追车视角证明 release 真实改变至少 `220` 个 CSS 像素；累计计数、
-  object `visible=true` 或贴近自由相机都不能单独冒充可读性。第四飞后还要连续采样至少
-  五秒，证明 player-gap 指令全为零、实际水面输入无负油门，同时仍观察到真实 chain hold
-  与 BOOST。
+  Boat BOOST rising edge 数量完全一致、hold 时尾焰为零、release 时同源尾焰出现、READY 时清零，
+  并从正常 `10-35m` 追车视角证明 release 真实改变至少 `220` 个 CSS 像素；累计计数、object
+  `visible=true` 或贴近自由相机都不能单独冒充可读性。第四飞后还要连续采样至少五秒，证明
+  player-gap 指令全为零、实际水面输入无负油门，同时仍观察到真实 chain hold 与 BOOST。
 - 电台是纯 `RadioDirector` 单槽仲裁，优先级为 `critical > tactical > flavor`；危险警告、
   键位引导、飞行提示和表现层冻结时暂停，不与它们争屏。每条消息有 run key、TTL、
   duration，可选 session key；不得用多个独立 timer 叠出一排 toast。
 - 第 `1/2/4/5/6` 飞和轻碰撞保持静默，不再播“艇况正常”等填充句。重碰只播有明确
   对手人格的短句，每局最多两次且间隔至少 `8s`；粗口仍由 session key 限一次。
-  Gemini 技巧固定为 `Gemini // 线路读懂了` / `空刹压住速度，转向咬住弯心`，卡片小号为 `杰米奈`，未掌握
-  空刹时每局最多一次。桌面用约 `0.55s` 右侧滑入、`4.2s` 中心停留、`0.9s` 左侧退出
+  Gemini 技巧固定为 `Gemini // 线路读懂了` / `空刹压住速度，转向咬住弯心`，卡片小号为 `杰米奈`。
+  每个新回合的 GO 后只排入一次，续赛不重复；返回玩家约在队伍播报之后看到，单槽被行动指导阻塞时
+  暂停但保留较长 TTL，不再等待第一飞通过才补播。桌面用约 `0.55s` 右侧滑入、`4.2s` 中心停留、`0.9s` 左侧退出
   的 32px 半透明广播；移动端在左侧赛事槽放大呈现，出现时名次列表让位，绝不能盖住
   任一触控热区。危险或教学遮挡期间 active timer 与 CSS animation 一起暂停。
 

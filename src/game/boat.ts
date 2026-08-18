@@ -159,7 +159,6 @@ const _fxScale = new THREE.Vector3();
 const _fxIdentityQ = new THREE.Quaternion();
 const _fxQBoost = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
 const _fxAxisY = new THREE.Vector3(0, 1, 0);
-const _driftBurstDirection = new THREE.Vector3();
 const _fxAxisZ = new THREE.Vector3(0, 0, 1);
 const _fxFlowDir = new THREE.Vector3();
 const _fxFlowQ = new THREE.Quaternion();
@@ -258,144 +257,6 @@ interface ThrustVisual {
   outer: THREE.InstancedMesh;
   core: THREE.InstancedMesh;
   rings: THREE.InstancedMesh;
-}
-
-const DRIFT_BURST_TIME = 0.55;
-const DRIFT_BURST_LOBES = 12;
-
-interface DriftBurstVisual {
-  group: THREE.Group;
-  lobes: THREE.InstancedMesh;
-  material: THREE.ShaderMaterial;
-}
-
-function buildDriftBurstVisual(): DriftBurstVisual {
-  const group = new THREE.Group();
-  group.name = 'opponent-drift-burst';
-  group.visible = false;
-  const material = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uStrength: { value: 0 } },
-    transparent: true,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    depthTest: true,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      uniform float uTime;
-      void main() {
-        vUv = uv;
-        vec3 displaced = position;
-        float envelope = 1.0 - smoothstep(0.0, 0.88, uv.y);
-        displaced.x += sin(uv.y * 17.0 + uTime * 9.0 + uv.x * 4.0) * 0.055 * envelope;
-        vec4 center = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        float sx = length(instanceMatrix[0].xyz);
-        float sy = length(instanceMatrix[1].xyz);
-        center.xy += displaced.xy * vec2(sx, sy);
-        gl_Position = projectionMatrix * center;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform float uTime;
-      uniform float uStrength;
-      varying vec2 vUv;
-
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-      }
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-      }
-      float fbm(vec2 p) {
-        float n = 0.0;
-        n += noise(p) * 0.55;
-        p = p * 2.03 + 7.1;
-        n += noise(p) * 0.27;
-        p = p * 2.01 + 3.4;
-        n += noise(p) * 0.18;
-        return n;
-      }
-      void main() {
-        vec2 p = vUv * 2.0 - 1.0;
-        float radius = length(p);
-        float angle = atan(p.y, p.x);
-        float localTime = uTime * 3.6;
-        float edgeNoise = fbm(p * 2.4 + vec2(localTime * 0.34, -localTime * 0.27));
-        float edge = 0.78 + (edgeNoise - 0.5) * 0.28 +
-          sin(angle * 5.0 + uTime * 8.0) * 0.045;
-        float shell = 1.0 - smoothstep(edge - 0.2, edge, radius);
-        float core = 1.0 - smoothstep(0.08, 0.48, radius);
-        float hotCore = 1.0 - smoothstep(0.02, 0.23, radius);
-        float brokenRim = smoothstep(edge - 0.22, edge - 0.08, radius) * shell;
-        float filament = 1.0 - smoothstep(0.035, 0.085,
-          abs(p.x * 0.72 + p.y * 0.28 + sin(p.y * 8.0 - uTime * 11.0) * 0.05));
-        filament *= shell * (1.0 - smoothstep(0.18, 0.76, radius));
-
-        float pulse = 0.88 + 0.12 * sin(uTime * 19.0 + angle * 2.0);
-        float shimmer = 0.72 + 0.28 * fbm(p * 4.6 + vec2(-localTime, localTime * 0.6));
-        vec3 deepBlue = vec3(0.025, 0.14, 0.38);
-        vec3 electricBlue = vec3(0.10, 0.55, 0.82);
-        vec3 color = mix(deepBlue, electricBlue, shell - brokenRim * 0.5);
-        color = mix(color, vec3(0.42, 0.82, 0.96), core * shimmer);
-        color = mix(color, vec3(0.9, 0.98, 1.0), max(hotCore, filament * 0.72));
-        float visibleAlpha = shell * (0.68 + core * 0.24 + hotCore * 0.08) *
-          (0.86 + 0.14 * uStrength) * pulse;
-        visibleAlpha += (1.0 - smoothstep(edge, edge + 0.18, radius)) * 0.045;
-        // Keep the pulse in the normal transparent path. Zero-alpha lobes are
-        // still pooled and submitted, but avoid an alpha-test branch that can
-        // disable early fragment tests on mobile GPUs.
-        visibleAlpha *= step(0.012, visibleAlpha);
-        gl_FragColor = vec4(color, visibleAlpha);
-      }
-    `,
-  });
-  const lobes = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, DRIFT_BURST_LOBES);
-  lobes.name = 'opponent-drift-pulse-lobes';
-  lobes.renderOrder = 10;
-  // Instance transforms move the pulse several meters behind the stern; the
-  // default unit-plane bounds do not include those transforms.
-  lobes.geometry.computeBoundingSphere();
-  lobes.geometry.boundingSphere!.center.set(0, 0, 0);
-  lobes.geometry.boundingSphere!.radius = 8;
-  lobes.frustumCulled = true;
-  lobes.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  lobes.layers.enable(LAYER_ENERGY);
-  const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
-  for (let i = 0; i < DRIFT_BURST_LOBES; i++) lobes.setMatrixAt(i, hidden);
-  lobes.instanceMatrix.needsUpdate = true;
-  group.add(lobes);
-  return { group, lobes, material };
-}
-
-function placeDriftBurstPulse(
-  lobes: THREE.InstancedMesh,
-  material: THREE.ShaderMaterial,
-  direction: THREE.Vector3,
-  strength: number,
-  t: number,
-): void {
-  const length = 3.8 + smooth01(strength) * 1.4;
-  for (let i = 0; i < DRIFT_BURST_LOBES; i++) {
-    const f = (i + 0.35) / DRIFT_BURST_LOBES;
-    const body = Math.sin(Math.PI * f);
-    const flicker = 0.92 + 0.08 * Math.sin(t * 37 + i * 2.17);
-    const radius = (0.24 + body * 0.5) * flicker * (0.86 + strength * 0.14);
-    _fxPos.copy(direction).multiplyScalar(0.18 + f * length);
-    _fxPos.x += Math.sin(i * 2.41 + t * 8.5) * radius * 0.3;
-    _fxPos.y += 0.34 + Math.cos(i * 1.73 - t * 7.2) * radius * 0.11;
-    _fxPos.z -= 2.48;
-    _fxScale.set(radius * (1.08 + body * 0.18), radius, 1);
-    _fxMatrix.compose(_fxPos, _fxIdentityQ, _fxScale);
-    lobes.setMatrixAt(i, _fxMatrix);
-  }
-  lobes.instanceMatrix.needsUpdate = true;
-  material.uniforms.uTime.value = t;
-  material.uniforms.uStrength.value = strength;
 }
 
 function buildThrustVisual(): ThrustVisual {
@@ -1124,7 +985,6 @@ export class Boat implements IBoat {
   private readonly thrustOuter: THREE.InstancedMesh;
   private readonly thrustCore: THREE.InstancedMesh;
   private readonly thrustRings: THREE.InstancedMesh;
-  private readonly driftBurst: DriftBurstVisual;
   private driftBurstTimer = 0;
   private boostFx = 0;
   private flightFx = 0;
@@ -1173,13 +1033,11 @@ export class Boat implements IBoat {
     this.thrustOuter = thrust.outer;
     this.thrustCore = thrust.core;
     this.thrustRings = thrust.rings;
-    this.driftBurst = buildDriftBurstVisual();
     this.object.add(
       this.thrustShell,
       this.thrustOuter,
       this.thrustCore,
       this.thrustRings,
-      this.driftBurst.group,
     );
 
     this.state = {
@@ -1712,16 +1570,17 @@ export class Boat implements IBoat {
     const boostPulse = 0.9 + 0.1 * Math.sin(t * 34 + this.id);
     // Surface boost hands off to the twin anti-grav emitters instead of
     // stacking three bright plumes on the launch frame.
-    const boostVisual = (this.id === 0 ? this.boostFx : 0) * (1 - this.flightFx * 0.92);
+    const boostVisual = (this.id === 0 ? this.boostFx : this.boostFx * 1.0 * this.opponentTechniqueFxScale) *
+      (1 - this.flightFx * 0.92);
     const opponentReadability = this.id > 0 ? 1 + this.opponentFxScale * 0.42 : 1;
-    const boostLen = (0.06 + boostVisual * 2.3 * boostPulse) * opponentReadability;
+    const boostLen = (0.06 + boostVisual * 2.85 * boostPulse) * opponentReadability;
     this.setThrustInstance(
       'outer', 0, 0, 0.2, -2.64 - boostLen * 0.5, _fxQBoost,
-      0.3 * boostVisual * opponentReadability, boostLen,
+      0.36 * boostVisual * opponentReadability, boostLen,
     );
     this.setThrustInstance(
       'core', 0, 0, 0.2, -2.64 - boostLen * 0.42, _fxQBoost,
-      0.085 * boostVisual * opponentReadability, boostLen * 0.72,
+      0.105 * boostVisual * opponentReadability, boostLen * 0.72,
     );
 
     const burst = clamp(this.liftBurstTimer / 0.22, 0, 1);
@@ -1853,20 +1712,13 @@ export class Boat implements IBoat {
     }
   }
 
-  private updateOpponentDriftBurst(dt: number, t: number, boostStarted: boolean): void {
+  private updateOpponentDriftBurst(dt: number, _t: number, boostStarted: boolean): void {
     if (this.id === 0) return;
-    if (boostStarted && this.opponentTechniqueFxScale > 0.01) {
-      this.driftBurstTimer = DRIFT_BURST_TIME;
-    }
+    // The readable pulse is now the same stern emitter used by the player.
+    // Keep a short debug edge for harnesses, but let the actual BOOST envelope
+    // own the lifetime so a held drift remains completely clean.
+    if (boostStarted) this.driftBurstTimer = 0.18;
     this.driftBurstTimer = Math.max(0, this.driftBurstTimer - dt);
-    const strength = clamp(this.driftBurstTimer / DRIFT_BURST_TIME, 0, 1) * this.opponentTechniqueFxScale;
-    this.driftBurst.group.visible = strength > 0.01;
-    if (strength <= 0.01) return;
-
-    // A short aft/up pulse: elevated enough for the chase camera, never a vertical flight plume.
-    _driftBurstDirection.set(0, Math.tan(Math.PI * 28 / 180), -1).normalize();
-    const burst = smooth01(strength);
-    placeDriftBurstPulse(this.driftBurst.lobes, this.driftBurst.material, _driftBurstDirection, burst, t);
   }
 
   private setThrustInstance(
@@ -2006,7 +1858,9 @@ export class Boat implements IBoat {
     burstActive: boolean;
     wakeScale: number;
   } {
-    const burstStrength = clamp(this.driftBurstTimer / DRIFT_BURST_TIME, 0, 1) * this.opponentTechniqueFxScale;
+    const burstStrength = this.id > 0 && this.state.boosting
+      ? this.boostFx * 1.0 * this.opponentTechniqueFxScale
+      : 0;
     return {
       burstScale: this.opponentTechniqueFxScale,
       releaseBeats: this.opponentReleaseBeats,
@@ -2018,7 +1872,7 @@ export class Boat implements IBoat {
         : 'idle',
       holdStarts: this.driftHoldStarts,
       burstStrength,
-      burstActive: this.driftBurst.group.visible,
+      burstActive: this.id > 0 && this.state.boosting && !this.state.drifting && burstStrength > 0.05,
       wakeScale: this.id === 0 ? 1 : TUNING.opponentWakeScale,
     };
   }
@@ -2349,7 +2203,6 @@ export class Boat implements IBoat {
     this.opponentReleaseBeats = 0;
     this.driftHoldStarts = 0;
     this.driftBurstTimer = 0;
-    this.driftBurst.group.visible = false;
     this.boostFx = 0;
     this.flightFx = 0;
     this.liftBurstTimer = 0;

@@ -1,0 +1,45 @@
+.immersive-recovery {
+  position: fixed;
+  z-index: 80;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  pointer-events: auto;
+  color: #f4feff;
+  background: rgba(5, 12, 34, .9);
+  border: 1px solid rgba(85, 231, 255, .72);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .28);
+}
+
+.immersive-recovery[hidden] { display: none !important; }
+
+.immersive-recovery-action,
+.immersive-recovery-dismiss {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: 800 12px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.immersive-recovery-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 11px;
+}
+
+.immersive-recovery-action span { color: #55e7ff; font-size: 19px; line-height: 1; }
+.immersive-recovery-dismiss { width: 28px; color: rgba(244, 254, 255, .65); font-size: 19px; }
+.immersive-recovery-action:hover,
+.immersive-recovery-action:focus-visible { background: rgba(85, 231, 255, .16); }
+.immersive-recovery-dismiss:hover,
+.immersive-recovery-dismiss:focus-visible { color: #fff; background: rgba(255, 255, 255, .12); }
+.immersive-recovery button:focus-visible { outline: 2px solid #ffcf4a; outline-offset: -2px; }
+
+@media (max-width: 700px), (pointer: coarse) {
+  .immersive-recovery { display: none !important; }
+}

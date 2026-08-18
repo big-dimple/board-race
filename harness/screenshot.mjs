@@ -3278,32 +3278,21 @@ async function verifyMobileControls(page) {
       value:{ calls:() => calls.length },
     });
   });
-  const fullscreenFailuresBefore = Number((await page.evaluate(() => window.__harness.mobileStatus())).fullscreenFailures);
+  const fullscreenBeforeGo = await page.evaluate(() => ({
+    status:window.__harness.mobileStatus(), calls:window.__fullscreenFixture.calls(),
+  }));
   await page.locator('.driver-switch-next').click();
-  await page.waitForFunction((before) => {
-    const status = window.__harness.mobileStatus();
-    return status.fullscreenOutcome === 'rejected' && Number(status.fullscreenFailures) === before + 1;
-  }, fullscreenFailuresBefore);
-  const attemptsAfterRejection = await page.evaluate(() => window.__fullscreenFixture.calls());
-  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', {
-    pointerId:901, pointerType:'touch', isPrimary:true,
-  });
-  await page.waitForFunction((before) =>
-    window.__harness.mobileStatus().fullscreenOutcome === 'entered' && window.__fullscreenFixture.calls() === before + 1,
-  attemptsAfterRejection);
-  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', {
-    pointerId:901, pointerType:'touch', isPrimary:true,
-  });
-  let status = await page.evaluate(() => window.__harness.mobileStatus());
-  assert.equal(status.fullscreenOutcome, 'entered',
-    'a rejected supported-browser fullscreen attempt must retry on the next real control gesture');
-  assert.equal(Number(status.fullscreenFailures), fullscreenFailuresBefore + 1);
-  assert.equal(status.activation, 'idle');
-  assert.equal(status.mode, 'touch', 'mobile must expose touch steering before the first GO');
+  await page.waitForTimeout(80);
+  const selectorFullscreen = await page.evaluate(() => ({
+    status:window.__harness.mobileStatus(), calls:window.__fullscreenFixture.calls(),
+  }));
+  assert.equal(selectorFullscreen.calls, fullscreenBeforeGo.calls,
+    'selector interaction must not trigger the native fullscreen hint before GO');
+  assert.equal(selectorFullscreen.status.fullscreenOutcome, fullscreenBeforeGo.status.fullscreenOutcome);
   const inactiveGesture = await page.evaluate(() => {
     const before = window.__harness.mobileStatus();
     const event = new Event('gesturestart', { bubbles:true, cancelable:true });
-    document.querySelector('[data-mobile-action="drift"]')?.dispatchEvent(event);
+    document.querySelector('.driver-select')?.dispatchEvent(event);
     return {
       prevented:event.defaultPrevented,
       before:Number(before.gestureSuppressions),
@@ -3313,15 +3302,35 @@ async function verifyMobileControls(page) {
   assert.equal(inactiveGesture.prevented, false,
     'Safari gestures must remain browser-owned while the driver selector is active');
   assert.equal(inactiveGesture.after, inactiveGesture.before);
-  assert.equal(await page.locator('.mobile-mode').textContent(), '转向 · 触控');
-  assert.ok(Number(status.fullscreenRequests) >= 1,
-    `any real driver-selector click may request fullscreen: ${JSON.stringify(status)}`);
-  assert.equal(status.fullscreenRequestSource, 'control');
-  const goGesturesBefore = Number(status.fullscreenGoGestures);
+  const fullscreenFailuresBefore = Number(selectorFullscreen.status.fullscreenFailures);
+  const goGesturesBefore = Number(selectorFullscreen.status.fullscreenGoGestures);
   await contractGo.click();
+  await page.waitForFunction((before) => {
+    const status = window.__harness.mobileStatus();
+    return status.fullscreenOutcome === 'rejected' && Number(status.fullscreenFailures) === before + 1;
+  }, fullscreenFailuresBefore);
+  let status = await page.evaluate(() => window.__harness.mobileStatus());
+  assert.equal(status.fullscreenRequestSource, 'go');
+  assert.equal(Number(status.fullscreenGoGestures), goGesturesBefore + 1);
+  assert.equal(await page.evaluate(() => window.__fullscreenFixture.calls()), fullscreenBeforeGo.calls + 1);
+  await page.evaluate(() => window.__harness.advance(8));
+  await page.waitForFunction(() => window.__harness.stats().phase === 'racing');
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerdown', {
+    pointerId:901, pointerType:'touch', isPrimary:true,
+  });
+  await page.waitForFunction((before) =>
+    window.__harness.mobileStatus().fullscreenOutcome === 'entered' && window.__fullscreenFixture.calls() === before + 1,
+  fullscreenBeforeGo.calls + 1);
+  await page.locator('[data-mobile-action="drift"]').dispatchEvent('pointerup', {
+    pointerId:901, pointerType:'touch', isPrimary:true,
+  });
   status = await page.evaluate(() => window.__harness.mobileStatus());
-  assert.equal(Number(status.fullscreenGoGestures), goGesturesBefore + 1,
-    `GO must retain its own reliable fullscreen path even after selector interactions: ${JSON.stringify(status)}`);
+  assert.equal(status.fullscreenOutcome, 'entered',
+    'a rejected supported-browser fullscreen attempt must retry on the next real control gesture');
+  assert.equal(Number(status.fullscreenFailures), fullscreenFailuresBefore + 1);
+  assert.equal(status.activation, 'ready');
+  assert.equal(status.mode, 'touch');
+  assert.equal(await page.locator('.mobile-mode').textContent(), '转向 · 触控');
   assert.equal(status.activation, 'ready', 'default touch steering must not wait for sensor calibration');
   assert.equal(status.mode, 'touch');
 
@@ -4290,8 +4299,7 @@ async function assertVehicleAssetContract(page) {
       riderFrustumCulled: rider.frustumCulled === true,
       thrustEffectsCulled: ['thrust-shell', 'thrust-outer', 'thrust-core', 'thrust-flow-rings']
         .every((name) => player.getObjectByName(name)?.frustumCulled === true),
-      driftPulseCulled: player.getObjectByName('opponent-drift-burst') === null ||
-        player.getObjectByName('opponent-drift-burst')?.getObjectByName('opponent-drift-pulse-lobes')?.frustumCulled === true,
+      driftPulseCulled: !player.getObjectByName('opponent-drift-burst'),
     };
   });
   assert.ok(asset && asset.hullClass === 'five-batch-racing-hydrojet' &&
@@ -5002,36 +5010,35 @@ async function main() {
           `release chase screenshot must show the real stern pulse: ${JSON.stringify(releaseChase)}`);
         const burstContract = await page.evaluate((role) => {
           const state = window.__harness.rivalChainState(role);
-          const burst = window.__scene.getObjectByName(`boat-${state.id}`)?.getObjectByName('opponent-drift-burst');
-          const lobes = burst?.getObjectByName('opponent-drift-pulse-lobes');
+          const boat = window.__scene.getObjectByName(`boat-${state.id}`);
+          const outer = boat?.getObjectByName('thrust-outer');
+          const core = boat?.getObjectByName('thrust-core');
           return {
-            childCount: burst?.children?.length ?? -1,
-            instanced: Boolean(lobes?.isInstancedMesh),
-            instances: lobes?.count ?? -1,
-            depthTest: lobes?.material?.depthTest ?? null,
-            energyLayer: Boolean((lobes?.layers?.mask ?? 0) & (1 << 2)),
-            fragmentShader: lobes?.material?.fragmentShader ?? '',
+            oldPulseAbsent: boat?.getObjectByName('opponent-drift-burst') === undefined,
+            outerInstanced: Boolean(outer?.isInstancedMesh),
+            coreInstanced: Boolean(core?.isInstancedMesh),
+            outerInstances: outer?.count ?? -1,
+            coreInstances: core?.count ?? -1,
+            outerDepthTest: outer?.material?.depthTest ?? null,
+            coreDepthTest: core?.material?.depthTest ?? null,
           };
         }, chainRole);
-        assert.deepEqual({
-          ...burstContract,
-          fragmentShader: undefined,
-        }, {
-          childCount: 1,
-          instanced: true,
-          instances: 12,
-          depthTest: true,
-          energyLayer: true,
-          fragmentShader: undefined,
-        }, `drift release must stay one depth-aware instanced energy draw: ${JSON.stringify(burstContract)}`);
-        assert.doesNotMatch(burstContract.fragmentShader, /\bdiscard\b/,
-          'drift pulse must stay on the pooled transparent alpha path');
+        assert.deepEqual(burstContract, {
+          oldPulseAbsent: true,
+          outerInstanced: true,
+          coreInstanced: true,
+          outerInstances: 5,
+          coreInstances: 5,
+          outerDepthTest: true,
+          coreDepthTest: true,
+        }, `drift release must reuse the depth-aware pooled stern emitters: ${JSON.stringify(burstContract)}`);
         const burstPixels = await page.evaluate((role) => {
           const h = window.__harness;
           const canvas = document.querySelector('#app > canvas');
           const state = h.rivalChainState(role);
-          const burst = window.__scene.getObjectByName(`boat-${state.id}`)?.getObjectByName('opponent-drift-burst');
-          if (!(canvas instanceof HTMLCanvasElement) || !burst) return null;
+          const boat = window.__scene.getObjectByName(`boat-${state.id}`);
+          const effects = [boat?.getObjectByName('thrust-outer'), boat?.getObjectByName('thrust-core')].filter(Boolean);
+          if (!(canvas instanceof HTMLCanvasElement) || effects.length !== 2) return null;
           const read = () => {
             h.render();
             const copy = document.createElement('canvas');
@@ -5041,12 +5048,12 @@ async function main() {
             context.drawImage(canvas, 0, 0);
             return context.getImageData(0, 0, copy.width, copy.height).data;
           };
-          const wasVisible = burst.visible;
-          burst.visible = false;
+          const wasVisible = effects.map((effect) => effect.visible);
+          effects.forEach((effect) => { effect.visible = false; });
           const withoutBurst = read();
-          burst.visible = true;
+          effects.forEach((effect) => { effect.visible = true; });
           const withBurst = read();
-          burst.visible = wasVisible;
+          effects.forEach((effect, index) => { effect.visible = wasVisible[index]; });
           h.render();
           let changed = 0;
           let deltaSum = 0;
