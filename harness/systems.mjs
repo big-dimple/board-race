@@ -828,8 +828,8 @@ try {
     'yielding must preserve a still-relevant technique line instead of dropping it');
   assert.equal(radio.first.visible, true);
   assert.match(radio.first.speaker, /Gemini/);
-  assert.equal(radio.first.text, '边飞边刹 + 转向，线路才咬得住');
-  assert.equal(radio.first.emphasis, '边飞边刹 + 转向');
+  assert.equal(radio.first.text, '空刹压住速度，转向咬住弯心');
+  assert.equal(radio.first.emphasis, '空刹压住速度');
   assert.equal(radio.first.presentation, 'broadcast');
   assert.ok(radio.first.fontSize >= 32,
     `the authored technique must be readable without staring at the race tower: ${JSON.stringify(radio.first)}`);
@@ -837,7 +837,7 @@ try {
   assert.ok(radio.first.animationDuration >= 5.64,
     `the slide-in, hold, and slide-out must have a real reading budget: ${JSON.stringify(radio.first)}`);
   assert.ok(radio.first.width >= 640, `the desktop broadcast must own a readable center lane: ${JSON.stringify(radio.first)}`);
-  assert.match(radio.first.ariaLabel, /Gemini.*边飞边刹/);
+  assert.match(radio.first.ariaLabel, /Gemini.*空刹压住速度/);
   assert.equal(radio.timerAfterPause, radio.timerBeforePause,
     'hard gameplay presentations must pause the broadcast reading clock');
   assert.equal(radio.sameRunQueued, 0, 'the technique broadcast may appear only once in one run');

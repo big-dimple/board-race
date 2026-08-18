@@ -10,7 +10,7 @@ const COLLISION_LINES: Record<DriverMood, string> = {
   '骄傲': '这条线我先拿了。',
   '愤怒': '这才叫抢线。别松油。',
   '专注': '接触确认。下个弯再算。',
-  '兴奋': '卧槽，这一下够结实。再来？',
+  '兴奋': '这一下够重。再来一次？',
   '冷酷': '接触而已。线路没丢。',
 };
 
@@ -129,7 +129,7 @@ export class RaceTower {
   announceGo(playerName: string): void {
     this.enqueue({
       key: 'go', speaker: TEAM_SPEAKER,
-      message: `${playerName}，线路开放。先拿第一飞。`,
+      message: `${playerName}，线路开放。先拿首飞。`,
       priority: 'tactical', duration: 2.2, ttl: 3,
     });
   }
@@ -137,8 +137,8 @@ export class RaceTower {
   announceBattle(event: RaceBattleEvent): void {
     const name = event.opponents[0]?.name ?? '对手';
     const messages = event.kind === 'overtake'
-      ? [`已超过 ${name}，守住内线。`, `${name} 在尾流里，别给回切。`]
-      : [`${name} 已超过你，差距还在攻击窗。`, `盯住 ${name}，下一段出弯拿回来。`];
+      ? [`超过 ${name}。内线锁住。`, `${name} 在尾流里，出弯别给机会。`]
+      : [`${name} 超到前面了。差距还在一击范围。`, `盯住 ${name}。下个弯收回来。`];
     const index = this.battleIndex++ % messages.length;
     this.enqueue({
       key: `battle-${event.kind}-${index}`, speaker: TEAM_SPEAKER,
@@ -149,8 +149,8 @@ export class RaceTower {
   announceFlight(flights: number, best: number): void {
     if (flights !== 3 && flights < 7) return;
     const messages = flights === 3
-      ? [`三飞认证。远海档案开启，BEST ${best}。`, '勋章到手。下一段线路已经开放。']
-      : ['七飞认证。金色终点已经开放。'];
+      ? [`三飞认证。远海档案开局，BEST ${best}。`, '勋章已入账。下一段，继续抢线。']
+      : ['七飞认证。终点站，为你开门。'];
     const index = this.flightIndex++ % messages.length;
     this.enqueue({
       key: `flight-${flights}-${index}`, speaker: TEAM_SPEAKER,
@@ -163,9 +163,9 @@ export class RaceTower {
     this.enqueue({
       key: 'sol-airbrake-tip',
       speaker: driverSpeaker(sol),
-      meta: `${sol.name} // 最近摸到门道了`,
-      message: '边飞边刹 + 转向，线路才咬得住',
-      emphasis: '边飞边刹 + 转向',
+      meta: `${sol.name} // 线路读懂了`,
+      message: '空刹压住速度，转向咬住弯心',
+      emphasis: '空刹压住速度',
       presentation: 'broadcast',
       priority: 'tactical',
       duration: 5.65,

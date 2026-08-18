@@ -37,6 +37,7 @@ const SCENARIOS = {
   sweeper: { scenario: 'sweeper' },
   chicane: { scenario: 'chicane' },
   hairpin: { scenario: 'hairpin' },
+  'sky-sun': { scenario: 'hairpin' },
   'post-third-turn': { scenario: 'post-third-turn' },
   airtime: { scenario: 'airtime' },
   'drift-charge': { scenario: 'drift-charge' },
@@ -81,6 +82,7 @@ const SCENARIOS = {
   'third-recovery-surface': { scenario: 'third-recovery-surface' },
   'flight-spent-charge': { scenario: 'flight-spent-charge' },
   'endless-qualified': { scenario: 'endless-qualified', timeout: 180000, settleMs: 180 },
+  'two-flight-taunt': { scenario: 'endless-two', settleMs: 350 },
   'medal-ceremony': { scenario: 'medal-ceremony', timeout: 180000, settleMs: 180 },
   'endless-four': { scenario: 'endless-four', timeout: 180000, settleMs: 180 },
   'endless-medal-fail': { scenario: 'endless-medal-fail', timeout: 180000, settleMs: 180 },
@@ -659,6 +661,61 @@ async function verifyToonMaterialContract(page) {
     assert.match(toon.fragmentShader, new RegExp(`step\\(${threshold}, ndl\\)`),
       `toon diffuse must preserve its analytic eight-band threshold ${threshold}`);
   }
+}
+
+async function verifySkyMaterialContract(page) {
+  // Keep this contract's setup time-neutral: later ocean temporal probes rely
+  // on the deterministic start scenario and should not inherit a hairpin step.
+  await page.evaluate(() => window.__harness.scenario('start'));
+  const sky = await page.evaluate(() => {
+    const root = window.__scene.getObjectByName('sky');
+    if (!root) return null;
+    const dome = root.children.find((child) => child.isMesh && child.material?.name === 'CelSky');
+    const sprites = root.children.filter((child) => child.isSprite);
+    const materials = [];
+    for (const sprite of sprites) {
+      if (!materials.includes(sprite.material)) materials.push(sprite.material);
+    }
+    const spriteInfo = sprites.map((sprite) => ({
+      opacity: sprite.material?.opacity ?? -1,
+      width: sprite.material?.map?.image?.width ?? 0,
+      height: sprite.material?.map?.image?.height ?? 0,
+    }));
+    return {
+      spriteCount: sprites.length,
+      materialCount: materials.length + (dome ? 1 : 0),
+      fragmentShader: dome?.material?.fragmentShader ?? '',
+      uniformKeys: Object.keys(dome?.material?.uniforms ?? {}),
+      spriteInfo,
+    };
+  });
+  assert.ok(sky && sky.spriteCount === 16 && sky.materialCount === 3,
+    `sky must keep one dome and two batched cloud materials: ${JSON.stringify(sky)}`);
+  assert.ok(sky.spriteInfo.slice(0, 8).every((cloud) => cloud.width === 256 && cloud.height === 160) &&
+    sky.spriteInfo.slice(8).every((cloud) => cloud.width === 512 && cloud.height === 220 &&
+      cloud.opacity >= 0.7 && cloud.opacity <= 0.85),
+  `far clouds must use the wide atmospheric texture without becoming a bright slab: ${JSON.stringify(sky.spriteInfo)}`);
+  assert.ok(sky.uniformKeys.includes('uSunVisualDir'));
+  assert.match(sky.fragmentShader, /uSunVisualDir/);
+  assert.match(sky.fragmentShader, /float disc = 1\.0 - smoothstep\(0\.026, 0\.040, ang\)/,
+    'the visible sun must remain a small, soft-edged disc');
+  assert.match(sky.fragmentShader, /pow\(max\(cos\(/,
+    'sun rays must use tapered angular lobes instead of equal rectangular dashes');
+}
+
+async function verifyCommercialCopyContract(page) {
+  await page.evaluate(() => window.__harness.scenario('endless-two'));
+  const impact = await page.evaluate(() => ({
+    title: document.querySelector('.hud-impact-title')?.textContent?.trim() ?? '',
+    detail: document.querySelector('.hud-impact-detail')?.textContent?.trim() ?? '',
+  }));
+  assert.equal(impact.title, '你已超过天下 80%的男人',
+    `the second-flight challenge line must land as the authored taunt: ${JSON.stringify(impact)}`);
+  assert.equal(impact.detail, '最后一飞，定级。');
+  await page.evaluate(() => window.__harness.scenario('radio-technique'));
+  const radio = await page.locator('.race-radio-body').textContent();
+  assert.match(radio ?? '', /空刹压住速度，转向咬住弯心/,
+    'the technique broadcast must explain the move in one clean sentence');
 }
 
 async function verifyWakeMaterialContract(page) {
@@ -1879,6 +1936,8 @@ async function verifyFlightContract(page) {
 
   await verifySurfaceGuideVisualContract(page);
   await verifyToonMaterialContract(page);
+  await verifySkyMaterialContract(page);
+  await verifyCommercialCopyContract(page);
   await verifyOceanMaterialContract(page);
   await verifyWakeMaterialContract(page);
   await verifyFlightGuideVisualContract(page);
@@ -3514,7 +3573,7 @@ async function verifyMobileControls(page) {
   `mobile technique radio must remain inside the landscape viewport: ${JSON.stringify(mobileBroadcast)}`);
   assert.deepEqual(mobileBroadcast.collisions, [],
     `mobile technique radio must not cover any touch target: ${JSON.stringify(mobileBroadcast)}`);
-  assert.match(mobileBroadcast.text, /边飞边刹.*转向.*咬得住/);
+  assert.match(mobileBroadcast.text, /空刹压住速度.*转向咬住弯心/);
 
   const mobileFinal = await page.evaluate(() => window.__harness.finalApproachCase());
   assert.ok(mobileFinal.maxBrakeEnvelope >= 0.9,
@@ -4522,6 +4581,17 @@ async function main() {
       }
       if (def.timeout) await page.waitForTimeout(0); // scenario itself blocks in evaluate
       if (def.settleMs) await page.waitForTimeout(def.settleMs);
+      if (name === 'two-flight-taunt') {
+        await page.evaluate(() => {
+          const impact = document.querySelector('.hud-impact');
+          const copy = impact?.querySelector('.hud-impact-copy');
+          if (copy instanceof HTMLElement) {
+            copy.style.animation = 'none';
+            copy.style.opacity = '1';
+            copy.style.transform = 'translateX(-50%) skew(-8deg)';
+          }
+        });
+      }
 
       if (def.freeCamDynamic) {
         await page.evaluate((cfg) => {
@@ -4540,6 +4610,17 @@ async function main() {
             p.x + fx * lookAhead, p.y + cfg.lookUp, p.z + fz * lookAhead,
           );
         }, def.freeCamDynamic);
+      }
+
+      if (name === 'sky-sun') {
+        await page.evaluate(() => {
+          const p = window.__harness.playerPose();
+          const s = [0.53, 0.455, 0.76];
+          window.__harness.freeCam(
+            p.x, p.y + 2.2, p.z,
+            p.x + s[0] * 260, p.y + 2.2 + s[1] * 260, p.z + s[2] * 260,
+          );
+        });
       }
 
       if (name === 'wake-close') {

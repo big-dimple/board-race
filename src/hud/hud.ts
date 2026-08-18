@@ -489,7 +489,7 @@ export class HUD {
     this.medalEl.setAttribute('aria-modal', 'true');
     this.medalCanvas = new MedalCeremonyCanvas(this.medalEl);
     const medalCopy = h('div', 'hud-medal-copy', this.medalEl);
-    this.medalKicker = h('div', 'hud-medal-kicker', medalCopy, '三飞达成 · 实力不靠嘴硬');
+    this.medalKicker = h('div', 'hud-medal-kicker', medalCopy, '三飞达成 · 实力兑现');
     this.medalTitle = h('div', 'hud-medal-title hud-inked', medalCopy, '猛男');
     this.medalCount = h('div', 'hud-medal-count hud-inked', medalCopy);
     this.medalTier = h('div', 'hud-medal-tier', medalCopy);
@@ -789,10 +789,10 @@ export class HUD {
       if (st.flightRouteState === 'passed') {
         const flightNumber = st.flightsCleared;
         if (flightNumber < 3) {
-          const title = flightNumber === 1 ? '第一飞，谁都会。' : '两次不算。';
+          const title = flightNumber === 1 ? '第一飞，开局。' : '你已超过天下 80%的男人';
           this.enqueueImpact({
             kind: 'route-clear', kicker: `${flightNumber} / 3`, title,
-            detail: flightNumber === 2 ? '最后一飞，别停在普通。' : '',
+            detail: flightNumber === 2 ? '最后一飞，定级。' : '',
             color: PALETTE.flight, duration: 1.1, priority: 60,
           });
         }
@@ -915,15 +915,15 @@ export class HUD {
     this.bestFlights = Math.max(this.bestFlights, best);
     this.currentMedalTier = tier;
     this.medalEl.dataset.tier = tier;
-    this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力不靠嘴硬';
+    this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力兑现';
     this.medalTitle.textContent = '猛男';
     this.medalCount.textContent = `男人勋章 +1 · 累计 ${medals}`;
     this.medalTier.textContent = tier === 'excellent'
       ? '第一名 · 优秀已经锁定'
-      : '勋章到手 · 夺回第一升优秀';
+      : '勋章已入账 · 下一局冲上第一';
     this.medalNext.textContent = best > 3
       ? `远海档案 BEST ${best} 飞 · 下一目标 ${best + 1} 飞`
-      : '三飞证明你会飞 · 远海档案现在才开始';
+      : '三飞只是入场 · 远海档案现在开局';
     this.medalNext.classList.remove('on');
     this.medalContinue.hidden = true;
     this.medalSave.disabled = true;
@@ -1030,7 +1030,7 @@ export class HUD {
       ? '三次飞行缺一不可'
       : excellent
         ? `优秀完成 × ${result.excellentTotal}`
-        : result.ordinaryNew ? '普通男人里程碑已解锁' : '第一才算优秀';
+        : result.ordinaryNew ? '普通达成 · 下一局冲优秀' : '第一，才算优秀';
     this.resultsRows.textContent = '';
     if (result.failure) this.resultsEl.dataset.failureReason = result.failure.reason;
     this.resultStat('TIME', fmtTime(result.raceTime));
@@ -1533,23 +1533,23 @@ export class HUD {
   private encouragementFor(result: ChallengeResult): { title: string; progress: string } {
     const flights = result.flightsCleared;
     if (flights >= 3 && result.outcome === 'excellent') {
-      return { title: '优秀已锁定！', progress: `这只是第 ${flights + 1} 飞的一次小失误` };
+      return { title: '优秀已锁定！', progress: `第 ${flights + 1} 飞只是一次失误，优势还在` };
     }
     if (flights >= 3) {
       const gap = result.leaderGapSeconds;
       return {
-        title: gap !== null && gap > 0 && gap <= 1.5 ? '太可惜了！' : '勋章已经到手！',
+        title: gap !== null && gap > 0 && gap <= 1.5 ? '只差一口气' : '勋章已入账',
         progress: gap !== null && gap > 0 ? `离优秀男人还差 ${gap.toFixed(2)} 秒` : '下一局夺回第一，升级优秀',
       };
     }
     if (flights === 2) {
       return {
-        title: '就差最后一飞！',
-        progress: result.place === 1 ? '离优秀男人只差这一飞' : '先拿下男人勋章，再去抢第一',
+        title: '最后一飞，定级',
+        progress: result.place === 1 ? '第一在手，最后一飞定级' : '先把勋章拿稳，再抢第一',
       };
     }
-    if (flights === 1) return { title: '太可惜了！', progress: '第一飞已经拿下，离勋章还差两飞' };
-    return { title: '只是小小失误', progress: '下一局把第一飞拿下' };
+    if (flights === 1) return { title: '首飞拿下', progress: '首飞已入账，再过两飞拿勋章' };
+    return { title: '失误不改结局', progress: '下一局，先拿首飞' };
   }
 
   // ------------------------------------------------------------------ pieces ----

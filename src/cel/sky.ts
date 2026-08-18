@@ -21,6 +21,12 @@ import { SUN_DIR } from './toonMaterial';
 
 const SKY_RADIUS = 4500;
 const CLOUD_COUNT = 16; // 8 near + 8 far
+const FAR_CLOUD_START = CLOUD_COUNT / 2;
+
+// The shared light stays where the boats expect it. The sky's visible sun is
+// a little lower and farther forward so it can occasionally enter a chase
+// frame without changing hull, rider, or water lighting.
+const SKY_SUN_DIR = SUN_DIR.clone().add(new THREE.Vector3(0, -0.13, 0.18)).normalize();
 
 /** Deterministic hash → 0..1 (stable cloud layout across runs/screenshots). */
 function hash(i: number, k: number): number {
@@ -53,7 +59,7 @@ const skyFragmentShader = /* glsl */ `
 uniform vec3 uZenith;
 uniform vec3 uMid;
 uniform vec3 uHorizon;
-uniform vec3 uSunDir;    // normalized, TOWARD the sun
+uniform vec3 uSunVisualDir; // visible sun direction; lighting remains shared in toon/water
 uniform vec3 uSunCore;
 uniform vec3 uSunFlare;
 uniform float uTime;     // seconds — drives the slow ray rotation
@@ -77,26 +83,25 @@ void main() {
   // (GGXrd-style graphic sun). Angular distance/azimuth around the
   // sun direction drive everything; every shape is a hard step.
   // ---------------------------------------------------------------
-  float ang = acos(clamp(dot(dir, uSunDir), -1.0, 1.0)); // radians off-sun
-  vec3 t0 = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)));
-  vec3 t1 = cross(t0, uSunDir);
+  float ang = acos(clamp(dot(dir, uSunVisualDir), -1.0, 1.0)); // radians off-sun
+  vec3 t0 = normalize(cross(uSunVisualDir, vec3(0.0, 1.0, 0.0)));
+  vec3 t1 = cross(t0, uSunVisualDir);
   float az = atan(dot(dir, t1), dot(dir, t0)); // azimuth around the sun
 
-  // Hard core disc (~2.3 degrees).
-  float disc = 1.0 - step(0.040, ang);
-  // Thin hard ring hugging the disc.
-  float ring0 = step(0.040, ang) * (1.0 - step(0.052, ang));
-  // 12 rectangular rays, separated by gaps, ALTERNATING long/short radial
-  // extents — identical dashes read as a loading spinner; staggered lengths
-  // read as a graphic sunburst. Rotation advances in HARD steps (no sweep).
-  float rot = floor(uTime * 1.5) * 0.004;
-  float seg = 6.28318530718 / 12.0;
-  float rayAz = 1.0 - step(seg * 0.24, abs(mod(az + rot, seg) - seg * 0.5));
-  float longRay = step(0.5, mod(floor((az + rot) / seg), 2.0));
-  float rayEnd = mix(0.125, 0.19, longRay);
-  float rays = rayAz * step(0.075, ang) * (1.0 - step(rayEnd, ang));
+  // A small disc and a quiet atmospheric ring keep the sun occasional. The
+  // old equal rectangular rays read as a spinner; these tapered lobes vary in
+  // width and fade continuously into the sky instead of drawing a symbol.
+  float disc = 1.0 - smoothstep(0.026, 0.040, ang);
+  float halo = 1.0 - smoothstep(0.040, 0.145, ang);
+  float ring = smoothstep(0.040, 0.047, ang) * (1.0 - smoothstep(0.047, 0.060, ang));
+  float rot = floor(uTime * 0.35) * 0.025;
+  float raysA = pow(max(cos((az + rot) * 4.0), 0.0), 10.0);
+  float raysB = pow(max(cos((az - rot * 0.7) * 7.0 + 0.55), 0.0), 16.0);
+  float rayBand = smoothstep(0.062, 0.078, ang) * (1.0 - smoothstep(0.078, 0.17, ang));
+  float rays = (raysA * 0.72 + raysB * 0.28) * rayBand;
 
-  col = mix(col, uSunFlare, max(ring0, rays));
+  float warm = clamp(halo * 0.075 + ring * 0.16 + rays * 0.26, 0.0, 0.30);
+  col = mix(col, uSunFlare, warm);
   col = mix(col, uSunCore, disc);
 
   gl_FragColor = vec4(col, 1.0);
@@ -144,6 +149,40 @@ function makeCloudTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+/** A wide, low-contrast remote cloud bank; it reads as atmosphere, not a second set of icons. */
+function makeRemoteCloudTexture(): THREE.CanvasTexture {
+  const w = 512;
+  const h = 220;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  const puff = (dy: number, fill: string): void => {
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.ellipse(256, 162 + dy, 196, 38, 0, 0, Math.PI * 2);
+    ctx.ellipse(112, 142 + dy, 78, 48, 0, 0, Math.PI * 2);
+    ctx.ellipse(188, 116 + dy, 92, 67, 0, 0, Math.PI * 2);
+    ctx.ellipse(286, 102 + dy, 108, 79, 0, 0, Math.PI * 2);
+    ctx.ellipse(380, 127 + dy, 86, 58, 0, 0, Math.PI * 2);
+    ctx.ellipse(452, 148 + dy, 56, 40, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  // A cool back bank prevents the far layer from repeating the near orange rim.
+  puff(0, 'rgba(174, 244, 255, 0.34)');
+  puff(14, 'rgba(255, 255, 255, 0.78)');
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.fillStyle = 'rgba(184, 224, 245, 0.72)';
+  ctx.fillRect(0, 148, w, h - 148);
+  ctx.globalCompositeOperation = 'source-over';
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.NoColorSpace;
+  return tex;
+}
+
 // ------------------------------------------------------------------ Sky ----
 
 export class Sky {
@@ -167,7 +206,7 @@ export class Sky {
       uZenith: { value: flat(PALETTE.skyZenith) },
       uMid: { value: flat(PALETTE.skyMid) },
       uHorizon: { value: flat(PALETTE.skyHorizon) },
-      uSunDir: { value: SUN_DIR },
+      uSunVisualDir: { value: SKY_SUN_DIR },
       uSunCore: { value: flat(PALETTE.sunCore) },
       uSunFlare: { value: flat(PALETTE.sunFlare) },
       uTime: { value: 0 },
@@ -187,6 +226,7 @@ export class Sky {
 
     // --- clouds: 2 parallax layers of flat billboards on rings ---
     const cloudTex = makeCloudTexture();
+    const remoteCloudTex = makeRemoteCloudTexture();
     const nearMat = new THREE.SpriteMaterial({
       map: cloudTex,
       transparent: true,
@@ -194,30 +234,31 @@ export class Sky {
       fog: false,
     });
     const farMat = new THREE.SpriteMaterial({
-      map: cloudTex,
-      // Far layer tinted toward the horizon color: distance cue, still flat.
-      color: flat(PALETTE.skyHorizon),
+      map: remoteCloudTex,
+      color: flat(0xffffff),
+      opacity: 0.78,
       transparent: true,
       depthWrite: false,
       fog: false,
     });
 
     for (let i = 0; i < CLOUD_COUNT; i++) {
-      const far = i >= CLOUD_COUNT / 2;
+      const far = i >= FAR_CLOUD_START;
       const sprite = new THREE.Sprite(far ? farMat : nearMat);
       sprite.frustumCulled = false; // always inside the camera-centered rig
 
       const j = far ? i - CLOUD_COUNT / 2 : i;
       // Evenly spaced ring + deterministic jitter; two depth bands.
       this.cAngle[i] = (j / (CLOUD_COUNT / 2)) * Math.PI * 2 + hash(i, 1) * 0.6;
-      this.cRadius[i] = far ? 2600 + hash(i, 2) * 700 : 1300 + hash(i, 3) * 450;
-      this.cAlt[i] = far ? 260 + hash(i, 4) * 260 : 110 + hash(i, 5) * 170;
+      this.cRadius[i] = far ? 2950 + hash(i, 2) * 820 : 1300 + hash(i, 3) * 450;
+      this.cAlt[i] = far ? 320 + hash(i, 4) * 230 : 110 + hash(i, 5) * 170;
       // Slow drift; the near layer sweeps faster => parallax between layers.
       const dir = hash(i, 6) > 0.15 ? 1 : -1; // mostly one way, a few rebels
       this.cOmega[i] = dir * (far ? 0.0018 : 0.0042) * (0.7 + hash(i, 7) * 0.6);
 
-      const sx = far ? 620 + hash(i, 8) * 260 : 250 + hash(i, 9) * 130;
-      sprite.scale.set(sx, sx * 0.62, 1);
+      const sx = far ? 760 + hash(i, 8) * 320 : 250 + hash(i, 9) * 130;
+      sprite.scale.set(sx, sx * (far ? 0.38 : 0.62), 1);
+      sprite.rotation.z = far ? (hash(i, 10) - 0.5) * 0.08 : 0;
       this.sprites.push(sprite);
       group.add(sprite);
     }
