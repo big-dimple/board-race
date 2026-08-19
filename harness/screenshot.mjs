@@ -213,8 +213,28 @@ async function verifyMode(browser, mobile) {
       title: copy.querySelector('.hud-impact-title')?.textContent?.trim() ?? '',
     } : null;
   });
-  assert.ok(impact && impact.top < viewport.height * 0.36 && impact.left > viewport.width * 0.58,
-    `${label}: flight extension feedback still blocks the route: ${JSON.stringify(impact)}`);
+  const impactFits = await page.evaluate(() => {
+    const copy = document.querySelector(".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
+    return copy instanceof HTMLElement && copy.scrollWidth <= copy.clientWidth + 1 &&
+      copy.scrollHeight <= copy.clientHeight + 1;
+  });
+  assert.ok(impact && impact.left >= 0 && impact.right <= viewport.width && impact.top >= 0 &&
+    impact.bottom <= viewport.height, `${label}: flight extension feedback is outside the viewport: ${JSON.stringify(impact)}`);
+  const impactCenter = impact ? (impact.left + impact.right) / 2 : 0;
+  assert.ok(impact && Math.abs(impactCenter - viewport.width / 2) <= viewport.width * 0.04,
+    `${label}: flight extension feedback left the central sightline: ${JSON.stringify(impact)}`);
+  const impactBand = mobile
+    ? impact && impact.top >= viewport.height * 0.14 && impact.bottom <= viewport.height * 0.34
+    : impact && impact.top >= viewport.height * 0.18 && impact.bottom <= viewport.height * 0.34;
+  assert.ok(impactBand, `${label}: flight extension feedback left its above-boat band: ${JSON.stringify(impact)}`);
+  assert.equal(impactFits, true, `${label}: flight extension copy overflows its layout box`);
+  if (mobile) {
+    for (const selector of ['.mobile-mode', '[data-mobile-action="left"]', '[data-mobile-action="right"]',
+      '[data-mobile-action="flight"]', '[data-mobile-action="drift"]']) {
+      assert.equal(intersects(impact, await elementRect(page, selector), 8), false,
+        `${label}: flight extension feedback overlaps ${selector}`);
+    }
+  }
   assert.ok(impactStyle && impactStyle.visibility === 'visible' && Number(impactStyle.opacity) > 0.5,
     `${label}: flight extension feedback is not visibly captured: ${JSON.stringify(impactStyle)}`);
   assert.deepEqual(impactContract, {
