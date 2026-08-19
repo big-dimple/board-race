@@ -229,7 +229,7 @@ export class DriverSelect {
     advancedSummary.textContent = '进阶规则';
     advanced.appendChild(advancedSummary);
     element('div', 'driver-coach-row', advanced, '黄线后松开才存入菱形；继续漂只延长水面 BOOST，基础飞行时间固定。');
-    element('div', 'driver-coach-row', advanced, '左条随动作变化，右条是本次飞行剩余；备用菱形可续航 +2.4 秒。');
+    element('div', 'driver-coach-row', advanced, '左条随动作变化，右条是本次飞行剩余；本飞最多用 2 格：起飞 1 + 续航 1。');
     element('div', 'driver-coach-row', advanced, '选手雷达会真实改变加速、转向、蓄力和空控，幅度最高 ±6%。');
     this.coachPanel.appendChild(advanced);
     const coachToggle = element('button', 'driver-coach-toggle', this.coachPanel, '开启逐步标注');

@@ -1,43 +1,38 @@
 # Board Race 开发交接
 
-状态：`T3 complete / T4 next`
+状态：`T4 complete / T5 next`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`6a81eed6fc8b13589f1fe2856dc086bc715b2937`，`main`；起点工作树干净，未执行
-  fetch 或远端卫生审计。
-- `RaceTower` 在 presentation block、flight focus 和非 racing 暂停期间保留同一个 active notice
-  的 DOM、revision、`.on` 与动画对象；`.blocked.paused` 只用 `visibility` 暂藏并停住动画，恢复后
-  从剩余 `5.65s` 阅读计时继续，不再重跑入场。`RadioDirector` 无需修改。
-- fresh GO 读取已有 `drivingCoach.progress.mastery.airBrakedInTurn`：已掌握者只剩 GO 电台，未掌握者
-  每个页面会话最多真正显示一次，same run 和新 run 都不会再次入队。
-- Gemini 只保留一条短话术；手机广播用头像 / copy / 等宽平衡位三轨，copy 与 body 相对整卡中心
-  均只差 `0.5px`，允许自然换行且无溢出，不碰中央航线或触控区。
+- Base：`f5f96f6d1c72dc1020c6a378d24a0552e294f96e`，`main`；起点工作树干净。
+- 桌面沿用现有 tokenized flight-extension prompt，在真实可续航窗口说明“本飞最多用 2 格 ·
+  起飞 1 + 续航 1”；位置、动作、库存、2.15s token 和 gameplay 均未改变。
+- 横屏手机没有恢复 HUD 大卡片；现有“续”按钮保持主字、`x库存`、尺寸和位置，只把副标签改为
+  “每飞 1 次”，无障碍说明补全本飞起飞一次、续航一次。
+- DrivingCoach 的 extension detail 与选角页进阶规则同步同一事实。没有新增 DOM、overlay、存档状态、
+  schema、localStorage、物理或 `MAX_FLIGHT_CHARGES` 分支。
 
 ## 证据与验证
 
-- ignored `shots/radio-human-pass/{before,after}/` 保留同一 `radio-technique` 的 `1440x900`、
-  `844x390` 截图和 JSON 证据。逐图确认最终桌面卡片可读且不遮门线；手机短句不拆“先空刹”，
-  整卡居中并留在左侧安全区。
-- before probe 先把动画定位到 `1250ms`；阻断会移除 `.on`、令 animation count 变为 `0`，恢复后
-  回到 `0` 且对象已替换；after 两种阻断均保持 active key、timer、revision 和同一动画对象，display 仍为 grid、
-  visibility hidden、play state paused，恢复后 timer 只继续一个 fixed step。
-- radio 场景 before / after 均为 `292 calls / 336317 triangles / 16.7ms`；drawing pixels 桌面
-  `2025000`、手机 `2057250`。指标仅记录资源量，不替代截图审查。
-- `npm run build`、`npm run verify:smoke`、`git diff --check` 均通过；smoke 为桌面
+- ignored `shots/flight-consumption-lesson/{before,after}/` 保存同一真实 extension-ready 窗口的
+  `1440x900` 与 `844x390` 截图及 JSON。before 来自 detached base：桌面旧规则只写单格消耗，
+  手机仅写 `EXTEND`；after 桌面公式完整且无溢出，手机副标签完整留在原按钮内，不盖船、航线或触控区。
+- 同场景 before / after 均为：桌面 `168 calls / 311897 triangles / 2025000 pixels / 16.7ms`，
+  手机 `168 calls / 311899 triangles / 2057250 pixels / 16.7ms`。指标只记录资源量，不替代审图。
+- `npm run build`、连续两次 `npm run verify:smoke`、`git diff --check` 均通过。smoke 为桌面
   `174 calls / 325529 triangles / 2025000 pixels / 16.7ms`、手机
-  `194 calls / 328545 triangles / 2057250 pixels / 16.7ms`。未改音频和碰撞，相关专项未运行。
-- 现有 `radioTechniqueCase` 只保护 once、block / resume、no reentry、mastery gate 和手机几何；
-  没有固化整句中文文案，没有新增 harness 文件、测试专用产品 API 或图片像素门禁。
+  `194 calls / 328545 triangles / 2057250 pixels / 16.7ms`。未改音频或碰撞，专项未运行。
+- smoke 只新增长期回归价值：桌面提示可见、规则不溢出；手机副标签与 aria 包含单飞限制且留在按钮内。
+  没有新增 harness 文件、产品测试 API、截图门禁或逐字锁死完整文案。
 
 ## Pending 与风险
 
-- T3 实现与本地验证无 pending；Actions / Pages 不作为发布门禁。真机刘海安全区和不同移动浏览器
-  的中文字体度量未覆盖，残余风险限于设备差异下的排版观感。
+- T4 无功能 pending；Actions / Pages 不作为发布门禁。真机中文字体可能有轻微字宽差异，但按钮内
+  nowrap 与 smoke 几何检查限制了拆字和溢出风险。
 
 ## 唯一下一步
 
-T4 只增加一次性轻提示，解释三格库存，但单次飞行最多起飞一次、续航一次，共消耗两格；不得回头
-扩写 T3 电台，也不得混入玩法、海面、HUD 其他通知、船体、车手或音频改动。
+T5 只把水面偏离主线的 `off_course` 判负时间延长为 15 秒，并用对应玩法诊断确认；不得顺带修改
+`wrong_way`、飞行 corridor、门、海面、HUD、船体、车手、电台、音频或碰撞语义。

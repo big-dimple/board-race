@@ -304,6 +304,9 @@
 .mobile-controls.flight-extension-ready .mobile-action-zones button:last-child {
   color: #f8ff7a;
 }
+.mobile-controls.flight-extension-ready [data-mobile-action="flight"] small {
+  white-space: nowrap;
+}
 .mobile-controls[data-flight-mode='finish'] .mobile-action-zones button:last-child { color:#ffcf4a; }
 .mobile-controls[data-flight-mode='finish'] .mobile-action-zones button:last-child span::after { --rim-progress:1; opacity:1; }
 .mobile-controls[data-left-mode='finish'] .mobile-action-zones button:first-child { color:#ffcf4a; }

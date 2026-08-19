@@ -743,7 +743,7 @@ export class HUD {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'AIR CHARGE READY';
         this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「续」延长飞行' : `按 ${key} ${action}`;
-        this.flightPromptRule.textContent = '消耗 1 格 · 续航 +2.4 秒';
+        this.flightPromptRule.textContent = '本飞最多用 2 格 · 起飞 1 + 续航 1';
       } else {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'FLIGHT READY';

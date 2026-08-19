@@ -312,7 +312,7 @@ export class MobileControls {
     const flight = this.buttons.get('flight');
     if (flight) {
       const label = state.flightMode === 'extend'
-        ? `空中续航，消耗 1 次蓄能，当前剩余 ${charges} 次`
+        ? `空中续航，本飞最多起飞一次、续航一次；续航消耗 1 格，当前剩余 ${charges} 格`
         : state.flightMode === 'finish'
           ? '终点已就绪，保持水面航行并冲线'
         : state.flightMode === 'active'
@@ -322,7 +322,7 @@ export class MobileControls {
       flight.setAttribute('aria-disabled', this.finalMode ? 'true' : 'false');
     }
     if (this.flightLabel) this.flightLabel.textContent = state.flightMode === 'extend' ? '续' : state.flightMode === 'finish' ? '终' : '飞';
-    if (this.flightSubLabel) this.flightSubLabel.textContent = state.flightMode === 'extend' ? 'EXTEND' : state.flightMode === 'finish' ? 'FINAL' : 'FLIGHT';
+    if (this.flightSubLabel) this.flightSubLabel.textContent = state.flightMode === 'extend' ? '每飞 1 次' : state.flightMode === 'finish' ? 'FINAL' : 'FLIGHT';
     const stock = this.buttons.get('flight')?.querySelector<HTMLElement>('.mobile-stock');
     if (stock) stock.textContent = `x${charges}`;
     this.root.classList.toggle('in-flight', state.flightPhase !== 'surface');

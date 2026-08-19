@@ -368,7 +368,7 @@ export class DrivingCoach {
       return {
         id: 'extension', focus: 'flight-control', stage: '可选续航', control: controls.flight,
         kicker: '备用格可续航', title: `再按 ${controls.flight} · 续航 +2.4s`,
-        detail: '消耗 1 格 · 一飞最多续一次', tone: 'flight',
+        detail: '本飞最多用 2 格 · 起飞 1 + 续航 1', tone: 'flight',
       };
     }
     return null;

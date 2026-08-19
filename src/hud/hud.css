@@ -2655,7 +2655,12 @@
 }
 
 .hud-flight-prompt.on { transform: translateY(0) translateX(0); }
-.hud-flight-prompt.extend { --prompt-color: var(--warn); border-color: var(--prompt-color); box-shadow:0 9px 24px rgba(4,7,20,.32); }
+.hud-flight-prompt.extend {
+  --prompt-color: var(--warn);
+  width: min(430px, calc(100vw - 36px));
+  border-color: var(--prompt-color);
+  box-shadow:0 9px 24px rgba(4,7,20,.32);
+}
 .hud-flight-prompt::before,
 .hud-flight-prompt::before {
   content: '';
@@ -2699,6 +2704,7 @@
 .hud-flight-prompt-en { color:var(--prompt-color); font-size:11px; letter-spacing:0; }
 .hud-flight-prompt-cn { margin-top:4px; font-size:24px; letter-spacing:0; }
 .hud-flight-prompt-rule { margin-top:6px; color:rgba(244,254,255,.78); font-size:14px; letter-spacing:0; }
+.hud-flight-prompt.extend .hud-flight-prompt-rule { white-space: normal; }
 
 .hud-turn-warning {
   top: auto;

@@ -81,21 +81,23 @@ async function openHarness(browser, mobile, tilt = false) {
   return { context, page };
 }
 
-async function stage(page, name, settleMs = 0) {
+async function freezeFlightExtensionImpact(page) {
+  await page.evaluate(() => window.__harness.tapFlight());
+  await page.evaluate(() => {
+    const copy = document.querySelector(".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
+    if (!(copy instanceof HTMLElement)) throw new Error('flight extension impact did not activate');
+    const computed = getComputedStyle(copy);
+    copy.dataset.harnessAnimationName = computed.animationName;
+    copy.dataset.harnessAnimationDuration = computed.animationDuration;
+    copy.style.setProperty('animation', 'none', 'important');
+    copy.style.setProperty('opacity', '1', 'important');
+  });
+}
+
+async function stage(page, name, settleMs = 0, completeFlightExtension = true) {
   await page.evaluate((scenario) => window.__harness.scenario(scenario), name);
   await page.evaluate(() => window.__harness.render());
-  if (name === 'flight-extension-spool') {
-    await page.evaluate(() => window.__harness.tapFlight());
-    await page.evaluate(() => {
-      const copy = document.querySelector(".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
-      if (!(copy instanceof HTMLElement)) throw new Error('flight extension impact did not activate');
-      const computed = getComputedStyle(copy);
-      copy.dataset.harnessAnimationName = computed.animationName;
-      copy.dataset.harnessAnimationDuration = computed.animationDuration;
-      copy.style.setProperty('animation', 'none', 'important');
-      copy.style.setProperty('opacity', '1', 'important');
-    });
-  }
+  if (name === 'flight-extension-spool' && completeFlightExtension) await freezeFlightExtensionImpact(page);
   if (settleMs > 0) await page.waitForTimeout(settleMs);
 }
 
@@ -244,6 +246,8 @@ async function verifyMode(browser, mobile) {
     `${label}: renderer does not fill the viewport: ${JSON.stringify(render)}`);
   assert.ok(render.lumaRange > 12 && render.opaque > 1800,
     `${label}: renderer appears blank: ${JSON.stringify(render)}`);
+  if (!mobile) await page.locator('.hud-pc-primer.on .hud-pc-primer-close:not([hidden])').click();
+  if (!mobile) await page.evaluate(() => { window.__harness.advance(1 / 60); window.__harness.render(); });
 
   await stage(page, 'flight-ready');
   assert.equal(await page.locator('.hud-flight-token').count(), 3, `${label}: inventory rack is not capped at three`);
@@ -262,7 +266,44 @@ async function verifyMode(browser, mobile) {
   const fullInventory = await page.evaluate(() => window.__harness.playerState().flightCharges);
   assert.equal(fullInventory, 3, `${label}: runtime inventory cap is not three`);
 
-  await stage(page, 'flight-extension-spool', 160);
+  await stage(page, 'flight-extension-spool', 280, false);
+  if (!mobile) await page.waitForFunction(() => {
+    const prompt = document.querySelector('.hud-flight-prompt.extend.on');
+    return prompt instanceof HTMLElement && Number(getComputedStyle(prompt).opacity) > 0.5;
+  });
+  if (mobile) {
+    const contract = await page.evaluate(() => {
+      const face = document.querySelector('[data-mobile-action="flight"] span');
+      const rule = face?.querySelector('small');
+      if (!(face instanceof HTMLElement) || !(rule instanceof HTMLElement)) return null;
+      const a = face.getBoundingClientRect();
+      const b = rule.getBoundingClientRect();
+      return { rule: rule.textContent?.trim() ?? '', aria: face.parentElement?.getAttribute('aria-label') ?? '',
+        fits: b.left >= a.left && b.right <= a.right && b.top >= a.top && b.bottom <= a.bottom &&
+          rule.scrollWidth <= rule.clientWidth + 1 && rule.scrollHeight <= rule.clientHeight + 1 };
+    });
+    assert.ok(contract?.fits, `${label}: mobile extension rule left or overflowed its flight control`);
+    assert.match(contract?.rule ?? '', /每飞.*1\s*次/, `${label}: mobile extension limit is missing`);
+    assert.match(contract?.aria ?? '', /起飞.*一次.*续航.*一次/, `${label}: mobile action detail is missing`);
+  } else {
+    const contract = await page.evaluate(() => {
+      const prompt = document.querySelector('.hud-flight-prompt.extend.on');
+      const rule = prompt?.querySelector('.hud-flight-prompt-rule');
+      if (!(prompt instanceof HTMLElement) || !(rule instanceof HTMLElement)) return null;
+      const style = getComputedStyle(prompt);
+      return { rule: rule.textContent?.trim() ?? '', opacity: Number(style.opacity),
+        visible: style.visibility === 'visible' && Number(style.opacity) > 0.5,
+        fits: prompt.scrollWidth <= prompt.clientWidth + 1 && prompt.scrollHeight <= prompt.clientHeight + 1 &&
+          rule.scrollWidth <= rule.clientWidth + 1 && rule.scrollHeight <= rule.clientHeight + 1 };
+    });
+    assert.ok(contract?.visible && contract.fits,
+      `${label}: desktop extension prompt is hidden or overflows: ${JSON.stringify(contract)}`);
+    assert.match(contract?.rule ?? '', /最多.*2\s*格.*起飞\s*1.*续航\s*1/,
+      `${label}: desktop flight-consumption rule is missing`);
+  }
+
+  await freezeFlightExtensionImpact(page);
+  await page.waitForTimeout(160);
   const impact = await elementRect(page, ".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
   const impactStyle = await elementStyle(page, ".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
   const impactContract = await page.evaluate(() => {
