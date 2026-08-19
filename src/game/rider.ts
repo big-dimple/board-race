@@ -87,15 +87,15 @@ const POSE = {
   hips: [0, 0.58, -0.22],
   spine: [0, 0.13, 0.05],
   chest: [0, 0.19, 0.09],
-  head: [0, 0.21, 0.105],
-  shoulderL: [0.22, 0.1, 0.035],
-  elbowL: [0.045, -0.129, 0.31],
-  handL: [-0.02, -0.17, 0.37],
+  head: [0, 0.2, 0.1],
+  shoulderL: [0.2, 0.1, 0.03],
+  elbowL: [0.045, -0.129, 0.293],
+  handL: [-0.02, -0.17, 0.345],
   hipL: [0.11, -0.03, 0.05],
   kneeL: [0.09, -0.2, 0.26],
   footL: [-0.05, -0.28, 0.1],
-  hunchSpine: 0.38,       // baked forward hinge at the waist (rad, pitch down)
-  hunchChest: 0.16,       // extra hinge at the chest — together ~31°
+  hunchSpine: 0.42,       // baked forward hinge at the waist (rad, pitch down)
+  hunchChest: 0.18,       // extra hinge at the chest — together ~34°
   headTiltUp: -0.72,      // baked head.rotation.x: un-hunches the neck, eyes up over the bow
 } as const;
 
@@ -139,9 +139,6 @@ export class Rider {
   constructor(opts: { color: number; detailedInk?: boolean }) {
     const root = new THREE.Group();
     root.name = 'rider';
-    // A modest authored scale keeps the real rider readable in the chase
-    // camera while preserving the existing riderMount and boat transform.
-    root.scale.setScalar(1.12);
 
     const joint = (parent: THREE.Object3D, name: string, p: readonly number[], mirror = 1): THREE.Bone => {
       const o = new THREE.Bone();

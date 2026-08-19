@@ -338,10 +338,8 @@ export function buildSkinnedRider(
     return [[rig.spine, 1 - chestWeight], [rig.chest, chestWeight]];
   });
 
-  // The rider is built as a single continuous suit, then layered with raised
-  // panels. The panels are intentionally shallow and use the same skin
-  // weights as the underlying torso, so they add volume without creating a
-  // second transform or draw batch.
+  // Rear impact vest: color-on-color cells, a dark flex channel and a light
+  // shoulder yoke. The hierarchy reads as clothing instead of black seams.
   const torsoWeights: WeightFn = (point) => {
     const chestWeight = smoothstep(0.08, 0.31, point.y);
     return [[rig.spine, 1 - chestWeight], [rig.chest, chestWeight]];
@@ -352,69 +350,48 @@ export function buildSkinnedRider(
   appendPanel(out, rig.spine, Role.SuitLight, [0.078, 0.33, 0.008], [0.16, 0.12, 0.05, 0.034], [0.06, 0, -0.16], torsoWeights);
   appendPanel(out, rig.spine, Role.SuitLight, [-0.078, 0.33, 0.008], [0.16, 0.12, 0.05, 0.034], [0.06, 0, 0.16], torsoWeights);
   appendPanel(out, rig.spine, Role.Accent, [0, 0.055, -0.105], [0.14, 0.105, 0.065, 0.03], [0.05, 0, 0], torsoWeights);
-  appendPanel(out, rig.spine, Role.SuitLight, [0, 0.205, 0.126], [0.22, 0.17, 0.19, 0.046], [0.08, 0, 0], torsoWeights);
-  appendPanel(out, rig.spine, Role.Accent, [0, 0.175, 0.158], [0.095, 0.075, 0.16, 0.032], [0.08, 0, 0], torsoWeights);
-  appendPanel(out, rig.chest, Role.SuitDark, [0, 0.06, -0.14], [0.25, 0.18, 0.2, 0.038], [0.04, 0, 0]);
 
-  // Arms retain elbow deformation but read as separate shoulder, forearm and
-  // glove volumes. The bright upper-arm guard survives both side and chase
-  // views; the dark elbow is a joint cue, not a painted line.
+  // Arms retain elbow deformation but taper like protected wetsuit limbs.
   for (const [shoulder, elbow, hand, mirror] of [
     [rig.shoulderL, rig.elbowL, rig.handL, 1],
     [rig.shoulderR, rig.elbowR, rig.handR, -1],
   ] as const) {
     appendEllipsoid(out, shoulder, Role.SuitLight, [0.012 * mirror, 0.012, 0.008], [0.082, 0.068, 0.078], sides);
-    appendPanel(out, shoulder, Role.Accent, [0, 0.01, 0.045], [0.11, 0.09, 0.09, 0.04]);
     appendSegment(out, shoulder, elbow, 0.061, 0.052, Role.Suit, sides);
-    appendEllipsoid(out, elbow, Role.SuitDark, [0, 0, 0.018], [0.064, 0.056, 0.064], sides);
-    appendPanel(out, elbow, Role.SuitLight, [0, 0.005, 0.062], [0.09, 0.075, 0.075, 0.028]);
-    appendSegment(out, elbow, hand, 0.055, 0.046, Role.Suit, sides);
-    appendEllipsoid(out, hand, Role.SuitDark, [0, 0, 0.018], [0.066, 0.055, 0.078], sides);
+    appendEllipsoid(out, elbow, Role.SuitDark, [0, 0, 0], [0.06, 0.052, 0.058], sides);
+    appendSegment(out, elbow, hand, 0.052, 0.043, Role.SuitDark, sides);
+    appendEllipsoid(out, hand, Role.Ink, [0, 0, 0.012], [0.064, 0.052, 0.075], sides);
     out.append(new THREE.CylinderGeometry(0.052, 0.052, 0.045, sides, 1), hand, Role.Accent,
       transform([0, 0.045, -0.015], [0, 0, 0]));
-    appendPanel(out, hand, Role.Metal, [0, 0.008, 0.064], [0.075, 0.058, 0.06, 0.022]);
   }
 
   // Braced lower body: broad thigh armor, articulated knees and long boots.
-  // The forward plates are deliberately warm/light so the legs do not merge
-  // into the hull shadow when the camera is low behind the boat.
   for (const [hip, knee, foot, mirror] of [
     [rig.hipL, rig.kneeL, rig.footL, 1],
     [rig.hipR, rig.kneeR, rig.footR, -1],
   ] as const) {
     appendEllipsoid(out, hip, Role.SuitDark, [0.006 * mirror, 0, 0], [0.105, 0.085, 0.1], sides);
     appendSegment(out, hip, knee, 0.1, 0.079, Role.Suit, sides);
-    appendPanel(out, hip, Role.SuitLight, [0, -0.02, 0.072], [0.14, 0.105, 0.16, 0.04]);
-    appendEllipsoid(out, knee, Role.SuitDark, [0, 0, 0.018], [0.088, 0.07, 0.085], sides);
-    appendSegment(out, knee, foot, 0.076, 0.06, Role.SuitDark, sides);
-    appendPanel(out, knee, Role.SuitLight, [0, 0.02, 0.071], [0.11, 0.09, 0.08, 0.032]);
-    appendPanel(out, knee, Role.Metal, [0, 0.02, 0.091], [0.075, 0.06, 0.046, 0.018]);
+    appendEllipsoid(out, knee, Role.SuitDark, [0, 0, 0.012], [0.086, 0.068, 0.082], sides);
+    appendSegment(out, knee, foot, 0.073, 0.058, Role.SuitDark, sides);
+    appendPanel(out, knee, Role.Accent, [0, 0.02, -0.064], [0.105, 0.085, 0.07, 0.027]);
     out.append(armorPlate(0.125, 0.116, 0.095, 0.275), foot, Role.SuitDark,
       transform([0, -0.012, 0.075], [0.03, 0, 0]));
-    out.append(armorPlate(0.11, 0.102, 0.06, 0.23), foot, Role.SuitLight,
-      transform([0, 0.01, 0.155], [0.03, 0, 0]));
     out.append(armorPlate(0.132, 0.12, 0.025, 0.29), foot, Role.Metal,
       transform([0, -0.065, 0.078], [0.03, 0, 0]));
   }
 
-  // Neck seal and a motorsport helmet with a readable visor brow, cheek
-  // guards and crown stripe. The visor sits on the +Z face of the head, so it
-  // remains legible in the chase and three-quarter cameras without becoming a
-  // flat billboard in side view.
+  // Neck seal and a motorsport helmet with a continuous crown stripe. The
+  // visor is a curved shell patch, not a rectangular sticker.
   appendSegment(out, rig.chest, rig.head, 0.105, 0.09, Role.SuitDark, sides);
-  appendEllipsoid(out, rig.chest, Role.Accent, [0, 0.01, 0.025], [0.13, 0.095, 0.1], sides);
-  appendEllipsoid(out, rig.head, Role.SuitLight, [0, 0.1, 0.02], [0.155, 0.172, 0.16], detailed ? 18 : 12);
+  appendEllipsoid(out, rig.head, Role.SuitLight, [0, 0.1, 0.02], [0.142, 0.158, 0.15], detailed ? 18 : 12);
   const patchSides = detailed ? 18 : 12;
   const stripeWidth = 0.22;
   appendHelmetPatch(out, rig.head, Role.Accent, Math.PI * 0.5 - stripeWidth, stripeWidth * 2, 0.05, 1.45, 1.012, patchSides);
   appendHelmetPatch(out, rig.head, Role.Accent, Math.PI * 1.5 - stripeWidth, stripeWidth * 2, 0.05, 1.45, 1.012, patchSides);
-  appendHelmetPatch(out, rig.head, Role.Visor, Math.PI * 0.5 - 0.72, 1.44, 0.62, 0.65, 1.034, patchSides);
-  appendPanel(out, rig.head, Role.Visor, [0, 0.105, 0.151], [0.18, 0.2, 0.078, 0.034], [-0.06, 0, 0]);
-  appendPanel(out, rig.head, Role.SuitDark, [0, 0.015, 0.139], [0.16, 0.18, 0.06, 0.032], [0.04, 0, 0]);
-  appendEllipsoid(out, rig.head, Role.Accent, [0.122, 0.042, 0.035], [0.038, 0.086, 0.1], sides);
-  appendEllipsoid(out, rig.head, Role.Accent, [-0.122, 0.042, 0.035], [0.038, 0.086, 0.1], sides);
-  appendPanel(out, rig.head, Role.SuitDark, [0, 0.0, 0.112], [0.15, 0.1, 0.055, 0.028], [0.04, 0, 0]);
-  appendPanel(out, rig.head, Role.Accent, [0, 0.055, -0.135], [0.18, 0.15, 0.05, 0.028]);
+  appendHelmetPatch(out, rig.head, Role.Visor, Math.PI * 0.5 - 0.92, 1.84, 0.56, 0.82, 1.03, patchSides);
+  appendPanel(out, rig.head, Role.SuitDark, [0, 0.025, 0.145], [0.145, 0.205, 0.1, 0.05], [-0.1, 0, 0]);
+  appendPanel(out, rig.head, Role.Accent, [0, 0.055, -0.122], [0.17, 0.145, 0.045, 0.026]);
 
   const result = out.finish();
   const material = createToonMaterial({

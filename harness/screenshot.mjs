@@ -13,7 +13,6 @@
  *   node harness/screenshot.mjs --responsive ready # desktop + compact selection layouts
  *   node harness/screenshot.mjs --mobile start       # default touch controls
  *   node harness/screenshot.mjs --mobile --tilt start
- *   node harness/screenshot.mjs --verify-m15        # rider geometry/pixel contract
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -32,7 +31,6 @@ const chromePath = process.env.CHROME_PATH || (existsSync(systemChrome) ? system
 // name → harness scenario call (+ optional freeCam before render)
 const SCENARIOS = {
   ready: { scenario: 'ready' },
-  'opening-showcase': { scenario: 'ready' },
   countdown: { scenario: 'countdown' },
   start: { scenario: 'start' },
   'pc-primer': { scenario: 'pc-primer', settleMs: 260 },
@@ -48,10 +46,6 @@ const SCENARIOS = {
     scenario: 'opponent-drift',
     freeCamDynamic: { back: 7.5, side: -7.5, up: 4.4, lookUp: 0.5, target: 'rival', role: 1 },
   },
-  'opponent-drift-evidence': {
-    scenario: 'opponent-drift',
-    freeCamDynamic: { back: 7.5, side: -7.5, up: 4.4, lookUp: 0.5, target: 'rival', role: 1 },
-  },
   'boost-burst': { scenario: 'boost-burst', freeCamDynamic: { back: 8.5, up: 2.3, lookUp: 0.55 } },
   'flight-ready': { scenario: 'flight-ready' },
   'flight-prompt': { scenario: 'flight-prompt', settleMs: 180 },
@@ -61,7 +55,6 @@ const SCENARIOS = {
   'flight-spool': { scenario: 'flight-spool', freeCamDynamic: { back: 7, up: 1.45, lookUp: 0.3 } },
   'flight-cruise': { scenario: 'flight-cruise' },
   'flight-extension-ready': { scenario: 'flight-extension-ready' },
-  'flight-extension-impact': { scenario: 'flight-extension-ready' },
   'flight-extension-spool': { scenario: 'flight-extension-spool' },
   'flight-extension-descent': { scenario: 'flight-extension-descent' },
   'flight-airbrake': { scenario: 'flight-airbrake' },
@@ -1264,7 +1257,7 @@ async function verifyFlightContract(page) {
   assert.equal(state.raceTime, readyPose.raceTime);
   assert.equal(state.worldTime, readyPose.worldTime);
   await page.keyboard.down('Space');
-  await page.evaluate(() => window.__harness.advance(0.65));
+  await page.evaluate(() => window.__harness.advance(1 / 30));
   const openingPose = await page.evaluate(() => window.__harness.playerState());
   assert.equal(openingPose.phase, 'ready', 'the input-locked opening must remain in READY until its showcase finishes');
   assert.ok(Math.abs(openingPose.flightClearance + 0.42) <= 0.08,
@@ -4363,104 +4356,6 @@ async function assertVehicleAssetContract(page) {
   `rider must remain one palette-skinned articulated mesh at every quality: ${JSON.stringify(asset)}`);
 }
 
-async function verifyM15RiderContract(page) {
-  const assets = await page.evaluate(() => {
-    const boats = Array.from({ length: 6 }, (_, id) => window.__scene.getObjectByName(`boat-${id}`));
-    return boats.map((boat) => {
-      const rider = boat?.getObjectByName('rider-skinned-shell');
-      const mount = boat?.getObjectByName('riderMount');
-      const riderRoot = boat?.getObjectByName('rider');
-      const outline = rider?.getObjectByName('outline');
-      const bounds = rider?.geometry?.boundingBox;
-      const position = rider?.geometry?.getAttribute('position');
-      const color = rider?.geometry?.getAttribute('color');
-      let riderMeshes = 0;
-      riderRoot?.traverse((object) => { if (object.isMesh && object.name === 'rider-skinned-shell') riderMeshes++; });
-      return {
-        boat: boat?.name ?? null,
-        mount: Boolean(mount),
-        riderRoot: Boolean(riderRoot),
-        riderMeshes,
-        isSkinned: rider?.isSkinnedMesh === true,
-        bones: rider?.skeleton?.bones.length ?? 0,
-        outlineIsSkinned: outline?.isSkinnedMesh === true,
-        outlineSharesSkeleton: Boolean(outline?.skeleton && outline.skeleton === rider?.skeleton),
-        realInkPrepass: rider?.isSkinnedMesh === true && (rider.layers.mask & 1) !== 0 &&
-          (rider.layers.mask & (1 << 1)) !== 0,
-        vertices: position?.count ?? 0,
-        triangles: rider?.geometry?.index ? rider.geometry.index.count / 3 : (position?.count ?? 0) / 3,
-        colorVertices: color?.count ?? 0,
-        paletteRoles: rider?.userData?.paletteRoleCount ?? 0,
-        bounds: bounds ? {
-          width: bounds.max.x - bounds.min.x,
-          height: bounds.max.y - bounds.min.y,
-          depth: bounds.max.z - bounds.min.z,
-        } : null,
-        frustumCulled: rider?.frustumCulled === true,
-      };
-    });
-  });
-  assert.equal(assets.length, 6, `M15 must inspect all six physical riders: ${JSON.stringify(assets)}`);
-  for (const asset of assets) {
-    assert.ok(asset.mount && asset.riderRoot && asset.riderMeshes === 1 && asset.isSkinned &&
-      asset.bones === 16 && ((asset.outlineIsSkinned && asset.outlineSharesSkeleton) || asset.realInkPrepass) &&
-      asset.vertices >= 2200 && asset.triangles >= 3000 && asset.colorVertices === asset.vertices &&
-      asset.paletteRoles === 8 && asset.bounds && asset.bounds.width >= 0.52 &&
-      asset.bounds.height >= 0.9 && asset.bounds.depth >= 0.42 && asset.frustumCulled,
-    `M15 rider asset must remain one volumetric 16-bone skinned batch: ${JSON.stringify(asset)}`);
-  }
-
-  const pixels = await page.evaluate(() => {
-    const h = window.__harness;
-    const player = window.__scene.getObjectByName('boat-0');
-    const rider = player?.getObjectByName('rider');
-    const canvas = document.querySelector('#app > canvas');
-    if (!player || !rider || !(canvas instanceof HTMLCanvasElement)) return null;
-    h.scenario('sweeper');
-    const pose = h.playerPose();
-    const fx = Math.sin(pose.heading);
-    const fz = Math.cos(pose.heading);
-    h.freeCam(
-      pose.x - fx * 1.5 + fz * 5.2,
-      pose.y + 1.35,
-      pose.z - fz * 1.5 - fx * 5.2,
-      pose.x,
-      pose.y + 1.15,
-      pose.z,
-    );
-    const read = () => {
-      h.render();
-      const copy = document.createElement('canvas');
-      copy.width = canvas.width;
-      copy.height = canvas.height;
-      const context = copy.getContext('2d', { willReadFrequently: true });
-      context.drawImage(canvas, 0, 0);
-      return context.getImageData(0, 0, copy.width, copy.height).data;
-    };
-    const wasVisible = rider.visible;
-    rider.visible = false;
-    const withoutRider = read();
-    rider.visible = wasVisible;
-    const withRider = read();
-    rider.visible = wasVisible;
-    let changed = 0;
-    let delta = 0;
-    for (let i = 0; i < withRider.length; i += 4) {
-      const d = Math.abs(withRider[i] - withoutRider[i]) +
-        Math.abs(withRider[i + 1] - withoutRider[i + 1]) +
-        Math.abs(withRider[i + 2] - withoutRider[i + 2]);
-      if (d > 12) { changed++; delta += d; }
-    }
-    const rect = canvas.getBoundingClientRect();
-    const deviceArea = Math.max(1, (canvas.width / Math.max(1, rect.width)) *
-      (canvas.height / Math.max(1, rect.height)));
-    return { changed, changedCss: changed / deviceArea, meanDelta: delta / Math.max(1, changed) };
-  });
-  assert.ok(pixels && pixels.changedCss >= 280 && pixels.meanDelta >= 12,
-    `M15 rider must contribute visible close-up pixels: ${JSON.stringify(pixels)}`);
-  console.log(`M15 rider contract: OK (${JSON.stringify({ assets: assets[0], pixels })})`);
-}
-
 async function verifyPerformanceContract(page) {
   const assertBudget = async (label) => {
     const stats = await page.evaluate(() => window.__harness.stats());
@@ -4618,115 +4513,6 @@ async function assertCompactActionPromptLeavesDrivingRoiClear(page, label) {
   assert.equal(hit, null, `${label} F prompt obscures the compact driving ROI (${hit})`);
 }
 
-async function verifyM14HudIdentityContract(page) {
-  const retired = await page.evaluate(() => {
-    const marker = window.__scene.getObjectByName('world-nameplates');
-    return {
-      exists: Boolean(marker),
-      visible: marker?.visible ?? true,
-      childCount: marker?.children.length ?? -1,
-      capacity: marker?.userData?.capacity ?? -1,
-      visibleLabels: marker?.userData?.visibleLabels ?? -1,
-      drawInstances: marker?.userData?.drawInstances ?? -1,
-      activeIdentityInstances: marker?.userData?.activeIdentityInstances ?? -1,
-    };
-  });
-  assert.deepEqual(retired, {
-    exists: true,
-    visible: false,
-    childCount: 0,
-    capacity: 0,
-    visibleLabels: 0,
-    drawInstances: 0,
-    activeIdentityInstances: 0,
-  }, `M14 must retire race-world identity labels without leaving instances: ${JSON.stringify(retired)}`);
-
-  await page.evaluate(() => window.__harness.scenario('ready'));
-  await page.keyboard.down('Space');
-  await page.evaluate(() => window.__harness.advance(1 / 30));
-  await page.keyboard.up('Space');
-  const opening = await page.evaluate(() => {
-    const marker = window.__scene.getObjectByName('world-nameplates');
-    const echoes = [...document.querySelectorAll('.opening-driver-echo')];
-    const visibleEchoes = [...document.querySelectorAll('.opening-driver-echo')]
-      .filter((element) => !element.hasAttribute('hidden') && getComputedStyle(element).visibility !== 'hidden' &&
-        Number(getComputedStyle(element).opacity) > 0).length;
-    return {
-      showcaseOn: document.querySelector('.opening-showcase')?.classList.contains('on') ?? false,
-      echoCount: echoes.length,
-      visibleEchoes,
-      worldMarkerVisible: marker?.visible ?? true,
-      worldMarkerChildren: marker?.children.length ?? -1,
-    };
-  });
-  assert.equal(opening.showcaseOn, true, `opening identity showcase must remain available: ${JSON.stringify(opening)}`);
-  assert.equal(opening.echoCount, 6, `opening showcase must retain all six identity plates: ${JSON.stringify(opening)}`);
-  assert.equal(opening.worldMarkerVisible, false, `opening showcase must not revive race labels: ${JSON.stringify(opening)}`);
-  assert.equal(opening.worldMarkerChildren, 0);
-
-  await page.evaluate(() => window.__harness.scenario('flight-miss'));
-  await page.waitForTimeout(760);
-  const failure = await page.evaluate(() => {
-    const state = window.__harness.playerState();
-    const text = [
-      document.querySelector('.hud-results-place')?.textContent ?? '',
-      document.querySelector('.hud-results-reason')?.textContent ?? '',
-      document.querySelector('.hud-lesson-title')?.textContent ?? '',
-      document.querySelector('.hud-lesson-copy')?.textContent ?? '',
-    ].join(' ').trim();
-    return { reason: state.flightRouteFailReason, text };
-  });
-  assert.ok(failure.reason !== 'none', `failure review scenario must produce a reason: ${JSON.stringify(failure)}`);
-  if (['gate', 'gate_left', 'gate_right'].includes(String(failure.reason))) {
-    assert.match(failure.text, /撞柱/, `gate failure review must say 撞柱: ${JSON.stringify(failure)}`);
-  } else {
-    assert.doesNotMatch(failure.text, /撞柱/, `non-gate failure review must keep its route meaning: ${JSON.stringify(failure)}`);
-  }
-
-  await page.evaluate(() => window.__harness.scenario('flight-extension-ready'));
-  const ready = await page.evaluate(() => ({
-    state: window.__harness.playerState(),
-    prompt: document.querySelector('.hud-flight-prompt.on')?.textContent?.trim() ?? '',
-  }));
-  assert.equal(ready.state.flightExtensionReady, true, `extension-ready scenario must expose its real cue: ${JSON.stringify(ready)}`);
-  if (ready.prompt) {
-    assert.match(ready.prompt, /续航|AIR CHARGE READY/, `extension prompt must remain actionable: ${JSON.stringify(ready)}`);
-  }
-
-  const extension = await page.evaluate(() => {
-    const h = window.__harness;
-    h.setPlayerInput({ throttle: 1, flightTrigger: true });
-    h.advance(1 / 60);
-    h.setPlayerInput(null);
-    h.render();
-    const card = document.querySelector('.hud-impact[data-kind="flight-extend"]');
-    const rect = card?.querySelector('.hud-impact-copy')?.getBoundingClientRect();
-    const w = innerWidth;
-    const hgt = innerHeight;
-    const center = { left: w * 0.28, right: w * 0.72, top: hgt * 0.24, bottom: hgt * 0.84 };
-    const overlapsCenter = Boolean(rect && Math.min(rect.right, center.right) > Math.max(rect.left, center.left) &&
-      Math.min(rect.bottom, center.bottom) > Math.max(rect.top, center.top));
-    const stats = h.stats();
-    return {
-      state: h.playerState(),
-      active: card?.classList.contains('on') ?? false,
-      text: card?.textContent?.trim() ?? '',
-      rect: rect ? { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom } : null,
-      overlapsCenter,
-      viewportHeight: hgt,
-      stats: { calls: stats.calls, drawingPixels: stats.drawingPixels, pixelRatio: stats.pixelRatio, frameMs: stats.frameMs },
-    };
-  });
-  assert.equal(extension.state.flightExtended, true, `extension must use the real flight edge: ${JSON.stringify(extension)}`);
-  assert.equal(extension.active, true, `extension impact card must be visible: ${JSON.stringify(extension)}`);
-  assert.match(extension.text, /续航 \+2\.4 秒/, `extension impact card copy must stay clear: ${JSON.stringify(extension)}`);
-  assert.equal(extension.overlapsCenter, false,
-    `extension impact card must leave the flight center readable: ${JSON.stringify(extension)}`);
-  assert.ok(extension.rect && extension.rect.top <= extension.viewportHeight * 0.3,
-    `extension impact card must stay in the upper safety band: ${JSON.stringify(extension)}`);
-  console.log(`M14 HUD/identity contract: OK (${JSON.stringify({ ...extension.stats, rect: extension.rect, overlapsCenter: extension.overlapsCenter, viewportHeight: extension.viewportHeight })})`);
-}
-
 async function main() {
   const args = process.argv.slice(2);
   const wantStats = args.includes('--stats');
@@ -4734,12 +4520,10 @@ async function main() {
   const verifyFlight = args.includes('--verify-flight');
   const verifyMobile = args.includes('--verify-mobile');
   const verifyPerformance = args.includes('--verify-performance');
-  const verifyM14 = args.includes('--verify-m14');
-  const verifyM15 = args.includes('--verify-m15');
   const mobile = args.includes('--mobile');
   const tiltControls = args.includes('--tilt');
   const names = args.filter((a) => !a.startsWith('--'));
-  const selected = names.length ? names : (verifyFlight || verifyMobile || verifyPerformance || verifyM14 || verifyM15) ? [] : Object.keys(SCENARIOS);
+  const selected = names.length ? names : (verifyFlight || verifyMobile || verifyPerformance) ? [] : Object.keys(SCENARIOS);
 
   mkdirSync(OUT, { recursive: true });
 
@@ -4893,8 +4677,6 @@ async function main() {
       await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
       await verifyMobileControls(page);
     }
-    if (verifyM14) await verifyM14HudIdentityContract(page);
-    if (verifyM15) await verifyM15RiderContract(page);
     if (verifyPerformance) await verifyPerformanceContract(page);
     if (mobile && selected.length) {
       await activateMobileForScreenshots(page, tiltControls);
@@ -5045,27 +4827,6 @@ async function main() {
       }
       if (def.timeout) await page.waitForTimeout(0); // scenario itself blocks in evaluate
       if (def.settleMs) await page.waitForTimeout(def.settleMs);
-      if (name === 'flight-extension-impact') {
-        await page.evaluate(() => {
-          const h = window.__harness;
-          h.setPlayerInput({ throttle: 1, flightTrigger: true });
-          h.advance(1 / 60);
-          h.setPlayerInput(null);
-          h.render();
-          const card = document.querySelector('.hud-impact[data-kind="flight-extend"]');
-          const copy = card?.querySelector('.hud-impact-copy');
-          if (copy instanceof HTMLElement) {
-            copy.style.animation = 'none';
-            copy.style.opacity = '1';
-            copy.style.transform = 'none';
-          }
-        });
-      }
-      if (name === 'opening-showcase') {
-        await page.keyboard.down('Space');
-        await page.evaluate(() => window.__harness.advance(0.65));
-        await page.keyboard.up('Space');
-      }
       if (name === 'two-flight-taunt') {
         await page.evaluate(() => {
           const impact = document.querySelector('.hud-impact');

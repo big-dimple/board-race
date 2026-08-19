@@ -360,9 +360,12 @@ const race = new Race(course, boats, {
 }, roster);
 
 function worldNameplatesActive(): boolean {
-  // M14 retires the old English labels for every race phase. OpeningShowcase
-  // is a separate DOM presentation and remains responsible for GO identity.
-  return false;
+  // The armed gold portal owns the final approach. Keeping labels out of this
+  // short target-reading window also prevents text from changing the portal's
+  // existing depth/energy occlusion contract; the frozen Final Station keeps
+  // the labels visible after the crossing.
+  return race.phase !== 'ready' && !captureOverlayVisible &&
+    !(race.phase === 'racing' && course.finalStationArmed());
 }
 
 function buildAiControllers(): AIController[] {
