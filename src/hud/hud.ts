@@ -109,6 +109,7 @@ export class HUD {
   private readonly driverAnchor = new THREE.Vector3();
   private driverAnchorX = 0;
   private driverAnchorY = 0;
+  private driverPowerSide: -1 | 1 = 1;
   private readonly boostBar: HTMLDivElement;
   private readonly boostLabel: HTMLDivElement;
   private readonly boostSegEls: HTMLDivElement[] = [];
@@ -279,8 +280,9 @@ export class HUD {
     this.camera = camera ?? new THREE.PerspectiveCamera();
     this.bestFlights = bestFlights;
     this.root = h('div', 'hud', container);
-    this.driverAnchorX = innerWidth * 0.5;
-    this.driverAnchorY = innerHeight * 0.56;
+    const compactViewport = innerWidth <= 900 || innerHeight <= 520;
+    this.driverAnchorX = compactViewport ? innerWidth - 205 : innerWidth * 0.62;
+    this.driverAnchorY = compactViewport ? 130 : innerHeight * 0.56;
     // palette → CSS custom properties (single source of truth)
     const rs = this.root.style;
     rs.setProperty('--ink', PALETTE.inkCss);
@@ -876,8 +878,20 @@ export class HUD {
     if (!active) return;
     player.riderMount.getWorldPosition(this.driverAnchor);
     this.driverAnchor.project(this.camera);
-    const targetX = Math.max(innerWidth * 0.42, Math.min(innerWidth * 0.58, (this.driverAnchor.x * 0.5 + 0.5) * innerWidth));
-    const targetY = Math.max(innerHeight * 0.38, Math.min(innerHeight * 0.64, (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight + 18));
+    const riderX = (this.driverAnchor.x * 0.5 + 0.5) * innerWidth;
+    const riderY = (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight;
+    const compact = innerWidth <= 900 || innerHeight <= 520;
+    if (!compact) {
+      const sideDeadZone = 48;
+      if (riderX < innerWidth * 0.5 - sideDeadZone) this.driverPowerSide = 1;
+      else if (riderX > innerWidth * 0.5 + sideDeadZone) this.driverPowerSide = -1;
+    }
+    const targetX = compact
+      ? Math.max(116, innerWidth - 205)
+      : Math.max(90, Math.min(innerWidth - 90, riderX + this.driverPowerSide * 150));
+    const targetY = compact
+      ? Math.max(104, Math.min(148, innerHeight * 0.34))
+      : Math.max(innerHeight * 0.38, Math.min(innerHeight * 0.64, riderY + 18));
     const blend = 1 - Math.exp(-10 * Math.max(0, dt));
     this.driverAnchorX += (targetX - this.driverAnchorX) * blend;
     this.driverAnchorY += (targetY - this.driverAnchorY) * blend;
@@ -1376,9 +1390,7 @@ export class HUD {
     if (reason === 'exit') return `第 ${flight} 飞 · 飞行区出口漏门`;
     if (reason === 'teleport') return `第 ${flight} 飞 · 路线重置`;
     if (reason === 'late') return `第 ${flight} 飞 · 高度/时机不足`;
-    if (reason === 'gate_left') return `第 ${flight} 飞 · 左侧擦门`;
-    if (reason === 'gate_right') return `第 ${flight} 飞 · 右侧擦门`;
-    if (reason === 'gate') return `第 ${flight} 飞 · 未穿过门心`;
+    if (reason === 'gate_left' || reason === 'gate_right' || reason === 'gate') return `第 ${flight} 飞 · 撞柱`;
     return `第 ${flight} 飞 · 漏门`;
   }
 
@@ -1390,19 +1402,14 @@ export class HUD {
       wrong_way: '逆向行驶超过纠正窗口',
       no_launch: '没有起飞，水面通过不计完成',
       corridor: '飞离了悬空白雾航线',
-      gate: '船体没有从两根发光杆之间穿过',
-      gate_left: '从杆门左侧掠过',
-      gate_right: '从杆门右侧掠过',
+      gate: '撞柱',
+      gate_left: '撞柱',
+      gate_right: '撞柱',
       late: '起飞太晚，穿杆时尚未达到认证高度',
       landing: '通过飞行门前已经落水',
       exit: '离开飞行区时仍未通过门',
       teleport: '航线状态已重置',
     };
-    const f = result.failure;
-    if ((reason === 'gate_left' || reason === 'gate_right') && f && f.lateralOffsetM !== null && f.lateralLimitM !== null) {
-      const miss = Math.max(0, Math.abs(f.lateralOffsetM) - f.lateralLimitM);
-      return `第 ${f.flightNumber} 飞 · ${why[reason]} ${miss.toFixed(1)}m`;
-    }
     return why[reason];
   }
 
@@ -1490,7 +1497,7 @@ export class HUD {
           ? Math.max(0, Math.abs(failure.lateralOffsetM) - failure.lateralLimitM) : 0;
         const direction = left ? (mobile ? '向右' : 'D') : (mobile ? '向左' : 'A');
         return {
-          title: `${mastery?.airBrakedInTurn ? '方向修正' : '偏航先空刹'} · 差 ${miss.toFixed(1)}m`,
+          title: `撞柱 · 差 ${miss.toFixed(1)}m`,
           copy: mastery?.airBrakedInTurn
             ? `${steer}回到两杆中点`
             : mobile
@@ -1515,7 +1522,7 @@ export class HUD {
         };
       case 'gate':
         return {
-          title: '偏航先空刹 · 只差这一门',
+          title: '撞柱',
           copy: `按住 ${drift} 空刹，对准两根发光杆中点`,
           metric: '',
         };

@@ -27,8 +27,7 @@
   font-family:system-ui,'PingFang SC','Microsoft YaHei',sans-serif;
   letter-spacing:0;
 }
-.race-radio.on { display:block; animation:race-radio-in .18s ease-out; }
-.race-radio.on { display:grid; }
+.race-radio.on { display:grid; animation:race-radio-in .18s ease-out; }
 .race-radio-avatar { position:relative; width:32px; height:32px; overflow:hidden; border:1px solid var(--radio-color); background:rgba(16,23,58,.96); }
 .race-radio-avatar img { width:100%; height:100%; object-fit:cover; }
 .race-radio-mark { display:grid; width:100%; height:100%; place-items:center; color:var(--radio-color); font:italic 900 15px/1 'Arial Black',Impact,sans-serif; }
@@ -53,6 +52,7 @@
   background:rgba(4,7,20,.72);
   box-shadow:0 14px 36px rgba(0,0,0,.3),inset 0 -2px 0 color-mix(in srgb,var(--radio-color) 35%,transparent);
   transform:translateX(-50%);
+  align-items:center;
 }
 .race-radio.broadcast.on {
   display:grid;
@@ -60,6 +60,7 @@
 }
 .race-radio.broadcast.paused { animation-play-state:paused; }
 .race-radio.broadcast .race-radio-avatar { width:62px; height:62px; border-width:2px; }
+.race-radio.broadcast .race-radio-copy { align-self:center; }
 .race-radio.broadcast .race-radio-meta { margin:2px 0 8px; font-size:14px; }
 .race-radio.broadcast .race-radio-body { font-size:32px; font-weight:850; line-height:1.16; }
 .race-radio.broadcast .race-radio-body strong { text-shadow:0 0 16px color-mix(in srgb,var(--radio-color) 42%,transparent); }
@@ -95,11 +96,13 @@
     border-left-width:4px;
     background:rgba(4,7,20,.86);
     transform:none;
+    align-items:center;
   }
   .race-radio.broadcast.on { animation:race-radio-in .18s ease-out both; }
   .race-radio.broadcast .race-radio-avatar { width:34px; height:34px; }
   .race-radio.broadcast .race-radio-meta { margin:0 0 4px; font-size:8.5px; }
-  .race-radio.broadcast .race-radio-body { overflow:hidden; font-size:13.5px; line-height:1.22; white-space:nowrap; }
+  .race-radio.broadcast .race-radio-copy { display:grid; align-content:center; min-height:40px; text-align:center; }
+  .race-radio.broadcast .race-radio-body { overflow:visible; font-size:13.5px; line-height:1.22; white-space:normal; text-wrap:balance; }
   .race-tower.broadcasting .race-tower-list { display:none; }
 }
 @media (max-height:340px) and (orientation:landscape) {

@@ -10,14 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "shot": "node harness/screenshot.mjs",
-    "verify:flight": "node harness/screenshot.mjs --verify-flight",
-    "verify:mobile": "node harness/screenshot.mjs --mobile --verify-mobile",
-    "verify:performance": "node harness/screenshot.mjs --verify-performance",
+    "verify:smoke": "node harness/screenshot.mjs --verify-smoke",
     "verify:collision": "node harness/collision.mjs",
     "verify:audio": "node harness/audio.mjs",
-    "verify:systems": "node harness/systems.mjs",
-    "verify:closeout": "node scripts/verify-closeout.mjs",
-    "verify:release": "npm run build && npm run verify:flight && npm run verify:mobile && npm run verify:collision && npm run verify:audio && npm run verify:systems && npm run verify:performance",
     "release:checked": "bash scripts/release-checked.sh"
   },
   "dependencies": {

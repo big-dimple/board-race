@@ -10,7 +10,7 @@ import type * as THREE from 'three';
 // ---------------------------------------------------------------- boats ----
 
 /** Maximum number of launch charges a boat may carry between flights. */
-export const MAX_FLIGHT_CHARGES = 5;
+export const MAX_FLIGHT_CHARGES = 3;
 
 /** Per-frame driving input, produced by the player keyboard or an AI controller. */
 export interface BoatInput {

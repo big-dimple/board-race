@@ -334,10 +334,8 @@
   text-shadow: 1px 1px 0 var(--mobile-ink);
 }
 .mobile-controls[data-flight-charges='1'] .mobile-stock,
-.mobile-controls[data-flight-charges='2'] .mobile-stock,
-.mobile-controls[data-flight-charges='3'] .mobile-stock,
-.mobile-controls[data-flight-charges='4'] .mobile-stock { color: var(--mobile-flight); }
-.mobile-controls[data-flight-charges='5'] .mobile-stock { color: #f8ff7a; }
+.mobile-controls[data-flight-charges='2'] .mobile-stock { color: var(--mobile-flight); }
+.mobile-controls[data-flight-charges='3'] .mobile-stock { color: #f8ff7a; }
 .mobile-controls.drift-release-ready .mobile-action-zones button:first-child {
   color: #f8ff7a;
 }

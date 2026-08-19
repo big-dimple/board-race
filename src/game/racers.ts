@@ -43,37 +43,37 @@ const DRIVER_STORAGE_KEY = 'board-race:driver:v1';
 /** Adult drivers. Every player-facing handling modifier stays within +/-6%. */
 export const DRIVER_PROFILES: readonly DriverProfile[] = [
   {
-    id: 'axle', name: 'GLM', callsign: '格莱美', age: 28, pronouns: '他', portraitUrl: axlePortrait, portraitPosition: '50% 20%',
+    id: 'axle', name: 'GLM', callsign: '唐老杰', age: 28, pronouns: '他', portraitUrl: axlePortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullPlayer, personality: 'clean', pace: 0.985, mood: '沉稳', moodIcon: '◆',
     specialty: '平衡型', strength: '入弯稳定，空中修正宽容', weakness: '爆发力不是最高',
     quote: '让线路说话。', handling: { acceleration: 1, steering: 1, driftCharge: 1, airControl: 1.04 }, rivalRank: 2,
   },
   {
-    id: 'tide', name: 'ChatGPT', callsign: '欧朋智科', age: 27, pronouns: '她', portraitUrl: tidePortrait, portraitPosition: '50% 20%',
+    id: 'tide', name: 'ChatGPT', callsign: '奥特曼', age: 27, pronouns: '她', portraitUrl: tidePortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullNova, personality: 'clean', pace: 0.99, mood: '冷酷', moodIcon: '◈',
     specialty: '飞行专家', strength: '空刹精准，姿态恢复最快', weakness: '水面漂移蓄能稍慢',
     quote: '别眨眼，我只给一次机会。', handling: { acceleration: 0.99, steering: 1.01, driftCharge: 0.96, airControl: 1.06 }, rivalRank: 4,
   },
   {
-    id: 'sol', name: 'Gemini', callsign: '杰米奈', age: 26, pronouns: '她', portraitUrl: solPortrait, portraitPosition: '50% 20%',
+    id: 'sol', name: 'Gemini', callsign: '美国豆包', age: 26, pronouns: '她', portraitUrl: solPortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullKai, personality: 'aggressive', pace: 1.01, mood: '骄傲', moodIcon: '▲',
     specialty: '起步猎手', strength: '加速强，超车窗口大胆', weakness: '急弯容易推头',
     quote: '第一名的位置，镜头最好。', handling: { acceleration: 1.05, steering: 0.97, driftCharge: 1.02, airControl: 0.99 }, rivalRank: 5,
   },
   {
-    id: 'reef', name: 'Kimi', callsign: '月之亮面', age: 31, pronouns: '他', portraitUrl: reefPortrait, portraitPosition: '50% 20%',
+    id: 'reef', name: 'Kimi', callsign: '杨植麟', age: 31, pronouns: '他', portraitUrl: reefPortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullReef, personality: 'aggressive', pace: 1.025, mood: '愤怒', moodIcon: '!',
     specialty: '贴身强攻', strength: '晚刹、卡位、出弯速度极强', weakness: '持续施压时线路偏冒险',
     quote: '你领先，只是因为我还没动手。', handling: { acceleration: 1.04, steering: 1.03, driftCharge: 1.04, airControl: 0.98 }, rivalRank: 6,
   },
   {
-    id: 'kai', name: 'Claude', callsign: '反人类', age: 30, pronouns: '他', portraitUrl: kaiPortrait, portraitPosition: '50% 20%',
+    id: 'kai', name: 'Claude', callsign: '蓬蓬头', age: 30, pronouns: '他', portraitUrl: kaiPortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullVolt, personality: 'clean', pace: 1.02, mood: '专注', moodIcon: '●',
     specialty: '基准冠军', strength: '线路近乎无误，后程持续追击', weakness: '被迫近身时略保守',
     quote: '误差会累积，我不会。', handling: { acceleration: 1.01, steering: 1.04, driftCharge: 0.99, airControl: 1.04 }, rivalRank: 7,
   },
   {
-    id: 'jinx', name: 'DeepSeek', callsign: '浅度求和', age: 25, pronouns: '他', portraitUrl: jinxPortrait, portraitPosition: '50% 20%',
+    id: 'jinx', name: 'DeepSeek', callsign: '梁圣梁子', age: 25, pronouns: '他', portraitUrl: jinxPortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullJinx, personality: 'erratic', pace: 0.965, mood: '兴奋', moodIcon: '✦',
     specialty: '漂移赌徒', strength: '蓄能快，偶尔跑出神级线路', weakness: '节奏波动明显',
     quote: '稳有什么意思？', handling: { acceleration: 0.98, steering: 1.02, driftCharge: 1.06, airControl: 0.97 }, rivalRank: 1,

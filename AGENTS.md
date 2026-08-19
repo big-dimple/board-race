@@ -3,207 +3,70 @@
 Board Race is a landscape-only Three.js arcade boat racer. The boat advances
 automatically; players steer, drift/air-brake, and trigger flight.
 
+## Required Context
+
+- Every task starts by reading this file, `docs/llmwiki.md`, and
+  `docs/development-handoff.md` in full.
+- `README.md` owns player-facing behavior. `docs/llmwiki.md` owns stable
+  architecture and contracts. `docs/development-handoff.md` owns only the
+  active work package and exact next step.
+- A multi-session goal may keep one temporary workstream handoff under its
+  evidence directory. Update stable docs only when a stable contract changes.
+
 ## Commands
 
-- `npm run dev` starts Vite.
+- `npm run dev` starts Vite on port `5173`.
 - `npm run build` type-checks and builds production assets.
-- `npm run verify:release` runs gameplay, mobile, collision, audio, systems,
-  endurance, and performance contracts.
-- After staging only reviewed files, `npm run release:checked -- "type: message"`
-  runs deterministic knowledge/workspace closeout, all release gates, commit,
-  push, remote-SHA verification, and Pages verification as one operation.
-  When the user explicitly says not to wait for Pages, add `--no-wait-pages`;
-  all gates, commit, push, and remote-SHA verification still run.
+- `npm run verify:smoke` checks desktop and `844x390` mobile boot, rendering,
+  and the current critical HUD contracts.
+- `npm run verify:collision` and `verify:audio` are targeted diagnostics for
+  changes in those domains; they are not routine release gates.
+- After staging reviewed files, `npm run release:checked -- "type: message"`
+  runs build and smoke, commits, and performs a normal push to `main`.
+  `--no-wait-pages` remains accepted but is a no-op; release never waits for Pages.
 
-## Stack And Layout
+## Layout
 
-- TypeScript, Vite, Three.js, Web Audio, and Playwright.
-- Gameplay lives in `src/game/`; keyboard, gamepad, and mobile input adapters
-  live in `src/core/`; HUD in `src/hud/`; sound in `src/audio/`; deterministic
-  checks in `harness/`.
-- `README.md` is the user-facing source of truth for controls and behavior.
-- `docs/llmwiki.md` is the AI-facing source of truth for runtime ownership,
-  onboarding state, hidden mechanics, verification, and closeout discipline.
+- Gameplay and state: `src/game/`; input and platform adapters: `src/core/`.
+- HUD and presentation: `src/hud/`; audio: `src/audio/`; browser tools: `harness/`.
+- GitHub Pages builds `main` through `.github/workflows/deploy.yml`.
 
-## Constraints
+## Non-Negotiable Contracts
 
-- Support landscape phone and desktop play. Portrait must remain a blocking
-  rotate prompt, not a separately designed gameplay layout.
-- Mobile steering modes may change only the left-thumb zone; keep drift/
-  air-brake and flight fixed in the same right-thumb positions.
-- Mobile browser zoom prevention must stay scoped to active landscape play and
-  preserve independent PointerEvent ownership. Do not add viewport scaling
-  locks, global touchmove cancellation, zoom-reset hacks, or fake fullscreen.
-- Preserve the unified `BoatInput` contract and fixed-step simulation.
-- Treat action edges and physical holds as separate keyboard contracts. Focus,
-  fullscreen, or system UI may erase the first keydown; repeat events must
-  restore held steering/drift without recreating edge actions such as flight.
-- Keep flight guidance player-owned: at most one active branch may be visible.
-- End-to-end flight-route tests must run gate crossing through descent, landing,
-  and route handoff without teleporting or resetting the boat; gate-only helpers
-  are not recovery coverage.
-- Gamepad changes must cover first-edge activation, multiple connected pads,
-  unknown mappings, disconnect cleanup, and bounded actuator feedback.
-- Changes to physics, lifecycle, audio, records, or rendering need the matching
-  harness contract. Do not weaken thresholds to make a release pass.
-- GitHub Pages deploys `main` through `.github/workflows/deploy.yml`.
-- 本项目发布默认使用 `npm run release:checked -- --no-wait-pages "type: message"`；Pages 的 Actions / live 核验独立进行，不得阻塞提交和推送。
-- 实现任务完成并通过对应门禁后，默认立即提交并推送；只有用户明确要求“先别发布”或等候验收时，才保留在本地。
-- Do not leave manual Vite servers running. Port `5173` is strict; use an
-  explicit alternate port only for a deliberate concurrent session, and stop
-  the exact recorded process before handoff.
-- GitHub mutation or release work must use the available GitHub operations
-  skill. The checked release script includes the repository's deterministic
-  jiepi-clear closeout gate; run extra interactive closeout only when new facts,
-  conflicts, or cleanup candidates are discovered.
+- Preserve the unified `BoatInput` contract and 60 Hz fixed-step simulation.
+- Keep action edges separate from physical holds. Keyboard repeat may restore
+  steering/drift after focus loss, but must not recreate a flight edge.
+- Support desktop and landscape phone. Portrait remains a blocking rotate prompt.
+- Mobile steering changes may affect only the left-thumb area; drift/air-brake
+  and flight retain their right-thumb ownership.
+- Keep one player-owned flight branch. Gate-to-landing recovery must not
+  teleport the boat, clear momentum, or create a second route truth.
+- Rendering, collision, AI, and progress share one boat world transform.
+- Do not add unreviewed continuous environment noise or fake fullscreen hacks.
 
-## Current State
+## Art And Performance
 
-- Seven-flight Final Station and the frozen dossier viewer are implemented.
-- First-run onboarding remains non-modal. Every fresh desktop keyboard run before
-  the first passed flight gets one dismissible lower-left `Shift -> yellow BANK ->
-  release -> Space` console driven only by accepted boat-state and launch-cue
-  edges; banking alone does not retire it. An explicit close or the first pass
-  does. Later launch/extension windows use one tokenized upper-right prompt per
-  actionable cue, never per inventory increase. Mobile never renders the PC
-  console. Only the first real failure may
-  invite the persistent spotlight guide. Schema v8 still owns that full
-  guide's eligibility, progress, and disable state.
-- Countdown lights decrease `3 -> 2 -> 1 -> GO dark`; the numbers use restrained
-  ticks only. `GO` uses exactly one deterministic non-verbal synthesized start
-  signal; voice assets, speech fetches, and announcement buses are removed. If
-  the context is not running, one exact-time electronic fallback plays and no
-  late signal is inserted.
-- Continuous water/air white-noise loops are disabled pending owner approval of
-  an environment recording. Landing audio remains player-only; every physical
-  boat may emit the shared visual landing event from its first descending contact
-  with the live float plane. Contact clamps vertical penetration immediately,
-  while the authored flight phase keeps its original surface-handoff frame so
-  race pacing and input ownership do not advance. Collision and landing haptics
-  queue behind drift/air-brake control pulses and route only to the most recently
-  active device. Player collision
-  presentation coalesces per fixed step and uses the real contact side/point;
-  directional camera impact is bounded and offers `standard / weak / off`.
-- Opening contact pressure is seeded and occasional. The two strongest rivals use
-  real pace and drift-release BOOST input to keep both boats ahead through the
-  fourth-flight approach; `releaseFormation()` removes all player-gap assistance
-  on the exact fourth-pass frame. Fixed chain-drift personality may remain afterward,
-  but its surface auto-throttle may only lift for traffic or recovery and never become
-  reverse braking. Teleport, fake progress, collision immunity, and player slowdown are
-  forbidden. Drift holds keep a clean stern; the real BOOST rising edge alone exposes the
-  same pooled `thrust-outer/core` stern emitters used by the player, at a distance-scaled
-  rival strength. Do not restore billboard lobes, smoke, comic lines, continuous exhaust,
-  or a translucent heat cone; ordinary rival wake stays subordinate. These visuals must
-  derive from Boat state, never a cosmetic loop detached from input, charge, or BOOST payout.
-  All continuously moving surface boats and their AI must project inside a bounded
-  neighbourhood of the previously accepted spline `u`; a folded course may not swap
-  them to the globally nearest non-adjacent segment. Collision and rendering continue
-  to use the same world transform, and a physical post-fourth pass/repass must contribute
-  real rival pixels in the player's chase camera.
-  Race radio is one prioritized slot and yields to action guidance. Routine passes
-  and light contact stay silent; heavy personality reactions are capped per run.
-  Gemini's air-brake technique is queued once after every fresh GO (not resume), with its
-  reading clock paused by higher-priority play. The visible card uses the small callsign
-  `杰米奈`; the stable internal profile id remains `sol`.
-- iPhone browser play remains capability-detected rather than fake-fullscreen.
-  `ImmersiveModeController` owns fullscreen for desktop and mobile: only GO makes the
-  first request, selector taps never trigger the native exit hint, desktop shows a
-  dismissible recovery action after an exit/rejection, and mobile retries on the next
-  real control gesture.
-  Active game controls suppress Safari page-pinch defaults without releasing
-  held pointers; selector and dossier surfaces do not. A relative standalone
-  manifest supports optional Home Screen launch without a Service Worker;
-  automatic Chrome install promotion stays suppressed, and rejected supported
-  fullscreen requests remain eligible for the next real control gesture. In
-  standalone mode the root owns the full `100vh` viewport, the renderer follows
-  the measured `#app` container, and only controls consume safe-area insets; do
-  not size the scene from `visualViewport.height` or a cached `innerHeight`.
-  Capture previews own and release the mobile controls; if native export exits
-  fullscreen, dismissing the preview retries on that gesture and a rejection
-  remains eligible for the next real game-control touch.
-- A passed flight keeps its authored branch through descent and landing until
-  recovery handoff. Water contact is not a visual ownership edge: the same
-  neutral mist recovery tail remains visible before and after contact. It keeps
-  authored aerial height while airborne, then settles onto the swell without
-  turning into the green surface route. An accepted next takeoff from retained
-  inventory is the only pre-handoff override: it atomically retires the old
-  presentation owner and launch marker, then gives the sole mist branch to the
-  new flight. Neither path may snap the boat, clear horizontal momentum,
-  preload a surface warning, or show more than one flight branch.
-- Normal water contact atomically hands a held contextual air-brake to surface
-  drift on that exact fixed step, starts only one step of charge, and clears
-  the air-brake envelope. Final Station is the sole exception: Shift remains
-  its non-charging return brake. PC coverage includes a fourth-flight descent
-  where focus clears the first keydown and a repeated physical Shift must still
-  recover, land, and continuously reach the BANK threshold.
-- Flight inventory capacity is owned by the shared `MAX_FLIGHT_CHARGES` contract;
-  Boat, desktop HUD, near-boat HUD, mobile HUD, coach, audio, haptics, and harness
-  must consume that constant instead of introducing local caps. Launch spends one
-  cell, while `flightExtensionUsed` continues to permit at most one extension per flight.
-- The full-lap green surface guide is a tessellated translucent wake: it bends
-  with the local swell, has no hard rails or filled road core, and carries only
-  a bounded 170m lookahead of open chevrons spaced 10m apart and moving forward
-  at 10m/s. Sharp bends enlarge and warm at least three consecutive markers.
-  Each launch entrance traces a curved three-diamond ascent vector from the
-  surface tangent toward the first airborne decision; authored turns add two
-  directional posture chevrons. The green guide reaches the launch cue, those
-  diamonds own the handoff, and every mist corridor begins exactly at its authored
-  `entryU`; do not restore a pre-entry mist surface or cloud bridge. Flight branches retain a neutral white-mist
-  treatment with explicit panel, edge, and flow contrast floors through the
-  scoring portal and recovery; flight five uses three entry-turn buoy signs and
-  two opposite exit-correction signs as secondary landmarks. Surface tails and
-  mist terminals must feather into water/air; no hard near-side crop or straight
-  transparent cap may return.
-- Ocean displacement remains shared with boat physics, while its material uses
-  continuous directional normals, broad sun response, near-only ripple detail,
-  derivative-filtered mid-distance glint runs, a restrained non-sun sheen, and
-  sparse whitecaps tied to high, steep, rising waves. Performance quality compiles
-  out the fine glint layer; no quality mode may alter `waves.ts`, buoyancy, route,
-  or collision. Retired cel-height slabs and graphic/hash sparkle fields must not
-  return or compete with routes and rival technique cues. Landing water uses one
-  pooled crown/sheet draw plus velocity-aligned droplets; idle pools submit zero
-  instances. Boat wakes use
-  a broken central aerated wash with only faint, discontinuous Kelvin shoulders;
-  they may be neither two continuous rails nor a filled road.
-- Each boat's authored static model is five material batches, while every rider
-  is one vertex-colored 16-bone SkinnedMesh driven by the existing physical
-  pose springs. High-quality outlines must share that skeleton; low quality
-  uses the same real rider in beauty and ink prepasses, never a capsule proxy.
-  Rendering, collision, AI, and race progress still share one boat transform.
-- New visual work must first evaluate static geometry merging by material for parts
-  sharing a transform, `InstancedMesh` for repeated geometry, and shared materials /
-  textures. Keep independently animated, skinned, culled, or lifecycle-owned pieces
-  separate; batching may not erase action information or create a second transform truth.
-- Global art and performance standards apply to every prop, scene, boat, rider, water,
-  and route change. Before implementation, record the ownership/batching choice, avoid
-  per-fixed-step allocations by reusing pools or typed arrays, and prefer opaque/depth-tested
-  paths over avoidable transparent overdraw. New culling bounds require a local conservative
-  envelope and fixed-camera pixel evidence. Any change that touches pixels, lifecycle, or
-  fixed-step state must add or update the matching harness contract and pass the release gates.
-- The seventh scored flight atomically retires route warnings and failures.
-  Its recovery still completes, then the player may approach the visible gold
-  Final portal from either direction; passing outside the columns is retryable.
-  Shift/mobile brake then targets 18m/s with air-brake turn authority and cannot
-  drift, boost, charge, spend a cell, reverse, or emit a new feedback cue.
-  Once armed, every physical racer can finish through the same swept portal test;
-  sub-frame crossing time locks global order, finished rivals stay visible, and the
-  player result is created only after all crossings in that fixed step are sorted.
-- Desktop READY uses a frozen three-column driver stage from 1366x768 upward,
-  six stable roster destinations, a cancellable clip reveal, and a DPR-backed
-  radar. The accepted coarse-pointer mobile portrait composition stays separate.
-- GO enters a roughly 3.6s input-locked opening presentation before countdown:
-  six real riders receive projected local portrait/callsign identity plates with
-  fixed-capacity screen-space avoidance. Chromium fullscreen success may add a
-  2.8s fixed-step buffer inside that presentation; the browser prompt itself is
-  not scriptable. Opening-only ocean/sky intensity and low-density instanced
-  sails, birds, and glints return to race density before the first countdown tick.
-- Final presentation uses a world-first frozen celebration: the live finish
-  station remains visible while a code-authored Canvas2D flash, gold crown,
-  radial particles, camera kick, and staged result actions play. The PNG
-  capture composites that transparent celebration layer instead of a dark
-  result card. `神秘资料片` is the default primary action; screenshot and continue
-  are compact utilities, and mobile controls stay hidden throughout finale and
-  dossier. Deterministic Final screenshots cover impact, hero, and settled beats.
-- Expansion images are replaceable owner-supplied WebP concept assets under
-  `src/assets/expansions/`; prompts and semantic filenames are the durable contract.
-- The dossier pages are concept previews; no expansion gameplay exists yet.
+- Read `docs/art-direction.md` before visual work. Screenshots and human review
+  decide visual quality; pixel deltas, draw calls, and shader constants do not.
+- The current five-batch boats, 16-bone riders, shared materials, instances,
+  and typed-array pools are performance baselines, not permanent art barriers.
+  A refactor may change them when it preserves gameplay truth and supplies a
+  measured before/after resource or rendering metric.
+- Do not hide action information by brightening the whole scene. Reuse pools and
+  avoid unbounded allocation in fixed-step paths.
+- Pixel changes require desktop and `844x390` screenshots. Physics, lifecycle,
+  audio, records, or input changes also require their targeted diagnostic.
+
+## Delivery
+
+- Before every commit or push, invoke `jiepi-clear` in lightweight pre-commit
+  mode. It must inspect the actual diff, remove dead tests/code/artifacts, and
+  check that `llmwiki` contains only stable contracts while `handoff` contains
+  only the current work package and exact next step. Do not turn this into a
+  full repository, remote, Pages, or historical screenshot audit.
+- Preserve unrelated work and stage only reviewed files.
+- Do not weaken a relevant threshold to pass a check.
+- Stop the exact Vite process used for manual validation before handoff.
+- Completed work is normally committed and pushed unless the user explicitly
+  requests a local review first. A successful push is the release action;
+  Actions/Pages status is optional follow-up, not a commit gate.

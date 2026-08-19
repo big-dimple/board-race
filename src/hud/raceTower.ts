@@ -163,12 +163,13 @@ export class RaceTower {
     this.enqueue({
       key: 'gemini-opening-airbrake-tip',
       speaker: driverSpeaker(sol),
-      meta: `${sol.name} // 线路读懂了`,
+      meta: `${sol.callsign} // 线路读懂了`,
       message: '空刹压住速度，转向咬住弯心',
       emphasis: '空刹压住速度',
       presentation: 'broadcast',
       priority: 'tactical',
       duration: 5.65,
+      sessionKey: 'gemini-airbrake-technique',
       // Opening guidance can wait behind the GO/team slot and the first
       // action cue without disappearing before a returning player sees it.
       ttl: 60,
@@ -236,7 +237,7 @@ export class RaceTower {
 function driverSpeaker(profile: DriverProfile): RadioSpeaker {
   return {
     kind: 'driver',
-    name: profile.name,
+    name: profile.callsign,
     color: profile.color,
     portraitUrl: profile.portraitUrl,
     portraitPosition: profile.portraitPosition,

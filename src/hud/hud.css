@@ -986,6 +986,23 @@
 .hud-impact[data-kind='flight-pass'] .hud-impact-title { margin-top: 3px; font-size: 18px; }
 .hud-impact[data-kind='flight-pass'] .hud-impact-detail { margin-top: 4px; font-size: 12px; }
 
+.hud-impact[data-kind='flight-extend'] .hud-impact-flash,
+.hud-impact[data-kind='flight-extend'] .hud-impact-lines { display: none; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-copy {
+  left: auto;
+  right: max(22px, calc(env(safe-area-inset-right) + 18px));
+  top: max(78px, calc(env(safe-area-inset-top) + 66px));
+  width: 330px;
+  text-align: right;
+  transform: none;
+}
+.hud-impact.on[data-kind='flight-extend'] .hud-impact-copy {
+  animation: hud-flight-extend-copy var(--impact-duration, 0.72s) ease-out both;
+}
+.hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 15px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 23px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 11px; }
+
 @keyframes hud-impact-flash {
   0% { opacity: 0; }
   30% { opacity: 1; }
@@ -1016,6 +1033,12 @@
   0% { opacity: 0; transform: translateX(16px); }
   18%, 76% { opacity: 1; transform: translateX(0); }
   100% { opacity: 0; transform: translateY(-8px); }
+}
+
+@keyframes hud-flight-extend-copy {
+  0% { opacity: 0; transform: translateX(22px); }
+  18%, 72% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-10px); }
 }
 
 .hud-pos-num.battle-hit {
@@ -2762,6 +2785,14 @@
   .hud-turn-warning-detail { font-size: 9px; }
   .hud-impact-title { font-size: 28px; }
   .hud-impact[data-kind='flight-pass'] .hud-impact-copy { display: none; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-copy {
+    right: max(14px, calc(env(safe-area-inset-right) + 10px));
+    top: max(64px, calc(env(safe-area-inset-top) + 58px));
+    width: 238px;
+  }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 10px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 18px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 9px; }
   .hud-lesson-inner { width: calc(100% - 30px); padding: 13px 18px 12px; }
   .hud-lesson-attempt { font-size: 9px; }
   .hud-lesson-title { margin-top: 10px; font-size: 34px; }
