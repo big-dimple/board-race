@@ -57,7 +57,7 @@ const WRONG_WAY_HEADING_DOT = -0.3;
 const WRONG_WAY_HOLD = 0.7; // s sustained before the flag sets
 /** Surface warnings begin here; abandoning the circuit beyond the hard edge ends the run. */
 const OFF_COURSE_WARN_M = 24;
-const OFF_COURSE_FAIL_HOLD_S = 0.8;
+const OFF_COURSE_FAIL_HOLD_S = 15;
 /** Fixed-step surface motion above this is an explicit staging cut, not a route-projection jump. */
 const SURFACE_CONTINUITY_MAX_STEP_M = 4;
 /** Arc-search slack for lateral motion and table interpolation around a physical step. */

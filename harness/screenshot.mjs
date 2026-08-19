@@ -196,6 +196,21 @@ async function verifyMode(browser, mobile) {
   assert.equal(radioOnce.secondQueued, 0, `${label}: Gemini broadcast requeued for a new run in one page session`);
   assert.equal(radioOnce.secondActiveKey, '', `${label}: Gemini broadcast restarted in a new run`);
 
+  if (!mobile) {
+    const offCourse = await page.evaluate(() => window.__harness.offCourseRecoveryCase());
+    assert.ok(offCourse.distanceM > offCourse.hardEdgeM,
+      `${label}: off-course case did not cross the surface hard edge: ${JSON.stringify(offCourse)}`);
+    assert.deepEqual(offCourse.at14_9, { elapsedS: 14.9, phase: 'racing', warning: 'off_course' },
+      `${label}: surface recovery window ended before 14.9s`);
+    assert.ok(offCourse.failureAfterS >= 15 && offCourse.failureAfterS <= 15 + 1 / 60 + 1e-9,
+      `${label}: off-course failure left the 15s fixed-step boundary: ${JSON.stringify(offCourse)}`);
+    assert.equal(offCourse.phase, 'defeated', `${label}: sustained off-course run did not end`);
+    assert.equal(offCourse.reason, 'off_course', `${label}: sustained off-course reason drifted`);
+    console.log(`desktop off-course: distance=${offCourse.distanceM.toFixed(2)}m ` +
+      `at14.9=${offCourse.at14_9.phase}/${offCourse.at14_9.warning} ` +
+      `failedAt=${offCourse.failureAfterS.toFixed(3)}s reason=${offCourse.reason}`);
+  }
+
   await context.close();
   opened = await openHarness(browser, mobile);
   ({ context, page } = opened);

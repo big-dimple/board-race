@@ -57,6 +57,8 @@
 
 - `gate / gate_left / gate_right` 都向玩家显示“撞柱”；左右偏差只作为次级数字证据。
 - `corridor`、`landing`、`no_launch`、`off_course` 和 `wrong_way` 保持各自语义，不能伪造门号。
+- 水面越过主线硬边后立即显示 `off_course` 警告，只有持续 15 秒未回线才判负；回线衰减、
+  Final Station 解除和 `wrong_way` 的独立警告 / 判负时钟保持原语义。
 - 第七飞计分后路线失败永久退休，但该飞 recovery 仍完整播放。所有实体选手通过同一个
   swept Final portal 排名，使用亚帧 crossing time；已完赛车手继续保留实体和碰撞。
 - Final 回港刹车不能触发漂移、BOOST、飞行库存变化、倒车或额外反馈。

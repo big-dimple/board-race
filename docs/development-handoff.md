@@ -1,38 +1,37 @@
 # Board Race 开发交接
 
-状态：`T4 complete / T5 next`
+状态：`T5 complete / T6a next`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`f5f96f6d1c72dc1020c6a378d24a0552e294f96e`，`main`；起点工作树干净。
-- 桌面沿用现有 tokenized flight-extension prompt，在真实可续航窗口说明“本飞最多用 2 格 ·
-  起飞 1 + 续航 1”；位置、动作、库存、2.15s token 和 gameplay 均未改变。
-- 横屏手机没有恢复 HUD 大卡片；现有“续”按钮保持主字、`x库存`、尺寸和位置，只把副标签改为
-  “每飞 1 次”，无障碍说明补全本飞起飞一次、续航一次。
-- DrivingCoach 的 extension detail 与选角页进阶规则同步同一事实。没有新增 DOM、overlay、存档状态、
-  schema、localStorage、物理或 `MAX_FLIGHT_CHARGES` 分支。
+- Base：`55048cf24cf555c79b3ac24275ace71360183b4b`，`main`；起点工作树干净。
+- `src/game/race.ts` 只把水面硬边外 `off_course` 判负持续窗口从 `0.8s` 改为 `15s`。
+  `OFF_COURSE_WARN_M` 即时警告、折叠冲突、回线衰减、Final Station 解除、`wrong_way` 的
+  `0.7s / 2.4s` 时钟，以及飞行 corridor / landing / no_launch / 门语义均未改。
+- 现有浏览器 harness 增加一个桌面固定步合同：正式进入 racing 后把玩家固定在真实水面硬边外，
+  只经 `Race.update` 累计到失败；没有导出产品常量、增加公开 debug API 或新建 harness 文件。
 
 ## 证据与验证
 
-- ignored `shots/flight-consumption-lesson/{before,after}/` 保存同一真实 extension-ready 窗口的
-  `1440x900` 与 `844x390` 截图及 JSON。before 来自 detached base：桌面旧规则只写单格消耗，
-  手机仅写 `EXTEND`；after 桌面公式完整且无溢出，手机副标签完整留在原按钮内，不盖船、航线或触控区。
-- 同场景 before / after 均为：桌面 `168 calls / 311897 triangles / 2025000 pixels / 16.7ms`，
-  手机 `168 calls / 311899 triangles / 2057250 pixels / 16.7ms`。指标只记录资源量，不替代审图。
-- `npm run build`、连续两次 `npm run verify:smoke`、`git diff --check` 均通过。smoke 为桌面
+- before：源码阈值为 `0.8s`；同一诊断在硬边 `42m` 外的 `46.00m` 处于 `0.800s` 判
+  `defeated / off_course`，14.9 秒时早已失败。
+- after：`46.00m` 固定位置持续 14.9 秒仍为 `racing / off_course`；第 `900` 个 60Hz fixed-step，
+  即 `15.000s`，进入 `defeated`，结果 reason 为 `off_course`。
+- `npm run build`、`npm run verify:smoke`、`git diff --check` 通过。smoke 仍为桌面
   `174 calls / 325529 triangles / 2025000 pixels / 16.7ms`、手机
-  `194 calls / 328545 triangles / 2057250 pixels / 16.7ms`。未改音频或碰撞，专项未运行。
-- smoke 只新增长期回归价值：桌面提示可见、规则不溢出；手机副标签与 aria 包含单飞限制且留在按钮内。
-  没有新增 harness 文件、产品测试 API、截图门禁或逐字锁死完整文案。
+  `194 calls / 328545 triangles / 2057250 pixels / 16.7ms`。
+- T5 不改像素、碰撞或音频，因此不需要截图，也未运行 collision / audio 专项。
 
 ## Pending 与风险
 
-- T4 无功能 pending；Actions / Pages 不作为发布门禁。真机中文字体可能有轻微字宽差异，但按钮内
-  nowrap 与 smoke 几何检查限制了拆字和溢出风险。
+- T5 无功能 pending。Actions / Pages 未检查且不属于发布门禁。
+- 固定步合同覆盖持续越界和失败边界；回线衰减与 Final / wrong-way 分支由未改 diff 保持，未增加
+  重复场景扩大 smoke。
 
 ## 唯一下一步
 
-T5 只把水面偏离主线的 `off_course` 判负时间延长为 15 秒，并用对应玩法诊断确认；不得顺带修改
-`wrong_way`、飞行 corridor、门、海面、HUD、船体、车手、电台、音频或碰撞语义。
+T6a 只处理船尾流“双连续白线”：以 `src/water/wake.ts` 为首选 owner，把主读形改为断续中央含气水带，
+肩浪仅保留微弱、断续的次级信息。先读美术方向并建立桌面 / `844x390` before；不得在同一 session
+混入落水水花、开场船体下沉、海面、船体或车手重做。

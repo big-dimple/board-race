@@ -15,7 +15,7 @@ THREE.ColorManagement.enabled = false;
 
 import { Stage, resolveQualityMode } from './core/stage';
 import { PrePass } from './core/prePass';
-import { Loop } from './core/loop';
+import { Loop, SIM_DT } from './core/loop';
 import { Input } from './core/input';
 import { GamepadInput } from './core/gamepadInput';
 import { Haptics } from './core/haptics';
@@ -30,7 +30,7 @@ import { createPostPipeline } from './cel/postPipeline';
 import { Boat } from './game/boat';
 import { JetTrailSystem } from './game/jetTrail';
 import { Rider } from './game/rider';
-import { CHECKPOINT_US, Course, GRID_SLOTS } from './game/course';
+import { CHECKPOINT_US, Course, GRID_SLOTS, SURFACE_ROUTE_FAIL_DISTANCE_M } from './game/course';
 import {
   buildRaceRoster,
   driverProfile,
@@ -1428,6 +1428,7 @@ interface Harness {
   collisionFeedbackCase(): Record<string, unknown>;
   cameraImpactCase(): Record<string, unknown>;
   radioTechniqueCase(): Record<string, unknown>;
+  offCourseRecoveryCase(): Record<string, unknown>;
 }
 
 let harnessUsePlayerInput = false;
@@ -1924,6 +1925,42 @@ function runCameraImpactCase(): Record<string, unknown> {
   return { standard, weak, off };
 }
 
+function runOffCourseRecoveryCase(): Record<string, unknown> {
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+
+  const u = 0.2;
+  placeHarnessBoat(0, u, SURFACE_ROUTE_FAIL_DISTANCE_M + 4);
+  for (let id = 1; id < boats.length; id++) placeHarnessBoat(id, u - id * 0.02, 0);
+  race.syncCollisionCorrections();
+
+  course.sampleSurfaceNear(boats[0].state.position, u, 0.002, harnessPilotSample);
+  const distanceM = harnessPilotSample.distance;
+  const beforeSteps = Math.round(14.9 / SIM_DT);
+  let failureStep = -1;
+  let at14_9: Record<string, number | string> = {};
+  for (let step = 1; step <= Math.ceil(15.2 / SIM_DT); step++) {
+    race.update(SIM_DT);
+    if (step === beforeSteps) {
+      at14_9 = {
+        elapsedS: step * SIM_DT,
+        phase: race.phase,
+        warning: race.player().courseWarning,
+      };
+    }
+    if (failureStep < 0 && race.phase === 'defeated') failureStep = step;
+  }
+  return {
+    distanceM,
+    hardEdgeM: SURFACE_ROUTE_FAIL_DISTANCE_M,
+    at14_9,
+    failureAfterS: failureStep < 0 ? -1 : failureStep * SIM_DT,
+    phase: race.phase,
+    reason: race.challengeResult?.reason ?? 'none',
+  };
+}
+
 function stageRadioTechniqueBroadcast(): void {
   resetRace();
   startFreshCountdown();
@@ -2133,6 +2170,7 @@ if (HARNESS) {
     collisionFeedbackCase: runCollisionFeedbackCase,
     cameraImpactCase: runCameraImpactCase,
     radioTechniqueCase: runRadioTechniqueCase,
+    offCourseRecoveryCase: runOffCourseRecoveryCase,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
 } else {
