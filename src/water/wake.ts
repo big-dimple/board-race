@@ -118,6 +118,7 @@ varying vec3 vWorldPos;
 ${WAVES_GLSL}
 
 void main() {
+  float signedLat = vLat;
   float lat = abs(vLat);
   float f = vAgeF;
   float emitted = step(0.03, vIntensity);
@@ -152,15 +153,16 @@ void main() {
 
   // Broken Kelvin shoulders are readable up close but never form continuous
   // bright rails. Alternating broad beats leave open-water gaps along the V.
+  float sidePhase = signedLat < 0.0 ? -0.92 : 1.46;
   float shoulderCenter = mix(0.72, 0.55, smoothstep(0.0, 62.0, vBehind));
   shoulderCenter += 0.035 * sin(vBehind * 0.16 + sin(vBehind * 0.045) * 1.4);
   float shoulderDistance = abs(lat - shoulderCenter);
-  float shoulderWidth = mix(0.18, 0.095, smoothstep(0.0, 46.0, vBehind));
+  float shoulderWidth = mix(0.105, 0.052, smoothstep(0.0, 36.0, vBehind));
   float shoulderShape = 1.0 - smoothstep(shoulderWidth * 0.42, shoulderWidth, shoulderDistance);
-  float shoulderBeat = 0.5 + 0.32 * sin(vBehind * 0.41 - uTime * 1.1) +
-    0.18 * sin(vBehind * 0.17 + uTime * 0.46);
-  float shoulderBreak = smoothstep(0.46, 0.68, shoulderBeat);
-  float shoulder = shoulderShape * shoulderBreak * (1.0 - smoothstep(34.0, 104.0, vBehind));
+  float shoulderBeat = 0.5 + 0.32 * sin(vBehind * 0.31 - uTime * 0.95 + sidePhase) +
+    0.16 * sin(vBehind * 0.14 + uTime * 0.38 - sidePhase * 0.67);
+  float shoulderBreak = smoothstep(0.62, 0.77, shoulderBeat);
+  float shoulder = shoulderShape * shoulderBreak * (1.0 - smoothstep(16.0, 42.0, vBehind));
 
   // Rounded transom churn joins both sides only at the actual stern. It must
   // end before it can become a long translucent road under the broken wash.
@@ -191,12 +193,13 @@ void main() {
   float freshness = 1.0 - smoothstep(8.0, 30.0, vBehind);
   vec3 baseFoam = mix(uColorAged, uColorFoam, freshness);
   float innerFroth = body * (1.0 - smoothstep(centerWidth * 0.18, centerWidth * 0.62, lat));
-  float crestMix = clamp(0.28 + body * 0.18 + shoulder * 0.28 + contact * 0.2 +
+  float shoulderOnly = shoulder * (1.0 - smoothstep(0.08, 0.3, body));
+  float crestMix = clamp(0.28 + body * 0.18 + shoulderOnly * 0.16 + contact * 0.2 +
     innerFroth * 0.34 + ndl * 0.26 + specular * 0.14 + fresnel * 0.08, 0.0, 1.0);
   vec3 col = mix(uColorWash, baseFoam, crestMix);
   col = mix(col, uColorFoam, innerFroth * 0.24);
   float bodyAlpha = body * (0.29 + 0.32 * freshness + 0.11 * ndl) + innerFroth * 0.1;
-  float crestAlpha = shoulder * (0.03 + 0.05 * freshness + 0.02 * ndl + 0.015 * specular);
+  float crestAlpha = shoulderOnly * (0.008 + 0.018 * freshness + 0.008 * ndl + 0.005 * specular);
   float contactAlpha = contact * (0.16 + 0.18 * freshness + 0.08 * ndl);
   float a = (bodyAlpha + crestAlpha + contactAlpha) * ageFade * coverageMask * emitted;
   a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.78, 1.0, uVisualScale);
