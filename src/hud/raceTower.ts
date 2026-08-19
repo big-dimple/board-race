@@ -83,7 +83,7 @@ export class RaceTower {
     this.raceTime = 0;
     this.radioDirector.resetRun();
     this.renderedRevision = -1;
-    this.radio.classList.remove('on');
+    this.radio.classList.remove('on', 'blocked', 'paused');
     this.root.classList.remove('broadcasting');
   }
 
@@ -100,8 +100,10 @@ export class RaceTower {
       this.renderedRevision = this.radioDirector.revision;
       this.renderNotice(notice);
     }
-    this.radio.classList.toggle('on', Boolean(notice) && !blocked);
-    this.radio.classList.toggle('paused', blocked);
+    const hasNotice = Boolean(notice);
+    this.radio.classList.toggle('on', hasNotice);
+    this.radio.classList.toggle('blocked', hasNotice && blocked);
+    this.radio.classList.toggle('paused', hasNotice && blocked);
     this.root.classList.toggle('broadcasting', notice?.presentation === 'broadcast' && !blocked);
     this.accumulator += dt;
     if (this.accumulator < 0.1) return;
@@ -163,9 +165,9 @@ export class RaceTower {
     this.enqueue({
       key: 'gemini-opening-airbrake-tip',
       speaker: driverSpeaker(sol),
-      meta: `${sol.callsign} // 线路读懂了`,
-      message: '空刹压住速度，转向咬住弯心',
-      emphasis: '空刹压住速度',
+      meta: `${sol.callsign} // 插一句`,
+      message: '弯急别硬拧，先空刹再转。',
+      emphasis: '先空刹',
       presentation: 'broadcast',
       priority: 'tactical',
       duration: 5.65,

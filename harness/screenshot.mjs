@@ -157,8 +157,42 @@ async function verifyMode(browser, mobile) {
     `${label}: driver callsigns drifted`);
 
   const radioOnce = await page.evaluate(() => window.__harness.radioTechniqueCase());
-  assert.equal(radioOnce.first.visible, true, `${label}: Gemini broadcast did not display`);
+  assert.equal(radioOnce.masteredFresh.activeKey, 'go', `${label}: mastered fresh run did not leave GO as the only active radio`);
+  assert.equal(radioOnce.masteredFresh.queuedAfterGoStarted, 0,
+    `${label}: mastered fresh run queued a notice behind GO`);
+  const activeRadio = radioOnce.activeBeforeBlock;
+  assert.equal(activeRadio.activeKey, 'gemini-opening-airbrake-tip', `${label}: technique tip was not active before blocking`);
+  assert.equal(activeRadio.on, true, `${label}: Gemini broadcast did not display`);
+  assert.equal(activeRadio.sameAnimation, true, `${label}: technique animation was missing before blocking`);
+  for (const [kind, blocked] of [
+    ['presentation block', radioOnce.presentationBlocked],
+    ['flight focus', radioOnce.flightFocusBlocked],
+  ]) {
+    assert.equal(blocked.activeKey, activeRadio.activeKey, `${label}: ${kind} replaced the active radio notice`);
+    assert.equal(blocked.timer, activeRadio.timer, `${label}: ${kind} consumed radio reading time`);
+    assert.equal(blocked.revision, activeRadio.revision, `${label}: ${kind} rerendered the radio notice`);
+    assert.equal(blocked.on, true, `${label}: ${kind} removed the radio .on state`);
+    assert.equal(blocked.blocked, true, `${label}: ${kind} did not mark the radio blocked`);
+    assert.equal(blocked.paused, true, `${label}: ${kind} did not mark the radio paused`);
+    assert.equal(blocked.display, 'grid', `${label}: ${kind} cancelled the radio animation with display:none`);
+    assert.equal(blocked.visibility, 'hidden', `${label}: ${kind} left the blocked radio visible`);
+    assert.equal(blocked.animationPlayState, 'paused', `${label}: ${kind} did not pause the radio animation`);
+    assert.equal(blocked.sameAnimation, true, `${label}: ${kind} replaced the radio animation`);
+  }
+  assert.equal(radioOnce.resumed.activeKey, activeRadio.activeKey, `${label}: resume changed the active radio notice`);
+  assert.equal(radioOnce.resumed.revision, activeRadio.revision, `${label}: resume rerendered the radio notice`);
+  assert.ok(radioOnce.resumed.timer < activeRadio.timer && activeRadio.timer - radioOnce.resumed.timer < 0.02,
+    `${label}: resume did not continue the remaining radio timer`);
+  assert.equal(radioOnce.resumed.on, true, `${label}: resumed radio lost its .on state`);
+  assert.equal(radioOnce.resumed.blocked, false, `${label}: resumed radio stayed blocked`);
+  assert.equal(radioOnce.resumed.paused, false, `${label}: resumed radio stayed paused`);
+  assert.equal(radioOnce.resumed.animationPlayState, 'running', `${label}: resumed radio animation did not continue`);
+  assert.equal(radioOnce.resumed.sameAnimation, true, `${label}: resume restarted the radio animation`);
+  assert.equal(radioOnce.resumed.visibility, 'visible', `${label}: resumed radio stayed hidden`);
+  assert.equal(radioOnce.sameRunQueued, 0, `${label}: technique tip requeued in the same run`);
   assert.equal(radioOnce.secondVisible, false, `${label}: Gemini broadcast repeated in one page session`);
+  assert.equal(radioOnce.secondQueued, 0, `${label}: Gemini broadcast requeued for a new run in one page session`);
+  assert.equal(radioOnce.secondActiveKey, '', `${label}: Gemini broadcast restarted in a new run`);
 
   await context.close();
   opened = await openHarness(browser, mobile);
@@ -174,7 +208,33 @@ async function verifyMode(browser, mobile) {
   assert.ok(radioCopy && radioBody && radioBody.left >= radioCopy.left && radioBody.right <= radioCopy.right + 1 &&
     radioBody.top >= radioCopy.top && radioBody.bottom <= radioCopy.bottom + 1,
   `${label}: radio copy overflows its column`);
-  if (mobile) assert.equal((await elementStyle(page, '.race-radio-copy')).textAlign, 'center', `${label}: radio copy is not centered`);
+  const radioFlow = await page.evaluate(() => {
+    const copy = document.querySelector('.race-radio-copy');
+    const body = document.querySelector('.race-radio-body');
+    if (!(copy instanceof HTMLElement) || !(body instanceof HTMLElement)) return null;
+    return {
+      copyFits: copy.scrollWidth <= copy.clientWidth + 1 && copy.scrollHeight <= copy.clientHeight + 1,
+      bodyFits: body.scrollWidth <= body.clientWidth + 1 && body.scrollHeight <= body.clientHeight + 1,
+    };
+  });
+  assert.ok(radioFlow?.copyFits && radioFlow.bodyFits, `${label}: radio text overflows: ${JSON.stringify(radioFlow)}`);
+  if (mobile) {
+    const radioCenter = (radio.left + radio.right) / 2;
+    const copyCenterDelta = Math.abs((radioCopy.left + radioCopy.right) / 2 - radioCenter);
+    const bodyCenterDelta = Math.abs((radioBody.left + radioBody.right) / 2 - radioCenter);
+    const copyStyle = await elementStyle(page, '.race-radio-copy');
+    const bodyStyle = await elementStyle(page, '.race-radio-body');
+    assert.ok(copyCenterDelta <= 1 && bodyCenterDelta <= 1,
+      `${label}: radio copy is not centered on the whole card: ${JSON.stringify({ copyCenterDelta, bodyCenterDelta })}`);
+    assert.equal(copyStyle.textAlign, 'center', `${label}: radio copy text is not centered`);
+    assert.equal(bodyStyle.whiteSpace, 'normal', `${label}: radio body cannot wrap naturally`);
+    assert.ok(radio.right <= viewport.width * 0.42, `${label}: radio left the mobile safe lane: ${JSON.stringify(radio)}`);
+    for (const selector of ['.mobile-mode', '[data-mobile-action="left"]', '[data-mobile-action="right"]',
+      '[data-mobile-action="flight"]', '[data-mobile-action="drift"]']) {
+      assert.equal(intersects(radio, await elementRect(page, selector), 8), false,
+        `${label}: radio overlaps ${selector}`);
+    }
+  }
 
   await stage(page, 'start');
   const state = await page.evaluate(() => window.__harness.playerState());

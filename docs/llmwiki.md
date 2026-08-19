@@ -94,9 +94,12 @@ READY -> opening -> countdown -> racing
 ## HUD 与电台
 
 - Race radio 是一个 `RadioDirector` 单槽，危险和动作指导优先。高优先级出现时阅读时钟暂停，
-  不能多个 timer 叠 toast。
-- Gemini 空刹技巧在一次页面会话中最多显示一次；retry 或新回合不重播。移动广播正文必须
-  在卡片内容区居中、允许换行，并避开全部触控热区。
+  active notice 的 DOM、revision、`.on` 和 CSS 动画位置保持不变，仅隐藏并暂停；解除阻断后
+  继续同一次呈现和剩余阅读时间，不能重跑入场或叠多个 timer。
+- 只有尚未掌握 `drivingCoach.progress.mastery.airBrakedInTurn` 的玩家会收到 Gemini 空刹技巧，
+  且一次页面会话中最多真正显示一次；retry 或新回合不重播，掌握后 fresh GO 不再入队。
+  移动广播使用头像与右侧等宽平衡轨，让 copy / body 几何中心对齐整张卡片；正文允许自然换行、
+  不溢出，并避开中央航线和全部触控热区。
 - 艇边飞行库存和计时轨不能盖住车手。桌面根据车手投影选择相反一侧；横屏手机使用固定
   的右上安全通道，并避开右下控制。
 - 空中续航反馈不显示全屏闪白或速度线。桌面在船体上方的主视线中居中；横屏手机使用独立

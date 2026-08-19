@@ -307,7 +307,7 @@ const race = new Race(course, boats, {
     if (!signaled) audio.countdownBeep(true);
     cameraRig.mode = 'chase';
     tower.announceGo(roster[0].name);
-    if (!resuming) tower.announceTechniqueTip();
+    if (!resuming && !drivingCoach.progress.mastery.airBrakedInTurn) tower.announceTechniqueTip();
   },
   lapDone: () => {},
   checkpoint: () => {
@@ -1924,71 +1924,86 @@ function runCameraImpactCase(): Record<string, unknown> {
   return { standard, weak, off };
 }
 
-function stageRadioTechniqueBroadcast(): Record<string, unknown> {
+function stageRadioTechniqueBroadcast(): void {
   resetRace();
   startFreshCountdown();
   advanceUntil(() => race.phase === 'racing', 8);
   tower.update(0.5, race, false, true);
-  const blockedVisible = document.querySelector<HTMLElement>('.race-radio')?.classList.contains('on') ?? false;
-  const blockedStatus = tower.radioStatus();
-  const blockedQueued = Number(blockedStatus.queued);
-  const blockedPending = blockedQueued + (blockedStatus.activeKey ? 1 : 0);
   pcControlPrimer.stop();
   pcPrimerPresentation = null;
   hud.showPcControlPrimer(null, false);
   // Keep the notices produced by the real Race.go callback.  This case is
   // deliberately paced beyond the global radio gap so it proves that the
   // opening Gemini/SOL broadcast survives behind the GO line.
-  const openingStatus = tower.radioStatus();
-  const openingQueueBefore = Number(openingStatus.queued);
-  const openingPendingBefore = openingQueueBefore + (openingStatus.activeKey ? 1 : 0);
   tower.update(0.5, race, false, false);
   loop.advance(4.2);
-  const radio = document.querySelector<HTMLElement>('.race-radio');
-  const body = radio?.querySelector<HTMLElement>('.race-radio-body');
-  const first = {
-    visible: radio?.classList.contains('on') ?? false,
-    text: body?.textContent?.trim() ?? '',
-    emphasis: body?.querySelector('strong')?.textContent?.trim() ?? '',
-    speaker: radio?.querySelector<HTMLElement>('.race-radio-meta')?.textContent?.trim() ?? '',
-    fontSize: Number.parseFloat(body ? getComputedStyle(body).fontSize : '0'),
-    presentation: radio?.classList.contains('broadcast') ? 'broadcast' : 'compact',
-    animationName: radio ? getComputedStyle(radio).animationName : '',
-    animationDuration: Number.parseFloat(radio ? getComputedStyle(radio).animationDuration : '0'),
-    width: radio?.getBoundingClientRect().width ?? 0,
-    ariaLabel: radio?.getAttribute('aria-label') ?? '',
-  };
-  const openingActive = tower.radioStatus().activeKey === 'gemini-opening-airbrake-tip';
-  return {
-    first,
-    openingQueueBefore,
-    openingPendingBefore,
-    openingActive,
-    blockedVisible,
-    blockedQueued,
-    blockedPending,
-  };
 }
 
 function runRadioTechniqueCase(): Record<string, unknown> {
-  const staged = stageRadioTechniqueBroadcast();
-  const timerBeforePause = Number(tower.radioStatus().timer);
-  tower.update(1, race, false, true);
-  const timerAfterPause = Number(tower.radioStatus().timer);
-  tower.update(1 / 60, race, false, false);
-  tower.announceTechniqueTip();
-  const sameRunQueued = tower.radioStatus().queued;
-  tower.resetRun(7104);
-  tower.announceTechniqueTip();
-  tower.update(1 / 60, race, false, false);
-  return {
-    ...staged,
-    timerBeforePause,
-    timerAfterPause,
-    sameRunQueued,
-    secondVisible: document.querySelector<HTMLElement>('.race-radio')?.classList.contains('on') ?? false,
-    secondQueued: tower.radioStatus().queued,
-  };
+  const originalMastery = drivingCoach.progress.mastery.airBrakedInTurn;
+  try {
+    drivingCoach.progress.mastery.airBrakedInTurn = true;
+    resetRace();
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    pcControlPrimer.stop();
+    pcPrimerPresentation = null;
+    hud.showPcControlPrimer(null, false);
+    tower.update(1 / 60, race, false, false);
+    const masteredStatus = tower.radioStatus();
+    const masteredFresh = {
+      activeKey: masteredStatus.activeKey,
+      queuedAfterGoStarted: Number(masteredStatus.queued),
+    };
+
+    drivingCoach.progress.mastery.airBrakedInTurn = false;
+    stageRadioTechniqueBroadcast();
+    const radio = document.querySelector<HTMLElement>('.race-radio');
+    const animation = radio?.getAnimations()[0] ?? null;
+    const presentationState = () => {
+      const status = tower.radioStatus();
+      const style = radio ? getComputedStyle(radio) : null;
+      const currentAnimation = radio?.getAnimations()[0] ?? null;
+      return {
+        activeKey: status.activeKey,
+        timer: Number(status.timer),
+        revision: Number(status.revision),
+        on: radio?.classList.contains('on') ?? false,
+        blocked: radio?.classList.contains('blocked') ?? false,
+        paused: radio?.classList.contains('paused') ?? false,
+        display: style?.display ?? '',
+        visibility: style?.visibility ?? '',
+        animationPlayState: style?.animationPlayState ?? '',
+        sameAnimation: Boolean(animation) && currentAnimation === animation,
+      };
+    };
+
+    const activeBeforeBlock = presentationState();
+    tower.update(1, race, false, true);
+    const presentationBlocked = presentationState();
+    tower.update(1, race, true, false);
+    const flightFocusBlocked = presentationState();
+    tower.update(1 / 60, race, false, false);
+    const resumed = presentationState();
+    tower.announceTechniqueTip();
+    const sameRunQueued = tower.radioStatus().queued;
+    tower.resetRun(7104);
+    tower.announceTechniqueTip();
+    tower.update(1 / 60, race, false, false);
+    return {
+      masteredFresh,
+      activeBeforeBlock,
+      presentationBlocked,
+      flightFocusBlocked,
+      resumed,
+      sameRunQueued,
+      secondVisible: radio?.classList.contains('on') ?? false,
+      secondQueued: tower.radioStatus().queued,
+      secondActiveKey: tower.radioStatus().activeKey,
+    };
+  } finally {
+    drivingCoach.progress.mastery.airBrakedInTurn = originalMastery;
+  }
 }
 
 function stageHarnessGateFailure(): void {
