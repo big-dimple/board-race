@@ -1,36 +1,38 @@
 # Board Race 开发交接
 
-状态：`T2a complete / T2b next`
+状态：`T2b complete / T3 next`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`8aada8558fac379dd2893e6f2a5fa4540348ad97`，`main`；起点工作树干净且本地
+- Base：`eddef35a551969851b516ccfda20f15b6990e153`，`main`；起点工作树干净且本地
   `HEAD` / `origin/main` 引用一致。未执行 fetch 或远端卫生审计。
-- T2a 仅在 `src/hud/hud.css` 为 `flight-launch`、`gate`、`route-clear`、`excellent` 分别设置
-  桌面和横屏手机的中央上方锚点；未修改全局 `.hud-impact-copy`。
-- `flight-pass` 经审图保持桌面右上、手机隐藏；`flight-extend`、`final-ready`、失败结算
-  gate-copy、右侧库存组件及通知行为均未修改。一次性截图 probe 已撤除，`src/main.ts`、
-  `src/hud/hud.ts`、`harness/screenshot.mjs` 无 T2a diff，也没有新增生产测试 API。
+- 隔离确认真实 owner 是 `src/hud/hud.css` 的 `.hud-impact-lines`：关闭 CSS 条带后粗线消失，
+  只剩细 polar streak；只关闭 `src/cel/postPipeline.ts` shader motion 时粗条带仍完整保留。
+  `postPipeline` 的 polar wind streak 与 air-brake bands 已审查但未修改。
+- 仅在横屏粗指针 media query 内把实色条带由 6 CSS px 减为 3 CSS px；55px 周期、25% 覆盖、
+  颜色、数量、透明度、左右动画、0.5s 节奏和触发均保留，桌面规则不变。没有修改整体亮度。
 
 ## 证据与验证
 
-- 本地忽略目录 `shots/hud-short-notices/{before,after}/` 保留五类通知的 `1440x900` 与
-  `844x390` 截图，不暂存、不提交。审图确认四类调整项已让出船体、车手、当前门和紧急航线；
-  `flight-pass` 原位置安全并保持不改。
-- 可重复的 `flight-launch` before / after 均为 `217 calls / 315009 triangles`；drawing pixels
-  桌面 `2025000`、手机 `2057250`，指标仅记录渲染资源量。
+- 本地忽略目录 `shots/mobile-edge-lines/{before,after}/` 保留同一 `flight-launch` 峰值场景的
+  `1440x900` 与 `844x390` 截图，不暂存、不提交。逐张审图确认手机条带明显更细但仍可见，
+  未变成噪点或盖住中央航线；桌面 before / after 视觉不变。
+- before / after 均为 `165 calls / 306307 triangles / 16.7 ms`；drawing pixels 桌面
+  `2025000`、手机 `2057250`。指标只记录渲染资源量，不代替审美判断。
 - `npm run build`、`npm run verify:smoke`、`git diff --check` 均通过；smoke 为桌面
   `174 calls / 325529 triangles / 2025000 pixels / 16.7 ms`、手机
-  `194 calls / 328545 triangles / 2057250 pixels / 16.7 ms`。collision / audio 未运行。
+  `194 calls / 328545 triangles / 2057250 pixels / 16.7 ms`。collision / audio 按范围未运行。
+- 一次性浏览器 probe、隔离截图和失败产物已清除，手动验证 Vite 已停止；没有新增 harness、
+  测试 API、shader 断言或固定像素门禁。T2b 内无 pending，不等待 Pages。
 
 ## 遗留风险
 
-- 单 gate 航线过门时会同步进入 `passed`，现有 gate 通知可能被 `route-clear` 取代；T2a 未改
-  触发、队列或优先级。Chromium 证据也未覆盖刘海安全区及 iOS / Android 真机。
+- 证据来自 Chromium 的固定动画峰值，未覆盖 iOS / Android 真机、刘海安全区或动画全过程；
+  触发和动画本身未改，风险限于不同设备对 3 CSS px 条带的实际观感。
 
 ## 唯一下一步
 
-T2b 只减细横屏手机两侧的移动边缘受光 / 速度线，桌面保持不变。重新生成桌面与 `844x390`
-before / after 并逐张审图，不混入 HUD 通知、玩法、海面、船体、车手、radio 或库存组件改动。
+T3 只处理 Gemini 电台：保证页面会话内一次性、提供可读时长，并让移动端正文居中；不得继续
+T2b 或混入玩法、后处理、海面、船体、车手和库存组件改动。

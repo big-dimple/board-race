@@ -1009,6 +1009,14 @@
 .hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 11px; }
 
 @media (pointer: coarse) and (orientation: landscape) {
+  .hud-impact-lines {
+    background: repeating-linear-gradient(
+      -16deg,
+      transparent 0 26px,
+      var(--impact) 27px 30px,
+      transparent 31px 55px
+    );
+  }
   .hud-impact[data-kind='flight-launch'] .hud-impact-copy { top: 10%; }
   .hud-impact[data-kind='gate'] .hud-impact-copy { top: 10%; }
   .hud-impact[data-kind='route-clear'] .hud-impact-copy { top: 5%; }
