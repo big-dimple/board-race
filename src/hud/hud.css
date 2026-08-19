@@ -969,6 +969,11 @@
   font-size: 43px;
 }
 
+.hud-impact[data-kind='flight-launch'] .hud-impact-copy { top: 12%; }
+.hud-impact[data-kind='gate'] .hud-impact-copy { top: 12%; }
+.hud-impact[data-kind='route-clear'] .hud-impact-copy { top: 10%; }
+.hud-impact[data-kind='excellent'] .hud-impact-copy { top: 6%; }
+
 .hud-impact[data-kind='flight-pass'] .hud-impact-flash,
 .hud-impact[data-kind='flight-pass'] .hud-impact-lines { display: none; }
 .hud-impact[data-kind='flight-pass'] .hud-impact-copy {
@@ -1004,6 +1009,10 @@
 .hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 11px; }
 
 @media (pointer: coarse) and (orientation: landscape) {
+  .hud-impact[data-kind='flight-launch'] .hud-impact-copy { top: 10%; }
+  .hud-impact[data-kind='gate'] .hud-impact-copy { top: 10%; }
+  .hud-impact[data-kind='route-clear'] .hud-impact-copy { top: 5%; }
+  .hud-impact[data-kind='excellent'] .hud-impact-copy { top: 4%; }
   .hud-impact[data-kind='flight-extend'] .hud-impact-copy {
     top: max(18%, calc(env(safe-area-inset-top) + 52px));
     width: min(238px, calc(100% - 32px));
