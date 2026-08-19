@@ -209,8 +209,7 @@ uniform float uWhitecapSlope;
 uniform float uWhitecapRise;
 uniform float uWhitecapCurvature;
 uniform float uFoamStrength;
-uniform float uSunGloss;
-uniform float uSunStrength;
+uniform float uGlintGloss;
 uniform float uGlintStrength;
 uniform float uFresnelStrength;
 
@@ -283,31 +282,48 @@ void main() {
 
   vec3 reflected = reflect(-viewDir, n);
   float skyY = clamp(reflected.y * 0.5 + 0.5, 0.0, 1.0);
-  vec3 skyReflection = mix(uColorHorizon, uColorSkyMid, smoothstep(0.12, 0.62, skyY));
-  skyReflection = mix(skyReflection, uColorSkyZenith, smoothstep(0.62, 1.0, skyY));
-  float reflectionAmount = clamp(0.045 + fresnel * uFresnelStrength + physicalSlope * 0.032, 0.045, 0.31);
+  vec3 reflectionHorizon = mix(uColorMid, uColorHorizon, 0.18);
+  vec3 reflectionMid = mix(uColorMid, uColorSkyMid, 0.34);
+  vec3 reflectionZenith = mix(uColorDeep, uColorSkyZenith, 0.38);
+  vec3 skyReflection = mix(reflectionHorizon, reflectionMid, smoothstep(0.12, 0.62, skyY));
+  skyReflection = mix(skyReflection, reflectionZenith, smoothstep(0.62, 1.0, skyY));
+  float reflectionAmount = clamp(0.025 + fresnel * uFresnelStrength + physicalSlope * 0.018, 0.025, 0.22);
   col = mix(col, skyReflection, reflectionAmount);
 
+  // Sun glitter comes from fast, short micro-facets, not a broad white lobe
+  // travelling at the period of the dominant swell. These visual-only slopes
+  // leave displacement and buoyancy untouched, while derivative filtering
+  // keeps the tiny highlights stable as they recede from the camera.
   vec3 halfDir = normalize(sunDir + viewDir);
-  float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength *
-    (1.0 + uOpeningArt * 0.12);
-  sunSpec *= 1.0 - smoothstep(520.0, 1100.0, dist);
-  col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.42));
-
+  vec2 diagonalWind = normalize(windDir + crossWind * 0.73);
+  vec2 opposingWind = normalize(windDir - crossWind * 0.61);
+  float glintWarpA =
+    sin(dot(vOrigXZ, diagonalWind) * 0.71 - uTime * 2.1) * 0.82 +
+    sin(dot(vOrigXZ, opposingWind) * 1.13 + uTime * 2.8) * 0.31;
+  float glintWarpB =
+    sin(dot(vOrigXZ, opposingWind) * 0.89 + uTime * 1.8) * 0.76 +
+    sin(dot(vOrigXZ, diagonalWind) * 1.47 - uTime * 2.4) * 0.27;
+  float glintWaveA = 0.5 + 0.5 * sin(
+    dot(vOrigXZ, windDir) * 3.4 + uTime * 11.0 + glintWarpA);
+  float glintWaveB = 0.5 + 0.5 * sin(
+    dot(vOrigXZ, crossWind) * 6.8 - uTime * 15.2 + glintWarpB);
+  float glintAaA = max(fwidth(glintWaveA) * 1.35, 0.014);
+  float glintAaB = max(fwidth(glintWaveB) * 1.35, 0.014);
+  float glintFlecks =
+    smoothstep(0.78 - glintAaA, 0.94 + glintAaA, glintWaveA) *
+    smoothstep(0.74 - glintAaB, 0.92 + glintAaB, glintWaveB);
 #if OCEAN_FINE_DETAIL == 1
-  vec2 fineSlope =
-    windDir * cos(dot(vOrigXZ, windDir) * 6.2 + uTime * 3.4) +
-    crossWind * cos(dot(vOrigXZ, crossWind) * 8.4 - uTime * 4.1) * 0.62;
-  vec3 glintNormal = normalize(n + vec3(fineSlope.x, 0.0, fineSlope.y) * 0.018 * rippleFade);
-  float glintSpec = pow(max(dot(glintNormal, halfDir), 0.0), uSunGloss * 1.7);
-  float glintField = 0.5 + 0.3 * sin(dot(vOrigXZ, windDir) * 4.4 + uTime * 2.0) +
-    0.2 * sin(dot(vOrigXZ, crossWind) * 6.6 - uTime * 2.7);
-  float glintAa = max(fwidth(glintField) * 1.35, 0.012);
-  float glintRuns = smoothstep(0.72 - glintAa, 0.88 + glintAa, glintField);
-  float glintDistance = smoothstep(10.0, 26.0, dist) * (1.0 - smoothstep(140.0, 280.0, dist));
-  float glint = glintSpec * glintRuns * glintDistance * uGlintStrength;
-  col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.2));
+  float glintWaveC = 0.5 + 0.5 * sin(
+    dot(vOrigXZ, diagonalWind) * 10.2 + uTime * 18.4 + glintWarpA * 1.4 - glintWarpB * 0.8);
+  float glintAaC = max(fwidth(glintWaveC) * 1.35, 0.014);
+  float glintDetail = smoothstep(0.7 - glintAaC, 0.9 + glintAaC, glintWaveC);
+  glintFlecks *= mix(0.18, 1.0, glintDetail);
 #endif
+  float glintDistance = smoothstep(10.0, 28.0, dist) * (1.0 - smoothstep(340.0, 660.0, dist));
+  float glintEnvelope = pow(max(dot(n, halfDir), 0.0), uGlintGloss);
+  float glint = glintEnvelope * glintFlecks * glintDistance * uGlintStrength *
+    (1.0 + uOpeningArt * 0.12);
+  col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.58));
 
   float crest = smoothstep(uWhitecapHeight, uWhitecapHeight + 0.68, h);
   float steep = smoothstep(uWhitecapSlope, uWhitecapSlope + 0.1, physicalSlope);
@@ -411,10 +427,9 @@ export class Ocean {
       uWhitecapRise: { value: -0.18 },
       uWhitecapCurvature: { value: -0.002 },
       uFoamStrength: { value: performance ? 0.82 : high ? 1.04 : 0.96 },
-      uSunGloss: { value: performance ? 72.0 : high ? 60.0 : 66.0 },
-      uSunStrength: { value: performance ? 0.44 : high ? 0.56 : 0.5 },
-      uGlintStrength: { value: high ? 0.5 : 0.38 },
-      uFresnelStrength: { value: 0.28 },
+      uGlintGloss: { value: performance ? 18.0 : high ? 24.0 : 21.0 },
+      uGlintStrength: { value: performance ? 1.35 : high ? 2.0 : 1.7 },
+      uFresnelStrength: { value: 0.22 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },
