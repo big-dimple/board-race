@@ -1,6 +1,6 @@
 # Board Race AI 运行手册
 
-状态：`current / schema-v8`
+状态：`current / schema-v8 / M15-rider-visible-refresh-unpublished`
 
 这份文档给接手代码的 AI 使用，记录容易因上下文压缩而丢失、但又不能靠猜的
 稳定事实。面向玩家的说明只放在 `README.md`；当前版本的开发事项、未完成工作和
@@ -934,3 +934,202 @@ merged 也不代表用户已经看到新版本。本项目 GitHub Pages workflow
 - 当前 blocker：代码已经 pushed 且远端一致，但 Pages workflow / API / live marker 尚未完成可复核闭环，
   所以 M8 保持 `pending / pages-unverified`。Final gate 的既有白色 authored geometry 仍属于禁止扩张的
   route owner，本轮只通过海面 / 后处理 / 庆祝层改善辨识度，是真实遗留风险。
+
+## M10 海面恢复 session（2026-08-19）
+
+- 状态：`implemented / unpublished / pending-parent-art-acceptance`。M9 flattening
+  experiment 没有恢复；M10 仅把 `src/water/ocean.ts`、`src/water/wake.ts`、
+  `src/water/spray.ts` 恢复到已读过的 M7 water response（commit `4281200`）。
+  `waves.ts` 仍是共享 displacement / physics source；没有改 boats、physics、route、flight、HUD、
+  mobile、post-processing、audio、harness thresholds 或 release scripts。
+- Art result：ocean 回到 blue-green trough/mid/crest separation、broad connected swell、
+  warm restrained sun path、cool horizon lift 和 sparse steep rising whitecaps；wake 是 broken
+  central aerated wash with faint discontinuous shoulders；spray 在 impact 可见，idle zero-submit。
+  这些是 M7 owner constants/shader response 的恢复，不是新增 geometry、material、render target 或
+  fixed-step allocation。
+- Evidence：before `shots/visual-roadmap/M10/before/`、after
+  `shots/visual-roadmap/M10/after/`；same seed, fixed-step, Auto。desktop `1440x900`, browser
+  DPR2, PNG `2880x1800`；mobile landscape `844x390`, browser DPR3, PNG `2532x1170`。场景覆盖
+  start, hairpin, opponent drift/BOOST, flight cruise, landing impact, Final impact/hero/settled。
+  before 是 M8 published baseline，after 是本地未发布 candidate。
+- Renderer evidence：desktop after 为 `2,025,000 drawing pixels/frame`、ratio `1.25`、`16.7ms`，
+  calls `335/173/300/225/95/228`（start/hairpin/opponent/flight/landing/final）；mobile after 为
+  `2,057,250`、ratio `2.5`、`16.7ms`，calls `335/177/174/225/105/227`；独立 opponent
+  hold/release probe 为 `174/334015` 与 `174/334139`，both frames had six non-zero wakes and
+  `17 droplets / 0 volumes`; before 的 opponent stats 未由因断言停止的 screenshot runner 输出。
+  Triangles 为 desktop `383569/311391/381699/335599/306393/372969`，mobile
+  `383569/313623/334139/334873/307901/373055`。Mobile opponent release pulse
+  stayed below its unchanged threshold: after `changedCss=140.32`, before `142.88`, required `>=220`.
+- Lifecycle evidence：direct browser probe saw six wake meshes. At start all six had non-zero draw ranges;
+  at controlled landing impact only the player wake was non-zero (`2040` indices), with the other five at
+  zero. Spray state was idle `0 droplets / 0 volumes`, landing impact `18 / 1`, and settled `0 / 0`;
+  capacity remains `1536` droplets / `12` landing volumes. Wake geometry remains `720 positions / 2154`
+  indices per mesh.
+- Verification: `build`, `verify:performance`, `verify:mobile`, `verify:collision`, `verify:audio`, and
+  `verify:systems` passed. Performance was `1,997,196 px / 335 calls`, software p50/p95/p99
+  `466.7/483.4/500.0ms`. `verify:flight` and `verify:release` reached the unchanged flight-corridor visual
+  assertion and stopped at `changed=83863`, `meanDelta=17.2117`, `p95Delta=67`,
+  `varianceRetention=1.1768`; no non-water file or threshold was changed. `git diff --check` passed;
+  knowledge-map validation returned `knowledge map: OK (10 facts, 10 authorities)`.
+- Release boundary: do not run `release:checked`, commit, push, Pages verification, or claim live state until
+  the parent accepts the complete M10 matrix. If art is rejected, create a serial M11 with minimal evidence-
+  backed water ownership; do not revive M9 flattening.
+
+## M11 海面与尾流商业修正 session（2026-08-19）
+
+- 状态：`implemented / visual-rejected / unpublished`。本轮只修改
+  `src/water/ocean.ts`、`src/water/wake.ts`、`src/water/spray.ts`；没有修改
+  `waves.ts`、路线、物理、船体、角色、HUD、移动端、后处理、音频、harness threshold 或 release
+  script。M11 的 shader 调整减少了海面大块泛白、hash breakup、尾流肩线和远端尾巴，但没有达到商业
+  验收：对手与 landing 画面仍有两条长亮轨，近景 wake 又过弱。
+- 消融证据：隐藏全部 `wake-*` mesh 后，长亮轨仍然存在，确认主因是现有
+  `src/game/course.ts` 的 `racing-line` route material，而不是 wake geometry。M12 只处理该路线材质的
+  water separation；不得借机改 ocean、wake、flight、physics 或 route progress。
+- Evidence：before `shots/visual-roadmap/M11/before/M10-unpublished-before/`，after
+  `shots/visual-roadmap/M11/after/M11-candidate/`；same-seed fixed-step Auto，desktop `1440x900`、
+  mobile landscape `844x390`，包含 start、hairpin、opponent drift/BOOST、flight、landing 与 Final
+  impact/hero/settled。父会话逐张检查后拒绝，不写成“看起来更好”或商业完成。
+- Renderer / pool evidence：desktop start `335 calls / 2,025,000 px / 16.7ms / DPR1.25`；mobile
+  start `335 calls / 2,057,250 px / 16.7ms / DPR2.5`；performance `1,997,196 px / 335 calls`，
+  software p50/p95/p99 `450.0/466.7/616.6ms`。Ocean remains `246248` triangles / one draw；每个
+  wake remains `720 positions / 2154 indices`；spray idle `0/0`、landing `18/1`、settled `0/0`，
+  capacities `1536 droplets / 12 landing volumes`。
+- Verification：build、mobile、collision、audio、systems、performance pass。flight/release 仍在未改变的
+  flight corridor assertion 停止：`changed=83863`、`meanDelta=17.2117`、`p95Delta=67`、
+  `varianceRetention=1.1768`。mobile opponent release pulse `changedCss=143.04` 仍低于未改变的
+  `>=220`；没有放宽阈值。`git diff --check` pass。
+- Release boundary：M10/M11 都是未发布本地实验；HEAD 与 `origin/main` 仍为 `2039068`。没有 commit、
+  push、checked release、Pages 验证或线上成果声明。下一 task 为 M12 route-water separation，先建立
+  fresh M11-unpublished before，再只改 `src/game/course.ts`。
+
+## M12 route / water separation session（2026-08-19）
+
+- 状态：`implemented / unpublished / pending-parent-art-acceptance`。本轮唯一 gameplay owner 是
+  `src/game/course.ts`；M11 的 `src/water/ocean.ts`、`src/water/wake.ts`、`src/water/spray.ts`
+  dirty 实验保留但没有被 M12 修改。没有 commit、push、release、Pages 或 live 声明。
+- 视觉 owner 事实：`racing-line` 仍是原 tessellated one-mesh route，shared `waves.ts` height sampling、
+  green chevrons、launch masks、launch diamonds、handoff 和 fixed-step state 全部保留。Ribbon half-width
+  从 `4` 收到 `3.2`；public guidance alpha contract 仍是 `0.168 / 0.55`，shader render response 改为
+  depth-tested `8m` packet + `17m` gap、single narrow center trace 和较低 cool veil/packet mixing。
+  没有新增 mesh、render target 或 fixed-step allocation，也没有编辑 flight corridor。
+- Fresh M11 before：`shots/visual-roadmap/M12/before/M11-unpublished-before/`；M12 after：
+  `shots/visual-roadmap/M12/after/M12-candidate/`。两组均为 same-seed Auto/fixed-step、desktop
+  `1440x900` / PNG `2880x1800`、landscape mobile `844x390` / PNG `2532x1170`，覆盖 start、hairpin、
+  opponent-drift-boost-release、flight-cruise、landing-impact 和 Final impact/hero/settled。移动 before
+  runner 在未改变的 opponent pulse assertion 停止：`changedCss=139.2`，要求 `>=220`；随后用 read-only
+  fixed-step probe 补齐 release image，没有放宽 threshold。
+- Renderer after：desktop draw calls/triangles 为
+  `335/383569`, `173/311391`, `174/334171`, `225/334941`, `95/306397`, `203/318033`；mobile 为
+  `335/383569`, `177/313623`, `174/334171`, `225/334941`, `105/307905`, `204/318035`，顺序均为
+  start/hairpin/opponent release/flight/landing/final。Desktop `2,025,000 px/frame / 16.7ms / DPR1.25`，
+  mobile `2,057,250 px/frame / 16.7ms / DPR2.5`。Route probe 是 `22,400` ribbon triangles、one route
+  mesh draw、`16` active fill chevrons + `16` active ink chevrons；added meshes/render targets `0/0`。
+- Verification：build、mobile、collision、audio、systems、performance pass；performance 为
+  `1,997,196 px / 335 calls`，software p50/p95/p99 `500.0/550.0/550.0ms`。`verify:flight` 已通过
+  route guidance 与 surface-guide visual contract，随后在 unchanged M11 ocean assertion 停止：
+  `changedRatio=0.13410345441595442`、`meanDelta=8.148459757834758`、
+  `luminanceDeviation=5.310155355529919`。`verify:release` 的 build 成功，随后在 existing Space-start
+  probe 停止：actual `ready`、expected `countdown`。`git diff --check` 与 knowledge-map checker 均通过，
+  后者返回 `knowledge map: OK (10 facts, 10 authorities)`；没有修改任何 threshold。
+- Visual decision：after fixed captures show boat/rider and water depth first, green action markers as the
+  route signal, and a quieter broken route trace instead of the prior continuous wide veil. 这是 local
+  candidate，不是 parent art acceptance。Residual risk 仍是 M11 water-owner experiment 与 unrelated
+  flight/release gate failures；下一步是 parent review 完整 M12 matrix，不创建新的 gameplay owner。
+
+## M13 路线单中心修正 session（2026-08-19）
+
+- 状态：`implemented / unpublished / pending-parent-art-acceptance`。本轮唯一 gameplay owner 是
+  `src/game/course.ts`；删除 surface `racing-line` fragment 中的 `flowA` / `flowB` 左右内丝，保留
+  `1400 x 8 x 2 = 22,400` 波浪跟随三角、单 route draw、depth test、waterPocket、launch mask、
+  route progress、绿色 chevrons 和既有 flight corridor。没有修改 ocean、wake、spray、waves、
+  boat、rider、physics、HUD、mobile、flight corridor、harness threshold 或 release script。
+- Evidence：fresh before 为 `shots/visual-roadmap/M13/before/M12-unpublished-before/`，after 为
+  `shots/visual-roadmap/M13/after/`；same seed、Auto、fixed-step，desktop `1440x900` / PNG
+  `2880x1800`，landscape mobile `844x390` / PNG `2532x1170`，覆盖 start、hairpin、opponent
+  drift/BOOST release、flight、landing 和 Final impact/hero/settled。父会话已实际检查 desktop/mobile
+  start、hairpin、opponent、landing；路线左右内丝在 after 中消失，但对手场景右侧仍残留一条长浅色尾迹，
+  landing / flight 仍可见既有 authored white flight geometry，因此整体美术尚未接受。
+- Machine evidence：desktop start/hairpin/opponent/flight/landing/final 为
+  `335/383569`、`173/311391`、`300/381699`、`225/335599`、`95/306393`、`228/372969`
+  draw calls/triangles；mobile start/hairpin/flight/landing/final 为
+  `335/383569`、`177/313623`、`225/334941`、`105/307905`、`204/318035`。固定 drawing pixels
+  为 desktop `2,025,000`、mobile `2,057,250`，两端 `16.7ms`，DPR 分别 `1.25/2.5`。route on/off
+  readback 为 desktop `57,958 changed / meanDelta 31.519 / p90 90`、mobile
+  `43,552 / 31.468 / p90 90`；route 仍为 `22,400 triangles / 1 draw / 16 fill + 16 ink`
+  instances。Performance 为 `1,997,196 px / 335 calls`，software p50/p95/p99
+  `466.7/550.0/566.6ms`。
+- Verification：build、mobile、collision、audio、systems、performance pass；flight 已通过 route
+  guidance 与 surface-guide visual contract，随后仍停在未改动的 M11 ocean assertion：
+  `changedRatio=0.13410345441595442`、`meanDelta=8.148459757834758`、
+  `luminanceDeviation=5.310155355529919`。release 也未形成完整 pass；没有修改阈值。
+- Release boundary：M13 是本地未发布 candidate；HEAD 与 `origin/main` 仍为 `2039068`，没有
+  commit、push、checked release、Pages 验证或线上成果声明。下一轮必须先处理用户新增的反馈 / 身份
+  / HUD 需求，随后再做车手和船体的实际可见重做；不能把已有 16 骨骼或五批合同误写成视觉验收。
+
+## M14 用户新增需求交接
+
+- 用户已明确：新版玩梗 Logo 后续直接提供官网 SVG，本批不再等待 Logo。M14 先移除比赛中船体
+  头顶英文 world-nameplate，暂时保持零身份牌实例，不生成占位图；官网 SVG 到位后另开独立
+  identity asset session，届时才接入船体左 / 右侧世界空间锚点和真实转向侧别。
+- 待处理 owner：失败文案（空门 / 门柱失败直接说“撞柱”）、空中续飞蓝色提示上移、六张 driver
+  立绘右下角生成标识清理。清理必须保留人物与尺寸，使用可回溯 imagegen edit 证据；不得把
+  Logo 任务混入本轮，也不得把 M3/M4 的 16 骨骼 / rider mount / 五批合同写成可见美术已验收。
+
+## M14 用户反馈 / 身份 / 续飞 HUD 已实现（2026-08-19）
+
+- 状态：`implemented / unpublished / logo-deferred / driver-imagegen-pending`。本 session 只修改
+  `src/hud/hud.ts`、`src/hud/hud.css`、`src/game/worldNameplates.ts`、`src/main.ts` 的旧牌关闭逻辑和
+  必要的 `harness/screenshot.mjs` screenshot contract；没有修改 course、water、waves、boat、rider、
+  physics、BoatInput、route progress、flight corridor、collision、wake、spray、release script 或 threshold。
+- 比赛 world-nameplates 已退役：scene 只保留不可见空 marker group，`capacity=0`、`visibleLabels=0`、
+  `drawInstances=0`、`activeIdentityInstances=0`。这不是 Logo 占位实例。`OpeningShowcase` 是独立的
+  opening presentation，仍保留六张真实 rider/callsign/model identity plates；不要在后续 Logo task 中删除它。
+- failure HUD 语义为 gate-only：`gate`、`gate_left`、`gate_right` 的标题 / review copy 改为“撞柱”；
+  `corridor`、`landing`、`late` 不改成“撞柱”，reason、物理判定、教学数据仍来自原始 state。
+- 空中续飞 `flight-extend` impact copy 已在右上安全带。M14 fixed-step contract 的 bbox 为 desktop
+  `1114..1434 x 64..136.796875`、mobile `628..848 x 46..98.390625`，两者均不与中心 driving ROI
+  相交。mobile 的右手 flight / air-brake 位置没有改变。
+- before 是 `shots/visual-roadmap/M14/before/M13-unpublished-before/` 的 M13 after 原样副本；after
+  截图和完整机器表在 `shots/visual-roadmap/M14/after/` 与其 `M14-machine-evidence.md`。Desktop 固定
+  `2,025,000 px / DPR1.25 / 16.7ms`，mobile 固定 `2,057,250 px / DPR2.5 / 16.7ms`；M14 contract
+  的 representative stats 为 desktop/mobile `168 calls`。
+- 六张 driver WebP 已通过 `view_image` 检查，但当前 enabled tool set 没有 imagegen skill 要求的
+  built-in `image_gen` / edit 工具；CLI fallback 被禁止，无法证明 identity-preserve before/after，故
+  `src/assets/drivers/*` 完全未改。六张原图 checksum、exact pending 原因和 Logo deferred handoff 见
+  `shots/visual-roadmap/M14/after/M14-machine-evidence.md`。
+- 验证：build、mobile、systems、collision、audio、performance 和 M14 screenshot contract 通过。既有
+  mobile `opponent-drift` release-pulse contract 原样失败于 `changedCss=137.28`（要求 `>=220`），没有放宽
+  threshold；capture-only `opponent-drift-evidence` 不替代该门禁。`verify:release` 的 build 通过后，在未改动
+  的 surface-guide visual assertion 停止，exact `changed=80586, meanDelta=35.361576452485544, p90Delta=79,
+  p95Delta=94, varianceRetention=13.092725857944199, softShare=0.9550542277815005,
+  softMeanDelta=29.78045579751572, softVarianceRetention=6.1686592530188875`。没有 commit、push、release:checked 或
+  Pages 验证。
+
+## M15 车手可见重做（2026-08-19）
+
+- 状态：`implemented / unpublished / pending-parent-art-acceptance`。M15 只修改
+  `src/game/riderMesh.ts`、`src/game/rider.ts` 和 `harness/screenshot.mjs` 的 `--verify-m15`；不改
+  `boat.ts`、riderMount、Boat transform、waves/water/course/wake/spray、physics/input/HUD/audio/
+  collision/release script/threshold。
+- 可见 owner：一枚真实顶点调色 `SkinnedMesh` 继续承载所有 rider geometry。新增 chest/back armor、
+  shoulder/elbow/forearm/glove、hip/thigh/knee/boot、neck seal、helmet shell/visor/cheek/crown
+  layers，全部通过同一 `SkinAssembler` 使用现有 16 根骨骼权重；高质量 outline 绑定同一个 skeleton，
+  低质量 beauty 与 ink 仍是同一 rider。没有 capsule proxy、第二动画真相、纹理或新 draw batch。
+  `rider.ts` 的局部 authored scale 为 `1.12`，其余仍是原 pose springs。
+- 资源证据：detailed player `29,004 vertices / 9,668 non-indexed triangles`；low-quality real rider
+  `21,906 / 7,302`；六名 physical rider 均为 `one mesh / 16 bones / 8 palette roles`。M15 focused
+  contract 的 rider-only readback 是 desktop `17,059 device px / 10,917.76 CSS px / meanDelta
+  325.29`、mobile `12,821 / 2,051.36 / 329.34`。
+- before/after：fresh M14 before 为 `shots/visual-roadmap/M15/before/M14-unpublished-before/`，
+  after 为 `shots/visual-roadmap/M15/after/`；same seed、fixed-step、Auto、desktop `1440x900` 和
+  landscape `844x390`，覆盖 chase/side/three-quarter/start/opponent drift/BOOST/flight/landing/
+  opening。desktop `2,025,000 px / DPR1.25 / 16.7ms`，mobile `2,057,250 / DPR2.5 / 16.7ms`；
+  new geometry adds no render target, pool or fixed-step allocation。
+- 验证：M15 focused desktop/mobile contract、build、verify:mobile、verify:systems、verify:collision、
+  verify:audio、verify:performance 通过；performance `1,997,196 px / 334 calls`，software
+  p50/p95/p99 `483.3/533.3/599.9ms`。`verify:release` build 通过后仍停在 unchanged surface-guide
+  assertion：`changed=80586`、`meanDelta=35.361576452485544`、`p90=79`、`p95=94`、
+  `varianceRetention=13.092725857944199`；未放宽阈值，不能写成完整 release pass。
+- 发布边界：没有 commit、push、`release:checked`、Pages 或 live claim。父会话需先接受 M15 完整
+  before/after；M13 route/water residual、M14 opponent release-pulse gate 和 surface-guide blocker
+  继续 pending。下一 task 为 M16 船体可见重做。

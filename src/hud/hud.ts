@@ -1376,9 +1376,9 @@ export class HUD {
     if (reason === 'exit') return `第 ${flight} 飞 · 飞行区出口漏门`;
     if (reason === 'teleport') return `第 ${flight} 飞 · 路线重置`;
     if (reason === 'late') return `第 ${flight} 飞 · 高度/时机不足`;
-    if (reason === 'gate_left') return `第 ${flight} 飞 · 左侧擦门`;
-    if (reason === 'gate_right') return `第 ${flight} 飞 · 右侧擦门`;
-    if (reason === 'gate') return `第 ${flight} 飞 · 未穿过门心`;
+    if (reason === 'gate_left' || reason === 'gate_right' || reason === 'gate') {
+      return `第 ${flight} 飞 · 撞柱`;
+    }
     return `第 ${flight} 飞 · 漏门`;
   }
 
@@ -1390,9 +1390,9 @@ export class HUD {
       wrong_way: '逆向行驶超过纠正窗口',
       no_launch: '没有起飞，水面通过不计完成',
       corridor: '飞离了悬空白雾航线',
-      gate: '船体没有从两根发光杆之间穿过',
-      gate_left: '从杆门左侧掠过',
-      gate_right: '从杆门右侧掠过',
+      gate: '撞柱：船体没有从两根发光杆之间穿过',
+      gate_left: '撞柱：从杆门左侧掠过',
+      gate_right: '撞柱：从杆门右侧掠过',
       late: '起飞太晚，穿杆时尚未达到认证高度',
       landing: '通过飞行门前已经落水',
       exit: '离开飞行区时仍未通过门',
@@ -1490,7 +1490,7 @@ export class HUD {
           ? Math.max(0, Math.abs(failure.lateralOffsetM) - failure.lateralLimitM) : 0;
         const direction = left ? (mobile ? '向右' : 'D') : (mobile ? '向左' : 'A');
         return {
-          title: `${mastery?.airBrakedInTurn ? '方向修正' : '偏航先空刹'} · 差 ${miss.toFixed(1)}m`,
+          title: `撞柱 · 差 ${miss.toFixed(1)}m`,
           copy: mastery?.airBrakedInTurn
             ? `${steer}回到两杆中点`
             : mobile
@@ -1515,7 +1515,7 @@ export class HUD {
         };
       case 'gate':
         return {
-          title: '偏航先空刹 · 只差这一门',
+          title: '撞柱 · 只差这一门',
           copy: `按住 ${drift} 空刹，对准两根发光杆中点`,
           metric: '',
         };

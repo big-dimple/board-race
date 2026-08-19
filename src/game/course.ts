@@ -904,13 +904,19 @@ function makeStripeToon(map: THREE.Texture, shadowFloor = 0.52): THREE.ShaderMat
 // ---------------------------------------------------------------- ribbon ----
 
 const RIBBON_SEGS = 1400;
-// Eight-meter navigation field. The surface guide is tessellated across its
+// A restrained navigation haze. The surface guide is tessellated across its
 // width so every part follows the swell instead of bridging it like a panel.
-const RIBBON_HALF_W = 4;
+const RIBBON_HALF_W = 3.2;
 const SURFACE_GUIDE_CROSS_SEGS = 8;
 const SURFACE_GUIDE_STYLE = 'translucent-wave-spine' as const;
+// Keep the established telemetry contract stable; the lower render values
+// below are the art correction and do not change route guidance semantics.
 const SURFACE_GUIDE_BASE_ALPHA = 0.168;
 const SURFACE_GUIDE_PEAK_ALPHA = 0.55;
+const SURFACE_GUIDE_RENDER_BASE_ALPHA = 0.23;
+const SURFACE_GUIDE_RENDER_PEAK_ALPHA = 0.55;
+const SURFACE_GUIDE_PACKET_LENGTH_M = 8;
+const SURFACE_GUIDE_PACKET_GAP_M = 17;
 const SURFACE_GUIDE_ARROW_CADENCE_M = 10;
 const SURFACE_GUIDE_ARROW_SPEED_MPS = 10;
 const SURFACE_GUIDE_ARROW_START_M = 16;
@@ -971,8 +977,8 @@ function createSurfaceGuideUniforms() {
 type SurfaceGuideUniforms = ReturnType<typeof createSurfaceGuideUniforms>;
 
 /**
- * A low-opacity virtual wake. The ocean remains the dominant surface; soft
- * packets and two inner filaments carry motion without drawing road edges.
+ * A low-opacity surface trace. The ocean remains the dominant surface; short
+ * packets and one quiet center trace carry motion without drawing road edges.
  */
 function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -1033,13 +1039,9 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         visible *= 1.0 - uLaunchGateActive * launchMaskSoft;
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
-        float packetPhase = fract(vS / 21.0 - uTime * 0.42);
-        float packet = smoothstep(0.04, 0.2, packetPhase) *
-          (1.0 - smoothstep(0.66, 0.94, packetPhase));
-        float drift = sin(vS * 0.19 - uTime * 1.7) * 0.025;
-        float flowA = 1.0 - smoothstep(0.018, 0.066, abs(vSide - (0.22 + drift)));
-        float flowB = 1.0 - smoothstep(0.018, 0.066, abs(vSide - (-0.22 - drift)));
-        float flow = max(flowA, flowB) * (0.42 + packet * 0.58);
+        float packetPhase = fract(vS / (${SURFACE_GUIDE_PACKET_LENGTH_M.toFixed(1)} + ${SURFACE_GUIDE_PACKET_GAP_M.toFixed(1)}) - uTime * 0.42);
+        float packet = smoothstep(0.02, 0.09, packetPhase) *
+          (1.0 - smoothstep(0.28, 0.38, packetPhase));
         // The route is a wake laid over the water, not a painted lane. Keep
         // enough body for long-range navigation, then carve it into moving
         // translucent pockets so the wave texture remains the hero surface.
@@ -1047,25 +1049,32 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
           0.16 * sin(vS * 0.77 + uTime * 0.62 - vSide * 5.4) +
           0.08 * sin(vS * 1.43 - uTime * 1.9);
         float waterPocket = smoothstep(0.28, 0.78, current);
-        float centerVeil = (1.0 - smoothstep(0.08, 0.62, side)) * (0.34 + waterPocket * 0.66);
-        float navSpine = 1.0 - smoothstep(0.04, 0.12, side);
-        float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} * (0.48 + waterPocket * 0.52) + packet * 0.035);
-        // The strip is a navigational haze, not a runway. Its two inner
-        // filaments stay just bright enough to catch the eye near the hull;
+        float centerVeil = (1.0 - smoothstep(0.07, 0.5, side)) *
+          (0.12 + waterPocket * 0.28) * packet;
+        // One centered spine is the only high-contrast route feature. Its
+        // packet term deliberately leaves gaps; no lateral companion lines
+        // may compete with the hulls or wake for the eye.
+        float navSpine = 1.0 - smoothstep(0.028, 0.085, side);
+        float veil = softEdge * (${SURFACE_GUIDE_RENDER_BASE_ALPHA.toFixed(3)} *
+          packet * (0.34 + waterPocket * 0.66));
+        // The route is a cool water hint, not a runway. The narrow center
+        // trace stays findable while its stronger value arrives in packets;
         // the green action language belongs to the chevrons above it.
-        float alpha = veil + centerVeil * 0.022 + navSpine * (0.28 + packet * 0.04) + flow * 0.12;
+        float alpha = veil + centerVeil * 0.026 + navSpine *
+          (0.045 + packet * 0.36);
         float localFade = 1.0 - smoothstep(140.0, 170.0, ahead) * 0.18;
         float fade = (vDist < 220.0 ? 1.0 : 0.78) * localFade;
-        vec3 col = mix(uRibbonColor, uFoam, 0.18 + navSpine * 0.16 + flow * 0.2 + packet * 0.06);
+        vec3 col = mix(uRibbonColor, uFoam, 0.04 + navSpine * 0.14 + packet * 0.04);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
-        alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
+        alpha = min(alpha, ${SURFACE_GUIDE_RENDER_PEAK_ALPHA.toFixed(2)});
         alpha *= visible * step(0.008, alpha);
         gl_FragColor = vec4(col, alpha);
       }
     `,
     transparent: true,
     blending: THREE.NormalBlending,
+    depthTest: true,
     depthWrite: false,
     side: THREE.FrontSide,
     toneMapped: false,
