@@ -65,12 +65,12 @@ void main() {
   float d = length(vec2(p.x / taper, p.y));
   float alpha = 1.0 - smoothstep(0.76, 1.0, d);
   float core = 1.0 - smoothstep(0.18, 0.72, d);
-  vec3 foam = vec3(0.88, 0.96, 0.94);
-  vec3 water = vec3(0.16, 0.55, 0.64);
+  vec3 foam = vec3(0.88, 0.96, 0.99);
+  vec3 water = vec3(0.24, 0.62, 0.78);
   vec3 col = mix(water, foam, 0.68 + core * 0.32);
   if (vShade > 1.5) col *= 0.7;
   else if (vShade > 0.5) col *= 0.86;
-  gl_FragColor = vec4(col, alpha * 0.74);
+  gl_FragColor = vec4(col, alpha * 0.78);
   #include <colorspace_fragment>
 }
 `;
@@ -214,8 +214,8 @@ varying vec2 vFlowCoord;
 varying float vAge;
 
 void main() {
-  vec3 water = vec3(0.24, 0.62, 0.68);
-  vec3 foam = vec3(0.88, 0.96, 0.94);
+  vec3 water = vec3(0.3, 0.67, 0.8);
+  vec3 foam = vec3(0.91, 0.98, 0.99);
   float sheet = step(0.5, vPart);
   float foamMix = mix(0.68 + vHeight * 0.24, 0.4 + vHeight * 0.4, sheet);
   float flow = 0.72 + 0.28 * smoothstep(-0.25, 0.65,

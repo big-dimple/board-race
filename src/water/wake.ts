@@ -129,8 +129,8 @@ void main() {
     // The oldest samples must dissolve before the strip's last quad becomes
     // a visible rectangular cap in perspective. Keep a quiet center trace,
     // then let both age and distance erase it before the ring wraps.
-    float farTail = 1.0 - smoothstep(96.0, 166.0, vBehind);
-    float af = (f < 0.5 ? 0.24 : 0.12) * farTail * mix(0.78, 1.0, uVisualScale);
+    float farTail = 1.0 - smoothstep(74.0, 132.0, vBehind);
+    float af = (f < 0.5 ? 0.14 : 0.07) * farTail * mix(0.52, 1.0, uVisualScale);
     gl_FragColor = vec4(mix(uColorAged, uColorFoam, 0.45), af * emitted * farVisible);
     #include <colorspace_fragment>
     return;
@@ -141,9 +141,9 @@ void main() {
   // imply entrained air without stamped cells or a filled road-shaped core.
   // Keep the center aeration narrow enough that the wake reads as a moving
   // sheet of water, not a second cyan road painted under the boat.
-  float centerWidth = mix(0.37, 0.17, smoothstep(0.0, 78.0, vBehind));
+  float centerWidth = mix(0.34, 0.14, smoothstep(0.0, 78.0, vBehind));
   float center = 1.0 - smoothstep(centerWidth * 0.2, centerWidth, lat);
-  float centerFade = 1.0 - smoothstep(54.0, 138.0, vBehind);
+  float centerFade = 1.0 - smoothstep(42.0, 112.0, vBehind);
   float longFlow = 0.5 + 0.28 * sin(vBehind * 0.47 - uTime * 1.35) +
     0.14 * sin(vBehind * 0.19 + lat * 4.2 + uTime * 0.62) +
     0.08 * sin(vBehind * 0.91 - lat * 2.7 - uTime * 1.8);
@@ -152,9 +152,9 @@ void main() {
   // Longitudinal peaks open and close whole foam pockets; the cross field
   // only roughens their edges. Multiplying two hard masks leaves isolated
   // pinholes, while a continuous baseline turns the ribbon back into a road.
-  float pocket = 0.12 + 0.88 * smoothstep(0.52, 0.78, longFlow);
-  float edgeTurbulence = smoothstep(0.38, 0.68, crossFlow);
-  float churn = pocket * mix(0.48, 1.0, edgeTurbulence);
+  float pocket = 0.02 + 0.98 * smoothstep(0.68, 0.9, longFlow);
+  float edgeTurbulence = smoothstep(0.46, 0.76, crossFlow);
+  float churn = pocket * mix(0.25, 1.0, edgeTurbulence);
 
   // Broken Kelvin shoulders are readable up close but never form continuous
   // bright rails. Alternating broad beats leave open-water gaps along the V.
@@ -165,15 +165,15 @@ void main() {
   float shoulderShape = 1.0 - smoothstep(shoulderWidth * 0.42, shoulderWidth, shoulderDistance);
   float shoulderBeat = 0.5 + 0.32 * sin(vBehind * 0.41 - uTime * 1.1) +
     0.18 * sin(vBehind * 0.17 + uTime * 0.46);
-  float shoulderBreak = smoothstep(0.63, 0.86, shoulderBeat);
+  float shoulderBreak = smoothstep(0.86, 0.98, shoulderBeat);
   // Let the hull's rounded contact breathe first. Shoulders only peel away
   // after the first few metres, otherwise the strip reads as a white fan.
-  float shoulder = shoulderShape * shoulderBreak * smoothstep(2.2, 6.0, vBehind) *
-    (1.0 - smoothstep(34.0, 104.0, vBehind));
+  float shoulder = shoulderShape * shoulderBreak * 0.62 * smoothstep(4.5, 9.0, vBehind) *
+    (1.0 - smoothstep(27.0, 76.0, vBehind));
   // Fine ruffles sit on the two shoulders and disappear between beats. They
   // are deliberately wider than a line but lighter than the center wash.
-  float ruffle = shoulderShape * smoothstep(0.42, 0.72, crossFlow) *
-    (1.0 - smoothstep(18.0, 82.0, vBehind));
+  float ruffle = shoulderShape * smoothstep(0.7, 0.92, crossFlow) * shoulderBreak * 0.22 *
+    (1.0 - smoothstep(16.0, 62.0, vBehind));
 
   // Rounded transom churn joins both sides only at the actual stern. It must
   // end before it can become a long translucent road under the broken wash.
@@ -184,11 +184,11 @@ void main() {
   // Put the readable energy back in the middle of the wake. The low baseline
   // keeps the wash from becoming a solid road while the pocket/churn field
   // leaves short breathing gaps between the aerated beats.
-  float body = center * centerFade * churn * (0.62 + 0.2 * edgeTurbulence);
+  float body = center * centerFade * churn * (0.5 + 0.3 * edgeTurbulence);
   float coverage = max(body, max(shoulder, contact));
   float coverageMask = smoothstep(0.1, 0.54, coverage);
 
-  float ageFade = (1.0 - smoothstep(64.0, 142.0, vBehind)) *
+  float ageFade = (1.0 - smoothstep(54.0, 124.0, vBehind)) *
     (1.0 - smoothstep(0.62, 1.0, f));
 
   // Reconstruct a rounded foam normal from the live ocean normal plus a pair
@@ -207,19 +207,19 @@ void main() {
   float freshness = 1.0 - smoothstep(8.0, 30.0, vBehind);
   vec3 baseFoam = mix(uColorAged, uColorFoam, freshness);
   float innerFroth = body * (1.0 - smoothstep(centerWidth * 0.18, centerWidth * 0.62, lat));
-  float crestMix = clamp(0.22 + body * 0.14 + shoulder * 0.22 + contact * 0.16 +
-    innerFroth * 0.28 + ndl * 0.22 + specular * 0.12 + fresnel * 0.06, 0.0, 1.0);
+  float crestMix = clamp(0.2 + body * 0.14 + shoulder * 0.2 + contact * 0.15 +
+    innerFroth * 0.26 + ndl * 0.2 + specular * 0.1 + fresnel * 0.05, 0.0, 1.0);
   vec3 col = mix(uColorWash, baseFoam, crestMix);
-  col = mix(col, uColorFoam, innerFroth * 0.24);
-  float bodyAlpha = body * (0.13 + 0.18 * freshness + 0.05 * ndl) + innerFroth * 0.06;
+  col = mix(col, uColorFoam, innerFroth * 0.18);
+  float bodyAlpha = body * (0.12 + 0.17 * freshness + 0.05 * ndl) + innerFroth * 0.05;
   // Kelvin shoulders are a secondary wet glint. Their gaps and low alpha
   // must never outvote the broken central turbulence in the silhouette.
-  float crestAlpha = shoulder * (0.012 + 0.026 * freshness + 0.01 * ndl + 0.006 * specular);
-  float ruffleAlpha = ruffle * (0.006 + 0.014 * freshness + 0.006 * ndl);
-  float contactAlpha = contact * (0.13 + 0.11 * freshness + 0.06 * ndl);
-  float nearTail = 1.0 - smoothstep(118.0, 168.0, vBehind);
+  float crestAlpha = shoulder * (0.004 + 0.009 * freshness + 0.004 * ndl + 0.002 * specular);
+  float ruffleAlpha = ruffle * (0.002 + 0.005 * freshness + 0.002 * ndl);
+  float contactAlpha = contact * (0.13 + 0.11 * freshness + 0.05 * ndl);
+  float nearTail = 1.0 - smoothstep(92.0, 142.0, vBehind);
   float a = (bodyAlpha + crestAlpha + ruffleAlpha + contactAlpha) * ageFade * nearTail * coverageMask * emitted;
-  a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.78, 1.0, uVisualScale);
+  a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.52, 1.0, uVisualScale);
   gl_FragColor = vec4(col, a);
   #include <colorspace_fragment>
 }
@@ -307,10 +307,10 @@ export class WakeRibbon implements IWake {
       uColorWash: {
         // The body is still translucent, but its first read should be wet
         // white foam. The ocean supplies the blue reflected tint underneath.
-        value: new THREE.Color(0xd6f0eb).lerp(new THREE.Color(0x0b7184), 0.3),
+        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.3),
       },
       uColorAged: {
-        value: new THREE.Color(0xd6f0eb).lerp(new THREE.Color(0x0b7184), 0.62),
+        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.58),
       },
     };
 
