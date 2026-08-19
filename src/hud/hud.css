@@ -2606,6 +2606,7 @@
 
 .hud-flight-prompt.on { transform: translateY(0) translateX(0); }
 .hud-flight-prompt.extend { --prompt-color: var(--warn); border-color: var(--prompt-color); box-shadow:0 9px 24px rgba(4,7,20,.32); }
+.hud-flight-prompt::before,
 .hud-flight-prompt::before {
   content: '';
   position: absolute;
@@ -2739,29 +2740,8 @@
   .hud-pos-chip { width: 8px; height: 8px; }
   .hud-pos-gap { font-size: 9px; }
   .hud-power,
+  .hud-flight-prompt,
   .hud-turn-warning { display: none; }
-  .hud-flight-prompt {
-    display: grid;
-    left: 50%;
-    right: auto;
-    top: max(8px, env(safe-area-inset-top));
-    width: min(340px, calc(100vw - 208px));
-    min-height: 78px;
-    grid-template-columns: 84px minmax(0, 1fr);
-    gap: 10px;
-    padding: 10px 18px 10px 10px;
-    transform: translateX(-50%) translateY(-10px);
-  }
-  .hud-flight-prompt.on { transform: translateX(-50%) translateY(0); }
-  .hud-flight-prompt .hud-keycap {
-    width: 84px;
-    height: 42px;
-    flex-basis: 84px;
-    font-size: 14px;
-  }
-  .hud-flight-prompt-en { font-size: 10px; }
-  .hud-flight-prompt-cn { margin-top: 3px; font-size: 20px; }
-  .hud-flight-prompt-rule { margin-top: 4px; font-size: 11px; white-space: normal; }
   .hud-driver-power { width: 108px; height: 58px; }
   .hud-driver-rail { width: 6px; height: 44px; top: 7px; }
   .hud-driver-rail-left { left: 17px; }

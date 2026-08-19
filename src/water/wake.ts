@@ -135,8 +135,8 @@ void main() {
   // ---- silhouette, indexed by METERS ASTERN -------------------------------
   // The center wash owns the silhouette. Its smooth, overlapping wave beats
   // imply entrained air without stamped cells or a filled road-shaped core.
-  float centerWidth = mix(0.5, 0.23, smoothstep(0.0, 78.0, vBehind));
-  float center = 1.0 - smoothstep(centerWidth * 0.2, centerWidth, lat);
+  float centerWidth = mix(0.58, 0.28, smoothstep(0.0, 78.0, vBehind));
+  float center = 1.0 - smoothstep(centerWidth * 0.34, centerWidth, lat);
   float centerFade = 1.0 - smoothstep(54.0, 138.0, vBehind);
   float longFlow = 0.5 + 0.28 * sin(vBehind * 0.47 - uTime * 1.35) +
     0.14 * sin(vBehind * 0.19 + lat * 4.2 + uTime * 0.62) +
@@ -144,23 +144,23 @@ void main() {
   float crossFlow = 0.5 + 0.32 * sin(vBehind * 0.31 + lat * 5.1 - uTime * 1.0) +
     0.18 * sin(vBehind * 0.73 - lat * 3.4 + uTime * 1.55);
   // Longitudinal peaks open and close whole foam pockets; the cross field
-  // only roughens their edges. Keep the low portion at zero so the center
-  // wash has real open-water gaps instead of becoming a pale road core.
-  float pocket = smoothstep(0.56, 0.82, longFlow);
+  // only roughens their edges. Multiplying two hard masks leaves isolated
+  // pinholes, while a continuous baseline turns the ribbon back into a road.
+  float pocket = smoothstep(0.52, 0.71, longFlow);
   float edgeTurbulence = smoothstep(0.38, 0.68, crossFlow);
-  float churn = pocket * mix(0.58, 1.0, edgeTurbulence);
+  float churn = pocket * mix(0.48, 1.0, edgeTurbulence);
 
   // Broken Kelvin shoulders are readable up close but never form continuous
   // bright rails. Alternating broad beats leave open-water gaps along the V.
-  float shoulderCenter = mix(0.7, 0.54, smoothstep(0.0, 54.0, vBehind));
+  float shoulderCenter = mix(0.72, 0.55, smoothstep(0.0, 62.0, vBehind));
   shoulderCenter += 0.035 * sin(vBehind * 0.16 + sin(vBehind * 0.045) * 1.4);
   float shoulderDistance = abs(lat - shoulderCenter);
-  float shoulderWidth = mix(0.13, 0.07, smoothstep(0.0, 38.0, vBehind));
+  float shoulderWidth = mix(0.18, 0.095, smoothstep(0.0, 46.0, vBehind));
   float shoulderShape = 1.0 - smoothstep(shoulderWidth * 0.42, shoulderWidth, shoulderDistance);
   float shoulderBeat = 0.5 + 0.32 * sin(vBehind * 0.41 - uTime * 1.1) +
     0.18 * sin(vBehind * 0.17 + uTime * 0.46);
-  float shoulderBreak = smoothstep(0.64, 0.86, shoulderBeat);
-  float shoulder = shoulderShape * shoulderBreak * (1.0 - smoothstep(22.0, 58.0, vBehind));
+  float shoulderBreak = smoothstep(0.46, 0.68, shoulderBeat);
+  float shoulder = shoulderShape * shoulderBreak * (1.0 - smoothstep(34.0, 104.0, vBehind));
 
   // Rounded transom churn joins both sides only at the actual stern. It must
   // end before it can become a long translucent road under the broken wash.
@@ -191,12 +191,12 @@ void main() {
   float freshness = 1.0 - smoothstep(8.0, 30.0, vBehind);
   vec3 baseFoam = mix(uColorAged, uColorFoam, freshness);
   float innerFroth = body * (1.0 - smoothstep(centerWidth * 0.18, centerWidth * 0.62, lat));
-  float crestMix = clamp(0.24 + body * 0.18 + shoulder * 0.12 + contact * 0.2 +
-    innerFroth * 0.34 + ndl * 0.22 + specular * 0.1 + fresnel * 0.06, 0.0, 1.0);
+  float crestMix = clamp(0.28 + body * 0.18 + shoulder * 0.28 + contact * 0.2 +
+    innerFroth * 0.34 + ndl * 0.26 + specular * 0.14 + fresnel * 0.08, 0.0, 1.0);
   vec3 col = mix(uColorWash, baseFoam, crestMix);
   col = mix(col, uColorFoam, innerFroth * 0.24);
-  float bodyAlpha = body * (0.18 + 0.22 * freshness + 0.07 * ndl) + innerFroth * 0.07;
-  float crestAlpha = shoulder * (0.004 + 0.011 * freshness + 0.005 * ndl + 0.002 * specular);
+  float bodyAlpha = body * (0.29 + 0.32 * freshness + 0.11 * ndl) + innerFroth * 0.1;
+  float crestAlpha = shoulder * (0.03 + 0.05 * freshness + 0.02 * ndl + 0.015 * specular);
   float contactAlpha = contact * (0.16 + 0.18 * freshness + 0.08 * ndl);
   float a = (bodyAlpha + crestAlpha + contactAlpha) * ageFade * coverageMask * emitted;
   a *= (vIntensity > 0.5 ? 1.0 : 0.82) * mix(0.78, 1.0, uVisualScale);
@@ -285,10 +285,10 @@ export class WakeRibbon implements IWake {
       uStamp: { value: 2.4 },
       uColorFoam: { value: new THREE.Color(PALETTE.foam) },
       uColorWash: {
-        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.48),
+        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.34),
       },
       uColorAged: {
-        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.68),
+        value: new THREE.Color(PALETTE.foam).lerp(new THREE.Color(PALETTE.waterMid), 0.58),
       },
     };
 

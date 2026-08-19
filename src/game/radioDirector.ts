@@ -11,8 +11,6 @@ export interface RadioSpeaker {
 
 export interface RadioNotice {
   key: string;
-  /** Coalesce one logical action cue for the rest of the current run. */
-  coalesceKey?: string;
   speaker: RadioSpeaker;
   message: string;
   emphasis?: string;
@@ -38,7 +36,6 @@ const GLOBAL_START_GAP = 3.5;
 export class RadioDirector {
   private readonly queue: QueuedNotice[] = [];
   private readonly runSeen = new Set<string>();
-  private readonly runCoalesced = new Set<string>();
   private readonly queuedKeys = new Set<string>();
   private readonly sessionSeen = new Set<string>();
   private activeValue: RadioNotice | null = null;
@@ -50,7 +47,6 @@ export class RadioDirector {
   resetRun(): void {
     this.queue.length = 0;
     this.runSeen.clear();
-    this.runCoalesced.clear();
     this.queuedKeys.clear();
     this.activeValue = null;
     this.activeTimer = 0;
@@ -61,10 +57,7 @@ export class RadioDirector {
 
   enqueue(notice: RadioNotice): boolean {
     if (this.runSeen.has(notice.key) || this.queuedKeys.has(notice.key)) return false;
-    if (notice.coalesceKey && this.runCoalesced.has(notice.coalesceKey)) return false;
     if (notice.sessionKey && this.sessionSeen.has(notice.sessionKey)) return false;
-
-    if (notice.coalesceKey) this.runCoalesced.add(notice.coalesceKey);
 
     if (this.activeValue && PRIORITY[notice.priority] > PRIORITY[this.activeValue.priority]) {
       this.finishActive();

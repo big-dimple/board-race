@@ -63,53 +63,6 @@
       "summaries": ["docs/development-handoff.md"],
       "verifier": "npm run build",
       "status": "current"
-    },
-    {
-      "id": "m1-ocean-material-rebuild",
-      "authority": "src/water/ocean.ts",
-      "summaries": ["docs/llmwiki.md", "docs/development-handoff.md"],
-      "verifier": "npm run verify:release",
-      "status": "local-verified-pending-release"
-    },
-    {
-      "id": "m2-wake-splash-opening",
-      "authority": "src/water/wake.ts",
-      "summaries": ["src/water/spray.ts", "docs/llmwiki.md", "docs/development-handoff.md", "shots/visual-roadmap/02-wake-splash-opening.md"],
-      "verifier": "npm run verify:release",
-      "status": "local-verified-pending-release"
-    },
-    {
-      "id": "m3-rider-refresh",
-      "authority": "src/game/riderMesh.ts",
-      "summaries": ["src/game/rider.ts", "docs/llmwiki.md", "docs/development-handoff.md", "shots/visual-roadmap/03-rider-refresh.md"],
-      "verifier": "npm run verify:release",
-      "status": "local-verified-pending-release"
-    },
-    {
-      "id": "m4-boat-refresh-and-batching",
-      "authority": "src/game/boat.ts",
-      "summaries": [
-        "docs/llmwiki.md",
-        "docs/development-handoff.md",
-        "shots/visual-roadmap/04-boat-refresh-and-batching.md",
-        "shots/visual-roadmap/M4/continuation-20260819-boat-refresh-01/metrics/renderer-resource-audit.json"
-      ],
-      "verifier": "npm run verify:release",
-      "status": "local-verified-pending-release"
-    },
-    {
-      "id": "m5-world-nameplates-deferred",
-      "authority": "shots/visual-roadmap/05-world-nameplates.md",
-      "summaries": ["docs/llmwiki.md", "docs/development-handoff.md"],
-      "verifier": "npm run build && npm run verify:flight && npm run verify:mobile && npm run verify:systems && npm run verify:performance",
-      "status": "local-verified-deferred"
-    },
-    {
-      "id": "m6-action-priority-integration",
-      "authority": "docs/llmwiki.md",
-      "summaries": ["docs/development-handoff.md", "shots/visual-roadmap/06-integration-and-art-direction.md"],
-      "verifier": "npm run verify:release",
-      "status": "local-verified-pending-release"
     }
   ]
 }
