@@ -876,9 +876,18 @@ export class HUD {
     if (!active) return;
     player.riderMount.getWorldPosition(this.driverAnchor);
     this.driverAnchor.project(this.camera);
-    const targetX = Math.max(innerWidth * 0.42, Math.min(innerWidth * 0.58, (this.driverAnchor.x * 0.5 + 0.5) * innerWidth));
-    const targetY = Math.max(innerHeight * 0.38, Math.min(innerHeight * 0.64, (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight + 18));
-    const blend = 1 - Math.exp(-10 * Math.max(0, dt));
+    const projectedX = (this.driverAnchor.x * 0.5 + 0.5) * innerWidth;
+    const projectedY = (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight;
+    const compact = innerWidth <= 900 || innerHeight <= 520;
+    const panelHalfWidth = compact ? 54 : 66;
+    const compactRightLane = compact &&
+      (state.flightMode === 'stored' || state.flightMode === 'extend' || this.activeCoach !== null);
+    const side = projectedX < innerWidth * 0.5 ? 1 : -1;
+    const targetX = Math.max(panelHalfWidth + 12, Math.min(innerWidth - panelHalfWidth - 12,
+      compactRightLane ? innerWidth - panelHalfWidth - 12 : projectedX + side * (compact ? 168 : 160)));
+    const targetY = Math.max(compact ? 42 : 72, Math.min(innerHeight * 0.56,
+      projectedY - (compact ? 100 : 120)));
+    const blend = compactRightLane ? 1 : 1 - Math.exp(-10 * Math.max(0, dt));
     this.driverAnchorX += (targetX - this.driverAnchorX) * blend;
     this.driverAnchorY += (targetY - this.driverAnchorY) * blend;
     this.driverPower.style.setProperty('--driver-power-x', `${this.driverAnchorX}px`);

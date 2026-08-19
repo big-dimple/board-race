@@ -129,6 +129,7 @@ export class RaceTower {
   announceGo(playerName: string): void {
     this.enqueue({
       key: 'go', speaker: TEAM_SPEAKER,
+      coalesceKey: 'go-action',
       message: `${playerName}，线路开放。先拿首飞。`,
       priority: 'tactical', duration: 2.2, ttl: 8,
     });
@@ -142,6 +143,7 @@ export class RaceTower {
     const index = this.battleIndex++ % messages.length;
     this.enqueue({
       key: `battle-${event.kind}-${index}`, speaker: TEAM_SPEAKER,
+      coalesceKey: `battle-${event.kind}-${name}`,
       message: messages[index], priority: 'tactical', duration: 2.5, ttl: 4,
     });
   }
@@ -154,6 +156,7 @@ export class RaceTower {
     const index = this.flightIndex++ % messages.length;
     this.enqueue({
       key: `flight-${flights}-${index}`, speaker: TEAM_SPEAKER,
+      coalesceKey: `flight-${flights}`,
       message: messages[index], priority: 'critical', duration: 2.4, ttl: 4,
     });
   }
@@ -162,6 +165,7 @@ export class RaceTower {
     const sol = driverProfile('sol');
     this.enqueue({
       key: 'gemini-opening-airbrake-tip',
+      coalesceKey: 'gemini-opening-airbrake-tip',
       speaker: driverSpeaker(sol),
       meta: `${sol.name} // 线路读懂了`,
       message: '空刹压住速度，转向咬住弯心',

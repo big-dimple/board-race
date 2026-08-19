@@ -126,10 +126,9 @@ function bodyLoft(rings: readonly LoftRing[], sides: number): THREE.BufferGeomet
   return geometry;
 }
 
-/** A softly bevelled garment or armor panel, centered on its height axis. */
+/** A softly rounded garment or armor plate, centered on its height axis. */
 function armorPlate(bottomWidth: number, topWidth: number, height: number, depth: number): THREE.BufferGeometry {
   const bevel = Math.min(depth * 0.38, height * 0.24);
-  const side = 12;
   return bodyLoft([
     { y: -height * 0.5, z: 0, halfWidth: bottomWidth * 0.26, halfDepth: depth * 0.25 },
     { y: -height * 0.5 + bevel, z: 0, halfWidth: bottomWidth * 0.48, halfDepth: depth * 0.47 },
@@ -137,7 +136,7 @@ function armorPlate(bottomWidth: number, topWidth: number, height: number, depth
     { y: height * 0.16, z: 0, halfWidth: topWidth * 0.5, halfDepth: depth * 0.5 },
     { y: height * 0.5 - bevel, z: 0, halfWidth: topWidth * 0.48, halfDepth: depth * 0.47 },
     { y: height * 0.5, z: 0, halfWidth: topWidth * 0.26, halfDepth: depth * 0.25 },
-  ], side);
+  ], 10);
 }
 
 class SkinAssembler {
@@ -219,11 +218,11 @@ function roleColor(role: Role, baseHex: number): THREE.Color {
   const foam = new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace);
   switch (role) {
     case Role.Suit: return base;
-    case Role.SuitDark: return base.clone().multiplyScalar(0.52).lerp(new THREE.Color(0x11162e), 0.18);
-    case Role.SuitLight: return base.clone().lerp(foam, 0.27);
+    case Role.SuitDark: return base.clone().multiplyScalar(0.72).lerp(new THREE.Color(0x17203c), 0.08);
+    case Role.SuitLight: return base.clone().lerp(foam, 0.32);
     case Role.Ink: return new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace);
     case Role.Foam: return foam;
-    case Role.Accent: return base.clone().lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.22);
+    case Role.Accent: return base.clone().lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.32);
     case Role.Visor: return new THREE.Color().setHex(0x102a48, THREE.NoColorSpace);
     case Role.Metal: return new THREE.Color().setHex(0x66758c, THREE.NoColorSpace);
   }
@@ -338,17 +337,29 @@ export function buildSkinnedRider(
     return [[rig.spine, 1 - chestWeight], [rig.chest, chestWeight]];
   });
 
-  // Rear impact vest: color-on-color cells, a dark flex channel and a light
-  // shoulder yoke. The hierarchy reads as clothing instead of black seams.
+  // Rear impact vest: two shaped flotation cells, a central flex channel and
+  // a bright shoulder yoke. These are the dominant chase-camera landmarks.
   const torsoWeights: WeightFn = (point) => {
     const chestWeight = smoothstep(0.08, 0.31, point.y);
     return [[rig.spine, 1 - chestWeight], [rig.chest, chestWeight]];
   };
-  appendPanel(out, rig.spine, Role.Accent, [0.083, 0.19, -0.068], [0.13, 0.105, 0.27, 0.042], [0.05, 0, -0.08], torsoWeights);
-  appendPanel(out, rig.spine, Role.Accent, [-0.083, 0.19, -0.068], [0.13, 0.105, 0.27, 0.042], [0.05, 0, 0.08], torsoWeights);
-  appendPanel(out, rig.spine, Role.SuitDark, [0, 0.18, -0.096], [0.028, 0.048, 0.25, 0.026], [0.05, 0, 0], torsoWeights);
-  appendPanel(out, rig.spine, Role.SuitLight, [0.078, 0.33, 0.008], [0.16, 0.12, 0.05, 0.034], [0.06, 0, -0.16], torsoWeights);
-  appendPanel(out, rig.spine, Role.SuitLight, [-0.078, 0.33, 0.008], [0.16, 0.12, 0.05, 0.034], [0.06, 0, 0.16], torsoWeights);
+
+  // One continuous rear shell carries the rider's weight from the hips to the
+  // shoulders. Its side, center, and shoulder values are vertex roles on one
+  // loft, so the color blocking reads as clothing instead of outlined pieces.
+  const rearRole: RoleFn = (point) => {
+    if (point.y > 0.27) return Role.Foam;
+    if (Math.abs(point.x) < 0.045) return Role.SuitDark;
+    if (Math.abs(point.x) < 0.13) return Role.SuitLight;
+    return Role.Suit;
+  };
+  out.append(bodyLoft([
+    { y: -0.055, z: -0.09, halfWidth: 0.115, halfDepth: 0.045 },
+    { y: 0.02, z: -0.115, halfWidth: 0.155, halfDepth: 0.05 },
+    { y: 0.17, z: -0.125, halfWidth: 0.18, halfDepth: 0.052 },
+    { y: 0.3, z: -0.1, halfWidth: 0.16, halfDepth: 0.045 },
+    { y: 0.36, z: -0.065, halfWidth: 0.1, halfDepth: 0.035 },
+  ], sides), rig.spine, rearRole, new THREE.Matrix4(), torsoWeights);
   appendPanel(out, rig.spine, Role.Accent, [0, 0.055, -0.105], [0.14, 0.105, 0.065, 0.03], [0.05, 0, 0], torsoWeights);
 
   // Arms retain elbow deformation but taper like protected wetsuit limbs.
@@ -360,7 +371,7 @@ export function buildSkinnedRider(
     appendSegment(out, shoulder, elbow, 0.061, 0.052, Role.Suit, sides);
     appendEllipsoid(out, elbow, Role.SuitDark, [0, 0, 0], [0.06, 0.052, 0.058], sides);
     appendSegment(out, elbow, hand, 0.052, 0.043, Role.SuitDark, sides);
-    appendEllipsoid(out, hand, Role.Ink, [0, 0, 0.012], [0.064, 0.052, 0.075], sides);
+    appendEllipsoid(out, hand, Role.SuitDark, [0, 0, 0.012], [0.064, 0.052, 0.075], sides);
     out.append(new THREE.CylinderGeometry(0.052, 0.052, 0.045, sides, 1), hand, Role.Accent,
       transform([0, 0.045, -0.015], [0, 0, 0]));
   }
@@ -375,10 +386,17 @@ export function buildSkinnedRider(
     appendEllipsoid(out, knee, Role.SuitDark, [0, 0, 0.012], [0.086, 0.068, 0.082], sides);
     appendSegment(out, knee, foot, 0.073, 0.058, Role.SuitDark, sides);
     appendPanel(out, knee, Role.Accent, [0, 0.02, -0.064], [0.105, 0.085, 0.07, 0.027]);
-    out.append(armorPlate(0.125, 0.116, 0.095, 0.275), foot, Role.SuitDark,
-      transform([0, -0.012, 0.075], [0.03, 0, 0]));
-    out.append(armorPlate(0.132, 0.12, 0.025, 0.29), foot, Role.Metal,
-      transform([0, -0.065, 0.078], [0.03, 0, 0]));
+    out.append(bodyLoft([
+      { y: -0.09, z: 0.08, halfWidth: 0.064, halfDepth: 0.12 },
+      { y: -0.065, z: 0.08, halfWidth: 0.082, halfDepth: 0.145 },
+      { y: 0.015, z: 0.08, halfWidth: 0.076, halfDepth: 0.135 },
+      { y: 0.045, z: 0.08, halfWidth: 0.052, halfDepth: 0.105 },
+    ], Math.max(8, sides - 2)), foot, Role.SuitDark);
+    out.append(bodyLoft([
+      { y: -0.098, z: 0.08, halfWidth: 0.06, halfDepth: 0.11 },
+      { y: -0.082, z: 0.08, halfWidth: 0.074, halfDepth: 0.13 },
+      { y: -0.065, z: 0.08, halfWidth: 0.06, halfDepth: 0.11 },
+    ], Math.max(8, sides - 2)), foot, Role.Metal);
   }
 
   // Neck seal and a motorsport helmet with a continuous crown stripe. The
@@ -386,12 +404,14 @@ export function buildSkinnedRider(
   appendSegment(out, rig.chest, rig.head, 0.105, 0.09, Role.SuitDark, sides);
   appendEllipsoid(out, rig.head, Role.SuitLight, [0, 0.1, 0.02], [0.142, 0.158, 0.15], detailed ? 18 : 12);
   const patchSides = detailed ? 18 : 12;
+  appendHelmetPatch(out, rig.head, Role.SuitDark, Math.PI * 1.5 - 0.7, 1.4, 0.18, 1.2, 1.014, patchSides);
   const stripeWidth = 0.22;
   appendHelmetPatch(out, rig.head, Role.Accent, Math.PI * 0.5 - stripeWidth, stripeWidth * 2, 0.05, 1.45, 1.012, patchSides);
   appendHelmetPatch(out, rig.head, Role.Accent, Math.PI * 1.5 - stripeWidth, stripeWidth * 2, 0.05, 1.45, 1.012, patchSides);
   appendHelmetPatch(out, rig.head, Role.Visor, Math.PI * 0.5 - 0.92, 1.84, 0.56, 0.82, 1.03, patchSides);
   appendPanel(out, rig.head, Role.SuitDark, [0, 0.025, 0.145], [0.145, 0.205, 0.1, 0.05], [-0.1, 0, 0]);
-  appendPanel(out, rig.head, Role.Accent, [0, 0.055, -0.122], [0.17, 0.145, 0.045, 0.026]);
+  appendPanel(out, rig.head, Role.SuitDark, [0, 0.04, -0.142], [0.17, 0.145, 0.065, 0.032]);
+  appendPanel(out, rig.head, Role.Accent, [0, 0.08, -0.17], [0.12, 0.1, 0.032, 0.02]);
 
   const result = out.finish();
   const material = createToonMaterial({

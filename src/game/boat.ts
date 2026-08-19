@@ -424,11 +424,11 @@ function pushCap(pos: number[], loop: number[][], flip: boolean): void {
 function flatGeometry(pos: number[]): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals(); // non-indexed → per-face normals → flat facets
+  geo.computeVertexNormals();
   return geo;
 }
 
-/** Weld authored surface vertices so the primary hull reads as one continuous shell. */
+/** Weld authored shell vertices so the hull reads as one continuous surface. */
 function smoothGeometry(pos: number[]): THREE.BufferGeometry {
   const vertices: number[] = [];
   const indices: number[] = [];
@@ -471,6 +471,7 @@ function mergeFlatGeometryParts(parts: readonly THREE.BufferGeometry[]): THREE.B
   const merged = new THREE.BufferGeometry();
   merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  for (const part of parts) part.dispose();
   return merged;
 }
 
@@ -607,9 +608,9 @@ function buildRubRailGeometry(side: 1 | -1): THREE.BufferGeometry {
   return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 36, 0.024, 6, false);
 }
 
-/** Foam livery ribbon embedded in the upper hull side, below the rub rail. */
+/** Fitted side belt follows the rounded waterline for a stable mid-distance read. */
 function buildSideLiveryGeometry(side: 1 | -1): THREE.BufferGeometry {
-  const rows = HULL_TABLE.filter((row) => row[0] <= 1.8 && row[0] >= -1.8);
+  const rows = HULL_TABLE.filter((row) => row[0] <= 2.0 && row[0] >= -2.2);
   const pos: number[] = [];
   const point = (row: HullRow, heightT: number): number[] => {
     const [, sw, cw, , cy, sy] = row;
@@ -620,7 +621,7 @@ function buildSideLiveryGeometry(side: 1 | -1): THREE.BufferGeometry {
   for (let i = 0; i < rows.length - 1; i++) {
     const a = rows[i];
     const b = rows[i + 1];
-    pushQuad(pos, point(a, 0.48), point(b, 0.48), point(b, 0.62), point(a, 0.62), side < 0);
+    pushQuad(pos, point(a, 0.28), point(b, 0.28), point(b, 0.5), point(a, 0.5), side < 0);
   }
   return smoothGeometry(pos);
 }
@@ -853,7 +854,6 @@ function getBoatBatchGeometries(): BoatBatchGeometries {
     transformedPart(new THREE.BoxGeometry(0.11, 0.24, 0.18), [0.35, 0.67, -2.28], [-0.12, 0, 0.08]),
     transformedPart(new THREE.BoxGeometry(0.11, 0.24, 0.18), [-0.35, 0.67, -2.28], [-0.12, 0, -0.08]),
   ];
-
   const safetyParts: THREE.BufferGeometry[] = [
     transformedPart(buildRubRailGeometry(1)),
     transformedPart(buildRubRailGeometry(-1)),
@@ -864,7 +864,6 @@ function getBoatBatchGeometries(): BoatBatchGeometries {
     transformedPart(new THREE.CylinderGeometry(0.043, 0.043, 0.16, 12), [-0.27, 1.0, -0.65], [0, 0, Math.PI / 2]),
     transformedPart(new THREE.CylinderGeometry(0.018, 0.018, 0.67, 8), [0, 0.895, -0.385], [0, 0, Math.PI / 2]),
   ];
-
   const mechanicalParts: THREE.BufferGeometry[] = [
     buildCockpitTubGeometry(),
     buildDeckStripeGeometry(0.024, 0.017),
@@ -877,7 +876,6 @@ function getBoatBatchGeometries(): BoatBatchGeometries {
     transformedPart(new THREE.BoxGeometry(0.42, 0.07, 0.31), [0, 0.605, -1.56], [-0.06, 0, 0]),
     transformedPart(new THREE.CylinderGeometry(0.013, 0.013, 0.4, 8), [0.61, 0.84, -2.12], [0.08, 0, -0.12]),
   ];
-
   const flightParts: THREE.BufferGeometry[] = [
     buildWindscreenGeometry(),
     buildSideLiveryGeometry(1),
@@ -885,7 +883,6 @@ function getBoatBatchGeometries(): BoatBatchGeometries {
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [0.68, 0.12, -1.62]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [-0.68, 0.12, -1.62]),
   ];
-
   sharedBoatBatchGeometries = {
     shell: mergeFlatGeometryParts(shellParts),
     safety: mergeFlatGeometryParts(safetyParts),
@@ -902,8 +899,6 @@ function getBoatBatchGeometries(): BoatBatchGeometries {
 function getSharedBoatMaterials(): SharedBoatMaterials {
   if (sharedBoatMaterials) return sharedBoatMaterials;
   sharedBoatMaterials = {
-    // Dark graphite keeps the cockpit readable as a volume instead of a black
-    // line while retaining the single mechanical batch.
     ink: createToonMaterial({
       color: 0x26304a,
       rimColor: PALETTE.sparkle,
@@ -921,7 +916,7 @@ function getSharedBoatMaterials(): SharedBoatMaterials {
     flight: createToonMaterial({
       color: 0x163b68,
       emissive: PALETTE.flight,
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.12,
       rimColor: PALETTE.foam,
       rimStrength: 0.7,
     }),
@@ -956,8 +951,8 @@ function buildBoatVisual(id: number, color: number): {
     return mesh;
   };
 
-  // Five static material batches stay attached to one transform; repeated
-  // geometry and the non-livery materials are shared by every physical boat.
+  // Five static material batches stay under one true hull transform; shared
+  // geometry keeps the six boats from duplicating the authored surface data.
   const hull = add(batchGeometries.shell, hullMat);
   hull.name = 'boat-shell-batch';
   hull.userData.assetClass = 'racing-hydrojet-shell';

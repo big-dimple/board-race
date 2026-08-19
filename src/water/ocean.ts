@@ -276,6 +276,7 @@ void main() {
   vec3 n;
   oceanSurfaceState(vOrigXZ, uTime, h, n, dhdt);
   float vH = h / uMaxAmp;              // normalized crest height, ~[-1, 1]
+  float waveSlope = clamp(1.0 - n.y, 0.0, 1.0);
   float dist = -vViewZ;
 
   // Visual-only ripples modify the material normal near the camera. The
@@ -305,15 +306,15 @@ void main() {
     crossBlend * cos(windPhaseC) * 0.18;
   n = normalize(n + vec3(windSlope.x, 0.0, windSlope.y) * uWindNormalStrength * windFade);
 
-  // A second, slower cross-sea layer gives the swells a broad shoulder and
-  // keeps the horizon from reading as a flat blue plate. It is normal-only:
-  // the CPU water height, hull draft and collision plane remain untouched.
-  vec2 stormSlope =
-    windDir * cos(windPhaseA * 0.52 - windPhaseC * 0.24) * 0.52 +
-    crossWind * cos(windPhaseB * 0.74 + windPhaseA * 0.18) * 0.34 +
-    crossBlend * cos(windPhaseC * 0.68 - windPhaseB * 0.22) * 0.2;
-  n = normalize(n + vec3(stormSlope.x, 0.0, stormSlope.y) * uWindNormalStrength *
-    (1.18 + uOpeningArt * 0.32) * windFade);
+  // A lower-frequency directional swell keeps the material moving as one
+  // connected field. It is visual-only: the shared Gerstner displacement and
+  // every CPU water query remain the sole source of height and collision.
+  vec2 swellDir = normalize(vec2(0.78, 0.63));
+  vec2 swellCross = vec2(-swellDir.y, swellDir.x);
+  float swellA = dot(vOrigXZ, swellDir) * 0.078 + uTime * 0.22;
+  float swellB = dot(vOrigXZ, swellCross) * 0.11 - uTime * 0.17;
+  vec2 swellSlope = swellDir * cos(swellA) * 0.58 + swellCross * cos(swellB) * 0.34;
+  n = normalize(n + vec3(swellSlope.x, 0.0, swellSlope.y) * uWindNormalStrength * 0.72 * windFade);
 
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   vec3 sunDir = normalize(uSunDir);
@@ -321,11 +322,17 @@ void main() {
   float slope = clamp(1.0 - n.y, 0.0, 1.0);
   float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 2.2);
 
-  // Directional material response replaces the old height-colored slabs.
-  float faceLight = clamp(0.14 + ndl * 0.62 + slope * 0.46 + vH * 0.08, 0.0, 1.0);
-  vec3 col = mix(uColorDeep, uColorMid, faceLight);
-  col = mix(col, uColorCrest, smoothstep(0.025, 0.2, slope) * 0.3);
-  col = mix(col, uColorHorizon, fresnel * uFresnelStrength);
+  // Distance establishes the sea's depth hierarchy; normals and sunlight
+  // then modulate it continuously instead of creating height-colored bands.
+  float midDistance = smoothstep(26.0, 170.0, dist);
+  float farDistance = smoothstep(140.0, 620.0, dist);
+  vec3 depthColor = mix(uColorDeep, uColorMid, midDistance);
+  depthColor = mix(depthColor, uColorHorizon, farDistance);
+  float faceLight = clamp(0.12 + ndl * 0.58 + slope * 0.28 + vH * 0.04, 0.0, 1.0);
+  vec3 directionalColor = mix(uColorDeep, uColorMid, faceLight);
+  vec3 col = mix(depthColor, directionalColor, 0.34 - farDistance * 0.14);
+  col = mix(col, uColorCrest, smoothstep(0.03, 0.2, slope) * 0.24);
+  col = mix(col, uColorHorizon, fresnel * uFresnelStrength * 0.62);
 
   // A broad sun response gives the surface scale without a field of blinking
   // symbols. Near ripples naturally split it into short moving highlights.
@@ -333,7 +340,7 @@ void main() {
   float artSparkle = 1.0 + uOpeningArt * 0.28;
   float sunSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss) * uSunStrength * artSparkle;
   sunSpec *= 0.42 + 0.58 * rippleFade;
-  col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.46));
+  col = mix(col, uColorSparkle, clamp(sunSpec, 0.0, 0.42));
 
   // The broad sun path is a rough mirror response, not a painted world-space
   // ribbon. Wave-facing facets carry it; low-frequency roughness only breaks
@@ -345,7 +352,7 @@ void main() {
     0.24 * sin(dot(vOrigXZ, vec2(0.27, 0.93)) * 0.32 + uTime * 0.22) +
     0.16 * sin(dot(vOrigXZ, vec2(-0.84, 0.31)) * 0.57 - uTime * 0.38);
   float roughnessRuns = smoothstep(0.48, 0.76, roughnessField);
-  float sunPathFade = smoothstep(8.0, 34.0, dist) * (1.0 - smoothstep(150.0, 360.0, dist));
+  float sunPathFade = smoothstep(18.0, 42.0, dist) * (1.0 - smoothstep(230.0, 460.0, dist));
   float sunPath = pow(max(dot(n, halfDir), 0.0), uSunGloss * 0.62) *
     sunFacing * (0.62 + roughnessRuns * 0.38) * (0.68 + crestShimmer * 0.32) *
     uSunPathStrength * sunPathFade * (1.0 + uOpeningArt * 0.24);
@@ -360,13 +367,13 @@ void main() {
   float windRuns = smoothstep(0.54 - windAa, 0.78 + windAa, windField);
   float windSpec = pow(max(dot(n, halfDir), 0.0), uSunGloss * 1.2) *
     windRuns * uWindSpecStrength * windFade;
-  col = mix(col, uColorSparkle, clamp(windSpec, 0.0, 0.26));
+  col = mix(col, uColorSparkle, clamp(windSpec, 0.0, 0.24));
 
   // A restrained sky-facing sheen keeps the non-sun side alive. It reuses the
   // filtered wind field instead of adding another noise octave or texture.
   float windSheen = windRuns * (0.1 + fresnel * 0.44 + slope * 0.24) *
     uWindSpecStrength * windFade;
-  col = mix(col, uColorCrest, clamp(windSheen, 0.0, 0.16));
+  col = mix(col, uColorCrest, clamp(windSheen, 0.0, 0.15));
 
 #if OCEAN_FINE_DETAIL == 1
   // Fine directional facets turn the broad response into short, moving glints.
@@ -380,8 +387,8 @@ void main() {
   float glintField = 0.5 + 0.28 * sin(dot(vOrigXZ, vec2(0.91, 0.27)) * 4.2 + uTime * 2.15) +
     0.22 * sin(dot(vOrigXZ, vec2(-0.34, 0.94)) * 6.8 - uTime * 2.75);
   float glintAa = max(fwidth(glintField) * 1.4, 0.012);
-  float glintRuns = smoothstep(0.72 - glintAa, 0.88 + glintAa, glintField);
-  float glintDistance = smoothstep(8.0, 34.0, dist) * (1.0 - smoothstep(150.0, 360.0, dist));
+  float glintRuns = smoothstep(0.82 - glintAa, 0.92 + glintAa, glintField);
+  float glintDistance = smoothstep(20.0, 44.0, dist) * (1.0 - smoothstep(180.0, 340.0, dist));
   float glint = glintSpec * glintRuns * glintDistance * uGlintStrength * (1.0 + uOpeningArt * 0.34);
   col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.34));
 
@@ -391,25 +398,21 @@ void main() {
   float microAa = max(fwidth(microField) * 1.25, 0.01);
   float microRuns = smoothstep(0.55 - microAa, 0.72 + microAa, microField);
   float microSpec = pow(max(dot(glintNormal, halfDir), 0.0), uSunGloss * 1.12);
-  float microDistance = smoothstep(8.0, 22.0, dist) * (1.0 - smoothstep(150.0, 320.0, dist));
-  float microSparkle = microSpec * microRuns * microDistance * sunFacing * 0.3;
+  float microDistance = smoothstep(16.0, 30.0, dist) * (1.0 - smoothstep(150.0, 320.0, dist));
+  float microSparkle = microSpec * microRuns * microDistance * sunFacing * 0.18;
   col = mix(col, uColorSparkle, clamp(microSparkle, 0.0, 0.21));
 #endif
 
   // Whitecaps are gameplay information: only high, steep, rising faces earn
   // them. Existing moving fields break coverage into runs without another
   // four-corner noise sample.
-  float crest = smoothstep(uCrestHeight - 0.035, uCrestHeight + 0.075, vH);
-  float steep = smoothstep(uCrestSlope + 0.008, uCrestSlope + 0.055, slope);
-  float rising = smoothstep(uCrestRise, uCrestRise + 0.075, dhdt);
+  float crest = smoothstep(uCrestHeight - 0.015, uCrestHeight + 0.12, vH);
+  float steep = smoothstep(uCrestSlope, uCrestSlope + 0.06, waveSlope);
+  float rising = smoothstep(uCrestRise, uCrestRise + 0.08, dhdt);
   float foamField = roughnessField * 0.56 + windField * 0.44;
-  float foamBreak = smoothstep(0.62, 0.82, foamField);
-  float whitecap = crest * steep * rising * foamBreak;
-  // Keep whitecaps as rare crest events rather than a second broad water
-  // colour. The authored thresholds above require height, slope, and upward
-  // motion together; this final ramp leaves the near action lane mostly open.
-  whitecap = whitecap * uFoamStrength * (1.0 + uOpeningArt * 0.16);
-  whitecap = smoothstep(0.12, 0.42, whitecap) * 0.44;
+  float foamBreak = smoothstep(0.6, 0.82, foamField);
+  float whitecap = crest * steep * rising * foamBreak * uFoamStrength * (1.0 + uOpeningArt * 0.12);
+  whitecap = smoothstep(0.08, 0.42, whitecap) * 0.58;
   whitecap *= 1.0 - smoothstep(170.0, 340.0, dist);
   col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
 
@@ -474,11 +477,13 @@ export class Ocean {
     const performance = quality === 'performance';
     const high = quality === 'high';
     const sun = PALETTE.sunDir;
-    // Keep the sea in a deep teal lane so the magenta player, green route, and
-    // warm finish marker stay legible without relying on a full-screen fog lift.
-    const deepColor = new THREE.Color(0x063c54);
-    const midColor = new THREE.Color(0x0b7184);
-    const crestColor = new THREE.Color(0x5ac3bd);
+    // M1 material ownership: a deep teal-blue near field, a restrained
+    // middle blue, and a cool distant value keep the sea dimensional without
+    // adding a second environment surface or a painted road-like core.
+    const deepColor = new THREE.Color(0x052f4b);
+    const midColor = new THREE.Color(0x0e5b86);
+    const crestColor = new THREE.Color(0x4a91a4);
+    const horizonColor = new THREE.Color(0x76bac8);
     this.uniforms = {
       uTime: { value: 0 },
       uOpeningArt: { value: 0 },
@@ -491,19 +496,19 @@ export class Ocean {
       uRippleStrength: { value: performance ? 0.05 : high ? 0.068 : 0.064 },
       uRippleFadeStart: { value: 58.0 },
       uRippleFadeEnd: { value: performance ? 135.0 : high ? 180.0 : 165.0 },
-      uCrestHeight: { value: 0.3 },
-      uCrestSlope: { value: 0.028 },
-      uCrestRise: { value: 0.045 },
-      uFoamStrength: { value: performance ? 0.44 : high ? 0.62 : 0.5 },
-      uSunGloss: { value: performance ? 31.0 : high ? 28.0 : 30.0 },
-      uSunStrength: { value: performance ? 0.34 : high ? 0.42 : 0.38 },
-      uSunPathStrength: { value: performance ? 0.18 : high ? 0.25 : 0.21 },
-      uGlintStrength: { value: high ? 0.6 : 0.48 },
-      uFresnelStrength: { value: 0.18 },
-      uWindNormalStrength: { value: performance ? 0.042 : high ? 0.06 : 0.056 },
+      uCrestHeight: { value: 0.24 },
+      uCrestSlope: { value: 0.016 },
+      uCrestRise: { value: 0.02 },
+      uFoamStrength: { value: performance ? 0.58 : high ? 0.68 : 0.62 },
+      uSunGloss: { value: performance ? 30.0 : 29.0 },
+      uSunStrength: { value: performance ? 0.32 : high ? 0.4 : 0.37 },
+      uSunPathStrength: { value: performance ? 0.19 : high ? 0.24 : 0.22 },
+      uGlintStrength: { value: high ? 0.56 : 0.48 },
+      uFresnelStrength: { value: 0.34 },
+      uWindNormalStrength: { value: performance ? 0.044 : high ? 0.056 : 0.052 },
       uWindFadeStart: { value: 18.0 },
       uWindFadeEnd: { value: performance ? 185.0 : high ? 245.0 : 225.0 },
-      uWindSpecStrength: { value: performance ? 0.14 : high ? 0.21 : 0.17 },
+      uWindSpecStrength: { value: performance ? 0.14 : high ? 0.2 : 0.17 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },
@@ -515,15 +520,15 @@ export class Ocean {
       uRingContactShade: { value: 0.72 },
       uRingMaxDist: { value: 150.0 },
 
-      uFogStart: { value: 240.0 },
-      uFogFar: { value: 3000.0 },
+      uFogStart: { value: 360.0 },
+      uFogFar: { value: 2800.0 },
 
       uColorDeep: { value: deepColor },
       uColorMid: { value: midColor },
       uColorCrest: { value: crestColor },
-      uColorFoam: { value: new THREE.Color(0xd3eee9) },
-      uColorSparkle: { value: new THREE.Color(0xb7eee4) },
-      uColorHorizon: { value: new THREE.Color(0x6caeaa) },
+      uColorFoam: { value: new THREE.Color(PALETTE.foam) },
+      uColorSparkle: { value: new THREE.Color(0xe4f2ec) },
+      uColorHorizon: { value: horizonColor },
       uSunDir: { value: new THREE.Vector3(sun[0], sun[1], sun[2]).normalize() },
     };
 

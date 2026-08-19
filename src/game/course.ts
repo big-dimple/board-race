@@ -948,10 +948,6 @@ function createSurfaceGuideUniforms() {
   return {
     uTime: { value: 0 },
     uColor: { value: new THREE.Color().setHex(PALETTE.racingLine, THREE.NoColorSpace) },
-    // The body is a neutral translucent water mist. Green remains reserved
-    // for the actionable chevrons and turn markers, so the route never reads
-    // as a solid colored road laid over the sea.
-    uRibbonColor: { value: new THREE.Color().setHex(PALETTE.flightMistShade, THREE.NoColorSpace) },
     uFoam: { value: new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace) },
     uTurnColor: { value: new THREE.Color().setHex(PALETTE.sunFlare, THREE.NoColorSpace) },
     uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
@@ -997,7 +993,6 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
     fragmentShader: /* glsl */ `
       uniform float uTime;
       uniform vec3 uColor;
-      uniform vec3 uRibbonColor;
       uniform vec3 uFoam;
       uniform float uPlayerS;
       uniform float uLapLength;
@@ -1050,13 +1045,10 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float centerVeil = (1.0 - smoothstep(0.08, 0.62, side)) * (0.34 + waterPocket * 0.66);
         float navSpine = 1.0 - smoothstep(0.04, 0.12, side);
         float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} * (0.48 + waterPocket * 0.52) + packet * 0.035);
-        // The strip is a navigational haze, not a runway. Its two inner
-        // filaments stay just bright enough to catch the eye near the hull;
-        // the green action language belongs to the chevrons above it.
-        float alpha = veil + centerVeil * 0.022 + navSpine * (0.28 + packet * 0.04) + flow * 0.12;
+        float alpha = veil + centerVeil * 0.045 + navSpine * (0.34 + packet * 0.06) + flow * 0.26;
         float localFade = 1.0 - smoothstep(140.0, 170.0, ahead) * 0.18;
         float fade = (vDist < 220.0 ? 1.0 : 0.78) * localFade;
-        vec3 col = mix(uRibbonColor, uFoam, 0.18 + navSpine * 0.16 + flow * 0.2 + packet * 0.06);
+        vec3 col = mix(uColor, uFoam, 0.24 + navSpine * 0.22 + flow * 0.34 + packet * 0.08);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
         alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
