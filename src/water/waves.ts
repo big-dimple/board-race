@@ -1,60 +1,46 @@
 /**
- * waves.ts — SINGLE SOURCE OF TRUTH for the ocean surface.
+ * waves.ts - single source of truth for the ocean surface.
  *
- * The same wave set drives:
- *   - the GPU vertex displacement of the ocean mesh (via WAVES_GLSL below),
- *   - the racing-line ribbon and wake ribbons (same GLSL chunk),
- *   - CPU sampling for boat buoyancy, gate bobbing, AI and spawn placement.
- *
- * Model: sum of Gerstner waves (GPU Gems 1, ch.1 style).
- *   k = 2π / wavelength          (wave number)
- *   ω = sqrt(g·k) · speedMul     (angular frequency, natural dispersion)
- *   A = amplitude                (vertical)
- *   Q = steepness                (horizontal displacement scale → crest sharpening)
- *
- *   φ(p,t) = k·(D·p.xz) + ω·t + phase
- *   P.x  += Q·A·D.x·cos(φ)
- *   P.z  += Q·A·D.z·cos(φ)
- *   P.y   = A·sin(φ)
- *
- * CPU height sampling ignores the horizontal displacement term (standard
- * approximation): waterHeight(x,z,t) = Σ A·sin(φ). The error is small for
- * our steepness values and it keeps buoyancy cheap and stable. The CPU
- * normal uses the analytic derivative of the same height sum, so CPU and
- * GPU never drift apart visually or physically.
+ * The ocean mesh, route and wake shaders, CPU buoyancy, gates, camera, and
+ * spawn placement all sample this directional second-order height field.
+ * Keeping the surface as y = f(worldXZ, time) avoids the old mismatch where
+ * the GPU moved Gerstner vertices sideways while CPU callers ignored that
+ * horizontal displacement.
  */
 
-export interface GerstnerWave {
-  /** Normalized XZ travel direction. */
+interface DirectionalWave {
+  /** XZ travel direction; normalized while compiling. */
   dir: [number, number];
-  /** Vertical amplitude in meters. */
+  /** Fundamental vertical amplitude in meters. */
   amplitude: number;
-  /** 0..1 horizontal sharpness — higher = sharper crests. Keep Σ(Q·A·k) < 1 to avoid loops. */
-  steepness: number;
+  /** Second-harmonic weight. Higher values sharpen crests and broaden troughs. */
+  crest: number;
   /** Meters crest-to-crest. */
   wavelength: number;
-  /** Multiplier on natural phase speed sqrt(g/k). */
+  /** Multiplier on the natural deep-water phase speed. */
   speedMul: number;
-  /** Fixed phase offset so waves don't align at t=0. */
+  /** Fixed phase offset so components do not align at t=0. */
   phase: number;
 }
 
 const G = 9.8;
 
 /**
- * The wave set. Two long swells travelling at an angle to each other, one
- * mid sea, two chops. Tuned by eye against screenshots — do not "rebalance"
- * mathematically, the look is the spec.
+ * A strong-wind open-sea spectrum: one horizon swell, one dominant cross sea,
+ * and three progressively smaller wind-wave bands. Total height stays close
+ * to the previous surface while energy moves into shorter, readable slopes.
  */
-export const WAVES: readonly GerstnerWave[] = [
-  { dir: [0.94, 0.34], amplitude: 1.15, steepness: 0.55, wavelength: 72.0, speedMul: 0.55, phase: 0.0 },
-  { dir: [0.68, -0.73], amplitude: 0.62, steepness: 0.5, wavelength: 38.0, speedMul: 0.7, phase: 1.7 },
-  { dir: [-0.29, 0.96], amplitude: 0.3, steepness: 0.45, wavelength: 19.0, speedMul: 0.9, phase: 3.9 },
-  { dir: [0.99, -0.12], amplitude: 0.14, steepness: 0.35, wavelength: 9.5, speedMul: 1.1, phase: 2.3 },
-  { dir: [-0.72, -0.69], amplitude: 0.07, steepness: 0.3, wavelength: 5.2, speedMul: 1.3, phase: 5.1 },
+const WAVES: readonly DirectionalWave[] = [
+  { dir: [0.94, 0.34], amplitude: 0.68, crest: 0.12, wavelength: 128, speedMul: 0.82, phase: 0 },
+  { dir: [0.78, -0.63], amplitude: 0.84, crest: 0.16, wavelength: 48, speedMul: 0.9, phase: 1.7 },
+  { dir: [0.96, 0.28], amplitude: 0.58, crest: 0.14, wavelength: 27, speedMul: 1, phase: 3.9 },
+  { dir: [0.56, 0.83], amplitude: 0.27, crest: 0.11, wavelength: 15, speedMul: 1.08, phase: 2.3 },
+  { dir: [-0.2, 0.98], amplitude: 0.085, crest: 0.07, wavelength: 8.5, speedMul: 1.16, phase: 5.1 },
 ];
 
-export const MAX_AMPLITUDE = WAVES.reduce((s, w) => s + w.amplitude, 0);
+/** Conservative positive crest bound used only to normalize material response. */
+export const MAX_AMPLITUDE = WAVES.reduce((sum, wave) =>
+  sum + wave.amplitude * (1 + wave.crest), 0);
 
 interface CompiledWave {
   dx: number;
@@ -62,46 +48,54 @@ interface CompiledWave {
   k: number;
   omega: number;
   amp: number;
-  q: number;
+  crest: number;
   phase: number;
+  detail: number;
 }
 
-const COMPILED: CompiledWave[] = WAVES.map((w) => {
-  const len = Math.hypot(w.dir[0], w.dir[1]) || 1;
-  const k = (Math.PI * 2) / w.wavelength;
+const COMPILED: CompiledWave[] = WAVES.map((wave, index) => {
+  const len = Math.hypot(wave.dir[0], wave.dir[1]) || 1;
+  const k = (Math.PI * 2) / wave.wavelength;
   return {
-    dx: w.dir[0] / len,
-    dz: w.dir[1] / len,
+    dx: wave.dir[0] / len,
+    dz: wave.dir[1] / len,
     k,
-    omega: Math.sqrt(G * k) * w.speedMul,
-    amp: w.amplitude,
-    q: w.steepness,
-    phase: w.phase,
+    omega: Math.sqrt(G * k) * wave.speedMul,
+    amp: wave.amplitude,
+    crest: wave.crest,
+    phase: wave.phase,
+    // The 128 m swell remains on the sparse horizon lattice. Shorter bands
+    // fade there and return automatically as the camera approaches.
+    detail: index === 0 ? 0 : 1,
   };
 });
 
-/** Water surface height (meters) at world (x, z) and sim time t. CPU mirror of the GPU sum. */
+/** Exact CPU mirror of the GPU height profile at world (x, z) and time t. */
 export function waterHeight(x: number, z: number, t: number): number {
   let y = 0;
   for (let i = 0; i < COMPILED.length; i++) {
-    const w = COMPILED[i];
-    y += w.amp * Math.sin(w.k * (w.dx * x + w.dz * z) + w.omega * t + w.phase);
+    const wave = COMPILED[i];
+    const phase = wave.k * (wave.dx * x + wave.dz * z) + wave.omega * t + wave.phase;
+    const c = Math.cos(phase);
+    const c2 = c * c * 2 - 1;
+    y += wave.amp * (c + wave.crest * c2);
   }
   return y;
 }
 
-/**
- * Analytic water normal at (x, z, t), written into `out` (any object with x/y/z).
- * Derived from the same height sum: dh/dx = Σ A·k·Dx·cos(φ).
- */
+/** Analytic normal of the exact height field, written without allocations. */
 export function waterNormalInto(out: { x: number; y: number; z: number }, x: number, z: number, t: number): void {
   let dhx = 0;
   let dhz = 0;
   for (let i = 0; i < COMPILED.length; i++) {
-    const w = COMPILED[i];
-    const c = w.amp * w.k * Math.cos(w.k * (w.dx * x + w.dz * z) + w.omega * t + w.phase);
-    dhx += c * w.dx;
-    dhz += c * w.dz;
+    const wave = COMPILED[i];
+    const phase = wave.k * (wave.dx * x + wave.dz * z) + wave.omega * t + wave.phase;
+    const s = Math.sin(phase);
+    const c = Math.cos(phase);
+    const derivative = -(s + wave.crest * 4 * s * c);
+    const slope = wave.amp * wave.k * derivative;
+    dhx += slope * wave.dx;
+    dhz += slope * wave.dz;
   }
   const inv = 1 / Math.hypot(dhx, 1, dhz);
   out.x = -dhx * inv;
@@ -110,60 +104,91 @@ export function waterNormalInto(out: { x: number; y: number; z: number }, x: num
 }
 
 /**
- * GLSL chunk generated from the same WAVES table — shader and CPU can never drift.
- * Provides:
- *   float waveHeight(vec2 p, float t)      — height only (ribbons, foam logic)
- *   vec3  gerstnerDisplace(vec3 p, float t) — full Gerstner displacement (ocean mesh)
- *   vec3  gerstnerNormal(vec2 p, float t)   — analytic normal of the height field
+ * GLSL generated from the CPU table. The compatibility normal name remains
+ * because wake materials already consume gerstnerNormal(), although the surface is
+ * now an exact second-order height field rather than a horizontally displaced
+ * Gerstner approximation.
  */
 export const WAVES_GLSL: string = (() => {
-  const n = COMPILED.length;
-  const f = (v: number) => v.toFixed(7);
+  const count = COMPILED.length;
+  const f = (value: number) => value.toFixed(7);
   let body = '';
-  body += `const int NUM_WAVES = ${n};\n`;
-  body += `// per wave: dir.xy, k, omega | amp, steepness, phase, unused\n`;
+  body += `const int NUM_WAVES = ${count};\n`;
+  body += `// dir.xy, k, omega | amp, crest harmonic, phase, horizon-detail flag\n`;
   body += `const vec4 WAVE_A[NUM_WAVES] = vec4[NUM_WAVES](\n`;
-  body += COMPILED.map((w) => `  vec4(${f(w.dx)}, ${f(w.dz)}, ${f(w.k)}, ${f(w.omega)})`).join(',\n');
+  body += COMPILED.map((wave) =>
+    `  vec4(${f(wave.dx)}, ${f(wave.dz)}, ${f(wave.k)}, ${f(wave.omega)})`).join(',\n');
   body += `\n);\n`;
   body += `const vec4 WAVE_B[NUM_WAVES] = vec4[NUM_WAVES](\n`;
-  body += COMPILED.map((w) => `  vec4(${f(w.amp)}, ${f(w.q)}, ${f(w.phase)}, 0.0)`).join(',\n');
+  body += COMPILED.map((wave) =>
+    `  vec4(${f(wave.amp)}, ${f(wave.crest)}, ${f(wave.phase)}, ${f(wave.detail)})`).join(',\n');
   body += `\n);\n`;
   body += `
-float waveHeight(vec2 p, float t) {
-  float y = 0.0;
+void waveSurfaceState(
+  vec2 p,
+  float t,
+  float detail,
+  out float height,
+  out vec2 gradient,
+  out float verticalVelocity,
+  out float curvature
+) {
+  height = 0.0;
+  gradient = vec2(0.0);
+  verticalVelocity = 0.0;
+  curvature = 0.0;
   for (int i = 0; i < NUM_WAVES; i++) {
     vec4 a = WAVE_A[i];
     vec4 b = WAVE_B[i];
-    y += b.x * sin(a.z * dot(a.xy, p) + a.w * t + b.z);
+    float phase = a.z * dot(a.xy, p) + a.w * t + b.z;
+    float s = sin(phase);
+    float c = cos(phase);
+    float s2 = 2.0 * s * c;
+    float c2 = c * c - s * s;
+    float weight = mix(1.0, detail, b.w);
+    float profile = c + b.y * c2;
+    float derivative = -(s + 2.0 * b.y * s2);
+    float secondDerivative = -(c + 4.0 * b.y * c2);
+    height += b.x * profile * weight;
+    gradient += a.xy * (b.x * a.z * derivative * weight);
+    verticalVelocity += b.x * a.w * derivative * weight;
+    curvature += b.x * a.z * a.z * secondDerivative * weight;
   }
-  return y;
 }
 
-vec3 gerstnerDisplace(vec3 p, float t) {
-  vec3 d = p;
+float waveHeightLod(vec2 p, float t, float detail) {
+  float height = 0.0;
   for (int i = 0; i < NUM_WAVES; i++) {
     vec4 a = WAVE_A[i];
     vec4 b = WAVE_B[i];
-    float ph = a.z * dot(a.xy, p.xz) + a.w * t + b.z;
-    float qa = b.y * b.x;
-    d.x += qa * a.x * cos(ph);
-    d.z += qa * a.y * cos(ph);
-    d.y += b.x * sin(ph);
+    float c = cos(a.z * dot(a.xy, p) + a.w * t + b.z);
+    float c2 = 2.0 * c * c - 1.0;
+    height += b.x * (c + b.y * c2) * mix(1.0, detail, b.w);
   }
-  return d;
+  return height;
+}
+
+float waveHeight(vec2 p, float t) {
+  return waveHeightLod(p, t, 1.0);
+}
+
+vec3 waveDisplaceLod(vec3 p, float t, float detail) {
+  p.y += waveHeightLod(p.xz, t, detail);
+  return p;
 }
 
 vec3 gerstnerNormal(vec2 p, float t) {
-  float dhx = 0.0;
-  float dhz = 0.0;
+  vec2 gradient = vec2(0.0);
   for (int i = 0; i < NUM_WAVES; i++) {
     vec4 a = WAVE_A[i];
     vec4 b = WAVE_B[i];
-    float c = b.x * a.z * cos(a.z * dot(a.xy, p) + a.w * t + b.z);
-    dhx += c * a.x;
-    dhz += c * a.y;
+    float phase = a.z * dot(a.xy, p) + a.w * t + b.z;
+    float s = sin(phase);
+    float c = cos(phase);
+    float derivative = -(s + 4.0 * b.y * s * c);
+    gradient += a.xy * (b.x * a.z * derivative);
   }
-  return normalize(vec3(-dhx, 1.0, -dhz));
+  return normalize(vec3(-gradient.x, 1.0, -gradient.y));
 }
 `;
   return body;
