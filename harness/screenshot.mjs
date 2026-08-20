@@ -215,7 +215,9 @@ async function verifyMode(browser, mobile) {
   opened = await openHarness(browser, mobile);
   ({ context, page } = opened);
 
-  await stage(page, 'radio-technique', 160);
+  // The broadcast entrance (race-radio-broadcast) needs ~0.55s to slide into
+  // the viewport; measuring earlier races the CSS animation wall clock.
+  await stage(page, 'radio-technique', 700);
   const viewport = page.viewportSize();
   const radio = await elementRect(page, '.race-radio.broadcast.on');
   const radioCopy = await elementRect(page, '.race-radio-copy');

@@ -67,7 +67,7 @@ import {
   type CaptureExportAction,
   type CaptureExportOutcome,
 } from './core/capture';
-import { CapturePreview, type CaptureKind } from './hud/capturePreview';
+import { CapturePreview } from './hud/capturePreview';
 import { trackGameEvent } from './game/eventLog';
 import {
   MAX_FLIGHT_CHARGES,
@@ -159,7 +159,6 @@ hudLayer.id = 'hud-layer';
 hudLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;';
 app.appendChild(hudLayer);
 const capture = new CaptureService(stage.renderer.domElement);
-let medalCapture: Blob | null = null;
 let finaleCapture: Blob | null = null;
 let finaleCaptureRecorded = false;
 let captureOverlayVisible = false;
@@ -178,7 +177,7 @@ const hud = new HUD(
   records.data.bestFlights,
   resumeInterruption,
   stage.camera,
-  openMedalCapturePreview,
+  openMedalGallery,
   disableDrivingCoach,
   dismissPcControlPrimer,
 );
@@ -214,10 +213,10 @@ const expansionGallery = new ExpansionGallery(
   hudLayer,
   (index) => records.markExpansionSeen(index),
   () => {
-    // Returning from the dossier restores the frozen finale, not gameplay.
+    // Returning from the dossier restores the frozen presentation, not gameplay.
     // Keep touch controls out of the result composition until a new run begins.
     mobileInput.setOverlayHidden(true);
-    finale.focusPrimary();
+    if (race.phase !== 'medal') finale.focusPrimary();
   },
 );
 
@@ -273,9 +272,7 @@ let freshStartPending = false;
 let medalElapsed = 0;
 let finaleElapsed = 0;
 let finalePresentation = false;
-let medalCapturePending = false;
 let finaleCapturePending = false;
-let medalCaptureCard = { title: '猛男', kicker: '三飞达成', lines: [] as string[] };
 let interruptionActive = false;
 let pageWasHidden = false;
 let interruptionNeedsCountdown = false;
@@ -446,7 +443,7 @@ function activeCoachControls(): CoachControls {
 
 function requestRetry(): void {
   if (race.phase === 'medal') {
-    if (medalElapsed >= MEDAL_MIN_READ_S) startResumeCountdown();
+    if (medalElapsed >= MEDAL_MIN_READ_S && !expansionGallery.visible()) startResumeCountdown();
     return;
   }
   if (retryLessonActive) {
@@ -516,6 +513,7 @@ function startResumeCountdown(): void {
   input.clearTransient();
   gamepadInput.clearTransient();
   mobileInput.resumeFromPresentation();
+  mobileInput.setOverlayHidden(false);
   hud.hideMedalCeremony();
   audio.startRaceScore(false);
   audio.setScene('countdown');
@@ -550,9 +548,10 @@ function openExpansionGallery(): void {
   expansionGallery.show(0);
 }
 
-function openMedalCapturePreview(): void {
-  if (!medalCapture) return;
-  capturePreview.show('medal', medalCapture, `board-race-macho-${currentRun}.png`);
+function openMedalGallery(): void {
+  if (race.phase !== 'medal' || expansionGallery.visible()) return;
+  mobileInput.setOverlayHidden(true);
+  expansionGallery.show(0);
 }
 
 function setCaptureOverlayVisible(visible: boolean): void {
@@ -567,30 +566,19 @@ function restoreMobileImmersiveFromCaptureGesture(): void {
 
 function openFinaleCapturePreview(): void {
   if (!finaleCapture) return;
-  capturePreview.show('finale', finaleCapture, `board-race-final-${currentRun}.png`);
+  capturePreview.show(finaleCapture, `board-race-final-${currentRun}.png`);
 }
 
 function handleCaptureOutcome(
-  kind: CaptureKind,
   action: CaptureExportAction,
   outcome: CaptureExportOutcome,
 ): void {
   audio.resume();
   if (outcome === 'cancelled' || outcome === 'unsupported' || outcome === 'failed') return;
-  trackGameEvent('screenshot_exported', { kind, run: currentRun, action, outcome });
-  if (kind === 'finale' && outcome !== 'share-opened' && !finaleCaptureRecorded) {
+  trackGameEvent('screenshot_exported', { run: currentRun, action, outcome });
+  if (outcome !== 'share-opened' && !finaleCaptureRecorded) {
     finaleCaptureRecorded = true;
     records.recordFinaleScreenshot();
-  }
-}
-
-async function createMedalCapture(): Promise<void> {
-  try {
-    medalCapture = await capture.create({ kind: 'medal', ...medalCaptureCard });
-    hud.setMedalCaptureReady(true);
-    trackGameEvent('screenshot_created', { kind: 'medal', run: currentRun });
-  } catch {
-    hud.setMedalCaptureReady(false);
   }
 }
 
@@ -599,12 +587,12 @@ async function createFinaleCapture(): Promise<void> {
   if (!result) return;
   try {
     finaleCapture = await capture.create({
-      kind: 'finale', title: '七飞认证', kicker: 'FINAL STATION',
+      title: '七飞认证', kicker: 'FINAL STATION',
       lines: [`第 ${result.place} / ${result.totalRacers} 名`, `本局 ${result.flightsCleared} 飞`],
       overlayCanvas: finale.getCaptureCanvas(),
     });
     finale.setCaptureReady(true);
-    trackGameEvent('screenshot_created', { kind: 'finale', run: currentRun });
+    trackGameEvent('screenshot_created', { run: currentRun });
   } catch {
     finale.setCaptureReady(false);
   }
@@ -619,13 +607,6 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   mobileInput.suspendForPresentation();
   hud.showQualification(tier, medals, best);
   hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, false);
-  medalCapture = null;
-  medalCapturePending = true;
-  medalCaptureCard = {
-    title: '猛男',
-    kicker: tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成',
-    lines: [`男人勋章 +1 · 累计 ${medals}`, `本局 BEST ${best} 飞`],
-  };
   audio.setScene('medal');
   audio.playMedalCeremony();
   haptics.cue('medal');
@@ -710,10 +691,8 @@ function resetRace(): void {
   previousChallengeTier = 'unqualified';
   finalePresentation = false;
   finaleElapsed = 0;
-  medalCapture = null;
   finaleCapture = null;
   finaleCaptureRecorded = false;
-  medalCapturePending = false;
   finaleCapturePending = false;
   course.resetFlightChallenge();
   collisions.reset();
@@ -829,11 +808,13 @@ function step(dt: number, _t: number): void {
 
   if (race.phase === 'medal') {
     mobileInput.consumeAnyPress();
-    medalElapsed += dt;
+    // Browsing the dossier pauses the ceremony clock; it resumes on return.
+    const galleryOpen = expansionGallery.visible();
+    if (!galleryOpen) medalElapsed += dt;
     const canContinue = medalElapsed >= MEDAL_MIN_READ_S;
     hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, canContinue);
     updateFrozenPresentation(dt, 'medal');
-    if (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && canContinue)) startResumeCountdown();
+    if (!galleryOpen && (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && canContinue))) startResumeCountdown();
     return;
   }
 
@@ -1328,10 +1309,6 @@ function render(frameMs: number): void {
 }
 
 function processCaptureQueue(): void {
-  if (medalCapturePending) {
-    medalCapturePending = false;
-    void createMedalCapture();
-  }
   if (finaleCapturePending && finaleElapsed >= FINALE_CAPTURE_S) {
     finaleCapturePending = false;
     void createFinaleCapture();
@@ -2102,6 +2079,11 @@ function scenario(name: string): void {
     case "start":
       advanceUntil(() => race.phase === "racing", 8);
       loop.advance(2.2);
+      break;
+    case "medal-ceremony":
+      advanceUntil(() => race.phase === "racing", 8);
+      startMedalCeremony("ordinary", 3, 3);
+      loop.advance(2);
       break;
     case "radio-technique":
       stageRadioTechniqueBroadcast();

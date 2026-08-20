@@ -2447,8 +2447,7 @@
   text-transform: uppercase;
   pointer-events: auto;
 }
-.hud-medal-save { margin-left: 10px; border-color: var(--flight); color: var(--flight); }
-.hud-medal-save:disabled { opacity: .45; }
+.hud-medal-gallery { margin-left: 10px; border-color: var(--flight); color: var(--flight); }
 .hud-medal-continue[hidden],
 .hud-lesson-continue[hidden] { display: none; }
 .hud-medal-continue:focus-visible,

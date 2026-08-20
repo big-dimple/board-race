@@ -5,10 +5,7 @@ import {
 } from '../core/capture';
 import './capturePreview.css';
 
-export type CaptureKind = 'medal' | 'finale';
-
 interface CaptureRequest {
-  kind: CaptureKind;
   blob: Blob;
   filename: string;
 }
@@ -35,7 +32,7 @@ export class CapturePreview {
   constructor(
     parent: HTMLElement,
     private readonly service: CaptureService,
-    private readonly onOutcome: (kind: CaptureKind, action: CaptureExportAction, outcome: CaptureExportOutcome) => void,
+    private readonly onOutcome: (action: CaptureExportAction, outcome: CaptureExportOutcome) => void,
     private readonly onVisibilityChange: (visible: boolean) => void = () => {},
     private readonly onDismissGesture: () => void = () => {},
   ) {
@@ -93,14 +90,14 @@ export class CapturePreview {
     });
   }
 
-  show(kind: CaptureKind, blob: Blob, filename: string): void {
+  show(blob: Blob, filename: string): void {
     this.hide(false);
     this.restoreFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    this.request = { kind, blob, filename };
+    this.request = { blob, filename };
     this.objectUrl = URL.createObjectURL(blob);
     this.image.src = this.objectUrl;
-    this.image.alt = kind === 'medal' ? '男人勋章截图预览' : '七飞认证截图预览';
-    this.title.textContent = kind === 'medal' ? '勋章截图' : 'Final 截图';
+    this.image.alt = '七飞认证截图预览';
+    this.title.textContent = 'Final 截图';
     this.status.textContent = '';
     this.configureActions(detectPlatform(), blob, filename);
     this.onVisibilityChange(true);
@@ -169,10 +166,10 @@ export class CapturePreview {
     try {
       const outcome = await this.service.export(action, request.blob, request.filename);
       this.status.textContent = outcomeCopy(outcome);
-      this.onOutcome(request.kind, action, outcome);
+      this.onOutcome(action, outcome);
     } catch {
       this.status.textContent = '导出失败 · 可改用下载 PNG';
-      this.onOutcome(request.kind, action, 'failed');
+      this.onOutcome(action, 'failed');
     } finally {
       this.busy = false;
       this.primary.disabled = false;
