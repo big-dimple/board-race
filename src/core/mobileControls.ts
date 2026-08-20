@@ -206,10 +206,15 @@ export class MobileControls {
     const touchTarget = leftHeld === rightHeld ? 0 : leftHeld ? -1 : 1;
     this.touchSteer = approach(this.touchSteer, touchTarget, 8 * dt);
 
-    const response = 1 - Math.exp(-dt / 0.12);
-    this.filteredTilt += (this.rawTilt - this.filteredTilt) * response;
+    // Adaptive tilt filter: a steady hand keeps the 0.11s jitter filter,
+    // but a hard swing (error > ~9°, e.g. a reversal) opens it up to ~0.025s
+    // so the boat answers deliberate direction changes within a few frames.
+    const tiltError = this.rawTilt - this.filteredTilt;
+    const swing = clamp(Math.abs(tiltError) / 9, 0, 1);
+    const tiltTau = 0.11 - 0.085 * swing;
+    this.filteredTilt += tiltError * (1 - Math.exp(-dt / tiltTau));
     const tiltDegrees = Math.abs(this.filteredTilt);
-    const tiltMagnitude = clamp((tiltDegrees - 3) / 19, 0, 1);
+    const tiltMagnitude = clamp((tiltDegrees - 2) / 12, 0, 1);
     const tiltSteer = Math.sign(this.filteredTilt) * tiltMagnitude;
     if (this.mode === 'tilt' && Math.abs(tiltSteer) >= 0.42 &&
         (Math.abs(this.previousTiltActivity) < 0.24 || Math.abs(tiltSteer - this.previousTiltActivity) >= 0.5)) {
