@@ -99,9 +99,19 @@ void main() {
   float lowerSky = smoothstep(0.5, 0.04, dir.y);
   float shaft = pow(azimuthMatch, 10.0) * lowerSky * smoothstep(0.025, 0.12, ang) *
     (1.0 - smoothstep(0.18, 0.72, ang));
-  float crossFlare = pow(max(cos(az + rot * 0.35), 0.0), 18.0) *
-    smoothstep(0.025, 0.11, ang) * (1.0 - smoothstep(0.11, 0.3, ang));
-  atmosphericGlow += shaft * 0.28 + crossFlare * 0.11;
+  // Cinematic sun response: a true four-spike lens cross, a thin horizontal
+  // anamorphic streak, and a slow-rotating Tyndall ray fan. All of them
+  // gather around the visible sun and strengthen when the chase camera
+  // faces the sun azimuth, so running toward the light reads as chasing it.
+  float crossFlare = pow(abs(cos(az * 2.0 + rot * 0.35)), 42.0) *
+    smoothstep(0.02, 0.09, ang) * (1.0 - smoothstep(0.09, 0.6, ang));
+  float anamorphic = pow(abs(cos(az)), 90.0) *
+    smoothstep(0.015, 0.06, ang) * (1.0 - smoothstep(0.08, 0.75, ang));
+  float spokes = pow(0.5 + 0.5 * sin(az * 9.0 + rot * 1.7), 6.0) * 0.6 +
+    pow(0.5 + 0.5 * sin(az * 17.0 - rot * 1.1 + 1.3), 9.0) * 0.4;
+  float rayFan = spokes * smoothstep(0.03, 0.14, ang) *
+    (1.0 - smoothstep(0.2, 0.85, ang)) * lowerSky * (0.35 + 0.65 * azimuthMatch);
+  atmosphericGlow += shaft * 0.34 + crossFlare * 0.16 + anamorphic * 0.1 + rayFan * 0.3;
   atmosphericGlow *= 1.0 + uOpeningArt * 0.2;
   float warm = clamp(atmosphericGlow, 0.0, 0.38);
   vec3 sunMist = mix(uSunFlare, uSunCore, 0.48);
@@ -109,7 +119,8 @@ void main() {
   // Give the directional shaft a real luminance contribution. It should
   // appear only when the camera crosses the sun azimuth, not as a permanent
   // radial sticker painted over the sky.
-  float shaftLight = clamp(shaft * 0.2 + crossFlare * 0.07, 0.0, 0.16);
+  float shaftLight = clamp(shaft * 0.24 + crossFlare * 0.08 + anamorphic * 0.05 +
+    rayFan * 0.18, 0.0, 0.2);
   col = mix(col, mix(sunMist, uSunCore, 0.28), shaftLight);
   col = mix(col, uSunCore, disc);
 

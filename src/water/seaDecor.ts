@@ -30,13 +30,11 @@ export class SeaDecor {
 
   private readonly sails: THREE.InstancedMesh;
   private readonly birds: THREE.InstancedMesh;
-  private readonly glints: THREE.InstancedMesh;
   private readonly quality: RenderQualityMode;
   private opening = false;
   private readonly marker = new THREE.Object3D();
   private readonly sailCapacity: number;
   private readonly birdCapacity: number;
-  private readonly glintCapacity: number;
 
   constructor(quality: RenderQualityMode = 'auto') {
     this.quality = quality;
@@ -45,7 +43,6 @@ export class SeaDecor {
 
     this.sailCapacity = quality === 'performance' ? 10 : 18;
     this.birdCapacity = quality === 'performance' ? 3 : 8;
-    this.glintCapacity = quality === 'performance' ? 10 : 22;
 
     const sailGeometry = new THREE.ConeGeometry(0.58, 1.45, 4, 1, true);
     sailGeometry.rotateX(Math.PI / 2);
@@ -77,23 +74,7 @@ export class SeaDecor {
     this.birds.frustumCulled = false;
     this.birds.renderOrder = 3;
 
-    const glintGeometry = new THREE.PlaneGeometry(2.4, 0.07);
-    glintGeometry.rotateX(-Math.PI / 2);
-    const glintMaterial = new THREE.MeshBasicMaterial({
-      color: PALETTE.sparkle,
-      transparent: true,
-      opacity: 0.34,
-      depthWrite: false,
-      fog: true,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    });
-    this.glints = new THREE.InstancedMesh(glintGeometry, glintMaterial, this.glintCapacity);
-    this.glints.name = 'sea-decor-glints';
-    this.glints.frustumCulled = false;
-    this.glints.renderOrder = 4;
-
-    this.object.add(this.sails, this.birds, this.glints);
+    this.object.add(this.sails, this.birds);
     this.setOpening(false);
   }
 
@@ -101,7 +82,6 @@ export class SeaDecor {
     this.opening = active;
     setHidden(this.sails, active ? this.sailCapacity : Math.round(this.sailCapacity * 0.58));
     setHidden(this.birds, active ? this.birdCapacity : Math.round(this.birdCapacity * 0.35));
-    setHidden(this.glints, active ? this.glintCapacity : Math.round(this.glintCapacity * 0.6));
   }
 
   update(t: number, camPos: THREE.Vector3): void {
@@ -137,21 +117,5 @@ export class SeaDecor {
       this.birds.setMatrixAt(i, this.marker.matrix);
     }
     this.birds.instanceMatrix.needsUpdate = true;
-
-    const glintCount = this.glints.count;
-    for (let i = 0; i < glintCount; i++) {
-      const angle = i * 2.07 + 0.16;
-      const radius = 57 + (i % 8) * 11;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
-      const wave = waterHeight(camPos.x + x, camPos.z + z, t);
-      this.marker.position.set(x, wave + 0.09, z);
-      this.marker.rotation.set(0, angle + Math.sin(t * 0.9 + i) * 0.12, 0);
-      const pulse = 0.7 + 0.3 * Math.sin(t * 2.1 + i * 1.7);
-      this.marker.scale.set(0.65 + pulse * 0.5, 1, 0.65 + pulse * 0.5);
-      this.marker.updateMatrix();
-      this.glints.setMatrixAt(i, this.marker.matrix);
-    }
-    this.glints.instanceMatrix.needsUpdate = true;
   }
 }

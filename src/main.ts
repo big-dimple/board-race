@@ -238,7 +238,7 @@ const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, p
 stage.onResize((w, h, pr) => {
   pipeline.setSize(w, h, pr);
   prePass.setSize(w * pr, h * pr);
-  ocean.setResolution(w * pr, h * pr);
+  ocean.setResolution(w * pr, h * pr, stage.camera.fov);
 });
 
 // -------------------------------------------------------------- race events
@@ -2140,6 +2140,34 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === "racing", 8);
       stageHarnessGateFailure();
       break;
+    case "ocean-near":
+      advanceUntil(() => race.phase === "racing", 8);
+      setHarnessInput({ throttle: 0 });
+      loop.advance(2.0);
+      break;
+    case "ocean-near-t2":
+      advanceUntil(() => race.phase === "racing", 8);
+      setHarnessInput({ throttle: 0 });
+      loop.advance(2.37);
+      break;
+    case "ocean-sunpath": {
+      // Turn until the chase camera faces the visible sun azimuth, then run
+      // straight at it — validates the glitter lane, lens cross, and rays.
+      advanceUntil(() => race.phase === "racing", 8);
+      const sunHeading = Math.atan2(0.5, 0.73); // SKY_SUN_DIR horizontal azimuth
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => boats[0].state.speed >= 14, 6);
+      for (let i = 0; i < 900; i++) {
+        const err = sunHeading - boats[0].state.heading;
+        const wrapped = Math.atan2(Math.sin(err), Math.cos(err));
+        if (Math.abs(wrapped) < 0.05) break;
+        setHarnessInput({ throttle: 1, steer: wrapped > 0 ? -0.6 : 0.6 });
+        loop.advance(1 / 30);
+      }
+      setHarnessInput({ throttle: 1, steer: 0 });
+      loop.advance(1.2);
+      break;
+    }
     default:
       throw new Error(`unknown scenario: `);
   }

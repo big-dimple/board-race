@@ -211,6 +211,19 @@ uniform float uWhitecapCurvature;
 uniform float uFoamStrength;
 uniform float uGlintGloss;
 uniform float uGlintStrength;
+uniform float uSparkleDensity;
+uniform float uSparkleTwinkle;
+uniform float uGlintPathAniso;
+uniform float uGlintCoreR;
+uniform float uGlintHaloR;
+uniform float uGlintHaloAmp;
+uniform float uGlintMaxMix;
+uniform float uGlintHaloAmp2;
+uniform float uGlintSpikeLen;
+uniform float uGlintSpikeAmp;
+uniform float uPixelScale;
+uniform float uFoamBreakup;
+uniform float uFoamCellSize;
 uniform float uFresnelStrength;
 
 // continuous distance fade into the horizon
@@ -239,6 +252,71 @@ float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+// Sun glitter: hash-cell sparkles in rotated octaves. Each cell hosts one
+// jittered point with its own twinkle phase and rate, so the field reads as
+// irregular living fragments instead of a periodic dot grid. Cores are
+// sharp, halos are a faint fake bloom, and everything stretches along the
+// sun azimuth so distant sparkle merges into a continuous glitter lane
+// rather than discrete patches. Per-octave pixel-footprint fades retire
+// each cell size before it can alias. Material-only: displacement and
+// buoyancy untouched.
+float sparkleBand(float d, float inA, float inB, float outA, float outB) {
+  return smoothstep(inA, inB, d) * (1.0 - smoothstep(outA, outB, d));
+}
+
+float sparkleCellVisible(float cellSize, float d) {
+  float mPerPix = max(d * uPixelScale, 1e-4);
+  return smoothstep(1.2, 2.5, cellSize / mPerPix);
+}
+
+vec2 sparkleOctave(vec2 p, float cellSize, float rot, float density,
+                   float twSpeed, float seed, vec2 sunAz, float aniso,
+                   float coreScale, float spikeScale, float pixW) {
+  float cs = cos(rot);
+  float sn = sin(rot);
+  vec2 q = mat2(cs, -sn, sn, cs) * p / cellSize;
+  vec2 id = floor(q);
+  vec2 f = fract(q);
+  float r1 = hash12(id + seed);
+  float r2 = hash12(id + seed + 17.31);
+  float r3 = hash12(id + seed + 41.77);
+  float cycle = fract(r3 + uTime * uSparkleTwinkle * twSpeed * (0.6 + 0.8 * r2));
+  float on = smoothstep(0.0, 0.06, cycle) *
+    (1.0 - smoothstep(density, density + 0.06, cycle));
+  on *= on; // snappier attack/decay -> flashes read as bursts, not fades
+  vec2 pt = vec2(r1, r2) * 0.56 + 0.22;
+  vec2 d = (f - pt) * cellSize;
+  vec2 perp = vec2(-sunAz.y, sunAz.x);
+  vec2 sd = vec2(dot(d, sunAz), dot(d, perp));
+  float r = length(vec2(sd.x, sd.y * aniso));
+  float coreR = uGlintCoreR * coreScale;
+  // Analytic pixel-footprint AA. Never fwidth() of the cell distance field:
+  // quads straddling a cell border see a huge derivative and would paint
+  // dashed lattice outlines around every fleck.
+  float aa = pixW;
+  // Peaked falloff (brightest at center, no flat disc plateau) so the core
+  // reads as a point of light, not a solid circle.
+  float core = 1.0 - smoothstep(0.0, coreR + aa, r);
+  core = pow(core, 1.4);
+  // Four-point starburst on a per-cell rotated cross. Spike length pulses
+  // with the flash, so the brightest flecks visibly burst like night-sky
+  // stars instead of staying round dots. Only strong flashes grow spikes.
+  float spikeRot = r1 > 0.67 ? 0.7854 : (r1 > 0.33 ? 0.3927 : 0.0);
+  float src = cos(spikeRot);
+  float srs = sin(spikeRot);
+  vec2 sa = abs(mat2(src, -srs, srs, src) * sd);
+  float spikeLen = uGlintSpikeLen * spikeScale * (0.3 + 0.7 * on);
+  float spikeW = coreR * 0.28;
+  float spikeAA = pixW;
+  float spikeH = (1.0 - smoothstep(0.0, spikeLen, sa.x)) *
+    (1.0 - smoothstep(spikeW * 0.4, spikeW + spikeAA, sa.y));
+  float spikeV = (1.0 - smoothstep(0.0, spikeLen, sa.y)) *
+    (1.0 - smoothstep(spikeW * 0.4, spikeW + spikeAA, sa.x));
+  float spikes = min(spikeH + spikeV, 1.0) * smoothstep(0.2, 0.85, on) * uGlintSpikeAmp;
+  float halo = 1.0 - smoothstep(0.0, uGlintHaloR * coreScale + aa, r);
+  return vec2(max(core, spikes), halo * uGlintHaloAmp) * on;
 }
 
 void main() {
@@ -290,40 +368,44 @@ void main() {
   float reflectionAmount = clamp(0.025 + fresnel * uFresnelStrength + physicalSlope * 0.018, 0.025, 0.22);
   col = mix(col, skyReflection, reflectionAmount);
 
-  // Sun glitter comes from fast, short micro-facets, not a broad white lobe
-  // travelling at the period of the dominant swell. These visual-only slopes
-  // leave displacement and buoyancy untouched, while derivative filtering
-  // keeps the tiny highlights stable as they recede from the camera.
+  // Sun glitter stacks four sparkle octaves with different scales and
+  // speeds under the Blinn envelope of the physical+ripple normal, so
+  // flecks gather and disperse fast on sun-facing micro-slopes. A view
+  // lane toward the sun boosts density into a glitter path; the wave
+  // crest bias lets larger soft glints favor crests.
   vec3 halfDir = normalize(sunDir + viewDir);
-  vec2 diagonalWind = normalize(windDir + crossWind * 0.73);
-  vec2 opposingWind = normalize(windDir - crossWind * 0.61);
-  float glintWarpA =
-    sin(dot(vOrigXZ, diagonalWind) * 0.71 - uTime * 2.1) * 0.82 +
-    sin(dot(vOrigXZ, opposingWind) * 1.13 + uTime * 2.8) * 0.31;
-  float glintWarpB =
-    sin(dot(vOrigXZ, opposingWind) * 0.89 + uTime * 1.8) * 0.76 +
-    sin(dot(vOrigXZ, diagonalWind) * 1.47 - uTime * 2.4) * 0.27;
-  float glintWaveA = 0.5 + 0.5 * sin(
-    dot(vOrigXZ, windDir) * 3.4 + uTime * 11.0 + glintWarpA);
-  float glintWaveB = 0.5 + 0.5 * sin(
-    dot(vOrigXZ, crossWind) * 6.8 - uTime * 15.2 + glintWarpB);
-  float glintAaA = max(fwidth(glintWaveA) * 1.35, 0.014);
-  float glintAaB = max(fwidth(glintWaveB) * 1.35, 0.014);
-  float glintFlecks =
-    smoothstep(0.78 - glintAaA, 0.94 + glintAaA, glintWaveA) *
-    smoothstep(0.74 - glintAaB, 0.92 + glintAaB, glintWaveB);
+  vec2 sunAz = normalize(uSunDir.xz);
+  vec2 viewAz = normalize(vOrigXZ - cameraPosition.xz);
+  float pathBoost = mix(0.3, 1.25, smoothstep(0.15, 0.8, dot(viewAz, sunAz)));
+  // Round pinpoints up close; elongation grows only with distance so the far
+  // field merges into a glitter lane while near fragments stay point-like.
+  float aniso = mix(1.05, uGlintPathAniso * 2.6, smoothstep(40.0, 280.0, dist));
+  float crestBias = mix(0.7, 1.15, smoothstep(0.0, 0.35, vH));
+  float pixW = max(dist * uPixelScale * 1.4, 0.015);
+  vec2 sp =
+    sparkleOctave(vOrigXZ, 7.5, 0.21, uSparkleDensity * 0.5, 0.5, 0.0, sunAz, aniso, 1.8, 1.6, pixW) *
+      sparkleBand(dist, 60.0, 140.0, 420.0, 900.0) +
+    sparkleOctave(vOrigXZ, 2.3, 0.94, uSparkleDensity * 0.8, 1.0, 3.7, sunAz, aniso, 1.2, 1.1, pixW) *
+      (sparkleBand(dist, 12.0, 30.0, 140.0, 320.0) * sparkleCellVisible(2.3, dist));
 #if OCEAN_FINE_DETAIL == 1
-  float glintWaveC = 0.5 + 0.5 * sin(
-    dot(vOrigXZ, diagonalWind) * 10.2 + uTime * 18.4 + glintWarpA * 1.4 - glintWarpB * 0.8);
-  float glintAaC = max(fwidth(glintWaveC) * 1.35, 0.014);
-  float glintDetail = smoothstep(0.7 - glintAaC, 0.9 + glintAaC, glintWaveC);
-  glintFlecks *= mix(0.18, 1.0, glintDetail);
+  sp += sparkleOctave(vOrigXZ, 0.75, 1.62, uSparkleDensity, 1.9, 9.1, sunAz, aniso, 1.0, 1.0, pixW) *
+    (sparkleBand(dist, 2.5, 8.0, 45.0, 110.0) * sparkleCellVisible(0.75, dist));
 #endif
-  float glintDistance = smoothstep(10.0, 28.0, dist) * (1.0 - smoothstep(340.0, 660.0, dist));
-  float glintEnvelope = pow(max(dot(n, halfDir), 0.0), uGlintGloss);
-  float glint = glintEnvelope * glintFlecks * glintDistance * uGlintStrength *
+#if OCEAN_GLINT_MICRO == 1
+  sp += sparkleOctave(vOrigXZ, 0.30, 2.35, uSparkleDensity * 1.1, 2.6, 15.3, sunAz, aniso, 0.9, 0.85, pixW) *
+    (sparkleBand(dist, 1.2, 4.0, 18.0, 48.0) * sparkleCellVisible(0.30, dist));
+#endif
+  // Wider Blinn lobe up close so near fragments can burst bright instead of
+  // being gated out by micro-normal alignment; far field keeps the tight
+  // lobe so sparkle still rides sun-facing slopes.
+  float gloss = mix(uGlintGloss * 0.45, uGlintGloss, smoothstep(8.0, 60.0, dist));
+  float glintEnvelope = pow(max(dot(n, halfDir), 0.0), gloss);
+  float glintGate = glintEnvelope * pathBoost * crestBias * uGlintStrength *
     (1.0 + uOpeningArt * 0.12);
-  col = mix(col, uColorSparkle, clamp(glint, 0.0, 0.58));
+  float spCore = min(sp.x * 1.5, 1.0) * glintGate;
+  float spHalo = min(sp.y, 1.0) * glintGate;
+  col = mix(col, uColorSparkle, clamp(spCore, 0.0, uGlintMaxMix));
+  col += uColorSparkle * spHalo * uGlintHaloAmp2;
 
   float crest = smoothstep(uWhitecapHeight, uWhitecapHeight + 0.68, h);
   float steep = smoothstep(uWhitecapSlope, uWhitecapSlope + 0.1, physicalSlope);
@@ -338,7 +420,14 @@ void main() {
     0.27 * sin(dot(vOrigXZ, crossWind) * 0.92 + uTime * 0.63) +
     0.22 * sin(dot(vOrigXZ, windDir) * 1.26 - uTime * 0.48);
   float detailAa = max(fwidth(foamDetail) * 1.25, 0.016);
-  foamBreak *= smoothstep(0.48 - detailAa, 0.69 + detailAa, foamDetail);
+  // Mid-range fragmentation: hash cells break the low-frequency foam field
+  // into smaller patches so distant whitecaps stop reading as flat scraps.
+  float foamMidBand = smoothstep(30.0, 60.0, dist) * (1.0 - smoothstep(190.0, 390.0, dist));
+  float foamCell = hash12(floor(vOrigXZ / uFoamCellSize));
+  foamBreak *= mix(1.0, smoothstep(0.35, 0.75, foamCell), foamMidBand * uFoamBreakup);
+  float detailLo = mix(0.48, 0.55, foamMidBand * uFoamBreakup);
+  float detailHi = mix(0.69, 0.78, foamMidBand * uFoamBreakup);
+  foamBreak *= smoothstep(detailLo - detailAa, detailHi + detailAa, foamDetail);
   float whitecap = crest * steep * rising * convex * foamBreak * uFoamStrength *
     (1.0 + uOpeningArt * 0.1);
   whitecap = smoothstep(0.012, 0.14, whitecap) * 0.78;
@@ -429,6 +518,19 @@ export class Ocean {
       uFoamStrength: { value: performance ? 0.82 : high ? 1.04 : 0.96 },
       uGlintGloss: { value: performance ? 18.0 : high ? 24.0 : 21.0 },
       uGlintStrength: { value: performance ? 1.35 : high ? 2.0 : 1.7 },
+      uSparkleDensity: { value: performance ? 0.07 : high ? 0.18 : 0.13 },
+      uSparkleTwinkle: { value: 1.0 },
+      uGlintPathAniso: { value: performance ? 1.6 : high ? 2.0 : 1.8 },
+      uGlintCoreR: { value: performance ? 0.1 : high ? 0.08 : 0.09 },
+      uGlintHaloR: { value: performance ? 0.24 : high ? 0.2 : 0.22 },
+      uGlintHaloAmp: { value: performance ? 0.3 : high ? 0.5 : 0.4 },
+      uGlintMaxMix: { value: performance ? 0.62 : high ? 0.95 : 0.8 },
+      uGlintHaloAmp2: { value: performance ? 0.08 : high ? 0.2 : 0.14 },
+      uGlintSpikeLen: { value: 0.3 },
+      uGlintSpikeAmp: { value: 0.9 },
+      uPixelScale: { value: 0.0013 },
+      uFoamBreakup: { value: performance ? 0.0 : high ? 0.65 : 0.5 },
+      uFoamCellSize: { value: 3.5 },
       uFresnelStrength: { value: 0.22 },
 
       uFoamRingWidth: { value: 1.6 },
@@ -459,7 +561,10 @@ export class Ocean {
       uniforms: this.uniforms,
       vertexShader: VERT,
       fragmentShader: FRAG,
-      defines: { OCEAN_FINE_DETAIL: performance ? 0 : 1 },
+      defines: {
+        OCEAN_FINE_DETAIL: performance ? 0 : 1,
+        OCEAN_GLINT_MICRO: high ? 1 : 0,
+      },
       side: THREE.FrontSide,
       transparent: false,
       depthWrite: true,
@@ -480,8 +585,13 @@ export class Ocean {
     this.mesh.position.set(sx, 0, sz);
   }
 
-  setResolution(deviceW: number, deviceH: number): void {
+  setResolution(deviceW: number, deviceH: number, fovYDegrees?: number): void {
     (this.uniforms.uResolution.value as THREE.Vector2).set(deviceW, deviceH);
+    if (fovYDegrees && deviceH > 0) {
+      // meters per pixel at 1 m distance — drives per-octave cell retirement
+      this.uniforms.uPixelScale.value =
+        (2 * Math.tan((fovYDegrees * Math.PI) / 360)) / deviceH;
+    }
   }
 
   setOpeningIntensity(value: number): void {
