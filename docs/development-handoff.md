@@ -25,9 +25,6 @@
 
 ## 证据与验证
 
-- Fresh before：`shots/ocean-sparkle/before/`（start、drift-charge 双端）。
-- After：`shots/ocean-sparkle/after/`（start、drift-charge、ocean-near、ocean-near-t2、
-  ocean-sunpath 双端），机器记录在同目录 `evidence.json`。
 - 人工评审结论：机械点阵与远场纸片白斑消除；星芒碎斑方向确认后经尺寸/剖面调优通过；
   追光丁达尔光束扇与四刺十字确认。静态截图会放大碎斑观感，动态闪烁以实机为准。
 - `git diff --check`、`npm run build`、`npm run verify:smoke` 通过。smoke 桌面
