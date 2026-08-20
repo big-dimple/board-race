@@ -1415,7 +1415,6 @@ window.addEventListener('keydown', (event) => {
 interface Harness {
   ready: boolean;
   scenario(name: string): void;
-  stageLaunchPillars(armed: boolean, distanceM: 140 | 80 | 32): Record<string, number | string | boolean>;
   advance(seconds: number): void;
   render(): void;
   tapFlight(): void;
@@ -1557,60 +1556,6 @@ function placeHarnessBoat(id: number, u: number, lateral = 0): void {
   const heading = Math.atan2(tmpT.x, tmpT.z);
   boats[id].teleport(tmpP.x + tmpT.z * lateral, tmpP.z - tmpT.x * lateral, heading);
   wakes[id].clear();
-}
-
-function stageLaunchPillars(armed: boolean, distanceM: 140 | 80 | 32): Record<string, number | string | boolean> {
-  if (race.phase !== 'racing') {
-    resetRace();
-    startFreshCountdown();
-    advanceUntil(() => race.phase === 'racing', 8);
-    // Let the release presentation expire before the boat is teleported into
-    // the inspection frame; staging later replaces this short live movement.
-    loop.advance(1.5);
-    pcControlPrimer.stop();
-    pcPrimerPresentation = null;
-    hud.showPcControlPrimer(null, false);
-  }
-  // The first launch is immediately behind the permanent START gantry, which
-  // makes its 140m inspection state an occlusion test rather than a pillar
-  // readability test. Flight two uses the identical live gate system without
-  // that unrelated landmark in front of it.
-  const route = course.flightRoutes[1];
-  const launchU = route.navigation?.launchCueU ?? route.launchFromU;
-  // Stay just inside the inclusive 140m preview boundary after the Course's
-  // spline projection; the asserted tolerance retains the named distance.
-  const stagedU = ((launchU - (distanceM - 0.2) / course.length) % 1 + 1) % 1;
-  course.resetFlightChallenge();
-  placePack(stagedU);
-  for (const boat of boats) {
-    boat.state.flightsCleared = route.index;
-    boat.state.flightRouteCursor = route.index;
-    boat.state.flightRouteIndex = -1;
-    boat.state.flightRouteState = 'idle';
-  }
-  boats[0].state.flightCharges = armed ? 1 : 0;
-  setHarnessInput({ throttle: 0 });
-  // The route tracker latches a previous position before it exposes the launch
-  // facility. Run both deterministic passes without advancing boat physics.
-  course.updateFlightRoute(0, boats);
-  course.updateFlightRoute(0, boats);
-  course.update(0.35, worldTime);
-  // The live chase camera eases after a boat teleport. Settle it locally so
-  // screenshots inspect the staged launch state rather than the starting grid.
-  cameraRig.mode = 'chase';
-  for (let frame = 0; frame < 60; frame++) {
-    cameraRig.update(1 / 60, boats[0], worldTime);
-  }
-  const status = course.guidanceStatus();
-  const expected = armed ? 'armed' : 'unarmed';
-  if (status.launchGateState !== expected || Math.abs(status.launchGateDistanceM - distanceM) > 0.5) {
-    throw new Error(`launch pillar staging drifted: ${JSON.stringify({ armed, distanceM, status })}`);
-  }
-  return {
-    launchGateState: status.launchGateState,
-    launchGateDistanceM: status.launchGateDistanceM,
-    armed,
-  };
 }
 
 /** Move staged boats in small, non-teleport progress increments for battle UX. */
@@ -2147,12 +2092,6 @@ function scenario(name: string): void {
   resetRace();
   if (name !== "ready") startFreshCountdown();
 
-  const launchPillarMatch = /^launch-pillars-(unarmed|armed)-(140|80|32)$/.exec(name);
-  if (launchPillarMatch) {
-    stageLaunchPillars(launchPillarMatch[1] === 'armed', Number(launchPillarMatch[2]) as 140 | 80 | 32);
-    return;
-  }
-
   switch (name) {
     case "ready":
       loop.advance(1.5);
@@ -2231,7 +2170,7 @@ function scenario(name: string): void {
       break;
     }
     default:
-      throw new Error(`unknown scenario: ${name}`);
+      throw new Error(`unknown scenario: `);
   }
 }
 
@@ -2239,7 +2178,6 @@ if (HARNESS) {
   const harness: Harness = {
     ready: true,
     scenario,
-    stageLaunchPillars,
     advance: (seconds) => loop.advance(seconds),
     render: () => {
       stage.renderer.info.reset();
