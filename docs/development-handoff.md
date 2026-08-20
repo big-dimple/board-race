@@ -1,58 +1,27 @@
 # Board Race 开发交接
 
-状态：`tornado-boundary / human review rejected; restart visual treatment`
+状态：`tornado-boundary / runtime reverted; no active implementation`
 
 更新时间：2026-08-20
 
-## 给下一位 AI 的任务提示
+## 当前状态
 
-在 `6515383` 的基础上，**从零重做 flight entrance 的黑灰龙卷风视觉**。用户已明确否决此前两个
-方案：三段透明锥面读成“倒三角贴纸”；随后两道细螺旋带加稀疏球体又读成“黑色细线/线圈”。
-它们都不是灰土烟雾构成的龙卷风，禁止只调现有 opacity、scale、颜色、远距曲线或闪电来假装修好。
+- 被用户否决的龙卷风实验已通过 Git 回退提交 `b5c627d` 和 `7460e12` 撤回。
+- `src/game/course.ts` 与 `src/main.ts` 已确认与龙卷风开发前的 `3d521b0` 完全等价；龙卷风私有渲染树、
+  红色闪电和专用 screenshot harness 均已移除。
+- 该回退不改 flight 判定、碰撞、物理、AI、波浪或既有发射引导。此前工作流文件
+  `docs/workstream-launch-pillars.md` 继续保持删除状态。
 
-目标是一个高而明确、持续旋转的黑灰尘雾柱：近景必须有可辨的体积、遮挡与层次，不能是单张面、
-几何轮廓或空心线圈；远景仍能读成两根入口边界。暗红小宇宙核心和偶发急促红色闪电可以保留，但
-只能藏在烟雾内部，不能替代烟雾本体或把场景照亮。用户会亲自审线上效果，未获明确认可不得写
-“美术已通过”。
+## 未来可选工作（未启动）
 
-## 正确语义与当前缺口
+若重新立项，必须从当前干净基线重新设计，不能恢复或微调被否决的锥面、细螺旋带或稀疏球体方案。用户目标是：
+在真实 flight entrance `def.entryU` 两侧呈现高、黑灰、具有烟尘体积和层次的动态边界；远景能读为入口，近景
+不读成贴纸、线圈、路障或海上垃圾。暗红核心和偶发短促闪电只能作为烟雾成立后的附加效果。
 
-- **唯一正确位置**是实际 flight attempt 的空门入口：`def.entryU`，两侧沿 `entryRight` 放在
-  `±(def.corridorHalfWidth + 0.45m)`。不要重新锚到更早的 `flightLaunchCueU`，也不要向前/后偏移。
-  这是一条“撞上可能死”的视觉边界，但本任务不能新增物理碰撞或改动既有判负。
-- 当前实现在 `src/game/course.ts` 的 `buildLaunchGateVisual` 已把龙卷风放到 `entryU`，但
-  `LaunchGateVisual.group` 的生命周期仍只在 `unarmed/armed` 状态显示。玩家从更早的 launch cue
-  起飞后进入 `committed`，因此门柱可能在真正入口前消失。下一位必须让**仅门柱视觉**在所需的
-  起飞到入口窗口持续存在，同时让 cue 专属投影器/菱形遵守其原有生命周期；不得更改 flight state、
-  判定、速度、碰撞或 recovery。
-- 现有 `stageLaunchPillars(..., distanceM)` 的 `140/80/32` 也是相对 `launchCueU`，不能证明
-  `entryU` 的近中远构图。为入口造型新增或修正真实 Course 定格，保证截图距离的参照就是 entry
-  boundary，不能手工伪造 scene group。
+任何新方案只可改私有视觉树和必要的真实截图 harness；不得改 flight state、判负、碰撞、速度、AI、波浪或
+`BoatInput`。先出 desktop 与 `844x390` 的真实近中远截图供人审，通过后再进入发布流程。
 
-## 硬约束
+## 下一步
 
-- 只改门柱 private visual tree、必要的真实截图 harness 和本文件；不动碰撞、gate 判定、flight 分支、
-  AI、物理、`waves.ts`、菱形层或 checkpoint 浮标。
-- 保持 `BoatInput`、60 Hz fixed step 和统一 boat world transform。不新增持续环境噪声、全屏后处理、
-  全场提亮或假 collision。
-- 烟雾必须是有界且可复用的世界内渲染；避免固定步进分配。可替换当前所有
-  `LAUNCH_TORNADO_SMOKE_*` 实验几何，不能因保留旧代码而迁就失败造型。
-- 每帧根部继续跟 `waterHeight(x, z, t)`；同一时刻最多一条路线的门柱 active；透明物保持
-  `depthTest=true`、`depthWrite=false`，不加入 `LAYER_ENERGY`。
-
-## 验收与发布
-
-- 先做一个真正有体积的烟雾原型，再看 desktop 与 `844x390` 的真实 entry-boundary
-  140m / 80m / 32m 状态；每个关键距离至少看常态和闪电瞬间，确认烟雾本体在非闪电帧也成立。
-- 截图必须同时确认：两根柱不盖船、航线、首菱形或移动端按钮；起飞 committed 后到入口前不消失；
-  黑灰烟雾在蓝天海面上不读成倒锥、贴纸、线圈、路障或一堆漂浮垃圾。
-- 通过用户人审后才跑 `npm run build`、`npm run verify:smoke`、`jiepi-clear` 和
-  `npm run release:checked -- "feat: rebuild tornado entrance boundary"`。当前 `6515383` 已通过 build/smoke，
-  但**美术已被用户驳回**。
-
-## 当前证据与下一步
-
-- 已发布基线：`6515383 feat: align tornadoes to flight entry boundary`。
-- 用户结论：当前版本“继续还是一坨屎”，交由下一位 AI 重做；不要在此基础上声称接受或继续做小调参。
-- 唯一下一步：下一位 AI 读取 `AGENTS.md`、`docs/llmwiki.md`、本文件及 `docs/art-direction.md`，按上述
-  入口语义与人审证据重新实现。
+当前没有待执行的龙卷风代码任务。下一位若重启该方向，先读取 `AGENTS.md`、`docs/llmwiki.md`、本文件和
+`docs/art-direction.md`，先提交新的视觉方案与验收截图，不得把已撤回实验视作现有基础。
