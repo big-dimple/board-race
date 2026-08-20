@@ -1,6 +1,6 @@
 # Board Race 开发交接
 
-状态：`ocean-sparkle complete / pending release`
+状态：`ocean-sparkle released / queue empty`
 
 更新时间：2026-08-20
 
@@ -42,4 +42,5 @@
 
 ## 唯一下一步
 
-`npm run release:checked` 发布本工作包，然后队列清空。
+已发布：`994f7ab feat: rework sun glitter into starburst sparkles`（build + smoke + 普通 push
+通过）。队列清空；等待新的明确需求再建工作包。
