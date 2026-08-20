@@ -65,10 +65,6 @@ automatically; players steer, drift/air-brake, and trigger flight.
   only the current work package and exact next step. Do not turn this into a
   full repository, remote, Pages, or historical screenshot audit.
 - Preserve unrelated work and stage only reviewed files.
-- `shots/` is disposable local screenshot evidence: never commit it, never
-  write auxiliary files (e.g. evidence JSON) into it, and treat the whole
-  directory as safe to delete. Machine stats (calls/triangles/frameMs) belong
-  in the handoff's evidence section, not in files under `shots/`.
 - Do not weaken a relevant threshold to pass a check.
 - Stop the exact Vite process used for manual validation before handoff.
 - Completed work is normally committed and pushed unless the user explicitly
