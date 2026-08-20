@@ -1,35 +1,45 @@
 # Board Race 开发交接
 
-状态：`whitecap-topology deferred by reference review`
+状态：`tornado-gate-pillars / session 1 skeleton`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`fe29ebdf795fdc3fd446efd0c092bde1b1d19e11`，`main`。
-- 用户提供的大航海海面参考确认：本项目不继续追求全海域蓬松白帽；质感优先来自低中浪的冷暖层次、
-  细密受日微反射、海天透视与船体周围有限接触白沫。
-- 本轮所有 `src/water/ocean.ts` 试验已经撤回，当前源码与 Base 的海面实现一致；不提交、不发布。
-  太阳、丁达尔、四芒星闪烁、`waves.ts`、浮力和航迹泡沫均未改变。
+- Base：`448f8d3ba62ff0b60f76f003da17f86454ed04f9`，`main`。
+- 空道入口龙卷风门柱（四个 session：骨架 → 造型 → 打磨 → 发布），已由用户批准。
+  完整分段计划见 `/tmp/tornado-plan-reviewed.md`（审阅修订版）。
+- 菱形层完整保留；龙卷风是叠加加强，不动判定、flight 分支、`waves.ts`、AI、物理。
+  菱形层移除列为待议，等龙卷风美术被用户确认后另开工作包。
 
-## 证据与结论
+## 设计决定（已对照代码核实）
 
-- 三层材质、相位切块和细节纹理都没有形成近景翻卷厚度；加大遮罩只会变成贴在水面上的白片。
-- 点状蓬松体在真实截图中读成零散方点；连续条带没有形成可见体积；局部高度壳层则在远景读成大块白布。
-  三条路都不满足“浪峰托住泡沫”的要求，已全部删除。
-- 每个原型均先通过 `npm run build`，并用桌面 `ocean-near`、`ocean-near-t2`、`ocean-sunpath` 截图人工复核；
-  最后一条高度壳层比 Base 多一个 draw，约增加 43k 三角形，但这个资源代价不代表审美达标。
-- 新参考没有依赖大面积立体白帽。它用规模、方向正确的高光和局部船体扰动建立海的档次；继续推进
-  `whitecap-topology` 不会更接近该方向，反而有方点、白布和遮蔽竞速信息的已知风险。
+- 锚点复用 `course.ts` `buildLaunchGateVisual` 的 projector 门柱：launch 点两侧
+  ±5.2m（`-launch-projector-left/right`）。龙卷风包裹这两个位置，不另算对称点。
+- 生命周期挂 `LaunchGateVisual.group`：只在玩家 unarmed/armed 起飞窗口可见
+  （0.35s smoothstep deploy），满足"不加未经评审的持续环境噪声"。
+- 性能有界：每门 2 个、同时最多 1 条 active 路线；几何/材质 route 间共享；
+  fixed-step 路径零分配。
+- 配色用 PALETTE.foam / sunFlare 家族，不整体提亮、不遮挡动作信息。
+
+## Session 1（骨架）步骤
+
+1. 读 AGENTS.md、docs/llmwiki.md、本文件、docs/art-direction.md。
+2. 定位 `buildLaunchGateVisual` / `updateLaunchGateVisuals`（course.ts），确认
+   projector 锚点、deploy 生命周期、材质复用模式（MeshBasicMaterial + toneMapped:false）。
+3. 最小骨架：每个 launch gate 两个 projector 位置各挂一个小龙卷风占位（几层半透明
+   锥面即可），y 基座跟 `waterHeight(x,z,t)`，随 `visual.group.visible` 与 deploy 淡入。
+4. 验证：`npm run build` + `npm run verify:smoke` + 桌面/844x390 截图。截图前先确认
+   harness 现有场景能拍到 unarmed/armed 状态的门柱，不能则加一个定格场景。
+5. 提交 `feat: add tornado gate pillar skeleton`。
 
 ## Pending 与风险
 
-- 现有白帽仍是材质层，但不再把缺少翻卷侧面视为当前缺陷；它应该保持稀疏，不能盖住路线、船体或反射。
-- 不要再尝试独立随机点云、固定方向条带、全局高度壳层，或把阈值调低来增加白色面积。它们已经分别造成方点、不可见改动和白布。
-- `waves.ts` 是 CPU/GPU 共同的高度真相。任何新白帽几何只能叠加视觉泡沫，不能横向改写水面位置或破坏
-  `y = f(worldXZ, time)` 合同。
+- Session 2/3 评审熔断：连续两轮审美不达标立即停下与用户讨论（art-direction.md）。
+- 视觉质量由人工评审截图决定；未人工审图不得写"视觉已改善"。
+- `whitecap-topology` 已结案（上一个工作包），不再推进；其结论归档于 git 历史
+  `docs: defer whitecap topology`。
 
 ## 唯一下一步
 
-不启动 `whitecap-topology`。后续只有在用户指定新的海面目标时，才新开独立工作包；优先审查现有的
-太阳反射、海天层次与船体接触水花，且先做一项截图原型，不改共享波形或添加全局泡沫几何。
+执行 Session 1（骨架），按上述步骤验证后提交；随后 Session 2（造型与动画）。
