@@ -14,16 +14,11 @@
  */
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
-import { SUN_DIR } from './toonMaterial';
+import { VISIBLE_SUN_DIR } from './toonMaterial';
 
 const SKY_RADIUS = 4500;
 const CLOUD_COUNT = 16; // 8 near + 8 far
 const FAR_CLOUD_START = CLOUD_COUNT / 2;
-
-// The shared light stays where the boats expect it. The sky's visible sun is
-// a little lower and farther forward so it can occasionally enter a chase
-// frame without changing hull, rider, or water lighting.
-const SKY_SUN_DIR = SUN_DIR.clone().add(new THREE.Vector3(0, -0.13, 0.18)).normalize();
 
 /** Deterministic hash → 0..1 (stable cloud layout across runs/screenshots). */
 function hash(i: number, k: number): number {
@@ -54,7 +49,6 @@ uniform vec3 uHorizon;
 uniform vec3 uSunVisualDir; // visible sun direction; lighting remains shared in toon/water
 uniform vec3 uSunCore;
 uniform vec3 uSunFlare;
-uniform float uTime;     // seconds — drives the slow ray rotation
 uniform float uOpeningArt;
 
 varying vec3 vDir;
@@ -72,57 +66,54 @@ void main() {
   col = mix(col, uZenith, smoothstep(0.28, 0.40, h));
 
   // ---------------------------------------------------------------
-  // SUN — a compact bright core, two soft atmospheric halos, and a pair of
-  // broad directional veils. The shapes fade continuously into the sky so
-  // the sun reads as light in the atmosphere instead of a HUD icon.
+  // SUN — the corona and flare stay compact, while three short Tyndall
+  // shafts open downward toward the horizon. Clouds are drawn afterwards,
+  // so they naturally interrupt the shafts instead of sitting inside an
+  // artificial full-screen ray fan.
   // ---------------------------------------------------------------
   float ang = acos(clamp(dot(dir, uSunVisualDir), -1.0, 1.0)); // radians off-sun
   vec3 t0 = normalize(cross(uSunVisualDir, vec3(0.0, 1.0, 0.0)));
   vec3 t1 = cross(t0, uSunVisualDir);
   float az = atan(dot(dir, t1), dot(dir, t0)); // azimuth around the sun
 
-  float disc = 1.0 - smoothstep(0.022, 0.038, ang);
-  float innerHalo = 1.0 - smoothstep(0.038, 0.105, ang);
-  float outerHalo = 1.0 - smoothstep(0.105, 0.235, ang);
-  float rot = uTime * 0.018;
-  float lobeA = pow(max(cos((az + rot) * 2.0), 0.0), 3.5);
-  float lobeB = pow(max(cos((az - rot * 0.6) * 3.0 + 0.35), 0.0), 5.0);
-  float veilBand = smoothstep(0.052, 0.085, ang) * (1.0 - smoothstep(0.085, 0.28, ang));
-  float veils = (lobeA * 0.65 + lobeB * 0.35) * veilBand;
-  float atmosphericGlow = innerHalo * 0.14 + outerHalo * 0.038 + veils * 0.24;
-  // A narrow warm shaft is only visible when the chase camera crosses the
-  // sun's azimuth. It fades into the horizon instead of painting a permanent
-  // radial sticker across the sky.
-  vec2 sunAz = normalize(uSunVisualDir.xz);
-  vec2 viewAz = normalize(dir.xz);
-  float azimuthMatch = max(dot(viewAz, sunAz), 0.0);
-  float lowerSky = smoothstep(0.5, 0.04, dir.y);
-  float shaft = pow(azimuthMatch, 10.0) * lowerSky * smoothstep(0.025, 0.12, ang) *
-    (1.0 - smoothstep(0.18, 0.72, ang));
-  // Cinematic sun response: a true four-spike lens cross, a thin horizontal
-  // anamorphic streak, and a slow-rotating Tyndall ray fan. All of them
-  // gather around the visible sun and strengthen when the chase camera
-  // faces the sun azimuth, so running toward the light reads as chasing it.
-  float crossFlare = pow(abs(cos(az * 2.0 + rot * 0.35)), 42.0) *
-    smoothstep(0.02, 0.09, ang) * (1.0 - smoothstep(0.09, 0.6, ang));
-  float anamorphic = pow(abs(cos(az)), 90.0) *
-    smoothstep(0.015, 0.06, ang) * (1.0 - smoothstep(0.08, 0.75, ang));
-  float spokes = pow(0.5 + 0.5 * sin(az * 9.0 + rot * 1.7), 6.0) * 0.6 +
-    pow(0.5 + 0.5 * sin(az * 17.0 - rot * 1.1 + 1.3), 9.0) * 0.4;
-  float rayFan = spokes * smoothstep(0.03, 0.14, ang) *
-    (1.0 - smoothstep(0.2, 0.85, ang)) * lowerSky * (0.35 + 0.65 * azimuthMatch);
-  atmosphericGlow += shaft * 0.34 + crossFlare * 0.16 + anamorphic * 0.1 + rayFan * 0.3;
-  atmosphericGlow *= 1.0 + uOpeningArt * 0.2;
-  float warm = clamp(atmosphericGlow, 0.0, 0.38);
-  vec3 sunMist = mix(uSunFlare, uSunCore, 0.48);
-  col = mix(col, sunMist, warm);
-  // Give the directional shaft a real luminance contribution. It should
-  // appear only when the camera crosses the sun azimuth, not as a permanent
-  // radial sticker painted over the sky.
-  float shaftLight = clamp(shaft * 0.24 + crossFlare * 0.08 + anamorphic * 0.05 +
-    rayFan * 0.18, 0.0, 0.2);
-  col = mix(col, mix(sunMist, uSunCore, 0.28), shaftLight);
+  float core = 1.0 - smoothstep(0.0, 0.018, ang);
+  float disc = 1.0 - smoothstep(0.018, 0.037, ang);
+  float innerHalo = 1.0 - smoothstep(0.037, 0.105, ang);
+  float outerHalo = 1.0 - smoothstep(0.105, 0.255, ang);
+  float veilBand = smoothstep(0.052, 0.11, ang) * (1.0 - smoothstep(0.14, 0.34, ang));
+  float veilA = pow(max(cos(az - 0.24), 0.0), 24.0);
+  float veilB = pow(max(cos(az + 0.31), 0.0), 21.0);
+  float veils = veilBand * (veilA * 0.7 + veilB * 0.5);
+  float fourPoint = pow(abs(cos(az * 2.0)), 56.0) *
+    smoothstep(0.030, 0.046, ang) * (1.0 - smoothstep(0.055, 0.095, ang));
+  float horizontalFlare = pow(abs(cos(az)), 120.0) *
+    smoothstep(0.032, 0.048, ang) * (1.0 - smoothstep(0.060, 0.105, ang));
+
+  // t1 points upward from the sun. The beams only occupy directions below
+  // it, widening slightly with distance like light filtered through haze.
+  float downSun = max(-dot(dir, t1), 0.0);
+  float rayReach = smoothstep(0.012, 0.050, downSun) *
+    (1.0 - smoothstep(0.20, 0.52, downSun));
+  float rayWidth = 0.009 + downSun * 0.17;
+  float rayA = 1.0 - smoothstep(rayWidth * 0.38, rayWidth, abs(dot(dir, t0) + downSun * 0.13));
+  float rayB = 1.0 - smoothstep(rayWidth * 0.32, rayWidth * 0.82, abs(dot(dir, t0) - downSun * 0.18));
+  float rayC = 1.0 - smoothstep(rayWidth * 0.26, rayWidth * 0.65, abs(dot(dir, t0) - downSun * 0.42));
+  float rayTexture = 0.76 + 0.24 * sin(downSun * 82.0 + dot(dir, t0) * 57.0);
+  float tyndall = rayReach * (rayA * 0.82 + rayB * 0.50 + rayC * 0.26) * rayTexture;
+
+  float atmosphericGlow = innerHalo * 0.17 + outerHalo * 0.035;
+  atmosphericGlow *= 1.0 + uOpeningArt * 0.10;
+  vec3 sunMist = mix(uSunFlare, uSunCore, 0.52);
+  col = mix(col, sunMist, clamp(atmosphericGlow, 0.0, 0.20));
+  // Near-white is intentionally used for every atmospheric contribution:
+  // blending saturated yellow across blue sky produces the rejected green
+  // spotlight effect.
+  vec3 airLight = mix(uSunCore, vec3(1.0, 0.97, 0.86), 0.58);
+  float corona = pow(innerHalo * (1.0 - disc), 1.7);
+  col += airLight * (corona * 0.09 + veils * 0.075 + fourPoint * 0.018 + horizontalFlare * 0.04);
+  col += airLight * tyndall * (0.10 + uOpeningArt * 0.018);
   col = mix(col, uSunCore, disc);
+  col = mix(col, vec3(1.0, 0.99, 0.89), core * 0.82);
 
   gl_FragColor = vec4(col, 1.0);
 }
@@ -248,10 +239,9 @@ export class Sky {
       uZenith: { value: flat(PALETTE.skyZenith) },
       uMid: { value: flat(PALETTE.skyMid) },
       uHorizon: { value: flat(PALETTE.skyHorizon) },
-      uSunVisualDir: { value: SKY_SUN_DIR },
+      uSunVisualDir: { value: VISIBLE_SUN_DIR },
       uSunCore: { value: flat(PALETTE.sunCore) },
       uSunFlare: { value: flat(PALETTE.sunFlare) },
-      uTime: { value: 0 },
       uOpeningArt: { value: 0 },
     };
     const skyMat = new THREE.ShaderMaterial({
@@ -312,7 +302,6 @@ export class Sky {
   /** Follow the camera and advance cloud drift. Allocates nothing. */
   update(t: number, camPos: THREE.Vector3): void {
     this.object.position.copy(camPos);
-    this.skyUniforms.uTime.value = t;
     for (let i = 0; i < CLOUD_COUNT; i++) {
       const a = this.cAngle[i] + t * this.cOmega[i];
       const r = this.cRadius[i];

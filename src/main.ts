@@ -26,6 +26,7 @@ import { SeaDecor } from './water/seaDecor';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem } from './water/spray';
 import { Sky } from './cel/sky';
+import { VISIBLE_SUN_DIR } from './cel/toonMaterial';
 import { createPostPipeline } from './cel/postPipeline';
 import { Boat } from './game/boat';
 import { JetTrailSystem } from './game/jetTrail';
@@ -2151,10 +2152,10 @@ function scenario(name: string): void {
       loop.advance(2.37);
       break;
     case "ocean-sunpath": {
-      // Turn until the chase camera faces the visible sun azimuth, then run
-      // straight at it — validates the glitter lane, lens cross, and rays.
+      // Turn until the chase camera faces the visible sun, then run straight
+      // at it — validates the shared disc, reflection lane, and subtle veil.
       advanceUntil(() => race.phase === "racing", 8);
-      const sunHeading = Math.atan2(0.5, 0.73); // SKY_SUN_DIR horizontal azimuth
+      const sunHeading = Math.atan2(VISIBLE_SUN_DIR.x, VISIBLE_SUN_DIR.z);
       setHarnessInput({ throttle: 1 });
       advanceUntil(() => boats[0].state.speed >= 14, 6);
       for (let i = 0; i < 900; i++) {

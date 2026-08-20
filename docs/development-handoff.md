@@ -1,43 +1,35 @@
 # Board Race 开发交接
 
-状态：`ocean-sparkle released / queue empty`
+状态：`solar-reflection released`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`eb97e83e22d31a04afbda7284860d8a0adc8b24a`，`main`。
-- 产品 owner 为 `src/water/ocean.ts`、`src/cel/sky.ts`、`src/water/seaDecor.ts`、`src/main.ts`。
-  海面太阳闪光按真实海面参考图重做并通过人工评审（多轮截图迭代：点阵 → 软斑 → 星芒收小定型）。
-- `ocean.ts` glint 为四层 hash cell 星芒碎斑（7.5m / 2.3m / 0.75m / 0.30m，各层旋转角、
-  twinkle 速度、距离带不同），格内抖动 + 每格随机相位消点阵；碎斑为核心光点剖面
-  （无平顶圆盘）+ 四芒星刺（每格随机 0°/22.5°/45°，刺长随 twinkle 脉冲）+ 弱光晕；沿太阳
-  方位各向异性拉伸成远场 glitter 光路；按像素足迹逐层退场防 shimmer。cell 距离场抗锯齿用
-  解析像素足迹（`uPixelScale`），禁止 `fwidth`（格界虚线框事故已修复）。whitecap 在
-  30–390m 中带加 hash cell 破碎（`uFoamBreakup` perf 0 / auto 0.5 / high 0.65）。
-- `sky.ts` 太阳呈现升级：真四刺镜头十字 + 水平变形长眩光 + 双组慢旋转丁达尔光束扇，
-  朝向太阳方位时增强（追光读法），共享光照方向不变。
-- `seaDecor.ts` 实例闪片已删除（22 片 2.4m 长条 + 每帧 CPU 循环），帆与鸟不动。
-- `main.ts` `scenario()` 新增 `ocean-near` / `ocean-near-t2`（近场碎斑与 twinkle 帧间对比）、
-  `ocean-sunpath`（转向对准太阳验证光路/十字/光束扇）；`setResolution` 扩展 fov 计算
-  `uPixelScale`。
-- 性能：draw calls 与三角形数与改动前一致；performance 档密度/层数不变，纯 GPU 像素计算。
+- Base：`affcd2da33f93f5b140b7335e7f3a098418f82ff`，`main`。
+- 产品 owner：`src/cel/toonMaterial.ts`、`src/cel/sky.ts`、`src/water/ocean.ts`、`src/main.ts`。
+- 可见太阳方向独立于既有场景光照，且被天空日盘与海面闪光共用；游戏、赛道与船体光照不动。
+- 海面闪光先受物理大波面镜向约束，再受微表面镜向约束。四芒星恢复到所有距离的碎片层，但按像素
+  尺寸限制，近景不再出现大十字；白色大浪花/whitecap 不在本工作包内。
+- 天空太阳为暖色硬核、柔冠、局部眩光和被云层遮断的短丁达尔束，移除了全屏旋转光束扇和泛绿风险。
+- `ocean-sunpath` 与新的共享可见太阳方向对齐，用于截图验证日盘、短光束和反射带。
 
 ## 证据与验证
 
-- 人工评审结论：机械点阵与远场纸片白斑消除；星芒碎斑方向确认后经尺寸/剖面调优通过；
-  追光丁达尔光束扇与四刺十字确认。静态截图会放大碎斑观感，动态闪烁以实机为准。
-- `git diff --check`、`npm run build`、`npm run verify:smoke` 通过。smoke 桌面
-  `172 calls / 325477 triangles / 2025000 pixels / 16.7ms`，手机
-  `192 / 328493 / 2057250 / 16.7ms`。
-- `llmwiki` 海面闪光与天空太阳呈现的稳定合同已同步更新。
+- 已完成桌面与 `844x390` 横屏截图人工检查：四芒星在近景、中景都保持小尺寸；朝日时日盘、光束与
+  海面反射同向，侧向镜头不再有全海面闪烁。
+- `git diff --check`、`npm run build`、`npm run verify:smoke` 通过。smoke：桌面 `172 calls /
+  325477 triangles / 2025000 pixels / 16.7ms`；手机 `192 / 328493 / 2057250 / 16.7ms`。
+- `llmwiki` 的稳定合同已同步更新。
 
 ## Pending 与风险
 
-- 无功能 pending。碎斑大小/密度/刺长/光束强度均为 `ocean.uniforms` / sky 常量可调；
-  更窄横屏设备未逐尺寸验收。
+- 用户明确要求白色大浪花继续提升，但本轮先不改它。当前 whitecap 是多个浪形阈值相乘后直接混入
+  单一白色，并由独立相位切块，因此没有被浪脊托起的厚度。后续应作为独立美术工作包，以同一波形
+  驱动波前亮唇、气泡主体和背风湿边三层，并在桌面与 `844x390` 真实截图评审；不要以加白或加噪声
+  代替体积。
 
 ## 唯一下一步
 
-已发布：`994f7ab feat: rework sun glitter into starburst sparkles`（build + smoke + 普通 push
-通过）。队列清空；等待新的明确需求再建工作包。
+开启 `whitecap-volume` 工作包时，先做一项只依附现有波形的三层泡沫可见原型，按桌面与 `844x390`
+截图让用户确认方向后再扩展；不要改动本轮太阳、光束或四芒星合同。

@@ -22,6 +22,17 @@ export const SUN_DIR: THREE.Vector3 = new THREE.Vector3(
   PALETTE.sunDir[2],
 ).normalize();
 
+/**
+ * The visible sun sits lower than the baked scene light so it stays in the
+ * chase view. Sky presentation and water glitter share this source; boats
+ * and course materials continue to use SUN_DIR.
+ */
+export const VISIBLE_SUN_DIR: THREE.Vector3 = new THREE.Vector3(
+  SUN_DIR.x,
+  SUN_DIR.y * 0.4,
+  SUN_DIR.z,
+).normalize();
+
 export interface ToonOptions {
   color: number;
   rimColor?: number; rimStrength?: number; rimPower?: number; rimThreshold?: number;
