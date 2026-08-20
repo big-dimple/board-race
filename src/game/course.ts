@@ -943,6 +943,115 @@ const FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH = 0.14;
 const FLIGHT_GUIDE_ENDPOINT_MIN_ALPHA = 0.2;
 const LAUNCH_GATE_PREVIEW_M = 140;
 const LAUNCH_GATE_FOCUS_M = 30;
+const LAUNCH_TORNADO_UPSTREAM_M = 2.4;
+const LAUNCH_TORNADO_FULL_M = 32;
+const LAUNCH_TORNADO_PREVIEW_M = LAUNCH_GATE_PREVIEW_M;
+const LAUNCH_TORNADO_FAR_SCALE = 1.36;
+const LAUNCH_TORNADO_FAR_OPACITY = 0.78;
+const LAUNCH_TORNADO_SPIN_RAD_S = 0.22;
+const LAUNCH_TORNADO_BREATH = 0.035;
+const LAUNCH_TORNADO_BURST_PERIOD_S = 2.35;
+const LAUNCH_TORNADO_BURST_DUTY = 0.11;
+
+// These are shared across the seven dormant route roots. Only one launch gate
+// can be visible, so the shared material opacity remains deterministic.
+const LAUNCH_TORNADO_SKIRT_GEOMETRIES = [
+  // A water spout collects at the surface and opens into mist aloft. Keeping
+  // the lower radius narrow avoids the traffic-cone silhouette of a normal
+  // upright cone while the staggered skirts retain a readable spiral volume.
+  new THREE.CylinderGeometry(0.62, 0.18, 1.6, 12, 1, true),
+  new THREE.CylinderGeometry(1.05, 0.55, 1.75, 12, 1, true),
+  new THREE.CylinderGeometry(1.45, 0.92, 1.55, 12, 1, true),
+] as const;
+const LAUNCH_TORNADO_SKIRT_MATERIALS = [
+  new THREE.MeshBasicMaterial({
+    color: PALETTE.ink,
+    transparent: true,
+    opacity: 0.36,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  }),
+  new THREE.MeshBasicMaterial({
+    color: PALETTE.ink,
+    transparent: true,
+    opacity: 0.25,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  }),
+  new THREE.MeshBasicMaterial({
+    color: PALETTE.ink,
+    transparent: true,
+    opacity: 0.16,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  }),
+] as const;
+const LAUNCH_TORNADO_BASE_GEOMETRY = new THREE.TorusGeometry(0.72, 0.08, 6, 16);
+const LAUNCH_TORNADO_BASE_MATERIAL = new THREE.MeshBasicMaterial({
+  color: PALETTE.cloudShade,
+  transparent: true,
+  opacity: 0.28,
+  depthTest: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+  toneMapped: false,
+});
+
+function makeLaunchTornadoBoltGeometry(): THREE.TubeGeometry {
+  // A real tube, rather than a camera-dependent flat Shape, keeps the short
+  // flash legible while the vortex turns across the chase camera.
+  const points = [
+    new THREE.Vector3(-0.06, 0.08, 0.02),
+    new THREE.Vector3(0.12, 0.38, -0.08),
+    new THREE.Vector3(-0.1, 0.68, 0.07),
+    new THREE.Vector3(0.15, 1.02, -0.04),
+    new THREE.Vector3(-0.04, 1.3, 0.1),
+    new THREE.Vector3(0.12, 1.9, -0.02),
+  ];
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 10, 0.052, 5, false);
+}
+
+const LAUNCH_TORNADO_BOLT_GEOMETRY = makeLaunchTornadoBoltGeometry();
+const LAUNCH_TORNADO_BOLT_MATERIALS = [-1, 1].map(() => new THREE.MeshBasicMaterial({
+  color: PALETTE.uiWarn,
+  transparent: true,
+  opacity: 0.28,
+  depthTest: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+  side: THREE.DoubleSide,
+  toneMapped: false,
+}));
+const LAUNCH_TORNADO_CORE_GEOMETRY = new THREE.IcosahedronGeometry(0.34, 1);
+const LAUNCH_TORNADO_ORBIT_GEOMETRY = new THREE.TorusGeometry(0.42, 0.025, 6, 16);
+const LAUNCH_TORNADO_CORE_MATERIALS = [-1, 1].map(() => new THREE.MeshBasicMaterial({
+  color: PALETTE.uiWarn,
+  transparent: true,
+  opacity: 0.16,
+  depthTest: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+  side: THREE.DoubleSide,
+  toneMapped: false,
+}));
+const LAUNCH_TORNADO_ORBIT_MATERIALS = [-1, 1].map(() => new THREE.MeshBasicMaterial({
+  color: PALETTE.uiWarn,
+  transparent: true,
+  opacity: 0.18,
+  depthTest: true,
+  depthWrite: false,
+  blending: THREE.NormalBlending,
+  toneMapped: false,
+}));
 
 function createSurfaceGuideUniforms() {
   return {
@@ -1317,9 +1426,21 @@ interface LaunchGateProjector {
   z: number;
 }
 
+interface LaunchGateTornado {
+  root: THREE.Group;
+  core: THREE.Group;
+  bolt: THREE.Mesh;
+  branch: THREE.Mesh;
+  x: number;
+  z: number;
+  side: number;
+  phase: number;
+}
+
 interface LaunchGateVisual {
   group: THREE.Group;
   projectors: LaunchGateProjector[];
+  tornadoes: LaunchGateTornado[];
   diamonds: LaunchGateDiamond[];
   packets: THREE.Mesh[];
   packetMaterial: THREE.MeshBasicMaterial;
@@ -2373,11 +2494,59 @@ export class Course implements ICourse {
       const focus = 1 - THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
       const farScale = 1 + THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_PREVIEW_M, 0, 1) * 0.62;
       const energyColor = armed ? FLIGHT_ROUTE_MARKER_COLOR : PALETTE.sunFlare;
+      const tornadoNearness = 1 - THREE.MathUtils.smoothstep(
+        this.playerLaunchGateDistanceM,
+        LAUNCH_TORNADO_FULL_M,
+        LAUNCH_TORNADO_PREVIEW_M,
+      );
+      // This is a route landmark, so it must remain legible at the launch
+      // preview boundary. A small perspective compensation makes it recede
+      // gracefully toward its true near-field scale instead of popping in.
+      const tornadoScale = THREE.MathUtils.lerp(LAUNCH_TORNADO_FAR_SCALE, 1, tornadoNearness) * deploy;
+      const tornadoOpacity = THREE.MathUtils.lerp(LAUNCH_TORNADO_FAR_OPACITY, 1, tornadoNearness) * deploy;
+      const skirtOpacities = [0.36, 0.25, 0.16] as const;
+      for (let skirt = 0; skirt < LAUNCH_TORNADO_SKIRT_MATERIALS.length; skirt++) {
+        LAUNCH_TORNADO_SKIRT_MATERIALS[skirt].opacity = skirtOpacities[skirt] * tornadoOpacity;
+      }
+      LAUNCH_TORNADO_BASE_MATERIAL.color.setHex(
+        armed ? PALETTE.uiWarn : PALETTE.cloudShade,
+        THREE.NoColorSpace,
+      );
+      LAUNCH_TORNADO_BASE_MATERIAL.opacity = 0.28 * tornadoOpacity;
       for (const projector of visual.projectors) {
         projector.root.position.y = waterHeight(projector.x, projector.z, t);
         projector.lens.color.setHex(energyColor, THREE.NoColorSpace);
         projector.lens.opacity = (armed ? 0.92 : 0.74) * deploy;
         projector.root.scale.setScalar(0.82 + deploy * (0.18 + focus * 0.08));
+      }
+      for (const tornado of visual.tornadoes) {
+        tornado.root.position.y = waterHeight(tornado.x, tornado.z, t);
+        const breath = 1 + Math.sin(t * 1.1 + tornado.phase) * LAUNCH_TORNADO_BREATH;
+        // A short, deterministic burst reads as lightning without allocating a
+        // particle system or turning the gate into a constantly blinking sign.
+        const burstPhase = THREE.MathUtils.euclideanModulo(
+          t + tornado.phase * 0.73,
+          LAUNCH_TORNADO_BURST_PERIOD_S,
+        ) / LAUNCH_TORNADO_BURST_PERIOD_S;
+        const burst = burstPhase < LAUNCH_TORNADO_BURST_DUTY
+          ? Math.sin(Math.PI * burstPhase / LAUNCH_TORNADO_BURST_DUTY) ** 2
+          : 0;
+        const boltMaterial = LAUNCH_TORNADO_BOLT_MATERIALS[tornado.side < 0 ? 0 : 1];
+        const coreMaterial = LAUNCH_TORNADO_CORE_MATERIALS[tornado.side < 0 ? 0 : 1];
+        const orbitMaterial = LAUNCH_TORNADO_ORBIT_MATERIALS[tornado.side < 0 ? 0 : 1];
+        boltMaterial.opacity = (0.07 + burst * 0.86) * tornadoOpacity;
+        coreMaterial.opacity = (0.12 + burst * 0.26) * tornadoOpacity;
+        orbitMaterial.opacity = (0.1 + burst * 0.2) * tornadoOpacity;
+        tornado.root.scale.setScalar(tornadoScale * breath);
+        tornado.root.rotation.y = tornado.phase + t * LAUNCH_TORNADO_SPIN_RAD_S * tornado.side;
+        tornado.core.rotation.set(
+          t * 0.72 * tornado.side,
+          t * 1.38 * -tornado.side,
+          t * 0.48,
+        );
+        tornado.core.scale.setScalar(0.94 + burst * 0.22);
+        tornado.bolt.scale.set(0.92 + burst * 0.32, 1.1 + burst * 0.32, 1);
+        tornado.branch.scale.set(0.64 + burst * 0.28, 0.7 + burst * 0.26, 1);
       }
       for (let diamondIndex = 0; diamondIndex < visual.diamonds.length; diamondIndex++) {
         const diamond = visual.diamonds[diamondIndex];
@@ -3247,6 +3416,7 @@ export class Course implements ICourse {
     });
     const right = new THREE.Vector3(launchTangent.z, 0, -launchTangent.x);
     const projectors: LaunchGateProjector[] = [];
+    const tornadoes: LaunchGateTornado[] = [];
     for (const side of [-1, 1]) {
       const root = new THREE.Group();
       root.name = `${def.id}-launch-projector-${side < 0 ? 'left' : 'right'}`;
@@ -3264,6 +3434,79 @@ export class Course implements ICourse {
       root.add(floater, body, lens);
       group.add(root);
       projectors.push({ root, lens: lensMaterial, x, z });
+
+      const tornadoRoot = new THREE.Group();
+      tornadoRoot.name = `${def.id}-launch-tornado-${side < 0 ? 'left' : 'right'}`;
+      const tornadoX = x - launchTangent.x * LAUNCH_TORNADO_UPSTREAM_M;
+      const tornadoZ = z - launchTangent.z * LAUNCH_TORNADO_UPSTREAM_M;
+      tornadoRoot.position.set(tornadoX, 0, tornadoZ);
+      const skirtHeights = [0.8, 2.475, 4.125] as const;
+      const skirtPhases = [0.18, -0.28, 0.42] as const;
+      for (let skirt = 0; skirt < LAUNCH_TORNADO_SKIRT_GEOMETRIES.length; skirt++) {
+        const mesh = new THREE.Mesh(LAUNCH_TORNADO_SKIRT_GEOMETRIES[skirt], LAUNCH_TORNADO_SKIRT_MATERIALS[skirt]);
+        mesh.name = `${def.id}-launch-tornado-skirt-${side}-${skirt + 1}`;
+        mesh.position.y = skirtHeights[skirt];
+        mesh.rotation.y = skirtPhases[skirt] * side;
+        mesh.renderOrder = 5;
+        tornadoRoot.add(mesh);
+      }
+      const foamRing = new THREE.Mesh(LAUNCH_TORNADO_BASE_GEOMETRY, LAUNCH_TORNADO_BASE_MATERIAL);
+      foamRing.name = `${def.id}-launch-tornado-base-${side}`;
+      foamRing.rotation.x = Math.PI * 0.5;
+      foamRing.position.y = 0.08;
+      foamRing.renderOrder = 5;
+      const bolt = new THREE.Mesh(
+        LAUNCH_TORNADO_BOLT_GEOMETRY,
+        LAUNCH_TORNADO_BOLT_MATERIALS[side < 0 ? 0 : 1],
+      );
+      bolt.name = `${def.id}-launch-tornado-bolt-${side < 0 ? 'left' : 'right'}`;
+      bolt.position.y = 0.42;
+      bolt.rotation.y = Math.atan2(launchTangent.x, launchTangent.z);
+      bolt.renderOrder = 6;
+      const branch = new THREE.Mesh(
+        LAUNCH_TORNADO_BOLT_GEOMETRY,
+        LAUNCH_TORNADO_BOLT_MATERIALS[side < 0 ? 0 : 1],
+      );
+      branch.name = `${def.id}-launch-tornado-branch-${side < 0 ? 'left' : 'right'}`;
+      branch.position.set(0.12 * side, 1.08, 0);
+      branch.rotation.y = Math.atan2(launchTangent.x, launchTangent.z) + side * 0.65;
+      branch.renderOrder = 6;
+      const core = new THREE.Group();
+      core.name = `${def.id}-launch-tornado-core-${side < 0 ? 'left' : 'right'}`;
+      core.position.y = 2.34;
+      const coreShell = new THREE.Mesh(
+        LAUNCH_TORNADO_CORE_GEOMETRY,
+        LAUNCH_TORNADO_CORE_MATERIALS[side < 0 ? 0 : 1],
+      );
+      coreShell.name = `${def.id}-launch-tornado-core-shell-${side < 0 ? 'left' : 'right'}`;
+      coreShell.renderOrder = 6;
+      const orbitA = new THREE.Mesh(
+        LAUNCH_TORNADO_ORBIT_GEOMETRY,
+        LAUNCH_TORNADO_ORBIT_MATERIALS[side < 0 ? 0 : 1],
+      );
+      orbitA.name = `${def.id}-launch-tornado-core-orbit-a-${side < 0 ? 'left' : 'right'}`;
+      orbitA.rotation.set(Math.PI * 0.31, side * 0.24, 0);
+      orbitA.renderOrder = 6;
+      const orbitB = new THREE.Mesh(
+        LAUNCH_TORNADO_ORBIT_GEOMETRY,
+        LAUNCH_TORNADO_ORBIT_MATERIALS[side < 0 ? 0 : 1],
+      );
+      orbitB.name = `${def.id}-launch-tornado-core-orbit-b-${side < 0 ? 'left' : 'right'}`;
+      orbitB.rotation.set(-Math.PI * 0.34, side * 1.1, Math.PI * 0.25);
+      orbitB.renderOrder = 6;
+      core.add(coreShell, orbitA, orbitB);
+      tornadoRoot.add(foamRing, core, bolt, branch);
+      group.add(tornadoRoot);
+      tornadoes.push({
+        root: tornadoRoot,
+        core,
+        bolt,
+        branch,
+        x: tornadoX,
+        z: tornadoZ,
+        side,
+        phase: side < 0 ? -0.48 : 0.48,
+      });
     }
 
     const inkGeometry = new THREE.RingGeometry(0.72, 1.12, 4);
@@ -3382,7 +3625,7 @@ export class Course implements ICourse {
       group.add(packet);
       packets.push(packet);
     }
-    return { group, projectors, diamonds, packets, packetMaterial, deploy: 0 };
+    return { group, projectors, tornadoes, diamonds, packets, packetMaterial, deploy: 0 };
   }
 
   /** Wave-conforming translucent route plus sparse authored arrow geometry. */
