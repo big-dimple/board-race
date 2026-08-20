@@ -881,12 +881,15 @@ export class HUD {
     const riderX = (this.driverAnchor.x * 0.5 + 0.5) * innerWidth;
     const riderY = (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight;
     const compact = innerWidth <= 900 || innerHeight <= 520;
+    const mobile = this.controlDevice === 'mobile';
     if (!compact) {
       const sideDeadZone = 48;
       if (riderX < innerWidth * 0.5 - sideDeadZone) this.driverPowerSide = 1;
       else if (riderX > innerWidth * 0.5 + sideDeadZone) this.driverPowerSide = -1;
     }
-    const targetX = compact
+    const targetX = mobile
+      ? Math.max(116, Math.min(innerWidth - 250, riderX + 132))
+      : compact
       ? Math.max(116, innerWidth - 205)
       : Math.max(90, Math.min(innerWidth - 90, riderX + this.driverPowerSide * 150));
     const targetY = compact
@@ -1310,6 +1313,7 @@ export class HUD {
       : device === 'gamepad'
         ? { steer: '左摇杆', drift: 'X / LB / RB', flight: 'A' }
         : { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
+    if (device === 'mobile' && this.controlDevice !== 'mobile') this.driverAnchorX = innerWidth * 0.56;
     this.controlDevice = device;
     this.controlLabels = controls;
     this.syncTurnWarningCopy('none');

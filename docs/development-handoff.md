@@ -1,42 +1,39 @@
 # Board Race 开发交接
 
-状态：`T6b complete / T6c next`
+状态：`T6c complete / queue empty`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`e4306724192b0a3ca0a77ac9216acd90b76d0a1e`，`main`。
-- 唯一产品 owner 是 `src/water/spray.ts`。修正了水滴 billboard 基向量的反向绕序；此前材质使用
-  `FrontSide`，28 个活跃水滴实际被背面剔除。落水体积改为船后半冠泡沫和两条短窄舷侧水花，
-  水滴同步缩小并拉长，替代宽透明幕布和塑料片观感。
-- 真实触水事件、实例池容量、退场生命周期、海面、波形、尾流和船体物理均未改动。
+- Base：`e7e16a51ebe9178495dc783f795657fe4870c3d2`，`main`，起点工作树干净。
+- 产品 owner 为 `src/hud/hud.css` 与 `src/hud/hud.ts`。桌面续航动作卡从右上角移到中央上方空域，
+  动作标题由 `24px` 放大到 `31px`；续航成功反馈标题由桌面 `23px`、手机 `18px` 分别放大到
+  `32px`、`26px`，并略向上收回主视线。
+- 横屏手机艇边储备不再固定在 `innerWidth - 205px`。它以车手投影为锚，在右侧保持约 `132px`
+  中心距并受视口边界约束；桌面相反侧选择逻辑、右手按键、飞行规则、物理和渲染均未改动。
 
 ## 证据与验证
 
-- Before：`shots/landing-splash/before/desktop-context-contact.png`、
-  `shots/landing-splash/before/mobile-context-contact.png`。
-- After：`shots/landing-splash/after-final/desktop-context-age-100.png`、
-  `shots/landing-splash/after-final/mobile-context-age-100.png`；完整机器证据在同目录 `evidence.json`。
-- 桌面和 `844x390` 的正常追尾机位均已人工检查：首次真实落水可见短水滴和紧凑弧形泡沫，
-  没有长条透明幕布；约 `0.9s` 后活跃水滴和体积都归零。
-- 事件激活 `28 droplets + 1 landing volume`。隔离帧由退场后的
-  `64 calls / 264635 triangles` 增至 `66 / 264955`，即 `+2 calls / +320 triangles`。
-  正常机位桌面为 `144 calls / 304801 triangles / 2025000 pixels / 16.7ms`，手机为
-  `154 / 306309 / 2057250 / 16.7ms`。
-- `git diff --check`、`npm run build`、`npm run verify:smoke` 和
-  `npm run verify:collision` 通过。smoke 仍为桌面 `174 calls / 325529 triangles`、手机
-  `194 / 328545`，均为 `16.7ms`。
+- Fresh before：`shots/hud-main-sightline/before/flight-extension-ready.png`、
+  `flight-extension-spool.png`、`flight-ready.png` 及对应 `-mobile` 图。
+- After：`shots/hud-main-sightline/after/flight-extension-ready.png`、`flight-extension-spool.png`、
+  `flight-ready.png` 及对应 `-mobile` 图；机器记录在同目录 `evidence.json`。
+- 桌面动作卡由 `x=992..1422 / y=70..178` 移到 `x=470..970 / y=70..182`，内容无溢出。
+  手机储备框由 `x=585..693` 移到 `x=499..607`，与排名、飞行键和漂移键的 DOM 相交均为 false。
+- 两端截图已人工检查：动作卡和成功反馈均未覆盖船体、车手、前方门或航线；手机储备仍在船右侧，
+  不盖角色且没有挤入右下按键。移动端动作入口继续由现有“续”按钮拥有，没有新增教程层。
+- `git diff --check`、`npm run build`、`npm run verify:smoke` 通过。smoke 桌面为
+  `174 calls / 325529 triangles / 2025000 pixels / 16.7ms`，手机为
+  `194 / 328545 / 2057250 / 16.7ms`。
 
 ## Pending 与风险
 
-- T6b 无功能 pending。人工画面结论覆盖第一条真实飞行路线约 `130km/h` 的一次落水；共享水滴
-  绕序修复也恢复起飞和碰撞水滴，碰撞诊断已通过，但尚未逐个做所有喷溅场景的美术验收。
-- 续飞提示字号与位置、移动端漂移储备位置都未在 T6b 修改，仍是下一 task，不能写成已完成。
+- T6c 无功能 pending。人工审图覆盖 `1440x900` 与 `844x390`；更窄的横屏设备仍依赖现有视口
+  clamp 和旋转阻断，尚未逐尺寸做美术验收。
+- `llmwiki` 已包含本次稳定 HUD 合同，无需重复修改。当前 handoff 队列已清空。
 
 ## 唯一下一步
 
-T6c 只处理 HUD 主视线可读性：先建立 fresh desktop / `844x390` before，再检查实际 DOM/CSS。
-续飞提示必须明显放大并回到船体上方的主视线内，不得留在右上角，也不得覆盖船体、航线或门柱；
-移动端漂移/飞行储备组件保留在右侧，只向船体适度靠近，并避开角色、排名和右手按键，不移到左侧。
-完成后提供两端 after 截图、人工重叠检查、至少一项渲染或帧时指标，并运行 build 与 smoke。
+等待用户体验当前版本后再建立新的单一工作包；在收到新的明确需求前，不自动启动海面、船体、选手或
+其他视觉重做。

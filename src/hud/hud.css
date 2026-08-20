@@ -996,17 +996,17 @@
 .hud-impact[data-kind='flight-extend'] .hud-impact-copy {
   left: 50%;
   right: auto;
-  top: 24%;
-  width: min(330px, calc(100% - 48px));
+  top: 20%;
+  width: min(420px, calc(100% - 48px));
   text-align: center;
   transform: translateX(-50%);
 }
 .hud-impact.on[data-kind='flight-extend'] .hud-impact-copy {
   animation: hud-flight-extend-copy var(--impact-duration, 0.72s) ease-out both;
 }
-.hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 15px; }
-.hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 23px; }
-.hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 11px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 17px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 32px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 13px; }
 
 @media (pointer: coarse) and (orientation: landscape) {
   .hud-impact-lines {
@@ -1022,12 +1022,12 @@
   .hud-impact[data-kind='route-clear'] .hud-impact-copy { top: 5%; }
   .hud-impact[data-kind='excellent'] .hud-impact-copy { top: 4%; }
   .hud-impact[data-kind='flight-extend'] .hud-impact-copy {
-    top: max(18%, calc(env(safe-area-inset-top) + 52px));
-    width: min(238px, calc(100% - 32px));
+    top: max(16%, calc(env(safe-area-inset-top) + 48px));
+    width: min(286px, calc(100% - 32px));
   }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 10px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 18px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 9px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 12px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 26px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 11px; }
 }
 
 @keyframes hud-impact-flash {
@@ -2657,10 +2657,18 @@
 .hud-flight-prompt.on { transform: translateY(0) translateX(0); }
 .hud-flight-prompt.extend {
   --prompt-color: var(--warn);
-  width: min(430px, calc(100vw - 36px));
+  left: 50%;
+  right: auto;
+  top: max(70px, calc(env(safe-area-inset-top) + 58px));
+  grid-template-columns: 104px minmax(0, 1fr);
+  width: min(500px, calc(100vw - 48px));
+  min-height: 112px;
+  padding-right: 24px;
   border-color: var(--prompt-color);
   box-shadow:0 9px 24px rgba(4,7,20,.32);
+  transform: translateX(-50%) translateY(-10px);
 }
+.hud-flight-prompt.extend.on { transform: translateX(-50%) translateY(0); }
 .hud-flight-prompt::before,
 .hud-flight-prompt::before {
   content: '';
@@ -2704,7 +2712,10 @@
 .hud-flight-prompt-en { color:var(--prompt-color); font-size:11px; letter-spacing:0; }
 .hud-flight-prompt-cn { margin-top:4px; font-size:24px; letter-spacing:0; }
 .hud-flight-prompt-rule { margin-top:6px; color:rgba(244,254,255,.78); font-size:14px; letter-spacing:0; }
-.hud-flight-prompt.extend .hud-flight-prompt-rule { white-space: normal; }
+.hud-flight-prompt.extend .hud-keycap { width:104px; flex-basis:104px; font-size:16px; }
+.hud-flight-prompt.extend .hud-flight-prompt-en { font-size:13px; }
+.hud-flight-prompt.extend .hud-flight-prompt-cn { font-size:31px; }
+.hud-flight-prompt.extend .hud-flight-prompt-rule { font-size:15px; white-space:normal; }
 
 .hud-turn-warning {
   top: auto;
