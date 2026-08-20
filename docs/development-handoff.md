@@ -1,12 +1,12 @@
 # Board Race 开发交接
 
-状态：`tornado-gate-pillars / released`
+状态：`tornado-gate-pillars / human-review candidate`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`3d521b0`，实现已发布为 `54506b1`（`main`）。完整执行合同见
+- Base：`dd280f4`，本候选将龙卷风收回真实 flight entry boundary。完整执行合同见
   `docs/workstream-launch-pillars.md`。
 - 纯视觉龙卷风门柱：launch 两侧各一根，菱形层与 checkpoint 浮标保持不动。
 - 本包已获用户授权：AI 自行读桌面与 `844x390` 截图、在预算内调参并自主发布；这是当前
@@ -16,9 +16,11 @@
 
 - 仅改 `course.ts` 门柱视觉和截图 harness；不动碰撞、gate 判定、flight 分支、AI、物理、
   `waves.ts`、菱形层或 checkpoint 浮标。
-- 锚点为 `launch - launchTangent * 2.4m + right * (±5.2m)`；三层半透明锥裙总高约 4.9m，
-  用近距成型、远距地标补偿保证可读。
-  裙摆用深色 `PALETTE.ink`；中心是小面积暗红核心、两道细轨道与主/分叉 `PALETTE.uiWarn` 电弧。
+- 锚点为真实 `def.entryU + entryRight * (±(corridorHalfWidth + .45m))`，即 flight attempt 的
+  空门入口边界；不改该入口的判负逻辑。螺旋烟带和实例化烟团总高约 7.4m，用近距成型、远距地标补偿
+  保证可读。
+  烟体用深色 `PALETTE.ink` / `PALETTE.uiPanel` 与低透明 `PALETTE.cloudShade` 构成；中心是小面积
+  暗红核心、两道细轨道与主/分叉 `PALETTE.uiWarn` 电弧。
   常态低亮，约每 2.35 秒一次短闪；全是世界内实体视觉：`depthTest=true`、`depthWrite=false`、
   renderOrder 5/6，不进入 `LAYER_ENERGY`，不改全局光照。
 - 远距曲线独立于 deploy：在 140m launch preview 边缘保持 `alpha=.78/scale=1.36` 的可读地标，
@@ -29,12 +31,11 @@
 
 ## 验收与发布
 
-- 已读完最终 desktop + `844x390` six-state 序列：140m 的暗色双地标可辨、80m 稳定引导、32m 完整
-  漏斗不盖船、菱形、航线或 HUD；另对连续实机帧采样，确认短闪是内部红色折线而非全屏提亮。
+- 已产出入口修订的 desktop + `844x390` armed 32m 定格；用户要求线上亲自审图，当前版本不得宣称
+  美术验收通过，也不在本轮继续调参。
 - 已通过 `npm run build` 与 `npm run verify:smoke`。Kimi WebBridge 守护进程在 Windows 宿主运行，
   但本 WSL 无法连接其 `127.0.0.1:10086`；未重启它，视觉证据由项目的 Chromium screenshot harness 产出。
-- 已完成 `jiepi-clear` 复核，并由 `npm run release:checked --
-  "feat: tornado gate pillars at launch entrances"` 重跑 build/smoke、提交并推送。
+- 上一版已完成 `jiepi-clear` 与发布；本修订待重新执行轻量收尾和受检发布。
 
 ## Pending 与风险
 
@@ -42,4 +43,5 @@
 
 ## 唯一下一步
 
-等待下一项独立工作包；菱形层与交通锥议题不得借本包继续扩展。
+发布候选供用户亲审；若未通过，下一位执行者从本工作包的入口锚点与烟雾造型继续，不改 flight
+判定或碰撞。

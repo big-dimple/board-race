@@ -1,5 +1,7 @@
 # 龙卷风门柱 v4：自主视觉交付
 
+状态：`human-review candidate`。入口锚点与烟雾体修订待用户线上亲审；不得将此状态写成美术验收通过。
+
 ## 目标
 
 将纯视觉龙卷风门柱挂入 launch entrance。用户授权 AI 自行读取截图、持续调参直到达标并
@@ -10,10 +12,11 @@
 
 - 只改 `src/game/course.ts` 的 private visual tree 与 `harness/` / `main.ts` 的定格入口。
   不碰碰撞、判定、flight 分支、AI、物理、`waves.ts`、菱形层和 checkpoint 浮标。
-- 每个 launch gate 两根柱：锚点为 `launch - launchTangent * 2.4m + right * (±5.2m)`。
-  root y 每帧取 `waterHeight(x, z, t)`。
-- 每根柱三层开口锥裙，总高约 4.9m、最大半径 1.45m；漏斗从水线收束向上展开，shared geometry/material。
-  裙摆为深色 `PALETTE.ink`。中段仅有一个小型暗红核心、两道细轨道和主/分叉
+- 每个 launch gate 两根柱：锚点为真实 flight `entryU + entryRight *
+  (±(corridorHalfWidth + .45m))`，不前移到 launch cue；root y 每帧取 `waterHeight(x, z, t)`。
+- 每根柱两道宽螺旋烟带、两层实例化烟团，总高约 7.4m、最大半径 1.75m；烟体从水线收束向上展开，
+  shared geometry/material。深色 `PALETTE.ink` / `PALETTE.uiPanel` 与低透明 `PALETTE.cloudShade`
+  组成灰土层次。中段仅有一个小型暗红核心、两道细轨道和主/分叉
   `PALETTE.uiWarn` 电弧，常态低亮、约每 2.35 秒短闪一次；它提供内部的旋转层次，不得扩展成
   粒子雨、全屏后处理或持续环境噪声。全部 `depthTest=true`、`depthWrite=false`、DoubleSide、
   renderOrder 5/6，绝不加入 `LAYER_ENERGY` 或改动全局光照。
