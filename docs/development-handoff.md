@@ -1,47 +1,58 @@
 # Board Race 开发交接
 
-状态：`tornado-gate-pillars / human-review candidate`
+状态：`tornado-boundary / human review rejected; restart visual treatment`
 
 更新时间：2026-08-20
 
-## 当前工作包
+## 给下一位 AI 的任务提示
 
-- Base：`dd280f4`，本候选将龙卷风收回真实 flight entry boundary。完整执行合同见
-  `docs/workstream-launch-pillars.md`。
-- 纯视觉龙卷风门柱：launch 两侧各一根，菱形层与 checkpoint 浮标保持不动。
-- 本包已获用户授权：AI 自行读桌面与 `844x390` 截图、在预算内调参并自主发布；这是当前
-  workstream 的局部交付规则，不改 llmwiki 的稳定美术合同。
+在 `6515383` 的基础上，**从零重做 flight entrance 的黑灰龙卷风视觉**。用户已明确否决此前两个
+方案：三段透明锥面读成“倒三角贴纸”；随后两道细螺旋带加稀疏球体又读成“黑色细线/线圈”。
+它们都不是灰土烟雾构成的龙卷风，禁止只调现有 opacity、scale、颜色、远距曲线或闪电来假装修好。
 
-## 设计合同（本工作包硬约束）
+目标是一个高而明确、持续旋转的黑灰尘雾柱：近景必须有可辨的体积、遮挡与层次，不能是单张面、
+几何轮廓或空心线圈；远景仍能读成两根入口边界。暗红小宇宙核心和偶发急促红色闪电可以保留，但
+只能藏在烟雾内部，不能替代烟雾本体或把场景照亮。用户会亲自审线上效果，未获明确认可不得写
+“美术已通过”。
 
-- 仅改 `course.ts` 门柱视觉和截图 harness；不动碰撞、gate 判定、flight 分支、AI、物理、
-  `waves.ts`、菱形层或 checkpoint 浮标。
-- 锚点为真实 `def.entryU + entryRight * (±(corridorHalfWidth + .45m))`，即 flight attempt 的
-  空门入口边界；不改该入口的判负逻辑。螺旋烟带和实例化烟团总高约 7.4m，用近距成型、远距地标补偿
-  保证可读。
-  烟体用深色 `PALETTE.ink` / `PALETTE.uiPanel` 与低透明 `PALETTE.cloudShade` 构成；中心是小面积
-  暗红核心、两道细轨道与主/分叉 `PALETTE.uiWarn` 电弧。
-  常态低亮，约每 2.35 秒一次短闪；全是世界内实体视觉：`depthTest=true`、`depthWrite=false`、
-  renderOrder 5/6，不进入 `LAYER_ENERGY`，不改全局光照。
-- 远距曲线独立于 deploy：在 140m launch preview 边缘保持 `alpha=.78/scale=1.36` 的可读地标，
-  平滑收敛到 `<=32m` 的 `alpha=1/scale=1`；两者都乘 `LaunchGateVisual` 的 deploy。只在
-  unarmed/armed 可见，最多一条 active route。
-- harness 必须提供 unarmed/armed × 140/80/32m 的真实 Course 定格，不伪造 visual group；验收固定使用
-  第二条 launch route，以避开首飞点的 START 门架遮挡。
+## 正确语义与当前缺口
+
+- **唯一正确位置**是实际 flight attempt 的空门入口：`def.entryU`，两侧沿 `entryRight` 放在
+  `±(def.corridorHalfWidth + 0.45m)`。不要重新锚到更早的 `flightLaunchCueU`，也不要向前/后偏移。
+  这是一条“撞上可能死”的视觉边界，但本任务不能新增物理碰撞或改动既有判负。
+- 当前实现在 `src/game/course.ts` 的 `buildLaunchGateVisual` 已把龙卷风放到 `entryU`，但
+  `LaunchGateVisual.group` 的生命周期仍只在 `unarmed/armed` 状态显示。玩家从更早的 launch cue
+  起飞后进入 `committed`，因此门柱可能在真正入口前消失。下一位必须让**仅门柱视觉**在所需的
+  起飞到入口窗口持续存在，同时让 cue 专属投影器/菱形遵守其原有生命周期；不得更改 flight state、
+  判定、速度、碰撞或 recovery。
+- 现有 `stageLaunchPillars(..., distanceM)` 的 `140/80/32` 也是相对 `launchCueU`，不能证明
+  `entryU` 的近中远构图。为入口造型新增或修正真实 Course 定格，保证截图距离的参照就是 entry
+  boundary，不能手工伪造 scene group。
+
+## 硬约束
+
+- 只改门柱 private visual tree、必要的真实截图 harness 和本文件；不动碰撞、gate 判定、flight 分支、
+  AI、物理、`waves.ts`、菱形层或 checkpoint 浮标。
+- 保持 `BoatInput`、60 Hz fixed step 和统一 boat world transform。不新增持续环境噪声、全屏后处理、
+  全场提亮或假 collision。
+- 烟雾必须是有界且可复用的世界内渲染；避免固定步进分配。可替换当前所有
+  `LAUNCH_TORNADO_SMOKE_*` 实验几何，不能因保留旧代码而迁就失败造型。
+- 每帧根部继续跟 `waterHeight(x, z, t)`；同一时刻最多一条路线的门柱 active；透明物保持
+  `depthTest=true`、`depthWrite=false`，不加入 `LAYER_ENERGY`。
 
 ## 验收与发布
 
-- 已产出入口修订的 desktop + `844x390` armed 32m 定格；用户要求线上亲自审图，当前版本不得宣称
-  美术验收通过，也不在本轮继续调参。
-- 已通过 `npm run build` 与 `npm run verify:smoke`。Kimi WebBridge 守护进程在 Windows 宿主运行，
-  但本 WSL 无法连接其 `127.0.0.1:10086`；未重启它，视觉证据由项目的 Chromium screenshot harness 产出。
-- 上一版已完成 `jiepi-clear` 与发布；本修订待重新执行轻量收尾和受检发布。
+- 先做一个真正有体积的烟雾原型，再看 desktop 与 `844x390` 的真实 entry-boundary
+  140m / 80m / 32m 状态；每个关键距离至少看常态和闪电瞬间，确认烟雾本体在非闪电帧也成立。
+- 截图必须同时确认：两根柱不盖船、航线、首菱形或移动端按钮；起飞 committed 后到入口前不消失；
+  黑灰烟雾在蓝天海面上不读成倒锥、贴纸、线圈、路障或一堆漂浮垃圾。
+- 通过用户人审后才跑 `npm run build`、`npm run verify:smoke`、`jiepi-clear` 和
+  `npm run release:checked -- "feat: rebuild tornado entrance boundary"`。当前 `6515383` 已通过 build/smoke，
+  但**美术已被用户驳回**。
 
-## Pending 与风险
+## 当前证据与下一步
 
-- 菱形层移除与交通锥定位仍须另开工作包；交通锥只能二选一：视觉击飞触发器或真实障碍。
-
-## 唯一下一步
-
-发布候选供用户亲审；若未通过，下一位执行者从本工作包的入口锚点与烟雾造型继续，不改 flight
-判定或碰撞。
+- 已发布基线：`6515383 feat: align tornadoes to flight entry boundary`。
+- 用户结论：当前版本“继续还是一坨屎”，交由下一位 AI 重做；不要在此基础上声称接受或继续做小调参。
+- 唯一下一步：下一位 AI 读取 `AGENTS.md`、`docs/llmwiki.md`、本文件及 `docs/art-direction.md`，按上述
+  入口语义与人审证据重新实现。
