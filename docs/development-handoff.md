@@ -1,12 +1,13 @@
 # Board Race 开发交接
 
-状态：`tornado-gate-pillars / locally accepted, release ready`
+状态：`tornado-gate-pillars / released`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`3d521b0`，`main`。完整执行合同见 `docs/workstream-launch-pillars.md`。
+- Base：`3d521b0`，实现已发布为 `54506b1`（`main`）。完整执行合同见
+  `docs/workstream-launch-pillars.md`。
 - 纯视觉龙卷风门柱：launch 两侧各一根，菱形层与 checkpoint 浮标保持不动。
 - 本包已获用户授权：AI 自行读桌面与 `844x390` 截图、在预算内调参并自主发布；这是当前
   workstream 的局部交付规则，不改 llmwiki 的稳定美术合同。
@@ -32,8 +33,8 @@
   漏斗不盖船、菱形、航线或 HUD；另对连续实机帧采样，确认短闪是内部红色折线而非全屏提亮。
 - 已通过 `npm run build` 与 `npm run verify:smoke`。Kimi WebBridge 守护进程在 Windows 宿主运行，
   但本 WSL 无法连接其 `127.0.0.1:10086`；未重启它，视觉证据由项目的 Chromium screenshot harness 产出。
-- 需要执行的发布门禁仅剩 `jiepi-clear` 复核、暂存四个审核文件和
-  `npm run release:checked -- "feat: tornado gate pillars at launch entrances"`。
+- 已完成 `jiepi-clear` 复核，并由 `npm run release:checked --
+  "feat: tornado gate pillars at launch entrances"` 重跑 build/smoke、提交并推送。
 
 ## Pending 与风险
 
@@ -41,4 +42,4 @@
 
 ## 唯一下一步
 
-发布当前已验收的四文件；后续美术需求另开工作包。
+等待下一项独立工作包；菱形层与交通锥议题不得借本包继续扩展。
