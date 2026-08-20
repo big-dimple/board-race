@@ -2153,7 +2153,7 @@ function scenario(name: string): void {
       break;
     case "ocean-sunpath": {
       // Turn until the chase camera faces the visible sun, then run straight
-      // at it — validates the shared disc, reflection lane, and subtle veil.
+      // at it — validates the disc, sunward reflection lane, and subtle veil.
       advanceUntil(() => race.phase === "racing", 8);
       const sunHeading = Math.atan2(VISIBLE_SUN_DIR.x, VISIBLE_SUN_DIR.z);
       setHarnessInput({ throttle: 1 });

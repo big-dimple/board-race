@@ -24,8 +24,8 @@ export const SUN_DIR: THREE.Vector3 = new THREE.Vector3(
 
 /**
  * The visible sun sits lower than the baked scene light so it stays in the
- * chase view. Sky presentation and water glitter share this source; boats
- * and course materials continue to use SUN_DIR.
+ * chase view. Sky presentation and sun-facing camera scenarios use this
+ * source; scene materials continue to use SUN_DIR.
  */
 export const VISIBLE_SUN_DIR: THREE.Vector3 = new THREE.Vector3(
   SUN_DIR.x,

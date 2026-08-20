@@ -1025,9 +1025,9 @@
     top: max(16%, calc(env(safe-area-inset-top) + 48px));
     width: min(286px, calc(100% - 32px));
   }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 12px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 26px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 11px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 16px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 34px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 13px; }
 }
 
 @keyframes hud-impact-flash {

@@ -1,23 +1,22 @@
 # Board Race 开发交接
 
-状态：`solar-reflection released`
+状态：`mobile-hud-and-glint-rollback released`
 
 更新时间：2026-08-20
 
 ## 当前工作包
 
-- Base：`affcd2da33f93f5b140b7335e7f3a098418f82ff`，`main`。
-- 产品 owner：`src/cel/toonMaterial.ts`、`src/cel/sky.ts`、`src/water/ocean.ts`、`src/main.ts`。
-- 可见太阳方向独立于既有场景光照，且被天空日盘与海面闪光共用；游戏、赛道与船体光照不动。
-- 海面闪光先受物理大波面镜向约束，再受微表面镜向约束。四芒星恢复到所有距离的碎片层，但按像素
-  尺寸限制，近景不再出现大十字；白色大浪花/whitecap 不在本工作包内。
-- 天空太阳为暖色硬核、柔冠、局部眩光和被云层遮断的短丁达尔束，移除了全屏旋转光束扇和泛绿风险。
-- `ocean-sunpath` 与新的共享可见太阳方向对齐，用于截图验证日盘、短光束和反射带。
+- Base：`6a30ccf565c6d8b9c630a003fb5c29a6ec6ff5cc`，`main`。
+- 产品 owner：`src/core/mobileControls.css`、`src/hud/hud.css`、`src/water/ocean.ts`、
+  `src/cel/toonMaterial.ts`、`src/main.ts`。
+- 横屏手机右转的可见圆面向右移 20px，命中区和左右拇指所有权不变；续航完成反馈提升为主标题层级。
+- 用户否决本轮四芒星/反射门控重构。`ocean.ts` 已精确回退到此前已发布的短促闪烁实现，不保留
+  新的反射走廊、常亮脉冲或像素封顶逻辑；天空日盘和短丁达尔束不受影响。
 
 ## 证据与验证
 
-- 已完成桌面与 `844x390` 横屏截图人工检查：四芒星在近景、中景都保持小尺寸；朝日时日盘、光束与
-  海面反射同向，侧向镜头不再有全海面闪烁。
+- 已完成桌面与 `844x390` 横屏截图人工检查：转向圆面间距更清楚；续航反馈清晰且未遮住飞行航线；
+  海面没有本轮被否决的 glint 残留。
 - `git diff --check`、`npm run build`、`npm run verify:smoke` 通过。smoke：桌面 `172 calls /
   325477 triangles / 2025000 pixels / 16.7ms`；手机 `192 / 328493 / 2057250 / 16.7ms`。
 - `llmwiki` 的稳定合同已同步更新。
@@ -31,5 +30,5 @@
 
 ## 唯一下一步
 
-开启 `whitecap-volume` 工作包时，先做一项只依附现有波形的三层泡沫可见原型，按桌面与 `844x390`
-截图让用户确认方向后再扩展；不要改动本轮太阳、光束或四芒星合同。
+开启 `whitecap-volume` 时，先做一项只依附现有波形的三层泡沫可见原型，按桌面与 `844x390` 截图让
+用户确认方向后再扩展；不要重新尝试四芒星/反射门控改造，除非用户给出新方向。

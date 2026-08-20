@@ -19,9 +19,9 @@
   --control-h: clamp(128px, 36vh, 158px);
   --control-w: clamp(288px, 39vw, 340px);
   /* Keep the left-thumb sweep stable on wide phones. The hit targets stay
-     140px wide; the visible faces sit closer together under the thumb. */
+     140px wide while the right face remains centered in its own half. */
   --steer-w: 280px;
-  --steer-right-face-inset: 44px;
+  --steer-right-face-inset: 24px;
 }
 
 .mobile-controls button {
