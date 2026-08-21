@@ -48,7 +48,6 @@ uniform vec3 uMid;
 uniform vec3 uHorizon;
 uniform vec3 uSunVisualDir; // visible sun direction; lighting remains shared in toon/water
 uniform vec3 uSunCore;
-uniform vec3 uSunFlare;
 uniform float uOpeningArt;
 
 varying vec3 vDir;
@@ -65,8 +64,16 @@ void main() {
   col = mix(col, uMid, smoothstep(0.03, 0.10, h));
   col = mix(col, uZenith, smoothstep(0.28, 0.40, h));
 
+  // Warm haze hugging the horizon around the sun azimuth — the low-sun key
+  // light washing the lower sky. Pale cream, never saturated yellow:
+  // saturated yellow blended across blue sky reads green.
+  float sunAzimuth = dot(normalize(dir.xz + vec2(1e-5, 0.0)), normalize(uSunVisualDir.xz));
+  float horizonBand = 1.0 - smoothstep(0.02, 0.24, h);
+  float warmWash = smoothstep(-0.1, 0.9, sunAzimuth) * horizonBand;
+  col = mix(col, vec3(1.0, 0.93, 0.78), warmWash * 0.38);
+
   // ---------------------------------------------------------------
-  // SUN — the corona and flare stay compact, while three short Tyndall
+  // SUN — big low disc with a wide soft halo; three short Tyndall
   // shafts open downward toward the horizon. Clouds are drawn afterwards,
   // so they naturally interrupt the shafts instead of sitting inside an
   // artificial full-screen ray fan.
@@ -76,18 +83,18 @@ void main() {
   vec3 t1 = cross(t0, uSunVisualDir);
   float az = atan(dot(dir, t1), dot(dir, t0)); // azimuth around the sun
 
-  float core = 1.0 - smoothstep(0.0, 0.018, ang);
-  float disc = 1.0 - smoothstep(0.018, 0.037, ang);
-  float innerHalo = 1.0 - smoothstep(0.037, 0.105, ang);
-  float outerHalo = 1.0 - smoothstep(0.105, 0.255, ang);
-  float veilBand = smoothstep(0.052, 0.11, ang) * (1.0 - smoothstep(0.14, 0.34, ang));
+  float core = 1.0 - smoothstep(0.0, 0.024, ang);
+  float disc = 1.0 - smoothstep(0.024, 0.052, ang);
+  float innerHalo = 1.0 - smoothstep(0.052, 0.14, ang);
+  float outerHalo = 1.0 - smoothstep(0.14, 0.34, ang);
+  float veilBand = smoothstep(0.07, 0.15, ang) * (1.0 - smoothstep(0.19, 0.4, ang));
   float veilA = pow(max(cos(az - 0.24), 0.0), 24.0);
   float veilB = pow(max(cos(az + 0.31), 0.0), 21.0);
   float veils = veilBand * (veilA * 0.7 + veilB * 0.5);
   float fourPoint = pow(abs(cos(az * 2.0)), 56.0) *
-    smoothstep(0.030, 0.046, ang) * (1.0 - smoothstep(0.055, 0.095, ang));
+    smoothstep(0.048, 0.062, ang) * (1.0 - smoothstep(0.075, 0.12, ang));
   float horizontalFlare = pow(abs(cos(az)), 120.0) *
-    smoothstep(0.032, 0.048, ang) * (1.0 - smoothstep(0.060, 0.105, ang));
+    smoothstep(0.05, 0.065, ang) * (1.0 - smoothstep(0.08, 0.13, ang));
 
   // t1 points upward from the sun. The beams only occupy directions below
   // it, widening slightly with distance like light filtered through haze.
@@ -101,10 +108,12 @@ void main() {
   float rayTexture = 0.76 + 0.24 * sin(downSun * 82.0 + dot(dir, t0) * 57.0);
   float tyndall = rayReach * (rayA * 0.82 + rayB * 0.50 + rayC * 0.26) * rayTexture;
 
-  float atmosphericGlow = innerHalo * 0.17 + outerHalo * 0.035;
+  float atmosphericGlow = innerHalo * 0.22 + outerHalo * 0.05;
   atmosphericGlow *= 1.0 + uOpeningArt * 0.10;
-  vec3 sunMist = mix(uSunFlare, uSunCore, 0.52);
-  col = mix(col, sunMist, clamp(atmosphericGlow, 0.0, 0.20));
+  // Pale warm white, NOT saturated yellow: yellow mixed across blue sky
+  // reads as the rejected green spotlight.
+  vec3 sunMist = mix(uSunCore, vec3(1.0, 0.97, 0.86), 0.55);
+  col = mix(col, sunMist, clamp(atmosphericGlow, 0.0, 0.26));
   // Near-white is intentionally used for every atmospheric contribution:
   // blending saturated yellow across blue sky produces the rejected green
   // spotlight effect.
@@ -241,7 +250,6 @@ export class Sky {
       uHorizon: { value: flat(PALETTE.skyHorizon) },
       uSunVisualDir: { value: VISIBLE_SUN_DIR },
       uSunCore: { value: flat(PALETTE.sunCore) },
-      uSunFlare: { value: flat(PALETTE.sunFlare) },
       uOpeningArt: { value: 0 },
     };
     const skyMat = new THREE.ShaderMaterial({

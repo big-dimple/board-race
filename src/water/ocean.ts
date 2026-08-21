@@ -225,6 +225,8 @@ uniform float uPixelScale;
 uniform float uFoamBreakup;
 uniform float uFoamCellSize;
 uniform float uFresnelStrength;
+uniform float uFresnelMax;
+uniform float uSunSlopeLight;
 
 // continuous distance fade into the horizon
 uniform float uFogStart;
@@ -239,6 +241,7 @@ uniform vec3 uColorSparkle;
 uniform vec3 uColorHorizon;
 uniform vec3 uColorSkyMid;
 uniform vec3 uColorSkyZenith;
+uniform vec3 uColorSunWarm;
 uniform vec3 uSunDir;
 
 varying vec2 vOrigXZ;
@@ -345,27 +348,52 @@ void main() {
 
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   vec3 sunDir = normalize(uSunDir);
+  vec2 sunAz = normalize(uSunDir.xz);
+  vec2 viewAz = normalize(vOrigXZ - cameraPosition.xz);
   float sunFace = clamp(dot(physicalNormal, sunDir) * 0.5 + 0.5, 0.0, 1.0);
   float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
 
-  // Deep water body color, then a view-dependent reflection of the existing
-  // procedural sky. The reflected direction creates broad facets without a
-  // painted white patch or a second water layer.
-  float faceLight = clamp(0.08 + sunFace * 0.46 + physicalSlope * 0.72 + vH * 0.12, 0.0, 1.0);
+  // Directional relief: wave form reads from the BRIGHTNESS CONTRAST between
+  // faces tilted toward the sun and faces turned away — not from slope
+  // magnitude, which lights both sides equally and flattens the sea.
+  // sunSlope is the signed surface slope along the sun azimuth: positive on
+  // sun-facing wave faces, negative on the lee side.
+  float sunSlope = -dot(gradient, sunAz);
+  float faceLight = clamp(
+    0.10 + sunFace * 0.30 + sunSlope * uSunSlopeLight + physicalSlope * 0.16 + vH * 0.10,
+    0.0, 1.0);
   vec3 col = mix(uColorDeep, uColorMid, faceLight);
+  // Lee-side self-shadowing approximation plus trough ambient occlusion.
+  float lee = smoothstep(0.03, 0.24, -sunSlope);
+  col *= 1.0 - lee * 0.24;
   float trough = 1.0 - smoothstep(-0.42, -0.04, vH);
-  col *= 1.0 - trough * 0.22;
+  col *= 1.0 - trough * 0.24;
   float crestShoulder = smoothstep(0.02, 0.38, vH) * smoothstep(0.08, 0.24, physicalSlope);
   col = mix(col, uColorCrest, crestShoulder * 0.32);
 
+  // Sky reflection: at grazing angles real water is a sky mirror. The
+  // facet-by-facet alternation between deep body color and pale sky is what
+  // carries wave structure into the distance. Reflection tints stay close to
+  // the true sky colors — blue, never a broad white sun patch.
   vec3 reflected = reflect(-viewDir, n);
   float skyY = clamp(reflected.y * 0.5 + 0.5, 0.0, 1.0);
-  vec3 reflectionHorizon = mix(uColorMid, uColorHorizon, 0.18);
-  vec3 reflectionMid = mix(uColorMid, uColorSkyMid, 0.34);
-  vec3 reflectionZenith = mix(uColorDeep, uColorSkyZenith, 0.38);
+  vec3 reflectionHorizon = mix(uColorMid, uColorHorizon, 0.72);
+  vec3 reflectionMid = mix(uColorMid, uColorSkyMid, 0.62);
+  vec3 reflectionZenith = mix(uColorDeep, uColorSkyZenith, 0.5);
   vec3 skyReflection = mix(reflectionHorizon, reflectionMid, smoothstep(0.12, 0.62, skyY));
   skyReflection = mix(skyReflection, reflectionZenith, smoothstep(0.62, 1.0, skyY));
-  float reflectionAmount = clamp(0.025 + fresnel * uFresnelStrength + physicalSlope * 0.018, 0.025, 0.22);
+  // Sun lane: the reflected sky warms toward the low sun azimuth, anchoring a
+  // broad stable reflection path that matches the sky dome's warm haze.
+  // View-azimuth driven only — never modulated by wave normals — so it can
+  // never crawl as a slow white patch over the swell.
+  float sunLane = smoothstep(0.0, 0.8, dot(viewAz, sunAz));
+  skyReflection = mix(skyReflection, uColorSunWarm, sunLane * 0.72);
+  // The lane is a grazing-angle mirror path: it must also OPEN the
+  // reflection, not just tint it, or the warm sky stays diluted under the
+  // dark body color and never reads as a sun path.
+  float reflectionAmount = clamp(
+    0.03 + fresnel * uFresnelStrength + physicalSlope * 0.02 +
+    sunLane * 0.3 * (0.3 + fresnel), 0.03, max(uFresnelMax, 0.8));
   col = mix(col, skyReflection, reflectionAmount);
 
   // Sun glitter stacks four sparkle octaves with different scales and
@@ -374,25 +402,29 @@ void main() {
   // lane toward the sun boosts density into a glitter path; the wave
   // crest bias lets larger soft glints favor crests.
   vec3 halfDir = normalize(sunDir + viewDir);
-  vec2 sunAz = normalize(uSunDir.xz);
-  vec2 viewAz = normalize(vOrigXZ - cameraPosition.xz);
-  float pathBoost = mix(0.3, 1.25, smoothstep(0.15, 0.8, dot(viewAz, sunAz)));
+  // Glitter lives in a lane toward the sun. Off-lane sparkle is nearly shut:
+  // a full-frame scatter of flashes reads as flat "starfield texture" and
+  // actively erases wave relief.
+  float pathBoost = mix(0.08, 1.6, smoothstep(0.1, 0.85, dot(viewAz, sunAz)));
+  // Starburst spikes only in the far glitter lane; near the camera they read
+  // as scratches on a flat plane.
+  float spikeFar = smoothstep(18.0, 50.0, dist);
   // Round pinpoints up close; elongation grows only with distance so the far
   // field merges into a glitter lane while near fragments stay point-like.
   float aniso = mix(1.05, uGlintPathAniso * 2.6, smoothstep(40.0, 280.0, dist));
   float crestBias = mix(0.7, 1.15, smoothstep(0.0, 0.35, vH));
   float pixW = max(dist * uPixelScale * 1.4, 0.015);
   vec2 sp =
-    sparkleOctave(vOrigXZ, 7.5, 0.21, uSparkleDensity * 0.5, 0.5, 0.0, sunAz, aniso, 1.8, 1.6, pixW) *
+    sparkleOctave(vOrigXZ, 7.5, 0.21, uSparkleDensity * 0.5, 0.5, 0.0, sunAz, aniso, 1.8, 1.6 * spikeFar, pixW) *
       sparkleBand(dist, 60.0, 140.0, 420.0, 900.0) +
-    sparkleOctave(vOrigXZ, 2.3, 0.94, uSparkleDensity * 0.8, 1.0, 3.7, sunAz, aniso, 1.2, 1.1, pixW) *
+    sparkleOctave(vOrigXZ, 2.3, 0.94, uSparkleDensity * 0.8, 1.0, 3.7, sunAz, aniso, 1.2, 1.1 * spikeFar, pixW) *
       (sparkleBand(dist, 12.0, 30.0, 140.0, 320.0) * sparkleCellVisible(2.3, dist));
 #if OCEAN_FINE_DETAIL == 1
-  sp += sparkleOctave(vOrigXZ, 0.75, 1.62, uSparkleDensity, 1.9, 9.1, sunAz, aniso, 1.0, 1.0, pixW) *
+  sp += sparkleOctave(vOrigXZ, 0.75, 1.62, uSparkleDensity, 1.9, 9.1, sunAz, aniso, 1.0, 1.0 * spikeFar, pixW) *
     (sparkleBand(dist, 2.5, 8.0, 45.0, 110.0) * sparkleCellVisible(0.75, dist));
 #endif
 #if OCEAN_GLINT_MICRO == 1
-  sp += sparkleOctave(vOrigXZ, 0.30, 2.35, uSparkleDensity * 1.1, 2.6, 15.3, sunAz, aniso, 0.9, 0.85, pixW) *
+  sp += sparkleOctave(vOrigXZ, 0.30, 2.35, uSparkleDensity * 1.1, 2.6, 15.3, sunAz, aniso, 0.9, 0.85 * spikeFar, pixW) *
     (sparkleBand(dist, 1.2, 4.0, 18.0, 48.0) * sparkleCellVisible(0.30, dist));
 #endif
   // Wider Blinn lobe up close so near fragments can burst bright instead of
@@ -468,8 +500,11 @@ void main() {
   }
 
   // Continuous material collapse prevents a second graphic horizon band.
+  // The fog tint warms toward the sun azimuth so the sea horizon meets the
+  // sky dome's warm haze without a value seam.
   float fog = smoothstep(uFogStart, uFogFar, dist);
-  col = mix(col, uColorHorizon, fog);
+  vec3 fogTint = mix(uColorHorizon, uColorSunWarm, sunLane * 0.55);
+  col = mix(col, fogTint, fog);
 
   gl_FragColor = vec4(col, 1.0);
   #include <colorspace_fragment>
@@ -531,7 +566,9 @@ export class Ocean {
       uPixelScale: { value: 0.0013 },
       uFoamBreakup: { value: performance ? 0.0 : high ? 0.65 : 0.5 },
       uFoamCellSize: { value: 3.5 },
-      uFresnelStrength: { value: 0.22 },
+      uFresnelStrength: { value: 0.45 },
+      uFresnelMax: { value: 0.5 },
+      uSunSlopeLight: { value: 1.5 },
 
       uFoamRingWidth: { value: 1.6 },
       uFoamRingOuter: { value: 0.9 },
@@ -554,6 +591,9 @@ export class Ocean {
       uColorHorizon: { value: new THREE.Color(PALETTE.skyHorizon) },
       uColorSkyMid: { value: new THREE.Color(PALETTE.skyMid) },
       uColorSkyZenith: { value: new THREE.Color(PALETTE.skyZenith) },
+      // Warm cream sun-path tint — a touch warmer than the sky dome's horizon
+      // wash so the water lane reads as the accent, never green over cyan.
+      uColorSunWarm: { value: new THREE.Color(1.0, 0.88, 0.62) },
       uSunDir: { value: new THREE.Vector3(sun[0], sun[1], sun[2]).normalize() },
     };
 

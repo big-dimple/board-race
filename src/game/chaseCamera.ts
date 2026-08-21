@@ -47,6 +47,14 @@ const LOOK_RATE = 12; // /s look-at smoothing (chase)
 const ORBIT_RATE = 2.6; // /s position smoothing (orbit/results)
 const ORBIT_LOOK_RATE = 5; // /s look-at smoothing (orbit/results)
 const WATER_CLEARANCE = 0.6; // camera never closer than this to the waves (m)
+// Wave heave decoupling: the boat's vertical spring tracks the sea almost
+// perfectly, so a camera rigidly locked to boat Y co-rides every swell and
+// erases the one cue that sells wave height — the hull rising and falling
+// against the frame/horizon. The camera instead anchors to a slow-filtered
+// boat height (HEAVE_TAU) and keeps only HEAVE_KEEP of the instantaneous
+// heave, so most of the physical wave motion becomes visible relative motion.
+const HEAVE_TAU = 0.9; // s, slow vertical anchor time constant
+const HEAVE_KEEP = 0.3; // fraction of instantaneous heave the camera follows
 
 // ---- orbit / results tuning ---------------------------------------------------
 const ORBIT_RADIUS = 14;
@@ -95,6 +103,7 @@ export class CameraRig {
   private collisionRoll = 0;
   private shakeAmp = 0;
   private noiseT = 0;
+  private heaveAnchor = 0; // slow-filtered boat Y — wave heave reference
   private collisionImpactLevel: CameraImpactLevel = loadCameraImpactLevel();
 
   // mode-blend snapshot
@@ -240,6 +249,7 @@ export class CameraRig {
     );
     this.look.copy(this.helm);
     this.vel.set(0, 0, 0);
+    this.heaveAnchor = st.position.y;
     this.fov = BASE_FOV - 3;
     this.roll = 0;
     this.shakeAmp = 0;
@@ -312,9 +322,18 @@ export class CameraRig {
         CHASE_BACK + this.accelLag + this.impactBack + st.flightPressure * 0.45 - st.flightAirBrake * 0.65,
       );
       const driftSide = st.steer * this.driftBlend * 0.65;
+      // Slow heave anchor: the camera rides the long-term water level, not the
+      // instantaneous surface, so the hull visibly climbs and drops on swells.
+      // Flight keeps the raw boat Y (lift readability) and reduced motion
+      // keeps the camera fully coupled.
+      this.heaveAnchor += (by - this.heaveAnchor) * (1 - Math.exp(-dt / HEAVE_TAU));
+      const heaveKeep = this.reducedMotion
+        ? 1
+        : HEAVE_KEEP + (1 - HEAVE_KEEP) * this.flightBlend;
+      const camBaseY = this.heaveAnchor + (by - this.heaveAnchor) * heaveKeep;
       target.set(
         bx - fx * dist + fz * driftSide,
-        by + CHASE_UP - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,
+        camBaseY + CHASE_UP - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,
         bz - fz * dist - fx * driftSide,
       );
       target.x += fz * this.collisionSide;
@@ -375,6 +394,7 @@ export class CameraRig {
       this.initialized = true;
       this.pos.copy(target);
       this.vel.set(0, 0, 0);
+      this.heaveAnchor = by;
       this.look.copy(look);
       this.fov = fovTarget;
       this.blendT = 0;

@@ -23,13 +23,14 @@ export const SUN_DIR: THREE.Vector3 = new THREE.Vector3(
 ).normalize();
 
 /**
- * The visible sun sits lower than the baked scene light so it stays in the
- * chase view. Sky presentation and sun-facing camera scenarios use this
- * source; scene materials continue to use SUN_DIR.
+ * The visible sun sits low over the horizon (NFS-style "race into the sun"
+ * key light) so the chase view reads a real sun disc, warm haze and a
+ * sunward reflection lane on the water. Sky presentation and sun-facing
+ * camera scenarios use this source; scene materials continue to use SUN_DIR.
  */
 export const VISIBLE_SUN_DIR: THREE.Vector3 = new THREE.Vector3(
   SUN_DIR.x,
-  SUN_DIR.y * 0.4,
+  SUN_DIR.y * 0.3,
   SUN_DIR.z,
 ).normalize();
 
