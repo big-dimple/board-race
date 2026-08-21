@@ -49,6 +49,7 @@ uniform vec3 uHorizon;
 uniform vec3 uSunVisualDir; // visible sun direction; lighting remains shared in toon/water
 uniform vec3 uSunCore;
 uniform float uOpeningArt;
+uniform float uTime;
 
 varying vec3 vDir;
 
@@ -91,10 +92,6 @@ void main() {
   float veilA = pow(max(cos(az - 0.24), 0.0), 24.0);
   float veilB = pow(max(cos(az + 0.31), 0.0), 21.0);
   float veils = veilBand * (veilA * 0.7 + veilB * 0.5);
-  float fourPoint = pow(abs(cos(az * 2.0)), 56.0) *
-    smoothstep(0.048, 0.062, ang) * (1.0 - smoothstep(0.075, 0.12, ang));
-  float horizontalFlare = pow(abs(cos(az)), 120.0) *
-    smoothstep(0.05, 0.065, ang) * (1.0 - smoothstep(0.08, 0.13, ang));
 
   // t1 points upward from the sun. The beams only occupy directions below
   // it, widening slightly with distance like light filtered through haze.
@@ -106,7 +103,16 @@ void main() {
   float rayB = 1.0 - smoothstep(rayWidth * 0.32, rayWidth * 0.82, abs(dot(dir, t0) - downSun * 0.18));
   float rayC = 1.0 - smoothstep(rayWidth * 0.26, rayWidth * 0.65, abs(dot(dir, t0) - downSun * 0.42));
   float rayTexture = 0.76 + 0.24 * sin(downSun * 82.0 + dot(dir, t0) * 57.0);
-  float tyndall = rayReach * (rayA * 0.82 + rayB * 0.50 + rayC * 0.26) * rayTexture;
+  // Beams breathe: real crepuscular shafts live only where cloud gaps drift,
+  // so each one wanders on its own slow clock and the whole veil swells and
+  // settles. A fixed fan is camera-locked and reads as a sticker the moment
+  // the boat moves.
+  float rayAMod = 0.55 + 0.45 * sin(uTime * 0.21);
+  float rayBMod = 0.55 + 0.45 * sin(uTime * 0.147 + 2.4);
+  float rayCMod = 0.55 + 0.45 * sin(uTime * 0.27 + 4.1);
+  float veilBreathe = 0.7 + 0.3 * sin(uTime * 0.09 + 1.2);
+  float tyndall = rayReach *
+    (rayA * 0.82 * rayAMod + rayB * 0.50 * rayBMod + rayC * 0.26 * rayCMod) * rayTexture;
 
   float atmosphericGlow = innerHalo * 0.22 + outerHalo * 0.05;
   atmosphericGlow *= 1.0 + uOpeningArt * 0.10;
@@ -119,8 +125,8 @@ void main() {
   // spotlight effect.
   vec3 airLight = mix(uSunCore, vec3(1.0, 0.97, 0.86), 0.58);
   float corona = pow(innerHalo * (1.0 - disc), 1.7);
-  col += airLight * (corona * 0.09 + veils * 0.075 + fourPoint * 0.018 + horizontalFlare * 0.04);
-  col += airLight * tyndall * (0.10 + uOpeningArt * 0.018);
+  col += airLight * (corona * 0.09 + veils * 0.075);
+  col += airLight * tyndall * (0.10 + uOpeningArt * 0.018) * veilBreathe;
   col = mix(col, uSunCore, disc);
   col = mix(col, vec3(1.0, 0.99, 0.89), core * 0.82);
 
@@ -251,6 +257,7 @@ export class Sky {
       uSunVisualDir: { value: VISIBLE_SUN_DIR },
       uSunCore: { value: flat(PALETTE.sunCore) },
       uOpeningArt: { value: 0 },
+      uTime: { value: 0 },
     };
     const skyMat = new THREE.ShaderMaterial({
       name: 'CelSky',
@@ -310,6 +317,7 @@ export class Sky {
   /** Follow the camera and advance cloud drift. Allocates nothing. */
   update(t: number, camPos: THREE.Vector3): void {
     this.object.position.copy(camPos);
+    this.skyUniforms.uTime.value = t;
     for (let i = 0; i < CLOUD_COUNT; i++) {
       const a = this.cAngle[i] + t * this.cOmega[i];
       const r = this.cRadius[i];

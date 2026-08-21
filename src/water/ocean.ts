@@ -288,7 +288,10 @@ vec2 sparkleOctave(vec2 p, float cellSize, float rot, float density,
   float cycle = fract(r3 + uTime * uSparkleTwinkle * twSpeed * (0.6 + 0.8 * r2));
   float on = smoothstep(0.0, 0.06, cycle) *
     (1.0 - smoothstep(density, density + 0.06, cycle));
-  on *= on; // snappier attack/decay -> flashes read as bursts, not fades
+  // Per-cell flash shape: some cells breathe softly, others snap shut — one
+  // shared burst curve across the whole field reads as mechanical. Exponents
+  // stay near 2 so the field's total energy does not creep up.
+  on = pow(on, 1.6 + 1.6 * r2);
   vec2 pt = vec2(r1, r2) * 0.56 + 0.22;
   vec2 d = (f - pt) * cellSize;
   vec2 perp = vec2(-sunAz.y, sunAz.x);
@@ -343,8 +346,15 @@ void main() {
   vec2 rippleSlope =
     windDir * cos(dot(vOrigXZ, windDir) * 2.15 + uTime * 2.5) * 0.62 +
     crossWind * cos(dot(vOrigXZ, crossWind) * 3.45 - uTime * 3.2) * 0.38;
+  // Wind ripple gathers into drifting patches; uniform parallel stripes read
+  // as printed texture once the sky reflection is strong enough to show them.
+  // The floor stays high: a near-zero patch turns glassy and mirrors the
+  // bright sky as a big soft blob at grazing angles.
+  float ripplePatch = 0.72 +
+    0.28 * sin(dot(vOrigXZ, vec2(0.21, -0.34)) + uTime * 0.23) *
+           sin(dot(vOrigXZ, vec2(-0.17, 0.29)) - uTime * 0.19);
   vec3 n = normalize(physicalNormal + vec3(rippleSlope.x, 0.0, rippleSlope.y) *
-    uRippleStrength * rippleFade * detail);
+    uRippleStrength * rippleFade * detail * ripplePatch);
 
   vec3 viewDir = normalize(cameraPosition - vWorldPos);
   vec3 sunDir = normalize(uSunDir);
@@ -420,11 +430,14 @@ void main() {
     sparkleOctave(vOrigXZ, 2.3, 0.94, uSparkleDensity * 0.8, 1.0, 3.7, sunAz, aniso, 1.2, 1.1 * spikeFar, pixW) *
       (sparkleBand(dist, 12.0, 30.0, 140.0, 320.0) * sparkleCellVisible(2.3, dist));
 #if OCEAN_FINE_DETAIL == 1
-  sp += sparkleOctave(vOrigXZ, 0.75, 1.62, uSparkleDensity, 1.9, 9.1, sunAz, aniso, 1.0, 1.0 * spikeFar, pixW) *
+  // Near octaves: smaller cores, sparser cells, slower clocks. The countdown
+  // holds the camera still at point-blank range, where big fast uniform dots
+  // read as a starfield sticker instead of sun glitter.
+  sp += sparkleOctave(vOrigXZ, 0.75, 1.62, uSparkleDensity * 0.55, 1.2, 9.1, sunAz, aniso, 0.62, 1.0 * spikeFar, pixW) *
     (sparkleBand(dist, 2.5, 8.0, 45.0, 110.0) * sparkleCellVisible(0.75, dist));
 #endif
 #if OCEAN_GLINT_MICRO == 1
-  sp += sparkleOctave(vOrigXZ, 0.30, 2.35, uSparkleDensity * 1.1, 2.6, 15.3, sunAz, aniso, 0.9, 0.85 * spikeFar, pixW) *
+  sp += sparkleOctave(vOrigXZ, 0.30, 2.35, uSparkleDensity * 0.6, 1.6, 15.3, sunAz, aniso, 0.55, 0.85 * spikeFar, pixW) *
     (sparkleBand(dist, 1.2, 4.0, 18.0, 48.0) * sparkleCellVisible(0.30, dist));
 #endif
   // Wider Blinn lobe up close so near fragments can burst bright instead of
@@ -432,8 +445,7 @@ void main() {
   // lobe so sparkle still rides sun-facing slopes.
   float gloss = mix(uGlintGloss * 0.45, uGlintGloss, smoothstep(8.0, 60.0, dist));
   float glintEnvelope = pow(max(dot(n, halfDir), 0.0), gloss);
-  float glintGate = glintEnvelope * pathBoost * crestBias * uGlintStrength *
-    (1.0 + uOpeningArt * 0.12);
+  float glintGate = glintEnvelope * pathBoost * crestBias * uGlintStrength;
   float spCore = min(sp.x * 1.5, 1.0) * glintGate;
   float spHalo = min(sp.y, 1.0) * glintGate;
   col = mix(col, uColorSparkle, clamp(spCore, 0.0, uGlintMaxMix));
@@ -554,7 +566,7 @@ export class Ocean {
       uGlintGloss: { value: performance ? 18.0 : high ? 24.0 : 21.0 },
       uGlintStrength: { value: performance ? 1.35 : high ? 2.0 : 1.7 },
       uSparkleDensity: { value: performance ? 0.07 : high ? 0.18 : 0.13 },
-      uSparkleTwinkle: { value: 1.0 },
+      uSparkleTwinkle: { value: 0.55 },
       uGlintPathAniso: { value: performance ? 1.6 : high ? 2.0 : 1.8 },
       uGlintCoreR: { value: performance ? 0.1 : high ? 0.08 : 0.09 },
       uGlintHaloR: { value: performance ? 0.24 : high ? 0.2 : 0.22 },
