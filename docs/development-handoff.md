@@ -1,13 +1,13 @@
 # Board Race 开发交接
 
-状态：`flight prompt redesign + rule onboarding + mist corridor / 待提交发版`
+状态：`flight prompt redesign + rule onboarding + mist corridor / 已发布,待真机验收`
 
 更新时间：2026-08-22
 
 ## 基线
 
-- `98ccbec` 已发布:短峰尖峰海、旋转四芒星闪点、电台冒烟时间线免疫化。
-- 本轮工作包七条验收已全部实现并自审通过,build / verify:smoke 双端全绿,待提交。
+- `3b806a5` 已发布:飞行提示卡重做 + 续飞规则引导 + 雾道雾幕。build / verify:smoke
+  双端全绿(含新增 spent 卡合同)。
 
 ## 本轮改动(飞行提示卡重做 + 规则引导 + 雾道可读性)
 
@@ -39,4 +39,4 @@
 
 ## 下一步
 
-- `jiepi-clear` 轻量预检 → 暂存本轮文件 → `npm run release:checked` 发版。
+- 用户真机动态验收(见上节清单);无新工作包。
