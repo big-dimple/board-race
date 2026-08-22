@@ -146,11 +146,14 @@ export class Rider {
   private tauntRemaining = 0;
   private tauntCooldownUntil = 0;
   private tauntSide = 1;
+  /** Per-rider animation phase so six riders never breathe or buzz in sync. */
+  private readonly phase: number;
 
   // Scratch (no per-frame allocation).
   private readonly tmp = new THREE.Vector3();
 
-  constructor(opts: { color: number; detailedInk?: boolean; look: RiderLook }) {
+  constructor(opts: { color: number; detailedInk?: boolean; look: RiderLook; phase?: number }) {
+    this.phase = opts.phase ?? 0;
     const root = new THREE.Group();
     root.name = 'rider';
 
@@ -249,9 +252,10 @@ export class Rider {
     const secR = clamp(lagR * T.followGain, -T.followMax, T.followMax) * idleW;
 
     // Breathing + micro vibration (two incommensurate sines, no noise state).
-    const breath = Math.sin(t * 2 * Math.PI * T.breathHz) * T.breathAmp * idleW;
-    const bob = Math.sin(t * 2 * Math.PI * T.breathHz + 0.6) * T.breathBob * idleW;
-    const vib = (Math.sin(t * T.vibF1) + Math.sin(t * T.vibF2)) * 0.5 * T.vibAmp * boat.rpm;
+    const tp = t + this.phase;
+    const breath = Math.sin(tp * 2 * Math.PI * T.breathHz) * T.breathAmp * idleW;
+    const bob = Math.sin(tp * 2 * Math.PI * T.breathHz + 0.6) * T.breathBob * idleW;
+    const vib = (Math.sin(tp * T.vibF1) + Math.sin(tp * T.vibF2)) * 0.5 * T.vibAmp * boat.rpm;
 
     // Celebration suppresses the driving layer.
     const drive = 1 - cel * 0.85;
@@ -306,7 +310,7 @@ export class Rider {
 
     // Celebration pump: right arm overhead in a loop, left joins late and
     // returns to the grip every cycle.
-    const pumpT = t * 2 * Math.PI * T.pumpHz;
+    const pumpT = tp * 2 * Math.PI * T.pumpHz;
     const pumpR = T.pumpRaise + Math.sin(pumpT) * T.pumpAmp;
     const gateL = Math.pow(Math.max(0, Math.sin(pumpT - T.celLeftLag)), 1.5);
     const pumpL = T.celLeftRaise * gateL;
@@ -314,7 +318,7 @@ export class Rider {
     // Constant arm tuck: shoulders rotated inward so the arms angle toward
     // the bars and read "holding the grips" from behind, not flared out.
     // The taunting arm leaves its grip: fist rises toward the rival and waves.
-    const tauntWave = Math.sin(t * 2 * Math.PI * T.tauntWaveHz) * T.tauntWaveAmp;
+    const tauntWave = Math.sin(tp * 2 * Math.PI * T.tauntWaveHz) * T.tauntWaveAmp;
     const tauntArmL = this.tauntSide > 0 ? taunt * (T.tauntArmRaise + tauntWave) : 0;
     const tauntArmR = this.tauntSide > 0 ? 0 : taunt * (T.tauntArmRaise + tauntWave);
     j.shoulderL.rotation.set(

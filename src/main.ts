@@ -133,7 +133,12 @@ for (const racer of roster) {
   boat.setDriver(racer.color, driverProfile(racer.profileId).handling);
   stage.scene.add(boat.object);
   boats.push(boat);
-  const rider = new Rider({ color: racer.color, detailedInk, look: driverProfile(racer.profileId).look });
+  const rider = new Rider({
+    color: racer.color,
+    detailedInk,
+    look: driverProfile(racer.profileId).look,
+    phase: racer.id * 2.399,
+  });
   boat.riderMount.add(rider.object);
   riders.push(rider);
 }

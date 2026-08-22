@@ -1,5 +1,6 @@
 import type { RacerDefinition } from '../contracts';
 import { PALETTE } from '../core/palette';
+import type { RiderLook } from './riderMesh';
 import axlePortrait from '../assets/drivers/axle.webp';
 import tidePortrait from '../assets/drivers/tide.webp';
 import solPortrait from '../assets/drivers/sol.webp';
@@ -9,12 +10,8 @@ import jinxPortrait from '../assets/drivers/jinx.webp';
 
 export type DriverMood = '沉稳' | '骄傲' | '愤怒' | '专注' | '兴奋' | '冷酷';
 
-/** On-boat 3D identity, locked to the portrait: hair color/style and skin. */
-export interface DriverLook {
-  hair: number;
-  skin: number;
-  hairStyle: 'short' | 'bob' | 'ponytail';
-}
+/** On-boat 3D identity, locked to the portrait: hair, skin, build, personality. */
+export type DriverLook = RiderLook;
 
 export interface DriverHandling {
   acceleration: number;

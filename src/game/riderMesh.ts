@@ -302,6 +302,45 @@ function appendSegment(
   );
 }
 
+/**
+ * One continuous limb: gentle muscle swell at ~1/3, no contrasting joint
+ * balls. The robot read of the old build came from dark elbow/knee spheres
+ * interrupting the sleeve — joints now share the garment color and only
+ * swell the silhouette.
+ */
+function appendLimb(
+  out: SkinAssembler,
+  from: THREE.Bone,
+  to: THREE.Bone,
+  r0: number,
+  rMid: number,
+  r1: number,
+  role: Role,
+  sides: number,
+): void {
+  const dir = to.position.clone();
+  const length = dir.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(_up, dir.clone().normalize());
+  const localMatrix = new THREE.Matrix4().compose(new THREE.Vector3(), q, new THREE.Vector3(1, 1, 1));
+  const invLengthSq = 1 / Math.max(1e-6, length * length);
+  out.append(
+    bodyLoft([
+      { y: 0, z: 0, halfWidth: r0, halfDepth: r0 * 0.92 },
+      { y: length * 0.36, z: 0, halfWidth: rMid, halfDepth: rMid * 0.92 },
+      { y: length * 0.78, z: 0, halfWidth: (rMid + r1) * 0.52, halfDepth: (rMid + r1) * 0.48 },
+      { y: length, z: 0, halfWidth: r1, halfDepth: r1 * 0.92 },
+    ], sides),
+    from,
+    role,
+    localMatrix,
+    (point) => {
+      const along = THREE.MathUtils.clamp(point.dot(dir) * invLengthSq, 0, 1);
+      const childWeight = smoothstep(0.42, 0.9, along);
+      return [[from, 1 - childWeight], [to, childWeight]];
+    },
+  );
+}
+
 function appendPanel(
   out: SkinAssembler,
   bone: THREE.Bone,
@@ -371,12 +410,14 @@ export function buildSkinnedRider(
 
   // Pelvis and torso are authored lofts: narrow waist, broad protected
   // shoulders and a forward-rising racing posture rather than stacked balls.
+  // The seat is white sail-cloth with dark navy side panels — from the chase
+  // camera the rider reads as a white-suited sailor, not a dark silhouette.
   out.append(bodyLoft([
     { y: -0.08, z: 0.015, halfWidth: 0.135, halfDepth: 0.095 },
     { y: 0.0, z: 0.02, halfWidth: 0.17, halfDepth: 0.12 },
     { y: 0.1, z: 0.025, halfWidth: 0.16, halfDepth: 0.115 },
     { y: 0.16, z: 0.035, halfWidth: 0.13, halfDepth: 0.095 },
-  ], sides), rig.hips, Role.SuitDark);
+  ], sides), rig.hips, (point) => Math.abs(point.x) > 0.105 ? Role.SuitDark : Role.Suit);
   out.append(bodyLoft([
     { y: -0.055, z: 0.0, halfWidth: 0.125, halfDepth: 0.09 },
     { y: 0.045, z: 0.025, halfWidth: 0.155, halfDepth: 0.11 },
@@ -388,43 +429,39 @@ export function buildSkinnedRider(
     return [[rig.spine, 1 - chestWeight], [rig.chest, chestWeight]];
   });
 
-  // Rear impact vest: two shaped flotation cells, a central flex channel and
-  // a bright shoulder yoke. These are the dominant chase-camera landmarks.
+  // The back the player actually watches: a pale team-tinted vest panel, a
+  // saturated team-color V yoke, a thin ink zip and a white stand collar.
   const torsoWeights: WeightFn = (point) => {
     const chestWeight = smoothstep(0.08, 0.31, point.y);
     return [[rig.spine, 1 - chestWeight], [rig.chest, chestWeight]];
   };
-  appendPanel(out, rig.spine, Role.SuitLight, [0.083, 0.19, -0.068], [0.13, 0.105, 0.27, 0.042], [0.05, 0, -0.08], torsoWeights);
-  appendPanel(out, rig.spine, Role.SuitLight, [-0.083, 0.19, -0.068], [0.13, 0.105, 0.27, 0.042], [0.05, 0, 0.08], torsoWeights);
-  appendPanel(out, rig.spine, Role.Ink, [0, 0.18, -0.096], [0.028, 0.048, 0.25, 0.026], [0.05, 0, 0], torsoWeights);
+  appendPanel(out, rig.spine, Role.SuitLight, [0, 0.19, -0.072], [0.27, 0.215, 0.28, 0.04], [0.05, 0, 0], torsoWeights);
+  appendPanel(out, rig.spine, Role.Accent, [0.068, 0.235, -0.096], [0.052, 0.03, 0.19, 0.026], [0.05, 0, -0.52], torsoWeights);
+  appendPanel(out, rig.spine, Role.Accent, [-0.068, 0.235, -0.096], [0.052, 0.03, 0.19, 0.026], [0.05, 0, 0.52], torsoWeights);
+  appendPanel(out, rig.spine, Role.Ink, [0, 0.17, -0.098], [0.02, 0.02, 0.23, 0.02], [0.05, 0, 0], torsoWeights);
   appendPanel(out, rig.spine, Role.Foam, [0.078, 0.33, 0.008], [0.16, 0.12, 0.05, 0.034], [0.06, 0, -0.16], torsoWeights);
   appendPanel(out, rig.spine, Role.Foam, [-0.078, 0.33, 0.008], [0.16, 0.12, 0.05, 0.034], [0.06, 0, 0.16], torsoWeights);
   appendPanel(out, rig.spine, Role.Accent, [0, 0.055, -0.105], [0.14, 0.105, 0.065, 0.03], [0.05, 0, 0], torsoWeights);
 
-  // Arms retain elbow deformation but taper like protected wetsuit limbs.
-  // Gloves carry the team accent — bare dark forearms read as robot limbs.
+  // Arms: one continuous white sleeve from deltoid to cuff, team glove.
   for (const [shoulder, elbow, hand, mirror] of [
     [rig.shoulderL, rig.elbowL, rig.handL, 1],
     [rig.shoulderR, rig.elbowR, rig.handR, -1],
   ] as const) {
-    appendEllipsoid(out, shoulder, Role.SuitLight, [0.012 * mirror, 0.012, 0.008], [0.082, 0.068, 0.078], sides);
-    appendSegment(out, shoulder, elbow, 0.061, 0.052, Role.Suit, sides);
-    appendEllipsoid(out, elbow, Role.SuitDark, [0, 0, 0], [0.06, 0.052, 0.058], sides);
-    appendSegment(out, elbow, hand, 0.052, 0.043, Role.Suit, sides);
-    appendEllipsoid(out, hand, Role.Accent, [0, 0, 0.012], [0.064, 0.052, 0.075], sides);
-    out.append(new THREE.CylinderGeometry(0.052, 0.052, 0.045, sides, 1), hand, Role.SuitDark,
-      transform([0, 0.045, -0.015], [0, 0, 0]));
+    appendEllipsoid(out, shoulder, Role.Suit, [0.012 * mirror, 0.012, 0.008], [0.084, 0.07, 0.08], sides);
+    appendLimb(out, shoulder, elbow, 0.063, 0.056, 0.05, Role.Suit, sides);
+    appendLimb(out, elbow, hand, 0.05, 0.045, 0.041, Role.Suit, sides);
+    appendEllipsoid(out, hand, Role.Accent, [0, 0, 0.012], [0.066, 0.054, 0.077], sides);
   }
 
-  // Braced lower body: broad thigh armor, articulated knees and long boots.
+  // Legs: white thighs and shins, team knee flash, tall dark boots.
   for (const [hip, knee, foot, mirror] of [
     [rig.hipL, rig.kneeL, rig.footL, 1],
     [rig.hipR, rig.kneeR, rig.footR, -1],
   ] as const) {
-    appendEllipsoid(out, hip, Role.SuitDark, [0.006 * mirror, 0, 0], [0.105, 0.085, 0.1], sides);
-    appendSegment(out, hip, knee, 0.1, 0.079, Role.Suit, sides);
-    appendEllipsoid(out, knee, Role.SuitDark, [0, 0, 0.012], [0.086, 0.068, 0.082], sides);
-    appendSegment(out, knee, foot, 0.073, 0.058, Role.SuitDark, sides);
+    appendEllipsoid(out, hip, Role.Suit, [0.006 * mirror, 0, 0], [0.105, 0.085, 0.1], sides);
+    appendLimb(out, hip, knee, 0.1, 0.088, 0.077, Role.Suit, sides);
+    appendLimb(out, knee, foot, 0.072, 0.062, 0.055, Role.Suit, sides);
     appendPanel(out, knee, Role.Accent, [0, 0.02, -0.064], [0.105, 0.085, 0.07, 0.027]);
     out.append(new THREE.BoxGeometry(0.125, 0.095, 0.275), foot, Role.Ink,
       transform([0, -0.012, 0.075], [0.03, 0, 0]));
@@ -459,7 +496,9 @@ export function buildSkinnedRider(
     specThreshold: 0.82,
   });
   material.name = 'RiderToonSkinned';
-  material.uniforms.uShadowFloor.value.setHex(0x292348, THREE.NoColorSpace);
+  // Lift the shadow floor: dark panels stay ink-navy instead of collapsing to
+  // pitch black iron under the toon step.
+  material.uniforms.uShadowFloor.value.setHex(0x3a3560, THREE.NoColorSpace);
   const mesh = new THREE.SkinnedMesh(result.geometry, material);
   mesh.name = 'rider-skinned-shell';
   // Bone poses stay inside this conservative local sphere. Keeping culling
