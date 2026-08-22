@@ -1952,6 +1952,18 @@ function stageRadioTechniqueBroadcast(): void {
   // opening Gemini/SOL broadcast survives behind the GO line.
   tower.update(0.5, race, false, false);
   loop.advance(4.2);
+  // The first launch action cue owns the screen by design and pauses the
+  // radio; the tip is authored to outlive exactly that ("behind the GO/team
+  // slot and the first action cue"). A fixed 4.2 s sample can land inside a
+  // legitimate blocked window whenever the sea state brings an early event,
+  // so run until the broadcast actually presents. A broadcast that never
+  // presents (dropped, or the run ended) still fails the caller's assertions.
+  advanceUntil(() => {
+    const el = document.querySelector('.race-radio');
+    const presenting = !!el && el.classList.contains('broadcast') &&
+      el.classList.contains('on') && !el.classList.contains('blocked');
+    return presenting || race.phase !== 'racing';
+  }, 15);
 }
 
 function runRadioTechniqueCase(): Record<string, unknown> {
@@ -1968,7 +1980,10 @@ function runRadioTechniqueCase(): Record<string, unknown> {
     const masteredStatus = tower.radioStatus();
     const masteredFresh = {
       activeKey: masteredStatus.activeKey,
-      queuedAfterGoStarted: Number(masteredStatus.queued),
+      // Key-scoped, not queue-length: a lively start can legitimately queue
+      // battle chatter behind GO; the contract is that the TIP stays away
+      // for a player who already mastered it.
+      tipPresented: tower.radioHas('gemini-opening-airbrake-tip'),
     };
 
     drivingCoach.progress.mastery.airBrakedInTurn = false;
@@ -2000,10 +2015,11 @@ function runRadioTechniqueCase(): Record<string, unknown> {
     const flightFocusBlocked = presentationState();
     tower.update(1 / 60, race, false, false);
     const resumed = presentationState();
-    tower.announceTechniqueTip();
-    const sameRunQueued = tower.radioStatus().queued;
+    // Dedup is keyed, not queue-length: other racing notices may legitimately
+    // be queued behind the active tip, but the tip itself must not re-enter.
+    const sameRunQueued = tower.announceTechniqueTip() ? 1 : 0;
     tower.resetRun(7104);
-    tower.announceTechniqueTip();
+    const secondRunQueued = tower.announceTechniqueTip() ? 1 : 0;
     tower.update(1 / 60, race, false, false);
     return {
       masteredFresh,
@@ -2013,7 +2029,7 @@ function runRadioTechniqueCase(): Record<string, unknown> {
       resumed,
       sameRunQueued,
       secondVisible: radio?.classList.contains('on') ?? false,
-      secondQueued: tower.radioStatus().queued,
+      secondQueued: secondRunQueued,
       secondActiveKey: tower.radioStatus().activeKey,
     };
   } finally {

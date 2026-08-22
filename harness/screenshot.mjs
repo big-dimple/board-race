@@ -160,8 +160,8 @@ async function verifyMode(browser, mobile) {
 
   const radioOnce = await page.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radioOnce.masteredFresh.activeKey, 'go', `${label}: mastered fresh run did not leave GO as the only active radio`);
-  assert.equal(radioOnce.masteredFresh.queuedAfterGoStarted, 0,
-    `${label}: mastered fresh run queued a notice behind GO`);
+  assert.equal(radioOnce.masteredFresh.tipPresented, false,
+    `${label}: mastered fresh run presented the technique tip anyway`);
   const activeRadio = radioOnce.activeBeforeBlock;
   assert.equal(activeRadio.activeKey, 'gemini-opening-airbrake-tip', `${label}: technique tip was not active before blocking`);
   assert.equal(activeRadio.on, true, `${label}: Gemini broadcast did not display`);
@@ -215,9 +215,19 @@ async function verifyMode(browser, mobile) {
   opened = await openHarness(browser, mobile);
   ({ context, page } = opened);
 
-  // The broadcast entrance (race-radio-broadcast) needs ~0.55s to slide into
-  // the viewport; measuring earlier races the CSS animation wall clock.
+  // The broadcast animation is the full 5.65 s slide-in/hold/slide-out
+  // lifecycle, so any fixed clock offset samples a random phase of it
+  // (mid-slide, or already exited off-screen). Wait until the card is
+  // actually presenting inside the viewport; the assertions below still
+  // decide pass/fail — a card that never presents correctly times out here
+  // and fails them as before.
   await stage(page, 'radio-technique', 700);
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.race-radio.broadcast.on');
+    if (!(el instanceof HTMLElement) || el.classList.contains('blocked')) return false;
+    const r = el.getBoundingClientRect();
+    return r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight;
+  }, null, { timeout: 15000 }).catch(() => {});
   const viewport = page.viewportSize();
   const radio = await elementRect(page, '.race-radio.broadcast.on');
   const radioCopy = await elementRect(page, '.race-radio-copy');

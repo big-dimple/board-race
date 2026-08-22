@@ -306,10 +306,11 @@ vec2 sparkleOctave(vec2 p, float cellSize, float rot, float density,
   // reads as a point of light, not a solid circle.
   float core = 1.0 - smoothstep(0.0, coreR + aa, r);
   core = pow(core, 1.4);
-  // Four-point starburst on a per-cell rotated cross. Spike length pulses
-  // with the flash, so the brightest flecks visibly burst like night-sky
-  // stars instead of staying round dots. Only strong flashes grow spikes.
-  float spikeRot = r1 > 0.67 ? 0.7854 : (r1 > 0.33 ? 0.3927 : 0.0);
+  // Rotating four-point starburst: each fleck's cross turns slowly on its own
+  // clock (per-cell direction and rate from the hash) and blooms as the flash
+  // peaks — a breathing star, never a static plus-sign stamped on the water.
+  float spikeRot = (r1 > 0.67 ? 0.7854 : (r1 > 0.33 ? 0.3927 : 0.0)) +
+    uTime * (0.3 + 0.7 * r3) * (r2 > 0.5 ? 1.0 : -1.0);
   float src = cos(spikeRot);
   float srs = sin(spikeRot);
   vec2 sa = abs(mat2(src, -srs, srs, src) * sd);
@@ -416,9 +417,9 @@ void main() {
   // a full-frame scatter of flashes reads as flat "starfield texture" and
   // actively erases wave relief.
   float pathBoost = mix(0.08, 1.6, smoothstep(0.1, 0.85, dot(viewAz, sunAz)));
-  // Starburst spikes only in the far glitter lane; near the camera they read
-  // as scratches on a flat plane.
-  float spikeFar = smoothstep(18.0, 50.0, dist);
+  // Starburst spikes: small rotating stars once past the immediate foreground;
+  // at point-blank range they stay round pinpoints.
+  float spikeFar = smoothstep(6.0, 26.0, dist);
   // Round pinpoints up close; elongation grows only with distance so the far
   // field merges into a glitter lane while near fragments stay point-like.
   float aniso = mix(1.05, uGlintPathAniso * 2.6, smoothstep(40.0, 280.0, dist));

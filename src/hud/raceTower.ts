@@ -160,9 +160,9 @@ export class RaceTower {
     });
   }
 
-  announceTechniqueTip(): void {
+  announceTechniqueTip(): boolean {
     const sol = driverProfile('sol');
-    this.enqueue({
+    return this.enqueue({
       key: 'gemini-opening-airbrake-tip',
       speaker: driverSpeaker(sol),
       meta: `${sol.callsign} // 插一句`,
@@ -198,8 +198,13 @@ export class RaceTower {
     return this.radioDirector.status();
   }
 
-  private enqueue(notice: RadioNotice): void {
-    this.radioDirector.enqueue(notice);
+  /** Whether a notice key was shown, is active, or sits in the queue. */
+  radioHas(key: string): boolean {
+    return this.radioDirector.hasKey(key);
+  }
+
+  private enqueue(notice: RadioNotice): boolean {
+    return this.radioDirector.enqueue(notice);
   }
 
   private renderNotice(notice: RadioNotice | null): void {

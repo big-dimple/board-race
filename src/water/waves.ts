@@ -26,16 +26,22 @@ interface DirectionalWave {
 const G = 9.8;
 
 /**
- * A strong-wind open-sea spectrum: one horizon swell, one dominant cross sea,
- * and three progressively smaller wind-wave bands. Total height stays close
- * to the previous surface while energy moves into shorter, readable slopes.
+ * A strong-wind open-sea spectrum: one horizon swell, then each energetic
+ * band is SPLIT into two components ~15-20° apart. The pair interference
+ * gives short-crested seas — crest lines break into tens-of-meters segments
+ * instead of running straight to the horizon (the "printed stripes" read).
+ * Crest harmonics run 0.2-0.34 so peaks sharpen and troughs broaden like
+ * real gravity waves. The 8.5 m band carries hull-scale texture.
  */
 const WAVES: readonly DirectionalWave[] = [
-  { dir: [0.94, 0.34], amplitude: 0.68, crest: 0.12, wavelength: 128, speedMul: 0.82, phase: 0 },
-  { dir: [0.78, -0.63], amplitude: 0.84, crest: 0.16, wavelength: 48, speedMul: 0.9, phase: 1.7 },
-  { dir: [0.96, 0.28], amplitude: 0.58, crest: 0.14, wavelength: 27, speedMul: 1, phase: 3.9 },
-  { dir: [0.56, 0.83], amplitude: 0.27, crest: 0.11, wavelength: 15, speedMul: 1.08, phase: 2.3 },
-  { dir: [-0.2, 0.98], amplitude: 0.085, crest: 0.07, wavelength: 8.5, speedMul: 1.16, phase: 5.1 },
+  { dir: [0.94, 0.34], amplitude: 0.62, crest: 0.3, wavelength: 128, speedMul: 0.82, phase: 5.6168 },
+  { dir: [0.78, -0.63], amplitude: 0.46, crest: 0.34, wavelength: 48, speedMul: 0.9, phase: 1.0336 },
+  { dir: [0.55, -0.84], amplitude: 0.44, crest: 0.34, wavelength: 48, speedMul: 0.92, phase: 3.7336 },
+  { dir: [0.96, 0.28], amplitude: 0.32, crest: 0.32, wavelength: 27, speedMul: 1, phase: 3.2336 },
+  { dir: [0.85, 0.53], amplitude: 0.3, crest: 0.32, wavelength: 27, speedMul: 1.03, phase: 0.4336 },
+  { dir: [0.56, 0.83], amplitude: 0.17, crest: 0.26, wavelength: 15, speedMul: 1.08, phase: 1.6336 },
+  { dir: [0.83, 0.56], amplitude: 0.16, crest: 0.26, wavelength: 15, speedMul: 1.1, phase: 4.3336 },
+  { dir: [-0.2, 0.98], amplitude: 0.14, crest: 0.2, wavelength: 8.5, speedMul: 1.16, phase: 4.4336 },
 ];
 
 /** Conservative positive crest bound used only to normalize material response. */

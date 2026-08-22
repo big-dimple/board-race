@@ -97,6 +97,12 @@ export class RadioDirector {
     return this.activeValue;
   }
 
+  /** Whether a notice key was shown this run, is active, or is queued. */
+  hasKey(key: string): boolean {
+    return this.runSeen.has(key) || this.queuedKeys.has(key) ||
+      this.activeValue?.key === key;
+  }
+
   get revision(): number {
     return this.revisionValue;
   }
