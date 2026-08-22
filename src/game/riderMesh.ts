@@ -1,15 +1,18 @@
 /**
- * One-batch procedural rider skin.
+ * Procedural rider skin with an independently rigged hair accessory.
  *
  * The animation rig remains code-driven in rider.ts. This module turns that
- * rig into one SkinnedMesh with a small authored palette, so body, hair,
- * face, gloves and boots move as one character instead of separate meshes.
+ * rig into one body SkinnedMesh plus a style-specific hair SkinnedMesh.
+ * The split lets bob and braid silhouettes use secondary-motion bones while
+ * face, gloves and boots retain the shared compact body palette.
  * Identity is portrait-locked: bare head, per-driver hair color/style and
  * skin, white racing suit with team-color gloves and piping.
  */
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
 import { createToonMaterial } from '../cel/toonMaterial';
+import { addOutline } from '../cel/outline';
+import { LAYER_INK, markInk } from '../contracts';
 
 export interface RiderLook {
   hair: number;
@@ -40,6 +43,18 @@ export interface RiderSkin {
   mesh: THREE.SkinnedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   roles: Uint8Array;
   colorAttribute: THREE.BufferAttribute;
+  hair: HairAccessory;
+}
+
+export interface HairAccessory {
+  object: THREE.Group;
+  mesh: THREE.SkinnedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  colorAttribute: THREE.BufferAttribute;
+  roles: Uint8Array;
+  bones: readonly THREE.Bone[];
+  head: THREE.Bone;
+  detailed: boolean;
+  style: RiderLook['hairStyle'];
 }
 
 const enum Role {
@@ -51,6 +66,7 @@ const enum Role {
   Accent,
   Skin,
   Hair,
+  HairLight,
   Metal,
 }
 
@@ -251,6 +267,8 @@ function roleColor(role: Role, baseHex: number, look: RiderLook): THREE.Color {
     case Role.Accent: return base.clone().lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.22);
     case Role.Skin: return new THREE.Color().setHex(look.skin, THREE.NoColorSpace);
     case Role.Hair: return new THREE.Color().setHex(look.hair, THREE.NoColorSpace);
+    case Role.HairLight: return new THREE.Color().setHex(look.hair, THREE.NoColorSpace)
+      .lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.26);
     case Role.Metal: return new THREE.Color().setHex(0x66758c, THREE.NoColorSpace);
   }
 }
@@ -353,61 +371,135 @@ function appendPanel(
   out.append(armorPlate(size[0], size[1], size[2], size[3]), bone, role, transform(position, rotation), weightFn);
 }
 
-/**
- * Portrait hair in three authored shapes. The cap opens at the face (phi gap
- * centered on +Z) so skin reads as forehead; a swept fringe band marks the
- * hairline. Everything sits slightly proud of the skull so the toon outline
- * reads hair silhouette, never scalp.
- *
- * The chase camera mostly sees the BACK of the head: a bare cap there reads
- * as a swim cap / helmet. Every style gets a nape mass below the skull line;
- * the bob grows shoulder-length curtains, the ponytail drops past the neck —
- * silhouette identity from behind, not just from the front.
- */
-function appendHair(
+/** A broad, tapered blade makes a readable lock from the chase camera. */
+function appendHairBlade(
   out: SkinAssembler,
-  head: THREE.Bone,
-  look: RiderLook,
-  sides: number,
+  bone: THREE.Bone,
+  position: readonly [number, number, number],
+  bottomWidth: number,
+  topWidth: number,
+  height: number,
+  depth: number,
+  rotation: readonly [number, number, number] = [0, 0, 0],
+  role: Role.Hair | Role.HairLight = Role.Hair,
 ): void {
-  const capTheta = look.hairStyle === 'bob' ? 2.32 : 2.0;
-  const capScale: readonly [number, number, number] =
-    look.hairStyle === 'bob' ? [0.141, 0.152, 0.145] : [0.133, 0.15, 0.14];
-  const faceGap = 0.78;
+  appendPanel(out, bone, role, position, [bottomWidth, topWidth, height, depth], rotation);
+}
+
+function makeHairBone(parent: THREE.Object3D, name: string, position: readonly [number, number, number]): THREE.Bone {
+  const bone = new THREE.Bone();
+  bone.name = name;
+  bone.position.set(position[0], position[1], position[2]);
+  parent.add(bone);
+  return bone;
+}
+
+function appendHairCap(out: SkinAssembler, root: THREE.Bone, sides: number): void {
+  // The cap is deliberately shallow at the back; the authored locks below
+  // carry the silhouette so this can never read as a round helmet by itself.
   out.append(
-    new THREE.SphereGeometry(1, sides, Math.max(5, Math.floor(sides * 0.6)),
-      Math.PI * 0.5 + faceGap, Math.PI * 2 - faceGap * 2, 0, capTheta),
-    head,
+    new THREE.SphereGeometry(1, sides, Math.max(6, Math.floor(sides * 0.7)),
+      Math.PI * 0.5 + 0.76, Math.PI * 2 - 1.52, 0, 2.18),
+    root,
     Role.Hair,
-    transform([0, 0.104, 0.004], [0, 0, 0], capScale),
+    transform([0, 0.105, 0.008], [0, 0, 0], [0.133, 0.15, 0.135]),
   );
-  out.append(
-    new THREE.SphereGeometry(1, Math.max(4, Math.floor(sides * 0.5)), 4,
-      Math.PI * 0.5 - 0.85, 1.7, capTheta - 0.52, 0.52),
-    head,
-    Role.Hair,
-    transform([0, 0.104, 0.006], [0, 0, 0],
-      [capScale[0] * 1.012, capScale[1] * 1.012, capScale[2] * 1.012]),
-  );
-  // Nape mass: hair covering the back of the skull down to the neck line.
-  appendEllipsoid(out, head, Role.Hair, [0, 0.015, -0.045], [0.126, 0.115, 0.115], sides);
+  appendHairBlade(out, root, [0, 0.01, -0.07], 0.2, 0.27, 0.12, 0.07);
+}
+
+function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean): HairAccessory {
+  const object = new THREE.Group();
+  object.name = `rider-hair-${look.hairStyle}`;
+  head.add(object);
+  const hairRoot = makeHairBone(object, 'hair-root', [0, 0, 0]);
+  const bones: THREE.Bone[] = [hairRoot];
+  let bobBones: readonly [THREE.Bone, THREE.Bone, THREE.Bone] | null = null;
+  let braidBones: readonly [THREE.Bone, THREE.Bone, THREE.Bone, THREE.Bone, THREE.Bone] | null = null;
+
   if (look.hairStyle === 'bob') {
-    // Shoulder-length curtains: fuller back mass plus side locks that break
-    // the head-and-shoulders silhouette from behind.
-    appendEllipsoid(out, head, Role.Hair, [0, -0.075, -0.055], [0.132, 0.15, 0.118], sides);
-    appendEllipsoid(out, head, Role.Hair, [0.112, -0.075, 0.015], [0.045, 0.135, 0.075], sides);
-    appendEllipsoid(out, head, Role.Hair, [-0.112, -0.075, 0.015], [0.045, 0.135, 0.075], sides);
+    const back = makeHairBone(hairRoot, 'bob-back', [0, -0.02, -0.14]);
+    const left = makeHairBone(hairRoot, 'bob-left', [0.17, -0.015, -0.11]);
+    const right = makeHairBone(hairRoot, 'bob-right', [-0.17, -0.015, -0.11]);
+    bones.push(back, left, right);
+    bobBones = [back, left, right];
+  } else if (look.hairStyle === 'ponytail') {
+    const tie = makeHairBone(hairRoot, 'braid-tie', [0, 0.11, -0.075]);
+    const braid1 = makeHairBone(tie, 'braid-1', [0, -0.095, -0.105]);
+    const braid2 = makeHairBone(braid1, 'braid-2', [0, -0.085, -0.11]);
+    const braid3 = makeHairBone(braid2, 'braid-3', [0, -0.075, -0.105]);
+    const braid4 = makeHairBone(braid3, 'braid-4', [0, -0.07, -0.09]);
+    bones.push(tie, braid1, braid2, braid3, braid4);
+    braidBones = [tie, braid1, braid2, braid3, braid4];
   }
-  if (look.hairStyle === 'ponytail') {
-    // High tail: accent tie band, then a five-bob arc falling past the neck
-    // to mid-back — the long braid reads over the white suit from behind.
-    appendEllipsoid(out, head, Role.Accent, [0, 0.2, -0.078], [0.032, 0.032, 0.032], 6);
-    appendEllipsoid(out, head, Role.Hair, [0, 0.205, -0.115], [0.048, 0.05, 0.055], 8);
-    appendEllipsoid(out, head, Role.Hair, [0, 0.165, -0.205], [0.042, 0.047, 0.085], 8);
-    appendEllipsoid(out, head, Role.Hair, [0, 0.095, -0.275], [0.034, 0.04, 0.075], 8);
-    appendEllipsoid(out, head, Role.Hair, [0, 0.015, -0.31], [0.027, 0.033, 0.062], 8);
-    appendEllipsoid(out, head, Role.Hair, [0, -0.055, -0.315], [0.02, 0.026, 0.05], 8);
+
+  // SkinAssembler snapshots the bone index and current bone matrices. Build
+  // the whole accessory skeleton first so style locks cannot fall back to the
+  // root bone or be authored from identity matrices after a driver switch.
+  object.updateWorldMatrix(true, true);
+  const sides = detailed ? 8 : 6;
+  const out = new SkinAssembler(object, bones, 0xffffff, look);
+  appendHairCap(out, hairRoot, sides);
+
+  if (bobBones) {
+    const [back, left, right] = bobBones;
+    // A layered shoulder curtain, not a larger cap. The wide side locks break
+    // beyond the shoulder line in the chase camera; staggered tapered tips
+    // keep the lower silhouette light and recognisably hair-like.
+    appendHairBlade(out, hairRoot, [0, 0.015, -0.115], 0.28, 0.22, 0.25, 0.08, [0.02, 0, 0]);
+    appendHairBlade(out, back, [0.068, -0.22, -0.035], 0.035, 0.15, 0.52, 0.085, [0.07, 0, -0.05]);
+    appendHairBlade(out, back, [-0.068, -0.24, -0.05], 0.03, 0.15, 0.55, 0.08, [0.09, 0, 0.05]);
+    appendHairBlade(out, left, [0.005, -0.24, -0.025], 0.045, 0.14, 0.55, 0.095, [0.07, 0, -0.12]);
+    appendHairBlade(out, left, [0.055, -0.2, -0.06], 0.022, 0.09, 0.43, 0.075, [0.11, 0, -0.17]);
+    appendHairBlade(out, right, [-0.005, -0.24, -0.025], 0.045, 0.14, 0.55, 0.095, [0.07, 0, 0.12]);
+    appendHairBlade(out, right, [-0.055, -0.2, -0.06], 0.022, 0.09, 0.43, 0.075, [0.11, 0, 0.17]);
+    appendHairBlade(out, back, [0.066, -0.17, -0.082], 0.024, 0.052, 0.34, 0.022,
+      [0.08, 0, -0.04], Role.HairLight);
+    appendHairBlade(out, back, [-0.066, -0.19, -0.09], 0.022, 0.05, 0.31, 0.022,
+      [0.1, 0, 0.04], Role.HairLight);
+  } else if (braidBones) {
+    const [tie, braid1, braid2, braid3, braid4] = braidBones;
+    appendHairBlade(out, hairRoot, [0, 0.16, -0.07], 0.035, 0.065, 0.09, 0.08);
+    appendHairBlade(out, tie, [0, -0.045, -0.03], 0.05, 0.085, 0.11, 0.09, [0.18, 0, 0]);
+    appendHairBlade(out, braid1, [0, -0.045, -0.035], 0.045, 0.09, 0.13, 0.1, [-0.2, 0, 0]);
+    appendHairBlade(out, braid2, [0, -0.04, -0.035], 0.04, 0.082, 0.13, 0.095, [0.2, 0, 0]);
+    appendHairBlade(out, braid3, [0, -0.035, -0.032], 0.032, 0.07, 0.12, 0.085, [-0.18, 0, 0]);
+    appendHairBlade(out, braid4, [0, -0.03, -0.028], 0.018, 0.058, 0.11, 0.07, [0.12, 0, 0]);
   }
+
+  const result = out.finish();
+  const material = createToonMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    rimColor: PALETTE.sparkle,
+    rimStrength: 0.9,
+    rimPower: 2.2,
+    rimThreshold: 0.52,
+    specColor: PALETTE.sparkle,
+    specThreshold: 0.88,
+  });
+  material.name = 'RiderHairToon';
+  material.uniforms.uShadowFloor.value.setHex(0x30284f, THREE.NoColorSpace);
+  const mesh = new THREE.SkinnedMesh(result.geometry, material);
+  mesh.name = 'rider-hair-skinned';
+  mesh.userData.assetClass = 'authored-hair-accessory';
+  mesh.userData.hairStyle = look.hairStyle;
+  mesh.frustumCulled = false;
+  object.add(mesh);
+  const skeleton = new THREE.Skeleton(bones);
+  mesh.bind(skeleton);
+  mesh.normalizeSkinWeights();
+  return { object, mesh, colorAttribute: result.colorAttribute, roles: result.roles, bones, head, detailed, style: look.hairStyle };
+}
+
+function disposeHairAccessory(accessory: HairAccessory): void {
+  accessory.object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || child.userData.noOutline === true) return;
+    mesh.geometry.dispose();
+    if (Array.isArray(mesh.material)) mesh.material.forEach((material) => material.dispose());
+    else mesh.material.dispose();
+  });
+  accessory.object.removeFromParent();
 }
 
 export function buildSkinnedRider(
@@ -499,7 +591,6 @@ export function buildSkinnedRider(
   appendEllipsoid(out, rig.head, Role.Ink, [0.047, 0.105, 0.143], [0.018, 0.025, 0.01], 6);
   appendEllipsoid(out, rig.head, Role.Ink, [-0.047, 0.105, 0.143], [0.018, 0.025, 0.01], 6);
   appendEllipsoid(out, rig.head, Role.Skin, [0, 0.082, 0.152], [0.014, 0.022, 0.014], 6);
-  appendHair(out, rig.head, look, headSides);
 
   const result = out.finish();
   const material = createToonMaterial({
@@ -525,19 +616,60 @@ export function buildSkinnedRider(
   mesh.frustumCulled = true;
   mesh.userData.assetClass = 'batched-skinned-rider';
   mesh.userData.boneCount = bones.length;
-  mesh.userData.paletteRoleCount = 9;
+  mesh.userData.paletteRoleCount = 10;
   root.add(mesh);
   const skeleton = new THREE.Skeleton(bones);
   mesh.bind(skeleton);
   mesh.normalizeSkinWeights();
-  return { mesh, roles: result.roles, colorAttribute: result.colorAttribute };
+  const hair = buildHairAccessory(rig.head, look, detailed);
+  return { mesh, roles: result.roles, colorAttribute: result.colorAttribute, hair };
 }
 
-export function updateSkinnedRiderColor(skin: RiderSkin, color: number, look: RiderLook): void {
+export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: RiderLook): void {
   const scratch = new THREE.Color();
   for (let i = 0; i < skin.roles.length; i++) {
     scratch.copy(roleColor(skin.roles[i] as Role, color, look));
     skin.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
   }
   skin.colorAttribute.needsUpdate = true;
+  if (skin.hair.style !== look.hairStyle) {
+    const next = buildHairAccessory(skin.hair.head, look, skin.hair.detailed);
+    if (next.detailed) {
+      addOutline(next.object, { width: 0.9 });
+      markInk(next.object);
+    } else {
+      next.mesh.layers.enable(LAYER_INK);
+    }
+    disposeHairAccessory(skin.hair);
+    skin.hair = next;
+  }
+  for (let i = 0; i < skin.hair.mesh.geometry.getAttribute('color').count; i++) {
+    scratch.copy(roleColor(skin.hair.roles[i] as Role, color, look));
+    skin.hair.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
+  }
+  skin.hair.colorAttribute.needsUpdate = true;
+}
+
+export function updateHairAccessory(
+  skin: RiderSkin,
+  lean: number,
+  airborne: number,
+  flight: number,
+  celebration: number,
+  time: number,
+): void {
+  const bones = skin.hair.bones;
+  if (bones.length < 2) return;
+  const sway = Math.sin(time * 1.7) * 0.035 + lean * 0.16;
+  const root = bones[0];
+  root.rotation.set(-airborne * 0.08 + flight * 0.06, 0, sway * (1 - celebration));
+  for (let i = 1; i < bones.length; i++) {
+    const t = i / (bones.length - 1);
+    const bone = bones[i];
+    bone.rotation.set(
+      (airborne * 0.1 + flight * 0.06) * t,
+      Math.sin(time * 1.35 + i * 0.7) * 0.045 * t,
+      sway * (0.35 + t) * (1 - celebration * 0.5),
+    );
+  }
 }

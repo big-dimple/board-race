@@ -53,6 +53,16 @@ try {
 
   const run = (name) => page.evaluate((caseName) => window.__harness.collisionCase(caseName), name);
 
+  const buoy = await page.evaluate(() => window.__harness.buoyCase());
+  assert.ok(buoy.maxHeight >= 5 && buoy.maxHeight <= 7,
+    `buoy comedy arc must peak 5-7m above contact: ${JSON.stringify(buoy)}`);
+  assert.ok(buoy.distance >= 30 && buoy.distance <= 45,
+    `buoy comedy arc must travel 30-45m: ${JSON.stringify(buoy)}`);
+  assert.equal(buoy.visibleDuringFlight, true, 'a knocked buoy must stay visible through its flight');
+  assert.equal(buoy.landed, true, 'a knocked buoy must complete its water landing');
+  assert.equal(buoy.respawned, true, 'a knocked buoy must return after its full lifecycle');
+  assert.equal(buoy.visibleAfterRespawn, true, 'a checkpoint buoy must be visible after respawn');
+
   const feedback = await page.evaluate(() => window.__harness.collisionFeedbackCase());
   assert.equal(feedback.hits, 1, 'the integrated collision path must receive the physical hit');
   assert.equal(feedback.finite, true);

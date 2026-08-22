@@ -1470,6 +1470,11 @@ interface Harness {
   cameraImpactCase(): Record<string, unknown>;
   radioTechniqueCase(): Record<string, unknown>;
   offCourseRecoveryCase(): Record<string, unknown>;
+  buoyState(): ReturnType<Course['buoyDebugStates']>;
+  buoyCase(): Record<string, number | boolean>;
+  riderPoseState(): ReturnType<Rider['poseDebug']>;
+  riderHairState(): ReturnType<Rider['hairDebug']>;
+  selectDriver(id: string): void;
 }
 
 let harnessUsePlayerInput = false;
@@ -2284,6 +2289,26 @@ function scenario(name: string): void {
   }
 }
 
+function runBuoyCase(): Record<string, number | boolean> {
+  scenario('buoy-hit');
+  const impact = course.buoyDebugStates().find((state) => state.knocked);
+  if (!impact) throw new Error('buoy diagnostic never produced a physical hit');
+  const index = impact.index;
+  advanceUntil(() => course.buoyDebugStates().some((state) => state.index === index && state.landed), 4);
+  const landed = course.buoyDebugStates().find((state) => state.index === index);
+  if (!landed?.landed) throw new Error('knocked buoy never returned to the water');
+  advanceUntil(() => !course.buoyDebugStates().some((state) => state.index === index && state.knocked), 10);
+  const restored = course.buoyDebugStates().find((state) => state.index === index);
+  return {
+    maxHeight: landed.maxHeight,
+    distance: landed.distance,
+    visibleDuringFlight: landed.visible,
+    landed: landed.landed,
+    respawned: restored?.knocked === false,
+    visibleAfterRespawn: restored?.visible === true,
+  };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -2313,6 +2338,11 @@ if (HARNESS) {
     cameraImpactCase: runCameraImpactCase,
     radioTechniqueCase: runRadioTechniqueCase,
     offCourseRecoveryCase: runOffCourseRecoveryCase,
+    buoyState: () => course.buoyDebugStates(),
+    buoyCase: runBuoyCase,
+    riderPoseState: () => riders[0].poseDebug(),
+    riderHairState: () => riders[0].hairDebug(),
+    selectDriver: (id) => applySelectedDriver(id),
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
 } else {

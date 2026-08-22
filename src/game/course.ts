@@ -1264,7 +1264,9 @@ interface Floater {
   x: number;
   z: number;
   yawQ: THREE.Quaternion;
-  routeU?: number;
+  homeParent: THREE.Object3D;
+  homePosition: THREE.Vector3;
+  homeQuaternion: THREE.Quaternion;
   /** Sea buoys are solid: a hull contact knocks them flying. */
   knockable?: boolean;
   /** Parent group that may hide this floater (inactive flight-route groups). */
@@ -1274,6 +1276,9 @@ interface Floater {
 
 /** Ballistic state of a buoy smacked off its station. */
 interface BuoyKnock {
+  originX: number;
+  originY: number;
+  originZ: number;
   x: number;
   y: number;
   z: number;
@@ -1287,6 +1292,7 @@ interface BuoyKnock {
   spin: number;
   timer: number;
   landed: boolean;
+  maxY: number;
 }
 
 export interface BuoyHit {
@@ -1294,6 +1300,21 @@ export interface BuoyHit {
   x: number;
   y: number;
   z: number;
+}
+
+export interface BuoyDebugState {
+  index: number;
+  knocked: boolean;
+  landed: boolean;
+  routeOwned: boolean;
+  timer: number;
+  x: number;
+  y: number;
+  z: number;
+  distance: number;
+  maxHeight: number;
+  visible: boolean;
+  parentVisible: boolean;
 }
 
 // A buoy hit is a shrug, not a crash: the float takes the energy, the hull
@@ -1304,6 +1325,11 @@ const BUOY_HIT_SPEED_CUT = 0.07;
 const BUOY_RESPAWN_S = 9;
 const BUOY_SINK_S = 0.8;
 const BUOY_GROW_S = 0.35;
+const BUOY_KNOCK_GRAVITY = 12;
+const BUOY_KNOCK_MIN_HORIZONTAL = 18;
+const BUOY_KNOCK_MAX_HORIZONTAL = 22;
+const BUOY_KNOCK_MIN_VERTICAL = 10.8;
+const BUOY_KNOCK_MAX_VERTICAL = 12.2;
 
 interface FlightGate {
   u: number;
@@ -1739,12 +1765,41 @@ export class Course implements ICourse {
       }
     }
     for (const floater of this.floaters) {
+      if (floater.obj.parent !== floater.homeParent) floater.homeParent.attach(floater.obj);
       floater.obj.visible = true;
       floater.knock = undefined;
       floater.obj.scale.setScalar(1);
-      floater.obj.position.set(floater.x, 0, floater.z);
-      floater.obj.quaternion.copy(floater.yawQ);
+      floater.obj.position.copy(floater.homePosition);
+      floater.obj.quaternion.copy(floater.homeQuaternion);
     }
+  }
+
+  /** Read-only buoy lifecycle evidence for diagnostics and visual harnesses. */
+  buoyDebugStates(): BuoyDebugState[] {
+    return this.floaters.flatMap((floater, index) => {
+      if (!floater.knockable) return [];
+      let visible = floater.obj.visible;
+      let ancestor = floater.obj.parent;
+      while (visible && ancestor) {
+        visible = ancestor.visible;
+        ancestor = ancestor.parent;
+      }
+      const knock = floater.knock;
+      return [{
+        index,
+        knocked: knock !== undefined,
+        landed: knock?.landed ?? false,
+        routeOwned: floater.hiddenBy !== undefined,
+        timer: knock?.timer ?? 0,
+        x: floater.obj.position.x,
+        y: floater.obj.position.y,
+        z: floater.obj.position.z,
+        distance: knock ? Math.hypot(knock.x - knock.originX, knock.z - knock.originZ) : 0,
+        maxHeight: knock ? knock.maxY - knock.originY : 0,
+        visible,
+        parentVisible: floater.hiddenBy?.visible ?? true,
+      }];
+    });
   }
 
   armFinalStation(): void {
@@ -2341,10 +2396,6 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uMaskEnd.value = active
       ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
       : 0;
-    for (const floater of this.floaters) {
-      floater.obj.visible = !active || floater.routeU === undefined ||
-        floater.routeU < maskStartU || floater.routeU > active.exitU;
-    }
   }
 
   private updateSurfaceGuideArrowFlow(t: number): void {
@@ -2651,14 +2702,20 @@ export class Course implements ICourse {
       _q.setFromUnitVectors(UP, _n).multiply(f.yawQ);
       f.obj.quaternion.copy(_q);
       f.obj.scale.setScalar(grow);
-      if (grow >= 1) f.knock = undefined;
+      if (grow >= 1) {
+        if (f.obj.parent !== f.homeParent) f.homeParent.attach(f.obj);
+        f.obj.position.copy(f.homePosition);
+        f.obj.quaternion.copy(f.homeQuaternion);
+        f.knock = undefined;
+      }
       return;
     }
     if (!k.landed) {
-      k.vy -= 12 * dt;
+      k.vy -= BUOY_KNOCK_GRAVITY * dt;
       k.x += k.vx * dt;
       k.y += k.vy * dt;
       k.z += k.vz * dt;
+      k.maxY = Math.max(k.maxY, k.y);
       k.angle += k.spin * dt;
       const surface = waterHeight(k.x, k.z, t);
       if (k.y <= surface) {
@@ -2700,7 +2757,7 @@ export class Course implements ICourse {
       const speed = vel.length();
       if (speed < BUOY_HIT_MIN_SPEED) continue;
       for (const f of this.floaters) {
-        if (!f.knockable || f.knock || !f.obj.visible) continue;
+        if (!f.knockable || f.knock) continue;
         if (f.hiddenBy && !f.hiddenBy.visible) continue;
         const dx = f.x - st.position.x;
         const dz = f.z - st.position.z;
@@ -2709,23 +2766,41 @@ export class Course implements ICourse {
         const dist = Math.sqrt(distSq) || 1;
         const nx = dx / dist;
         const nz = dz / dist;
-        const away = 2.5 + speed * 0.3;
-        const kvx = vel.x * 0.35 + nx * away;
-        const kvz = vel.y * 0.35 + nz * away;
-        const kh = Math.hypot(kvx, kvz) || 1;
+        let dirX = vel.x / speed * 0.65 + nx * 0.75;
+        let dirZ = vel.y / speed * 0.65 + nz * 0.75;
+        const dirLength = Math.hypot(dirX, dirZ) || 1;
+        dirX /= dirLength;
+        dirZ /= dirLength;
+        const horizontal = THREE.MathUtils.clamp(
+          16 + speed * 0.22,
+          BUOY_KNOCK_MIN_HORIZONTAL,
+          BUOY_KNOCK_MAX_HORIZONTAL,
+        );
+        const vertical = THREE.MathUtils.clamp(
+          10.6 + speed * 0.065,
+          BUOY_KNOCK_MIN_VERTICAL,
+          BUOY_KNOCK_MAX_VERTICAL,
+        );
+        const kvx = dirX * horizontal;
+        const kvz = dirZ * horizontal;
+        if (f.hiddenBy && f.obj.parent !== this.object) this.object.attach(f.obj);
         f.knock = {
+          originX: f.x,
+          originY: f.obj.position.y,
+          originZ: f.z,
           x: f.x,
           y: f.obj.position.y,
           z: f.z,
           vx: kvx,
-          vy: 4.2 + speed * 0.1,
+          vy: vertical,
           vz: kvz,
-          axisX: kvz / kh,
-          axisZ: -kvx / kh,
+          axisX: dirZ,
+          axisZ: -dirX,
           angle: 0,
           spin: (3.5 + Math.random() * 3) * (Math.random() < 0.5 ? -1 : 1),
           timer: 0,
           landed: false,
+          maxY: f.obj.position.y,
         };
         boat.applyCollisionResponse(0, 0, -vel.x * BUOY_HIT_SPEED_CUT, -vel.y * BUOY_HIT_SPEED_CUT);
         out.push({ boatId: boat.id, x: f.x, y: f.obj.position.y + 0.6, z: f.z });
@@ -3173,11 +3248,15 @@ export class Course implements ICourse {
           // Local +X is port/left in the route frame, so right cues need the
           // half-turn. DoubleSide affects visibility, never cue direction.
           const yaw = Math.atan2(t.x, t.z) + (spec.cue.direction === 'right' ? Math.PI : 0);
+          const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
           this.floaters.push({
             obj: support,
             x: support.position.x,
             z: support.position.z,
-            yawQ: new THREE.Quaternion().setFromAxisAngle(UP, yaw),
+            yawQ,
+            homeParent: turnChevronGroup,
+            homePosition: support.position.clone(),
+            homeQuaternion: yawQ.clone(),
             knockable: true,
             hiddenBy: routeGroup,
           });
@@ -3955,7 +4034,16 @@ export class Course implements ICourse {
         const z = p.z + rz * 7 * side;
         buoy.position.set(x, 0, z);
         this.object.add(buoy);
-        this.floaters.push({ obj: buoy, x, z, yawQ: new THREE.Quaternion(), routeU: u, knockable: true });
+        this.floaters.push({
+          obj: buoy,
+          x,
+          z,
+          yawQ: new THREE.Quaternion(),
+          homeParent: this.object,
+          homePosition: buoy.position.clone(),
+          homeQuaternion: buoy.quaternion.clone(),
+          knockable: true,
+        });
       }
     }
 
@@ -3998,7 +4086,15 @@ export class Course implements ICourse {
     this.object.add(gantry);
     this.startGantry = gantry;
     this.buildFinalStation(gantry);
-    this.floaters.push({ obj: gantry, x: p.x, z: p.z, yawQ });
+    this.floaters.push({
+      obj: gantry,
+      x: p.x,
+      z: p.z,
+      yawQ,
+      homeParent: this.object,
+      homePosition: gantry.position.clone(),
+      homeQuaternion: yawQ.clone(),
+    });
   }
 
   /** Gold energy columns that remain dormant until all seven routes are cleared. */

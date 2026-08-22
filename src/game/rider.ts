@@ -17,9 +17,16 @@
  * allocation; stable at fixed dt = 1/60.
  */
 import * as THREE from 'three';
-import { LAYER_INK, markInk, type BoatState } from '../contracts';
+import { LAYER_INK, RIDER_GRIP_LOCAL, markInk, type BoatState } from '../contracts';
 import { addOutline } from '../cel/outline';
-import { buildSkinnedRider, updateSkinnedRiderColor, type RiderBones, type RiderLook, type RiderSkin } from './riderMesh';
+import {
+  buildSkinnedRider,
+  updateHairAccessory,
+  updateSkinnedRiderLook,
+  type RiderBones,
+  type RiderLook,
+  type RiderSkin,
+} from './riderMesh';
 
 // ------------------------------------------------------------- tuning ----
 // Every number a polish pass might want to touch lives here. Angles in
@@ -33,7 +40,6 @@ const TUNING = {
   leanHips: 0.45, leanSpine: 0.55, leanChest: 0.15, // distribution up the chain
   headCounter: 0.35,      // head counter-lean fraction
   kneeFlare: 0.55,        // inside knee opens this much at full lean
-  elbowDrop: 0.4,         // outside elbow drops this much at full lean
 
   // Weight shift from longG: pitch back on hard accel, hunch on braking.
   pitchPerG: 0.032, pitchMax: 0.22,
@@ -49,14 +55,14 @@ const TUNING = {
 
   // Airborne "whee" pose.
   airOmega: 6, airZeta: 1,
-  airArmRise: 0.28, airElbowTuck: 0.2, airLegExtend: 0.22,
+  airLegExtend: 0.22,
   airBodyOpen: 0.16, airHeadUp: 0.2,
 
   // Controlled anti-gravity flight: a compact, braced pose rather than the
   // natural-airborne "whee" animation used for wave jumps.
   flightOmega: 7, flightZeta: 1,
   flightHipsDrop: 0.08, flightHunch: 0.12,
-  flightArmBrace: 0.08, flightKnee: 0.14,
+  flightKnee: 0.14,
 
   // Landing crouch: kicked by landImpulse (m/s), springy ~0.4s recovery.
   landKick: 0.05, landMax: 1.2,
@@ -67,8 +73,9 @@ const TUNING = {
   breathHz: 0.35, breathAmp: 0.03, breathBob: 0.008,
   followOmega: 3.5, followZeta: 1, followGain: 0.6, followMax: 0.12,
   lockSpeed: 12,          // m/s where idle bob is fully replaced by bracing
-  braceShoulder: 0.08, braceElbow: 0.06,
-  armTuck: 0.22,          // constant shoulder z-tuck: arms angle in to the grips
+  elbowPoleOut: 0.5,
+  elbowPoleForward: 0.43,
+  elbowPoleY: 0.42,
 
   // Celebration: ~0.4s blend in, loops while `celebrating`.
   celOmega: 7, celZeta: 1,
@@ -92,9 +99,8 @@ const TUNING = {
 // Rest pose (baked into joint positions, meters). Standing racing crouch at
 // the helm: hips back, knees bent into the footwells, torso hinged FORWARD
 // (hunchSpine/hunchChest, applied in update()). The elbow/hand offsets were
-// solved against the real grip position (boat-local ±0.28, 1.02, -0.65):
-// gloves rest ON the grips with a ~40° elbow bend — probed in-world, because
-// straight hanging arms hovering near the bar read as a robot, not a racer.
+// Segment lengths are authored here; runtime two-bone IK solves both gloves to
+// RIDER_GRIP_LOCAL while an outward/forward pole keeps elbows anatomical.
 // Rider's left = +X.
 const POSE = {
   hips: [0, 0.58, -0.22],
@@ -128,6 +134,17 @@ class Spring {
 
 type Rig = RiderBones;
 
+export interface RiderPoseDebug {
+  left: { handGrip: number; elbowAngle: number; elbowForward: number; elbowOut: number };
+  right: { handGrip: number; elbowAngle: number; elbowForward: number; elbowOut: number };
+}
+
+export interface RiderHairDebug {
+  style: RiderLook['hairStyle'];
+  boneNames: string[];
+  visible: boolean;
+}
+
 export class Rider {
   readonly object: THREE.Object3D;
 
@@ -154,6 +171,19 @@ export class Rider {
 
   // Scratch (no per-frame allocation).
   private readonly tmp = new THREE.Vector3();
+  private readonly ikTarget = new THREE.Vector3();
+  private readonly ikPole = new THREE.Vector3();
+  private readonly ikDirection = new THREE.Vector3();
+  private readonly ikPoleDirection = new THREE.Vector3();
+  private readonly ikDesired = new THREE.Vector3();
+  private readonly ikSource = new THREE.Vector3();
+  private readonly ikParentQuaternion = new THREE.Quaternion();
+  private readonly ikTargetQuaternion = new THREE.Quaternion();
+  private readonly ikShoulderWorld = new THREE.Vector3();
+  private readonly ikTargetWorld = new THREE.Vector3();
+  private readonly ikElbowWorld = new THREE.Vector3();
+  private readonly ikPoleWorld = new THREE.Vector3();
+  private readonly ikInverseQuaternion = new THREE.Quaternion();
 
   constructor(opts: { color: number; detailedInk?: boolean; look: RiderLook; phase?: number }) {
     this.phase = opts.phase ?? 0;
@@ -194,12 +224,21 @@ export class Rider {
       markInk(root);
     } else {
       this.skin.mesh.layers.enable(LAYER_INK);
+      this.skin.hair.mesh.layers.enable(LAYER_INK);
     }
     this.object = root;
   }
 
   setColor(color: number, look: RiderLook): void {
-    updateSkinnedRiderColor(this.skin, color, look);
+    updateSkinnedRiderLook(this.skin, color, look);
+  }
+
+  hairDebug(): RiderHairDebug {
+    return {
+      style: this.skin.hair.style,
+      boneNames: this.skin.hair.bones.map((bone) => bone.name),
+      visible: this.skin.hair.mesh.visible && this.skin.hair.object.visible,
+    };
   }
 
   /**
@@ -211,6 +250,104 @@ export class Rider {
     this.tauntSide = side >= 0 ? 1 : -1;
     this.tauntRemaining = TUNING.tauntSeconds;
     this.tauntCooldownUntil = now + TUNING.tauntSeconds + TUNING.tauntCooldown;
+  }
+
+  private solveArm(
+    side: 1 | -1,
+    shoulder: THREE.Bone,
+    elbow: THREE.Bone,
+    hand: THREE.Bone,
+    target: readonly [number, number, number],
+    lean: number,
+  ): void {
+    const upperLength = elbow.position.length();
+    const lowerLength = hand.position.length();
+    this.ikTarget.set(target[0], target[1], target[2]);
+    this.ikTargetWorld.copy(this.ikTarget);
+    this.object.localToWorld(this.ikTargetWorld);
+    this.ikShoulderWorld.setFromMatrixPosition(shoulder.matrixWorld);
+
+    this.ikPole.set(
+      target[0] + side * TUNING.elbowPoleOut,
+      target[1] - TUNING.elbowPoleY,
+      target[2] + TUNING.elbowPoleForward + lean * side * 0.08,
+    );
+    this.ikPoleWorld.copy(this.ikPole);
+    this.object.localToWorld(this.ikPoleWorld);
+
+    this.ikDirection.subVectors(this.ikTargetWorld, this.ikShoulderWorld);
+    const distance = clamp(this.ikDirection.length(),
+      Math.abs(upperLength - lowerLength) + 1e-4,
+      upperLength + lowerLength - 1e-4);
+    this.ikDirection.normalize();
+    this.ikPoleDirection.subVectors(this.ikPoleWorld, this.ikShoulderWorld);
+    this.ikPoleDirection.addScaledVector(this.ikDirection,
+      -this.ikPoleDirection.dot(this.ikDirection));
+    if (this.ikPoleDirection.lengthSq() < 1e-6) this.ikPoleDirection.set(side, -0.2, 0.3);
+    this.ikPoleDirection.normalize();
+    const cosShoulder = clamp(
+      (upperLength * upperLength + distance * distance - lowerLength * lowerLength) /
+        (2 * upperLength * distance), -1, 1,
+    );
+    const sinShoulder = Math.sqrt(Math.max(0, 1 - cosShoulder * cosShoulder));
+    this.ikElbowWorld.copy(this.ikShoulderWorld)
+      .addScaledVector(this.ikDirection, upperLength * cosShoulder)
+      .addScaledVector(this.ikPoleDirection, upperLength * sinShoulder);
+
+    if (shoulder.parent) shoulder.parent.getWorldQuaternion(this.ikParentQuaternion);
+    else this.object.getWorldQuaternion(this.ikParentQuaternion);
+    this.ikInverseQuaternion.copy(this.ikParentQuaternion).invert();
+    this.ikDesired.subVectors(this.ikElbowWorld, this.ikShoulderWorld)
+      .applyQuaternion(this.ikInverseQuaternion);
+    this.ikSource.copy(elbow.position).normalize();
+    this.ikDesired.normalize();
+    this.ikTargetQuaternion.setFromUnitVectors(this.ikSource, this.ikDesired);
+    shoulder.quaternion.copy(this.ikTargetQuaternion);
+    shoulder.updateMatrixWorld(true);
+    this.object.updateWorldMatrix(false, true);
+
+    this.ikElbowWorld.setFromMatrixPosition(elbow.matrixWorld);
+    shoulder.getWorldQuaternion(this.ikParentQuaternion);
+    this.ikInverseQuaternion.copy(this.ikParentQuaternion).invert();
+    this.ikDesired.subVectors(this.ikTargetWorld, this.ikElbowWorld)
+      .applyQuaternion(this.ikInverseQuaternion);
+    this.ikSource.copy(hand.position).normalize();
+    this.ikDesired.normalize();
+    this.ikTargetQuaternion.setFromUnitVectors(this.ikSource, this.ikDesired);
+    elbow.quaternion.copy(this.ikTargetQuaternion);
+    // Rebuild the solved chain before the skinning pass reads the bones.
+    this.object.updateWorldMatrix(false, true);
+  }
+
+  poseDebug(): RiderPoseDebug {
+    this.object.updateWorldMatrix(true, true);
+    const measure = (
+      side: 1 | -1,
+      shoulder: THREE.Bone,
+      elbow: THREE.Bone,
+      hand: THREE.Bone,
+      target: readonly [number, number, number],
+    ) => {
+      const s = shoulder.getWorldPosition(new THREE.Vector3());
+      const e = elbow.getWorldPosition(new THREE.Vector3());
+      const h = hand.getWorldPosition(new THREE.Vector3());
+      const g = this.object.localToWorld(new THREE.Vector3(target[0], target[1], target[2]));
+      const upper = e.clone().sub(s).normalize();
+      const lower = h.clone().sub(e).normalize();
+      const angle = Math.acos(clamp(upper.dot(lower), -1, 1));
+      const sl = this.object.worldToLocal(s.clone());
+      const el = this.object.worldToLocal(e.clone());
+      return {
+        handGrip: h.distanceTo(g),
+        elbowAngle: angle,
+        elbowForward: el.z - sl.z,
+        elbowOut: (el.x - sl.x) * side,
+      };
+    };
+    return {
+      left: measure(1, this.j.shoulderL, this.j.elbowL, this.j.handL, RIDER_GRIP_LOCAL.left),
+      right: measure(-1, this.j.shoulderR, this.j.elbowR, this.j.handR, RIDER_GRIP_LOCAL.right),
+    };
   }
 
   /** dt is fixed 1/60. Applies delta rotations on top of the baked rest pose. */
@@ -304,13 +441,6 @@ export class Rider {
     j.kneeL.rotation.set(-crouch * T.landKnee - air * T.airLegExtend - flight * T.flightKnee, 0, 0);
     j.kneeR.rotation.set(-crouch * T.landKnee - air * T.airLegExtend - flight * T.flightKnee, 0, 0);
 
-    // Arms: bracing tension at speed, rise when airborne, outside elbow drops.
-    const brace = (1 - idleW) * drive;
-    const dropL = Math.max(0, lean) / T.leanMax * T.elbowDrop * drive;  // left elbow drops on right lean
-    const dropR = Math.max(0, -lean) / T.leanMax * T.elbowDrop * drive;
-    const armBase = -brace * T.braceShoulder - air * T.airArmRise - flight * T.flightArmBrace + vib;
-    const elbBase = brace * T.braceElbow + air * T.airElbowTuck + flight * T.flightArmBrace * 0.75 + vib * 1.3;
-
     // Celebration pump: right arm overhead in a loop, left joins late and
     // returns to the grip every cycle.
     const pumpT = tp * 2 * Math.PI * T.pumpHz;
@@ -318,27 +448,26 @@ export class Rider {
     const gateL = Math.pow(Math.max(0, Math.sin(pumpT - T.celLeftLag)), 1.5);
     const pumpL = T.celLeftRaise * gateL;
 
-    // Constant arm tuck: shoulders rotated inward so the arms angle toward
-    // the bars and read "holding the grips" from behind, not flared out.
-    // Counter-rotate the torso pitch at the shoulder: the chest hunches but
-    // the hands stay glued to the (boat-fixed) grips, like a real rider.
-    const armCounter = -(j.spine.rotation.x + j.chest.rotation.x) * (1 - cel);
-    j.shoulderL.rotation.set(
-      armCounter + armBase * (1 - cel) + cel * pumpL,
-      0,
-      -T.armTuck * (1 - cel) - 0.1 * cel,
-    );
-    j.shoulderR.rotation.set(
-      armCounter + armBase * (1 - cel) + cel * pumpR,
-      0,
-      T.armTuck * (1 - cel) + 0.1 * cel,
-    );
-    j.elbowL.rotation.set(elbBase + dropL, 0, 0);
-    j.elbowR.rotation.set(elbBase + dropR + cel * (Math.sin(pumpT) * 0.3 - 0.3), 0, 0);
+    // Solve both arms against the boat-fixed grips after the torso has moved.
+    // The pole vector deliberately places each elbow forward and outward;
+    // endpoint-only shoulder counter-rotation was the source of the reversed
+    // elbow silhouette in the previous build.
+    this.object.updateWorldMatrix(true, true);
+    if (cel < 0.72) {
+      this.solveArm(1, j.shoulderL, j.elbowL, j.handL, RIDER_GRIP_LOCAL.left, lean);
+      this.solveArm(-1, j.shoulderR, j.elbowR, j.handR, RIDER_GRIP_LOCAL.right, lean);
+    } else {
+      j.shoulderL.rotation.set(pumpL, 0, -0.1);
+      j.shoulderR.rotation.set(pumpR, 0, 0.1);
+      j.elbowL.rotation.set(0, 0, 0);
+      j.elbowR.rotation.set(Math.sin(pumpT) * 0.3 - 0.3, 0, 0);
+    }
 
     // Right wrist works the throttle; left stays quiet on its grip.
     const thr = clamp(boat.throttle, 0, 1);
     j.handR.rotation.set(-thr * T.throttleWrist * (1 - cel), 0, 0);
     j.handL.rotation.set(vib * 0.5, 0, 0);
+    this.object.updateMatrixWorld(true);
+    updateHairAccessory(this.skin, lean, air, flight, cel, tp);
   }
 }

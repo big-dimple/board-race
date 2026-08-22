@@ -16,6 +16,7 @@ function parseArgs(argv) {
   const options = {
     mobile: false,
     tilt: false,
+    driver: '',
     verifySmoke: false,
     out: process.env.SHOT_OUT || path.join(root, 'shots'),
     settleMs: Number(process.env.SHOT_SETTLE_MS || 160),
@@ -25,6 +26,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--mobile') options.mobile = true;
     else if (arg === '--tilt') options.tilt = true;
+    else if (arg === '--driver') options.driver = argv[++index] ?? '';
     else if (arg === '--verify-smoke') options.verifySmoke = true;
     else if (arg === '--out') options.out = path.resolve(root, argv[++index] ?? '');
     else if (arg === '--settle') options.settleMs = Number(argv[++index]);
@@ -66,7 +68,7 @@ async function activateMobile(page, tilt) {
   }
 }
 
-async function openHarness(browser, mobile, tilt = false) {
+async function openHarness(browser, mobile, tilt = false, driver = '') {
   const context = await browser.newContext({
     viewport: mobile ? { width: 844, height: 390 } : { width: 1440, height: 900 },
     deviceScaleFactor: mobile ? 3 : 2,
@@ -77,6 +79,7 @@ async function openHarness(browser, mobile, tilt = false) {
   page.on('pageerror', (error) => console.error(`[pageerror] ${error.message}`));
   await page.goto(`${base}${mobile ? '&mobile=1' : ''}`, { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
+  if (driver) await page.evaluate((id) => window.__harness.selectDriver(id), driver);
   if (mobile) await activateMobile(page, tilt);
   return { context, page };
 }
@@ -215,6 +218,18 @@ async function verifyMode(browser, mobile) {
   opened = await openHarness(browser, mobile);
   ({ context, page } = opened);
 
+  for (const [driver, style, minimumBones] of [['tide', 'bob', 4], ['sol', 'ponytail', 6]]) {
+    await page.evaluate((id) => window.__harness.selectDriver(id), driver);
+    const hair = await page.evaluate(() => window.__harness.riderHairState());
+    assert.equal(hair.style, style, `${label}: ${driver} hair style was overridden by the initial rider mesh`);
+    assert.ok(hair.visible && hair.boneNames.length >= minimumBones,
+      `${label}: ${driver} hair accessory lost its independent rig: ${JSON.stringify(hair)}`);
+  }
+
+  // Each smoke mode starts from a fresh context, so restore the baseline
+  // profile after proving the two long-hair replacement paths.
+  await page.evaluate(() => window.__harness.selectDriver('axle'));
+
   // The broadcast animation is the full 5.65 s slide-in/hold/slide-out
   // lifecycle, so any fixed clock offset samples a random phase of it
   // (mid-slide, or already exited off-screen). Wait until the card is
@@ -266,6 +281,12 @@ async function verifyMode(browser, mobile) {
   }
 
   await stage(page, 'start');
+  const pose = await page.evaluate(() => window.__harness.riderPoseState());
+  for (const [side, arm] of Object.entries(pose)) {
+    assert.ok(arm.handGrip < 0.03 && arm.elbowAngle >= 0.48 && arm.elbowAngle <= 1.5 &&
+      arm.elbowForward > 0 && arm.elbowOut > 0,
+    `${label}: ${side} rider arm lost its grip/pole solve: ${JSON.stringify(pose)}`);
+  }
   const state = await page.evaluate(() => window.__harness.playerState());
   const render = await renderEvidence(page);
   assert.equal(state.phase, 'racing', `${label}: start did not reach racing`);
@@ -294,6 +315,9 @@ async function verifyMode(browser, mobile) {
   assert.equal(fullInventory, 3, `${label}: runtime inventory cap is not three`);
 
   await stage(page, 'flight-extension-spool', 280, false);
+  const checkpointBuoys = await page.evaluate(() => window.__harness.buoyState().filter((state) => !state.routeOwned));
+  assert.ok(checkpointBuoys.length > 0 && checkpointBuoys.every((state) => state.visible),
+    `${label}: a checkpoint buoy disappeared while a flight route was active`);
   if (!mobile) await page.waitForFunction(() => {
     const prompt = document.querySelector('.hud-flight-prompt.extend.on');
     return prompt instanceof HTMLElement && Number(getComputedStyle(prompt).opacity) > 0.5;
@@ -335,10 +359,12 @@ async function verifyMode(browser, mobile) {
   const impactStyle = await elementStyle(page, ".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
   const impactContract = await page.evaluate(() => {
     const copy = document.querySelector(".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
+    const title = copy?.querySelector('.hud-impact-title');
     return copy instanceof HTMLElement ? {
       animationName: copy.dataset.harnessAnimationName ?? '',
       animationDuration: copy.dataset.harnessAnimationDuration ?? '',
-      title: copy.querySelector('.hud-impact-title')?.textContent?.trim() ?? '',
+      title: title?.textContent?.trim() ?? '',
+      titleSize: title instanceof HTMLElement ? getComputedStyle(title).fontSize : '',
     } : null;
   });
   const impactFits = await page.evaluate(() => {
@@ -365,8 +391,10 @@ async function verifyMode(browser, mobile) {
   }
   assert.ok(impactStyle && impactStyle.visibility === 'visible' && Number(impactStyle.opacity) > 0.5,
     `${label}: flight extension feedback is not visibly captured: ${JSON.stringify(impactStyle)}`);
-  assert.deepEqual(impactContract, {
-    animationName: 'hud-flight-extend-copy', animationDuration: '0.72s', title: '续航 +2.4 秒',
+  assert.deepEqual(impactContract, mobile ? {
+    animationName: 'hud-flight-extend-copy', animationDuration: '0.72s', title: '续航 +2.4 秒', titleSize: '34px',
+  } : {
+    animationName: 'hud-impact-copy', animationDuration: '0.72s', title: '续航 +2.4 秒', titleSize: '44px',
   }, `${label}: flight extension presentation contract drifted`);
   assert.equal((await elementStyle(page, '.hud-impact-flash')).display, 'none', `${label}: extension flash must be disabled`);
   assert.equal((await elementStyle(page, '.hud-impact-lines')).display, 'none', `${label}: extension lines must be disabled`);
@@ -412,7 +440,7 @@ async function verifyMode(browser, mobile) {
 async function capture(browser, options) {
   const names = options.scenarios.length ? options.scenarios : ['ready', 'start'];
   mkdirSync(options.out, { recursive: true });
-  const { context, page } = await openHarness(browser, options.mobile, options.tilt);
+  const { context, page } = await openHarness(browser, options.mobile, options.tilt, options.driver);
   try {
     for (const name of names) {
       await stage(page, name, options.settleMs);

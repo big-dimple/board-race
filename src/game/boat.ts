@@ -17,7 +17,7 @@
  * update() runs on the fixed 1/60 sim step and allocates nothing per frame.
  */
 import * as THREE from 'three';
-import { LAYER_ENERGY, LAYER_INK, MAX_FLIGHT_CHARGES, markInk } from '../contracts';
+import { BOAT_GRIP_LOCAL, LAYER_ENERGY, LAYER_INK, MAX_FLIGHT_CHARGES, markInk } from '../contracts';
 import type {
   BoatInput,
   BoatState,
@@ -701,40 +701,63 @@ function prismFromPlan(
   return flatGeometry(pos);
 }
 
+/** Extrude a (y, z) side silhouette across x for fins and dorsal structures. */
+function prismFromSide(
+  profile: readonly (readonly [number, number])[],
+  halfWidth: number,
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const left = profile.map(([y, z]) => [-halfWidth, y, z]);
+  const right = profile.map(([y, z]) => [halfWidth, y, z]);
+  pushCap(pos, left, true);
+  pushCap(pos, right, false);
+  for (let i = 0; i < profile.length; i++) {
+    const next = (i + 1) % profile.length;
+    pushQuad(pos, left[i], left[next], right[next], right[i]);
+  }
+  return flatGeometry(pos);
+}
+
 /**
- * Raised anti-grav tail wing: two swept struts lift a wide, swept, split main
- * plane clear of the tail cowl, with fin endplates at the tips. The old flat
- * carbon foil sat low in the ink batch and merged with the nozzle and cowl
- * into one black lump astern; a hull-colored raised wing reads as a wing from
- * the chase camera and sells "this boat flies".
+ * Raised anti-grav tail array: twin delta planes frame real negative space
+ * around a dorsal reactor spine. High outward-canted winglets make the flight
+ * hardware readable from the chase camera instead of collapsing into a low
+ * horizontal bar across the dark nozzle and cowl.
  */
 function buildRearWingGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    // swept struts (hull color, outlined)
-    prismFromPlan([[0.3, -1.78], [0.44, -1.8], [0.52, -2.32], [0.38, -2.32]], 0.64, 1.02),
-    prismFromPlan([[-0.3, -1.78], [-0.44, -1.8], [-0.52, -2.32], [-0.38, -2.32]], 0.64, 1.02),
-    // split main plane, swept back, center cut-out
-    prismFromPlan([[-0.74, -2.2], [-0.05, -2.24], [-0.12, -2.52], [-0.62, -2.56]], 1.0, 1.06),
-    prismFromPlan([[0.05, -2.24], [0.74, -2.2], [0.62, -2.56], [0.12, -2.52]], 1.0, 1.06),
-    // fin endplates
-    prismFromPlan([[0.7, -2.18], [0.75, -2.18], [0.67, -2.58], [0.62, -2.58]], 0.9, 1.18),
-    prismFromPlan([[-0.7, -2.18], [-0.75, -2.18], [-0.67, -2.58], [-0.62, -2.58]], 0.9, 1.18),
+    // Twin swept pylons lift the array clear of the tail cowl.
+    prismFromPlan([[0.25, -1.76], [0.4, -1.8], [0.56, -2.33], [0.39, -2.4]], 0.64, 1.11),
+    prismFromPlan([[-0.25, -1.76], [-0.4, -1.8], [-0.56, -2.33], [-0.39, -2.4]], 0.64, 1.11),
+    // Separate swept delta planes leave a deep V-shaped center void.
+    prismFromPlan([[-0.18, -2.08], [-0.86, -2.2], [-1.02, -2.63], [-0.53, -2.82], [-0.27, -2.52]], 1.08, 1.17),
+    prismFromPlan([[0.18, -2.08], [0.86, -2.2], [1.02, -2.63], [0.53, -2.82], [0.27, -2.52]], 1.08, 1.17),
+    // A raised reactor spine remains visually separate from both planes.
+    prismFromSide([[0.68, -1.72], [1.04, -2.0], [1.3, -2.43], [1.13, -2.72], [0.76, -2.5]], 0.075),
+    // Tall tip blades are canted outward instead of being flat endplates.
+    transformedPart(prismFromSide([[1.08, -2.21], [1.43, -2.35], [1.34, -2.73], [1.1, -2.66]], 0.05),
+      [0.93, 0, 0], [0, 0, -0.16]),
+    transformedPart(prismFromSide([[1.08, -2.21], [1.43, -2.35], [1.34, -2.73], [1.1, -2.66]], 0.05),
+      [-0.93, 0, 0], [0, 0, 0.16]),
   ]);
 }
 
-/** Foam leading-edge flash laid over the raised wing. */
+/** Inset foam chevrons leave the team-color leading edge exposed. */
 function buildRearWingAccentGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    prismFromPlan([[-0.72, -2.196], [-0.065, -2.236], [-0.085, -2.29], [-0.69, -2.26]], 1.06, 1.078),
-    prismFromPlan([[0.065, -2.236], [0.72, -2.196], [0.69, -2.26], [0.085, -2.29]], 1.06, 1.078),
+    prismFromPlan([[-0.3, -2.2], [-0.78, -2.29], [-0.75, -2.37], [-0.35, -2.31]], 1.17, 1.19),
+    prismFromPlan([[0.3, -2.2], [0.78, -2.29], [0.75, -2.37], [0.35, -2.31]], 1.17, 1.19),
+    prismFromSide([[1.06, -2.07], [1.2, -2.36], [1.16, -2.47], [1.02, -2.16]], 0.09),
   ]);
 }
 
-/** Anti-grav glow: cyan strip on the wing trailing edge + nozzle glow ring. */
+/** Segmented emitters frame the void and converge on the rear reactor ring. */
 function buildRearWingGlowGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    prismFromPlan([[-0.6, -2.545], [-0.13, -2.505], [-0.125, -2.55], [-0.595, -2.59]], 1.008, 1.052),
-    prismFromPlan([[0.13, -2.505], [0.6, -2.545], [0.595, -2.59], [0.125, -2.55]], 1.008, 1.052),
+    prismFromPlan([[-0.92, -2.57], [-0.55, -2.72], [-0.51, -2.78], [-0.94, -2.63]], 1.17, 1.205),
+    prismFromPlan([[0.92, -2.57], [0.55, -2.72], [0.51, -2.78], [0.94, -2.63]], 1.17, 1.205),
+    prismFromPlan([[-0.43, -2.49], [-0.28, -2.56], [-0.3, -2.63], [-0.47, -2.55]], 1.17, 1.215),
+    prismFromPlan([[0.43, -2.49], [0.28, -2.56], [0.3, -2.63], [0.47, -2.55]], 1.17, 1.215),
   ]);
 }
 
@@ -871,8 +894,8 @@ function buildBoatVisual(id: number, color: number): {
     buildDeckStripeGeometry(0.115, 0.009),
     buildRearWingAccentGeometry(),
     transformedPart(new THREE.CylinderGeometry(0.055, 0.075, 0.43, 14), [0, 0.88, -0.72], [-0.42, 0, 0]),
-    transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), [0.28, 1.1, -0.8], [0, 0, Math.PI / 2]),
-    transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), [-0.28, 1.1, -0.8], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), BOAT_GRIP_LOCAL.right, [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), BOAT_GRIP_LOCAL.left, [0, 0, Math.PI / 2]),
     transformedPart(new THREE.CylinderGeometry(0.018, 0.018, 0.67, 8), [0, 0.895, -0.385], [0, 0, Math.PI / 2]),
   ];
   const safety = add(mergeFlatGeometryParts(safetyParts), foamMat);
@@ -883,7 +906,7 @@ function buildBoatVisual(id: number, color: number): {
     buildCockpitTubGeometry(),
     buildDeckStripeGeometry(0.024, 0.017),
     buildAftVentGeometry(),
-    transformedPart(new THREE.CylinderGeometry(0.042, 0.042, 0.62, 14), [0, 1.1, -0.8], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.042, 0.042, 0.62, 14), [0, BOAT_GRIP_LOCAL.right[1], BOAT_GRIP_LOCAL.right[2]], [0, 0, Math.PI / 2]),
     transformedPart(new THREE.CylinderGeometry(0.08, 0.066, 0.11, 16), [0, 0.21, -2.66], [Math.PI / 2, 0, 0]),
     transformedPart(new THREE.BoxGeometry(0.42, 0.07, 0.31), [0, 0.605, -1.56], [-0.06, 0, 0]),
   ];
@@ -897,6 +920,9 @@ function buildBoatVisual(id: number, color: number): {
     buildSideLiveryGeometry(1),
     buildSideLiveryGeometry(-1),
     buildRearWingGlowGeometry(),
+    // Twin luminous reactor rings sit inside the central negative space.
+    transformedPart(new THREE.TorusGeometry(0.14, 0.026, 8, 20), [0, 1.15, -2.6], [Math.PI / 2, 0, 0], [1, 1, 0.7]),
+    transformedPart(new THREE.TorusGeometry(0.085, 0.018, 8, 16), [0, 1.15, -2.615], [Math.PI / 2, 0, 0], [1, 1, 0.7]),
     transformedPart(new THREE.CylinderGeometry(0.085, 0.085, 0.04, 16), [0, 0.21, -2.72], [Math.PI / 2, 0, 0]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [0.68, 0.12, -1.62]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [-0.68, 0.12, -1.62]),

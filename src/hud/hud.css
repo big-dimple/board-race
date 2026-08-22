@@ -1022,12 +1022,9 @@
   text-align: center;
   transform: translateX(-50%);
 }
-.hud-impact.on[data-kind='flight-extend'] .hud-impact-copy {
-  animation: hud-flight-extend-copy var(--impact-duration, 0.72s) ease-out both;
-}
-.hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 17px; }
-.hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 32px; }
-.hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 13px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 34px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 44px; }
+.hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 18px; }
 
 @media (pointer: coarse) and (orientation: landscape) {
   .hud-impact-lines {
@@ -1046,9 +1043,12 @@
     top: max(16%, calc(env(safe-area-inset-top) + 48px));
     width: min(286px, calc(100% - 32px));
   }
+  .hud-impact.on[data-kind='flight-extend'] .hud-impact-copy {
+    animation: hud-flight-extend-copy var(--impact-duration, 0.72s) ease-out both;
+  }
   .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 16px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 34px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 13px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 34px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 13px; }
 }
 
 @keyframes hud-impact-flash {

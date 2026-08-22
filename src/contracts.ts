@@ -12,6 +12,16 @@ import type * as THREE from 'three';
 /** Maximum number of launch charges a boat may carry between flights. */
 export const MAX_FLIGHT_CHARGES = 3;
 
+/** Boat-local steering grips and the matching targets in rider-root space. */
+export const BOAT_GRIP_LOCAL = {
+  left: [0.28, 1.1, -0.8] as const,
+  right: [-0.28, 1.1, -0.8] as const,
+};
+export const RIDER_GRIP_LOCAL = {
+  left: [0.28, 0.46, 0.25] as const,
+  right: [-0.28, 0.46, 0.25] as const,
+};
+
 /** Per-frame driving input, produced by the player keyboard or an AI controller. */
 export interface BoatInput {
   /** -1 (full reverse/brake) .. 1 (full throttle). */
