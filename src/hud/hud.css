@@ -1162,12 +1162,26 @@
   padding: 10px 32px;
   font-size: 44px;
   line-height: 1;
+  white-space: nowrap;
   color: var(--warn);
   text-shadow: 3px 3px 0 var(--ink);
   background: var(--panel);
   border: 4px solid var(--ink);
   box-shadow: 8px 8px 0 var(--ink);
   opacity: 0;
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .hud-wrongway {
+    /* Right of center belongs to the flight extension card; keep the storm
+       banner in the clear lane left of it. */
+    left: 38%;
+    top: 27%;
+    padding: 7px 20px;
+    font-size: 30px;
+    border-width: 3px;
+    box-shadow: 5px 5px 0 var(--ink);
+  }
 }
 
 .hud-wrongway.on {

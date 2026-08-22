@@ -289,6 +289,7 @@ let prevBoosting = false;
 let prevAirBraking = false;
 let prevDrifting = false;
 let prevTurnWarning = false;
+let prevCorridorDanger = 0;
 let harnessCheckpointEvents = 0;
 let harnessCollisionFxBursts = 0;
 let harnessRoutePilotIndex = -1;
@@ -1246,6 +1247,15 @@ function step(dt: number, _t: number): void {
   );
   audio.setDrift(ps.drifting ? Math.min(1, ps.boostCharge * 0.75 + Math.abs(ps.lateralG) / 18) : 0);
   if (ps.flightRouteMiss) audio.flightMiss();
+  // Corridor storm: one continuous danger level drives camera rumble, the
+  // wind-shear cue, the HUD banner and escalating haptics.
+  const corridorDanger = race.phase === 'racing' ? course.playerCorridorDanger : 0;
+  cameraRig.setDistress(corridorDanger);
+  audio.setCorridorDanger(corridorDanger);
+  hud.setCorridorDanger(corridorDanger);
+  if (corridorDanger >= 0.45) haptics.cue('warning', 0.6 + 0.4 * corridorDanger);
+  else if (corridorDanger > 0 && prevCorridorDanger <= 0) haptics.cue('warning', 0.7);
+  prevCorridorDanger = corridorDanger;
   pipeline.update(dt, worldTime, ps, race.phase);
 
   // Failures freeze for one impact beat and then enter the adaptive loading
@@ -2147,6 +2157,19 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === "racing", 8);
       stageHarnessGateFailure();
       break;
+    case "corridor-storm":
+    case "corridor-storm-deep": {
+      // Steer out of the mist corridor and hold until the storm reaches the
+      // target danger band: edge shred (~0.3) vs losing control (~0.72).
+      advanceUntil(() => race.phase === "racing", 8);
+      beginHarnessRouteFlight(0, 1);
+      const target = name === "corridor-storm" ? 0.3 : 0.55;
+      setHarnessInput({ steer: -0.9 });
+      advanceUntil(() => course.playerCorridorDanger >= target, 5);
+      setHarnessInput(null);
+      loop.advance(0.05);
+      break;
+    }
     case "ocean-near":
       advanceUntil(() => race.phase === "racing", 8);
       setHarnessInput({ throttle: 0 });

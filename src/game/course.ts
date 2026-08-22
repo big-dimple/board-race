@@ -403,9 +403,12 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
 export const FLIGHT_ENTRY_U = FLIGHT_ROUTES[0].entryU;
 export const FLIGHT_EXIT_U = FLIGHT_ROUTES[0].exitU;
 export const FLIGHT_GATE_US = FLIGHT_ROUTES[0].gateUs;
-const FLIGHT_CORRIDOR_GRACE = 0.12;
-const FLIGHT_CORRIDOR_FAIL = 0.35;
-const FLIGHT_CORRIDOR_FAIL_DISTANCE = 10;
+// Off-corridor is a continuous storm, not a tripwire. Danger rises with both
+// depth past the mist edge and time spent outside; the wind physically pushes
+// the hull away the whole time. FAIL lands when danger saturates: instantly at
+// the hard-out depth, or after the time limit when skimming the edge.
+const FLIGHT_CORRIDOR_HARD_OUT_M = 14;
+const FLIGHT_CORRIDOR_TIME_LIMIT_S = 1.8;
 const FLIGHT_GATE_BYPASS_U = 2.5 / LAP_LENGTH;
 const FLIGHT_ATTEMPT_EARLY_U = 0.012;
 
@@ -1415,13 +1418,16 @@ export class Course implements ICourse {
   private readonly flightPrevClearance: number[] = [];
   private readonly flightLatched: number[] = [];
   private readonly flightOffCorridorT: number[] = [];
-  private readonly flightOffCorridorD: number[] = [];
   private readonly flightRecoveryT: number[] = [];
   private readonly flightRecoveryLimit: number[] = [];
   private readonly flightDebug: string[] = [];
   private readonly flightTurnWarn: boolean[] = [];
   private flightWarn = 0;
   private flightWarnRoute = -1;
+  /** Player corridor-storm danger 0..1, smoothed for presentation. */
+  playerCorridorDanger = 0;
+  private playerCorridorDangerTarget = 0;
+  private playerCorridorDangerRoute = -1;
   private playerFlightReady = false;
   private playerFlightIndex = 0;
   private playerFlightPressure = 0;
@@ -1629,13 +1635,15 @@ export class Course implements ICourse {
     this.flightPrevClearance.length = 0;
     this.flightLatched.length = 0;
     this.flightOffCorridorT.length = 0;
-    this.flightOffCorridorD.length = 0;
     this.flightRecoveryT.length = 0;
     this.flightRecoveryLimit.length = 0;
     this.flightDebug.length = 0;
     this.flightTurnWarn.length = 0;
     this.flightWarn = 0;
     this.flightWarnRoute = -1;
+    this.playerCorridorDanger = 0;
+    this.playerCorridorDangerTarget = 0;
+    this.playerCorridorDangerRoute = -1;
     this.playerFlightReady = false;
     this.playerFlightIndex = 0;
     this.playerFlightPressure = 0;
@@ -1865,10 +1873,14 @@ export class Course implements ICourse {
     this.playerLaunchGateRouteIndex = -1;
     this.playerLaunchGateDistanceM = -1;
     this.playerLaunchGateDiamondCount = 0;
+    this.playerCorridorDangerTarget = 0;
     for (const boat of boats) {
       const id = boat.id;
       const pos = boat.state.position;
       const st = boat.state;
+      // The corridor storm is re-published every fixed step; silence is the
+      // default so any path that leaves the route clears the wind.
+      boat.setCorridorDistress(0, 0, 0);
       if (st.flightRouteState === 'idle') this.flightDebug[id] = 'idle';
       this.sample(pos, _routeSample, 'surface');
       const surfaceU = _routeSample.u;
@@ -1920,7 +1932,6 @@ export class Course implements ICourse {
         this.flightPrevClearance[id] = st.flightClearance;
         this.flightLatched[id] = -1;
         this.flightOffCorridorT[id] = 0;
-        this.flightOffCorridorD[id] = 0;
         this.flightRecoveryT[id] = 0;
         this.flightRecoveryLimit[id] = 0;
         continue;
@@ -2004,7 +2015,6 @@ export class Course implements ICourse {
         if (st.flightRouteState === 'active') this.failFlight(boat, visual, 'teleport', surfaceU, null);
         if (st.flightRouteState !== 'passed') this.flightLatched[id] = -1;
         this.flightOffCorridorT[id] = 0;
-        this.flightOffCorridorD[id] = 0;
         prev.copy(pos);
         this.flightPrevClearance[id] = st.flightClearance;
         continue;
@@ -2063,7 +2073,6 @@ export class Course implements ICourse {
           }
         }
         this.flightOffCorridorT[id] = 0;
-        this.flightOffCorridorD[id] = 0;
         prev.copy(pos);
         this.flightPrevClearance[id] = st.flightClearance;
         continue;
@@ -2077,7 +2086,6 @@ export class Course implements ICourse {
         this.flightDebug[id] = 'active';
         this.flightLatched[id] = routeIndex;
         this.flightOffCorridorT[id] = 0;
-        this.flightOffCorridorD[id] = 0;
         if (near.u > visual.gates[0].u + FLIGHT_GATE_BYPASS_U) {
           this.failFlight(boat, visual, 'late', near.u, 1);
         }
@@ -2159,23 +2167,33 @@ export class Course implements ICourse {
           this.flightDebug[id] = `landing:g${st.flightGateProgress}`;
           this.failFlight(boat, visual, 'landing', near.u, null);
         } else {
-          const outside = near.distance > def.corridorHalfWidth;
+          // Continuous danger model. The player reads it as 可飞空间 →
+          // 危险边缘 → 越界失控 → FAIL: depth past the mist edge and time
+          // spent outside both raise danger, and the storm wind keeps
+          // pushing the hull away while it is above zero.
+          const overshoot = near.distance - def.corridorHalfWidth;
+          const outside = overshoot > 0;
           const offT = outside
             ? (this.flightOffCorridorT[id] ?? 0) + dt
-            : Math.max(0, (this.flightOffCorridorT[id] ?? 0) - dt * 2);
-          const offD = outside
-            ? (this.flightOffCorridorD[id] ?? 0) + Math.sqrt(prev.distanceToSquared(pos))
-            : Math.max(0, (this.flightOffCorridorD[id] ?? 0) - dt * 20);
+            : Math.max(0, (this.flightOffCorridorT[id] ?? 0) - dt * 1.6);
           this.flightOffCorridorT[id] = offT;
-          this.flightOffCorridorD[id] = offD;
-          if (offT >= FLIGHT_CORRIDOR_GRACE) {
-            this.flightDebug[id] = `corridor:${near.distance.toFixed(2)}:f${routeIndex + 1}`;
+          const danger = outside
+            ? Math.max(overshoot / FLIGHT_CORRIDOR_HARD_OUT_M, offT / FLIGHT_CORRIDOR_TIME_LIMIT_S)
+            : Math.min(1, offT / FLIGHT_CORRIDOR_TIME_LIMIT_S);
+          if (danger > 0.001) {
+            const pushLen = Math.hypot(pos.x - near.x, pos.z - near.z);
+            if (outside && pushLen > 1e-3) {
+              boat.setCorridorDistress(Math.min(1, danger),
+                (pos.x - near.x) / pushLen, (pos.z - near.z) / pushLen);
+            }
+            this.flightDebug[id] =
+              `corridor:${near.distance.toFixed(2)}:f${routeIndex + 1}:d${danger.toFixed(2)}`;
             if (id === 0) {
-              this.flightWarn = Math.max(this.flightWarn, 0.25);
-              this.flightWarnRoute = routeIndex;
+              this.playerCorridorDangerTarget = Math.min(1, danger);
+              this.playerCorridorDangerRoute = routeIndex;
             }
           }
-          if (offT >= FLIGHT_CORRIDOR_FAIL || offD >= FLIGHT_CORRIDOR_FAIL_DISTANCE) {
+          if (danger >= 1) {
             this.failFlight(boat, visual, 'corridor', near.u, null, null, null, near.distance);
             if (id === 0) {
               this.flightWarn = 0.8;
@@ -2203,7 +2221,6 @@ export class Course implements ICourse {
           (!flightActive || surfaceU < def.entryU - 0.03 || surfaceU > def.exitU + 0.006)) {
         this.flightLatched[id] = -1;
         this.flightOffCorridorT[id] = 0;
-        this.flightOffCorridorD[id] = 0;
       }
 
       prev.copy(pos);
@@ -2436,6 +2453,14 @@ export class Course implements ICourse {
     this.updateLaunchGateVisuals(dt, t);
     this.stripMat.uniforms.uTime.value = t;
     this.flightWarn = Math.max(0, this.flightWarn - dt);
+    // Presentation smoothing: the storm appears fast and releases slower, so
+    // a brief clean frame does not flicker the corridor back to calm.
+    {
+      const target = this.playerCorridorDangerTarget;
+      const rate = target > this.playerCorridorDanger ? 9 : 2.4;
+      this.playerCorridorDanger += (target - this.playerCorridorDanger) * Math.min(1, dt * rate);
+      if (target === 0 && this.playerCorridorDanger < 0.004) this.playerCorridorDanger = 0;
+    }
     this.flightFlowTime += dt * (1 + this.playerFlightPressure * 1.4);
     if (this.finalStation) {
       if (this.finalCelebrating) this.finalCelebrationTime += dt;
@@ -2477,6 +2502,8 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uTime.value = this.flightFlowTime;
       visual.curtain.uniforms.uTime.value = this.flightFlowTime;
       visual.ribbon.uniforms.uWarn.value = warn;
+      visual.ribbon.uniforms.uDistress.value =
+        this.playerCorridorDangerRoute === routeIndex ? this.playerCorridorDanger : 0;
       visual.ribbon.uniforms.uReady.value = upcoming && this.playerFlightReady ? 1 : 0;
       visual.ribbon.uniforms.uTurn.value = upcoming && this.flightTurnWarn[0] ? 1 : 0;
       const recovery = this.playerRecoveryRoute === routeIndex ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
@@ -2616,6 +2643,7 @@ export class Course implements ICourse {
       uniforms: {
         uTime: { value: 0 },
         uWarn: { value: 0 },
+        uDistress: { value: 0 },
         uReady: { value: 0 },
         uTurn: { value: 0 },
         uHasTurn: { value: def.navigation?.turn ? 1 : 0 },
@@ -2669,6 +2697,7 @@ export class Course implements ICourse {
       fragmentShader: /* glsl */ `
         uniform float uTime;
         uniform float uWarn;
+        uniform float uDistress;
         uniform float uReady;
         uniform float uTurn;
         uniform float uHasTurn;
@@ -2697,7 +2726,16 @@ export class Course implements ICourse {
         void main() {
           float farBoost = smoothstep(uFarStart, uFarEnd, vViewDepth);
           float uvPixel = max(fwidth(vUv.x), 0.0005);
-          float side = min(vUv.x, 1.0 - vUv.x);
+          // Corridor storm: the mist shreds and its ink edges thrash while the
+          // player is off-route. Calm frames keep the exact old field.
+          float distress = uDistress;
+          float wuvX = vUv.x;
+          if (distress > 0.001) {
+            float thrash = sin(vUv.y * 84.0 + uTime * 19.0) * 0.62 +
+              sin(vUv.y * 31.0 - uTime * 12.5 + 1.7) * 0.38;
+            wuvX += thrash * 0.045 * distress;
+          }
+          float side = min(wuvX, 1.0 - wuvX);
           float inkWidth = max(0.011, uvPixel * 1.05);
           float edgeWidth = max(0.052, uvPixel * 2.2);
           float inkEdge = 1.0 - smoothstep(inkWidth * 0.25, inkWidth, side);
@@ -2707,9 +2745,9 @@ export class Course implements ICourse {
           float wave = sin(vUv.y * 46.0 - uTime * 4.2) * 0.011;
           float flowWidth = max(0.018, uvPixel * 1.2);
           float flowA = 1.0 - smoothstep(flowWidth * 0.35, flowWidth,
-            abs(vUv.x - (0.42 + wave)));
+            abs(wuvX - (0.42 + wave)));
           float flowB = 1.0 - smoothstep(flowWidth * 0.35, flowWidth,
-            abs(vUv.x - (0.58 - wave)));
+            abs(wuvX - (0.58 - wave)));
           float packetPhase = fract(vUv.y * 12.0 - uTime * 1.72);
           float packetTail = smoothstep(0.02, 0.18, packetPhase) *
             (1.0 - smoothstep(0.58, 0.96, packetPhase));
@@ -2724,11 +2762,16 @@ export class Course implements ICourse {
           // Low-frequency density changes make the corridor read as moving
           // air and sea spray. The field never reaches zero, so the route
           // remains stable while its surface stops looking like glass.
-          float mistWave = 0.5 + 0.24 * sin(vUv.y * 13.0 - uTime * 0.72 + vUv.x * 5.0) +
-            0.17 * sin(vUv.y * 31.0 + uTime * 0.38 - vUv.x * 9.0) +
-            0.09 * sin(vUv.y * 57.0 - uTime * 1.1 + vUv.x * 13.0);
+          float mistWave = 0.5 + 0.24 * sin(vUv.y * 13.0 - uTime * 0.72 + wuvX * 5.0) +
+            0.17 * sin(vUv.y * 31.0 + uTime * 0.38 - wuvX * 9.0) +
+            0.09 * sin(vUv.y * 57.0 - uTime * 1.1 + wuvX * 13.0);
           float mistDensity = smoothstep(0.22, 0.72, mistWave);
           float mistBreak = 0.36 + mistDensity * 0.64;
+          // Danger shreds the veil: torn holes open in the mist before the
+          // corridor is lost entirely.
+          float shred = 0.5 + 0.5 * sin(vUv.y * 121.0 - uTime * 23.0 + vUv.x * 29.0) *
+            sin(vUv.y * 47.0 + uTime * 9.0);
+          mistBreak *= 1.0 - distress * (0.28 + 0.5 * shred);
           float scan = step(0.78, fract(vUv.y * 22.0 - uTime * 0.8));
           vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12);
           vec3 edgeColor = uFlight;
@@ -2740,16 +2783,19 @@ export class Course implements ICourse {
           float brakeInk = turnZone * (0.32 + packet * 0.14);
           float turnTint = min(uTurnTintMax, brakeInk * 0.34 + uTurn * turnZone * 0.06);
           color = mix(color, uTurnColor, turnTint);
-          color = mix(color, uWarnColor, uWarn);
+          float stormWarn = distress * (0.55 + 0.45 * sin(uTime * 16.0)) *
+            (0.16 + 0.62 * (edgeBand + inkEdge));
+          color = mix(color, uWarnColor, clamp(uWarn + stormWarn, 0.0, 1.0));
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float virtualPanel = (1.0 - inkEdge) *
             (uPanelAlpha * mix(0.76, 1.0, panelCell) + scan * uPanelBeatAlpha + farBoost * 0.04) * 0.12;
-          float centerVeil = (1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5))) * mistBreak;
+          float centerVeil = (1.0 - smoothstep(0.08, 0.48, abs(wuvX - 0.5))) * mistBreak;
           float alpha = virtualPanel * mistBreak + centerVeil * uCenterAlpha * 0.2 +
             edgeBand * (uEdgeAlpha * 0.58 + farBoost * 0.1) +
             inkEdge * (0.3 + farBoost * 0.08) +
             flow * (uFlowAlpha + farBoost * 0.14 + ready * 0.08);
           alpha += turnZone * (0.055 + packet * 0.05);
+          alpha *= 1.0 - distress * 0.24 * (0.5 + 0.5 * sin(uTime * 21.0 + vUv.y * 55.0));
 
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);

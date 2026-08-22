@@ -260,6 +260,7 @@ export class HUD {
   private hudTime = 0;
   private flightAlertTimer = 0;
   private lastCourseWarning: CourseWarning = 'none';
+  private corridorStage = 0;
   private lastCountdown = -1;
   private cdVisible = false;
   private goTimer = 0;
@@ -580,6 +581,25 @@ export class HUD {
     this.coachClose.setAttribute('aria-label', '跳过全部驾驶引导');
     this.coachClose.addEventListener('click', onCoachDisable);
     this.coachEl.appendChild(this.coachClose);
+  }
+
+  /**
+   * Flight-corridor storm warning. Shares the wrong-way banner element; the
+   * surface warnings it normally carries are forced to 'none' while airborne,
+   * so the two never compete for the slot.
+   */
+  setCorridorDanger(level: number): void {
+    const stage = level >= 0.45 ? 2 : level > 0.01 ? 1 : 0;
+    if (stage === this.corridorStage) return;
+    this.corridorStage = stage;
+    if (stage === 0) {
+      if (this.lastCourseWarning === 'none') this.wrongWayEl.classList.remove('on');
+      return;
+    }
+    this.wrongWayEl.textContent = stage === 1
+      ? '航道边缘 · 回到白雾内'
+      : '失控下坠 · 立刻回正！';
+    this.wrongWayEl.classList.add('on');
   }
 
   update(dt: number, race: RaceView, player: IBoat, _all: IBoat[]): void {

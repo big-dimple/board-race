@@ -273,6 +273,13 @@ export interface IBoat {
   /** Recover an AI after a failed route and consume that route without scoring it. */
   recoverFailedFlightRoute(): void;
   applyFlightRouteMiss(failure: FlightFailureSnapshot): void;
+  /**
+   * Corridor-violation storm, re-published every fixed step by the course.
+   * level 0 = safely inside; push = world-space unit vector away from the
+   * corridor centerline. Physics consumes it as wind; presentation reads the
+   * course-side smoothed copy.
+   */
+  setCorridorDistress(level: number, pushX: number, pushZ: number): void;
   /** Copy the current planar velocity without exposing Boat's mutable integrator state. */
   collisionVelocity(out: THREE.Vector2): THREE.Vector2;
   /** Apply one bounded arcade-contact response after all boats have integrated. */

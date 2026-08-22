@@ -143,6 +143,11 @@ export class GameAudio {
   private driftGain: GainNode | null = null;
   private driftBp: BiquadFilterNode | null = null;
 
+  // corridor-storm wind shear (event-driven danger cue, not ambience)
+  private corridorGain: GainNode | null = null;
+  private corridorBp: BiquadFilterNode | null = null;
+  private lastCorridorTier = 0;
+
   // continuous-state mirrors (also used to skip redundant param events)
   private speedNorm = 0;
   private airborne = false;
@@ -540,6 +545,31 @@ export class GameAudio {
       const engineLevel = (0.1 + 0.3 * Math.max(0, this.lastThrottle)) * (active ? 0.72 : 1);
       this.engineGain.gain.setTargetAtTime(engineLevel, t, 0.12);
     }
+  }
+
+  /**
+   * Corridor-storm danger cue. Continuous wind shear scales with the course's
+   * danger level; crossing into the edge / losing-control bands fires one
+   * escalating warning blip each. Silence returns as soon as the hull is back
+   * inside the corridor.
+   */
+  setCorridorDanger(level: number): void {
+    const c = this.ctx;
+    if (!c || !this.corridorGain || !this.corridorBp) return;
+    const n = clamp01(level);
+    const t = c.currentTime;
+    this.corridorGain.gain.setTargetAtTime(n * 0.15, t, n > 0 ? 0.05 : 0.14);
+    this.corridorBp.frequency.setTargetAtTime(420 + n * 2100, t, 0.07);
+    const tier = n >= 0.45 ? 2 : n > 0.001 ? 1 : 0;
+    if (tier > this.lastCorridorTier) {
+      if (tier === 1) {
+        this.blip(300, t, 0.1, 0.09, 'square');
+      } else {
+        this.blip(520, t, 0.09, 0.11, 'square');
+        this.blip(660, t + 0.085, 0.13, 0.11, 'square');
+      }
+    }
+    this.lastCorridorTier = tier;
   }
 
   setDrift(intensity: number): void {
@@ -1250,6 +1280,25 @@ export class GameAudio {
     driftNoise.start();
     this.driftBp = driftBp;
     this.driftGain = driftGain;
+
+    // Corridor storm: a rising wind-shear band that only sounds while the
+    // player is actually outside the mist corridor. It is a danger cue tied
+    // to a real gameplay event, not an environment noise bed.
+    const corridorNoise = ctx.createBufferSource();
+    corridorNoise.buffer = buf;
+    corridorNoise.loop = true;
+    const corridorBp = ctx.createBiquadFilter();
+    corridorBp.type = 'bandpass';
+    corridorBp.frequency.value = 420;
+    corridorBp.Q.value = 0.9;
+    const corridorGain = ctx.createGain();
+    corridorGain.gain.value = 0;
+    corridorNoise.connect(corridorBp);
+    corridorBp.connect(corridorGain);
+    corridorGain.connect(vehicleBus);
+    corridorNoise.start();
+    this.corridorBp = corridorBp;
+    this.corridorGain = corridorGain;
 
     this.applyMix(0.02);
   }

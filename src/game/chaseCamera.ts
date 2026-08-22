@@ -130,6 +130,12 @@ export class CameraRig {
     this.shakeAmp = Math.min(1, this.shakeAmp + clamp(strength, 0, 1));
   }
 
+  private distress = 0;
+  /** Sustained corridor-storm rumble (0..1); holds a shake floor each frame. */
+  setDistress(level: number): void {
+    this.distress = this.reducedMotion ? 0 : clamp(level, 0, 1);
+  }
+
   flightGateKick(flightNumber = 1): void {
     if (this.reducedMotion) return;
     const final = flightNumber >= 3;
@@ -449,9 +455,10 @@ export class CameraRig {
     // ---- shake: additive positional noise, applied post-spring -----------------
     this.noiseT += dt;
     this.shakeAmp *= Math.exp(-SHAKE_DECAY * dt);
-    if (this.shakeAmp > 0.001) {
+    const shakeLevel = Math.max(this.shakeAmp, this.distress * 0.32);
+    if (shakeLevel > 0.001) {
       const nt = this.noiseT;
-      const a = this.shakeAmp * SHAKE_AMP;
+      const a = shakeLevel * SHAKE_AMP;
       fp.x += (Math.sin(nt * SHAKE_W) * 0.62 + Math.sin(nt * SHAKE_W * 1.618 + 1.3) * 0.38) * a;
       fp.y += (Math.sin(nt * SHAKE_W * 1.13 + 2.1) * 0.62 + Math.sin(nt * SHAKE_W * 1.83 + 0.7) * 0.38) * a * 0.7;
       fp.z += (Math.sin(nt * SHAKE_W * 0.97 + 4.2) * 0.62 + Math.sin(nt * SHAKE_W * 1.42 + 2.9) * 0.38) * a;

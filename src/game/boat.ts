@@ -993,6 +993,10 @@ export class Boat implements IBoat {
   private liftSplashPending = false;
   private flightMissFxTimer = 0;
   private airBrakeFx = 0;
+  // Corridor-violation storm: re-published by the course every fixed step.
+  private corridorDistress = 0;
+  private corridorPushX = 0;
+  private corridorPushZ = 0;
   private flightTargetSpeed = 42;
   private flightRingActiveCount = 0;
   private flightPlumeLength = 0;
@@ -1202,6 +1206,24 @@ export class Boat implements IBoat {
     this.velX = fwdX * vF + portX * vL;
     this.velZ = fwdZ * vF + portZ * vL;
 
+    // Corridor-violation storm. Just past the mist edge the wind is a firm
+    // shove the player can still fight; deep into the red it overwhelms the
+    // air control and scrubs speed like a stall, so an uncorrected excursion
+    // physically runs away toward the corridor fail.
+    const distress = flightWasActive ? this.corridorDistress : 0;
+    if (distress > 0) {
+      const storm = distress * distress;
+      const windAccel = 3.5 + 11 * storm;
+      this.velX += this.corridorPushX * windAccel * dt;
+      this.velZ += this.corridorPushZ * windAccel * dt;
+      const stall = smooth01((distress - 0.45) / 0.55);
+      if (stall > 0) {
+        const drag = 1 - Math.min(0.5, 1.6 * stall * dt);
+        this.velX *= drag;
+        this.velZ *= drag;
+      }
+    }
+
     // steering: full authority once moving, capped by lateral G at speed,
     // reversed in reverse
     const speedAbs = Math.abs(vF);
@@ -1214,6 +1236,12 @@ export class Boat implements IBoat {
     const driftYawCut = surfaceDrift ? TUNING.driftYawDampMul + (1 - TUNING.driftYawDampMul) * this.airBrakeFx : 1;
     const yawDamp = baseYawDamp * driftYawCut;
     this.yawRate += (yawTarget - this.yawRate) * Math.min(1, yawDamp * dt);
+    // Storm gusts wander the nose; full control returns the moment the hull
+    // is back inside the corridor.
+    if (distress > 0) {
+      const storm = distress * distress;
+      this.yawRate += (Math.sin(t * 9.7 + 1.3) * 0.62 + Math.sin(t * 15.1 + 4.2) * 0.38) * 0.55 * storm * dt;
+    }
     this.heading = wrapAngle(this.heading + this.yawRate * dt);
     this.lateralG = vF * this.yawRate; // + = turning left
 
@@ -1384,6 +1412,12 @@ export class Boat implements IBoat {
       // Space still owns the exact old yaw/grip behavior underneath.
       pitchT *= 0.2;
       rollT = -clamp(this.lateralG / TUNING.latGMax, -1.2, 1.2) * TUNING.bankMax * 1.35;
+      // Corridor storm buffet: the hull visibly fights the wind before the
+      // fail lands, strongest at deep red.
+      if (distress > 0) {
+        rollT += (Math.sin(t * 12.9) * 0.62 + Math.sin(t * 7.1 + 2.2) * 0.38) * 0.16 * distress;
+        pitchT += Math.sin(t * 10.7 + 0.9) * 0.09 * distress;
+      }
     }
 
     const w = TUNING.tiltOmega; // critically damped: ζ = 1
@@ -1844,6 +1878,12 @@ export class Boat implements IBoat {
     st.flightRouteMiss = true;
   }
 
+  setCorridorDistress(level: number, pushX: number, pushZ: number): void {
+    this.corridorDistress = clamp(level, 0, 1);
+    this.corridorPushX = pushX;
+    this.corridorPushZ = pushZ;
+  }
+
   setDriver(color: number, handling: DriverHandling): void {
     this.hullMaterial.uniforms.uColor.value.setHex(color, THREE.NoColorSpace);
     this.handling = {
@@ -2114,6 +2154,12 @@ export class Boat implements IBoat {
       thrust = 0.72 * (1 - p);
     }
 
+    // Deep corridor red reads as a stall: lift bleeds off and the craft
+    // starts its fall before the fail verdict arrives.
+    if (phase === 'ascending' || phase === 'cruise') {
+      targetClearance -= 2.8 * smooth01((this.corridorDistress - 0.45) / 0.55);
+    }
+
     const desiredY = surfaceY + targetClearance;
     if (firstFlightFrame) this.flightDesiredYPrev = desiredY;
     const rawTargetVy = clamp((desiredY - this.flightDesiredYPrev) / Math.max(1e-4, dt), -14, 14);
@@ -2164,6 +2210,7 @@ export class Boat implements IBoat {
       st.flightExtensionReady = false;
       st.flightExtensionUsed = false;
       st.flightThrust = 0;
+      this.corridorDistress = 0;
     }
     return impact;
   }
