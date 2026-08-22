@@ -636,6 +636,8 @@ export const GRID_SLOTS: readonly GridSlot[] = RACER_DEFS.map((racer) => {
 const UP = new THREE.Vector3(0, 1, 0);
 const _n = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _v2 = new THREE.Vector2();
+const _knockAxis = new THREE.Vector3();
 const _sp = new THREE.Vector3();
 const _ta = new THREE.Vector3();
 const _routeSample: CourseSample = {
@@ -1263,7 +1265,45 @@ interface Floater {
   z: number;
   yawQ: THREE.Quaternion;
   routeU?: number;
+  /** Sea buoys are solid: a hull contact knocks them flying. */
+  knockable?: boolean;
+  /** Parent group that may hide this floater (inactive flight-route groups). */
+  hiddenBy?: THREE.Object3D;
+  knock?: BuoyKnock;
 }
+
+/** Ballistic state of a buoy smacked off its station. */
+interface BuoyKnock {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  /** Tumble around a fixed horizontal axis perpendicular to the flight dir. */
+  axisX: number;
+  axisZ: number;
+  angle: number;
+  spin: number;
+  timer: number;
+  landed: boolean;
+}
+
+export interface BuoyHit {
+  boatId: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+// A buoy hit is a shrug, not a crash: the float takes the energy, the hull
+// keeps 93% of its speed.
+const BUOY_HIT_RADIUS = 2.2;
+const BUOY_HIT_MIN_SPEED = 5;
+const BUOY_HIT_SPEED_CUT = 0.07;
+const BUOY_RESPAWN_S = 9;
+const BUOY_SINK_S = 0.8;
+const BUOY_GROW_S = 0.35;
 
 interface FlightGate {
   u: number;
@@ -1698,7 +1738,13 @@ export class Course implements ICourse {
         gate.anchor.visible = true;
       }
     }
-    for (const floater of this.floaters) floater.obj.visible = true;
+    for (const floater of this.floaters) {
+      floater.obj.visible = true;
+      floater.knock = undefined;
+      floater.obj.scale.setScalar(1);
+      floater.obj.position.set(floater.x, 0, floater.z);
+      floater.obj.quaternion.copy(floater.yawQ);
+    }
   }
 
   armFinalStation(): void {
@@ -2352,7 +2398,11 @@ export class Course implements ICourse {
       const ahead = (station - playerS + LAP_LENGTH) % LAP_LENGTH;
       const farScaleT = THREE.MathUtils.smoothstep(ahead, 35, 150);
       const distanceScale = THREE.MathUtils.lerp(1, 1.6, farScaleT);
-      _surfaceArrowScale.setScalar(distanceScale * (turn ? 1.35 : 1));
+      // Dissolve the far end of the flow: beyond ~100 m a lone chevron on
+      // open water reads as a floating white triangle, not route guidance —
+      // the green ribbon alone carries the far line.
+      const farFade = 1 - THREE.MathUtils.smoothstep(ahead, 100, 165);
+      _surfaceArrowScale.setScalar(distanceScale * (turn ? 1.35 : 1) * farFade);
       _surfaceArrowMatrix.compose(_surfaceArrowCenter, _surfaceArrowQuaternion, _surfaceArrowScale);
       this.surfaceGuideArrows.setMatrixAt(i, _surfaceArrowMatrix);
       this.surfaceGuideArrowInk.setMatrixAt(i, _surfaceArrowMatrix);
@@ -2574,11 +2624,114 @@ export class Course implements ICourse {
       }
     }
     for (const f of this.floaters) {
+      if (f.knock) {
+        this.updateKnockedFloater(f, dt, t);
+        continue;
+      }
       f.obj.position.y = waterHeight(f.x, f.z, t);
       waterNormalInto(_n, f.x, f.z, t);
       _q.setFromUnitVectors(UP, _n).multiply(f.yawQ);
       f.obj.quaternion.copy(_q);
     }
+  }
+
+  /**
+   * A knocked buoy is ballistic until it splashes down, rides the swell where
+   * it landed, then sinks and pops back up on station. Presentation-only;
+   * the gameplay cost was already charged to the hull at contact.
+   */
+  private updateKnockedFloater(f: Floater, dt: number, t: number): void {
+    const k = f.knock!;
+    k.timer += dt;
+    if (k.timer >= BUOY_RESPAWN_S) {
+      // Back on station: quick scale-in so the return is a pop, not a blink.
+      const grow = Math.min(1, (k.timer - BUOY_RESPAWN_S) / BUOY_GROW_S);
+      f.obj.position.set(f.x, waterHeight(f.x, f.z, t), f.z);
+      waterNormalInto(_n, f.x, f.z, t);
+      _q.setFromUnitVectors(UP, _n).multiply(f.yawQ);
+      f.obj.quaternion.copy(_q);
+      f.obj.scale.setScalar(grow);
+      if (grow >= 1) f.knock = undefined;
+      return;
+    }
+    if (!k.landed) {
+      k.vy -= 12 * dt;
+      k.x += k.vx * dt;
+      k.y += k.vy * dt;
+      k.z += k.vz * dt;
+      k.angle += k.spin * dt;
+      const surface = waterHeight(k.x, k.z, t);
+      if (k.y <= surface) {
+        k.landed = true;
+        k.y = surface;
+      }
+      f.obj.position.set(k.x, k.y, k.z);
+      _knockAxis.set(k.axisX, 0, k.axisZ).normalize();
+      _q.setFromAxisAngle(_knockAxis, k.angle);
+      f.obj.quaternion.copy(_q);
+      return;
+    }
+    // Afloat where it fell: drift to a stop, settle upright onto the swell,
+    // then sink out before the respawn.
+    const damp = Math.max(0, 1 - dt * 1.6);
+    k.vx *= damp;
+    k.vz *= damp;
+    k.x += k.vx * dt;
+    k.z += k.vz * dt;
+    f.obj.position.set(k.x, waterHeight(k.x, k.z, t), k.z);
+    waterNormalInto(_n, k.x, k.z, t);
+    _q.setFromUnitVectors(UP, _n).multiply(f.yawQ);
+    f.obj.quaternion.slerp(_q, Math.min(1, dt * 3));
+    const sinkStart = BUOY_RESPAWN_S - BUOY_SINK_S;
+    f.obj.scale.setScalar(k.timer > sinkStart ? Math.max(0.001, (BUOY_RESPAWN_S - k.timer) / BUOY_SINK_S) : 1);
+  }
+
+  /**
+   * Sea buoys are solid. A surface hull that touches a float smacks it off
+   * its station and pays a small speed cut; airborne flight passes over.
+   * Returns the contacts so the caller can fire spray/audio for the player.
+   */
+  applyBuoyHits(boats: readonly IBoat[], out: BuoyHit[]): BuoyHit[] {
+    out.length = 0;
+    for (const boat of boats) {
+      const st = boat.state;
+      if (st.flightPhase !== 'surface' || st.position.y > 2.6) continue;
+      const vel = boat.collisionVelocity(_v2);
+      const speed = vel.length();
+      if (speed < BUOY_HIT_MIN_SPEED) continue;
+      for (const f of this.floaters) {
+        if (!f.knockable || f.knock || !f.obj.visible) continue;
+        if (f.hiddenBy && !f.hiddenBy.visible) continue;
+        const dx = f.x - st.position.x;
+        const dz = f.z - st.position.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq > BUOY_HIT_RADIUS * BUOY_HIT_RADIUS) continue;
+        const dist = Math.sqrt(distSq) || 1;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const away = 2.5 + speed * 0.3;
+        const kvx = vel.x * 0.35 + nx * away;
+        const kvz = vel.y * 0.35 + nz * away;
+        const kh = Math.hypot(kvx, kvz) || 1;
+        f.knock = {
+          x: f.x,
+          y: f.obj.position.y,
+          z: f.z,
+          vx: kvx,
+          vy: 4.2 + speed * 0.1,
+          vz: kvz,
+          axisX: kvz / kh,
+          axisZ: -kvx / kh,
+          angle: 0,
+          spin: (3.5 + Math.random() * 3) * (Math.random() < 0.5 ? -1 : 1),
+          timer: 0,
+          landed: false,
+        };
+        boat.applyCollisionResponse(0, 0, -vel.x * BUOY_HIT_SPEED_CUT, -vel.y * BUOY_HIT_SPEED_CUT);
+        out.push({ boatId: boat.id, x: f.x, y: f.obj.position.y + 0.6, z: f.z });
+      }
+    }
+    return out;
   }
 
   // ------------------------------------------------------- flight route ----
@@ -3025,6 +3178,8 @@ export class Course implements ICourse {
             x: support.position.x,
             z: support.position.z,
             yawQ: new THREE.Quaternion().setFromAxisAngle(UP, yaw),
+            knockable: true,
+            hiddenBy: routeGroup,
           });
         }
       }
@@ -3800,7 +3955,7 @@ export class Course implements ICourse {
         const z = p.z + rz * 7 * side;
         buoy.position.set(x, 0, z);
         this.object.add(buoy);
-        this.floaters.push({ obj: buoy, x, z, yawQ: new THREE.Quaternion(), routeU: u });
+        this.floaters.push({ obj: buoy, x, z, yawQ: new THREE.Quaternion(), routeU: u, knockable: true });
       }
     }
 

@@ -81,11 +81,12 @@ const TUNING = {
   // the bow. Small, damped, suppressed while celebrating or taunting.
   headSteerLook: 0.3,
 
-  // Taunt: a alongside rival gets a head turn plus a raised fist/wave for
-  // ~1.6s, then a long personal cooldown keeps it a spice, not a loop.
+  // Taunt: a alongside rival gets a square head turn for ~1.6s, then a long
+  // personal cooldown keeps it a spice, not a loop. No raised fist — the
+  // whole grid pumping one arm read as a mechanical puppet wave.
   tauntOmega: 9, tauntZeta: 1,
   tauntSeconds: 1.6, tauntCooldown: 8,
-  tauntHeadYaw: 0.95, tauntArmRaise: -1.85, tauntWaveHz: 2.4, tauntWaveAmp: 0.34,
+  tauntHeadYaw: 0.95,
 } as const;
 
 // Rest pose (baked into joint positions, meters). Standing racing crouch at
@@ -200,8 +201,8 @@ export class Rider {
   }
 
   /**
-   * Flash a rival alongside: head turns their way, same-side fist rises and
-   * waves. Presentation-only; long cooldown keeps races from becoming waves.
+   * Flash a rival alongside: the head turns their way. Presentation-only;
+   * long cooldown keeps races from becoming stare loops.
    */
   taunt(side: number, now: number): void {
     if (now < this.tauntCooldownUntil || this.tauntRemaining > 0) return;
@@ -317,23 +318,18 @@ export class Rider {
 
     // Constant arm tuck: shoulders rotated inward so the arms angle toward
     // the bars and read "holding the grips" from behind, not flared out.
-    // The taunting arm leaves its grip: fist rises toward the rival and waves.
-    const tauntWave = Math.sin(tp * 2 * Math.PI * T.tauntWaveHz) * T.tauntWaveAmp;
-    const tauntArmL = this.tauntSide > 0 ? taunt * (T.tauntArmRaise + tauntWave) : 0;
-    const tauntArmR = this.tauntSide > 0 ? 0 : taunt * (T.tauntArmRaise + tauntWave);
     j.shoulderL.rotation.set(
-      armBase * (1 - cel) * (1 - taunt * (this.tauntSide > 0 ? 1 : 0)) + cel * pumpL + tauntArmL,
+      armBase * (1 - cel) + cel * pumpL,
       0,
-      -T.armTuck * (1 - cel) - 0.1 * cel - taunt * (this.tauntSide > 0 ? 0.42 : 0),
+      -T.armTuck * (1 - cel) - 0.1 * cel,
     );
     j.shoulderR.rotation.set(
-      armBase * (1 - cel) * (1 - taunt * (this.tauntSide > 0 ? 0 : 1)) + cel * pumpR + tauntArmR,
+      armBase * (1 - cel) + cel * pumpR,
       0,
-      T.armTuck * (1 - cel) + 0.1 * cel + taunt * (this.tauntSide > 0 ? 0 : 0.42),
+      T.armTuck * (1 - cel) + 0.1 * cel,
     );
-    j.elbowL.rotation.set(elbBase + dropL - taunt * (this.tauntSide > 0 ? 0.55 : 0), 0, 0);
-    j.elbowR.rotation.set(elbBase + dropR + cel * (Math.sin(pumpT) * 0.3 - 0.3) -
-      taunt * (this.tauntSide > 0 ? 0 : 0.55), 0, 0);
+    j.elbowL.rotation.set(elbBase + dropL, 0, 0);
+    j.elbowR.rotation.set(elbBase + dropR + cel * (Math.sin(pumpT) * 0.3 - 0.3), 0, 0);
 
     // Right wrist works the throttle; left stays quiet on its grip.
     const thr = clamp(boat.throttle, 0, 1);

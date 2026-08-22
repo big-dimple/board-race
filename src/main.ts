@@ -53,6 +53,7 @@ import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
 import { BoatCollisionSystem, type CollisionHit } from './game/collision';
+import type { BuoyHit } from './game/course';
 import { CameraRig, type CameraImpactLevel } from './game/chaseCamera';
 import { HUD } from './hud/hud';
 import { GameAudio } from './audio/audio';
@@ -1055,6 +1056,7 @@ function step(dt: number, _t: number): void {
       race.syncCollisionCorrections();
     }
     presentPlayerCollisions(hits);
+    presentBuoyHits(course.applyBuoyHits(boats, buoyHitScratch));
   }
   let enteredMedal = false;
   if (playerPassedFlight && race.phase === 'racing') {
@@ -1205,8 +1207,8 @@ function step(dt: number, _t: number): void {
     }
   }
 
-  // Alongside rivals trade taunts. Pure presentation: the rider turns its
-  // head and raises a fist; an 8s per-rider cooldown keeps it a spice.
+  // Alongside rivals trade glances. Pure presentation: the rider turns its
+  // head; an 8s per-rider cooldown keeps it a spice.
   if (race.phase === 'racing') {
     for (let i = 0; i < boats.length; i++) {
       const bi = boats[i].state;
@@ -1593,6 +1595,22 @@ function placeHarnessBoat(id: number, u: number, lateral = 0): void {
 
 /** Move staged boats in small, non-teleport progress increments for battle UX. */
 const collisionFxPoint = new THREE.Vector3();
+const buoyHitScratch: BuoyHit[] = [];
+
+/**
+ * Buoy contacts are a shrug, not a crash: no camera kick, no radio callout —
+ * just spray at the float and a light tap for the player.
+ */
+function presentBuoyHits(hits: readonly BuoyHit[]): void {
+  for (const hit of hits) {
+    collisionFxPoint.set(hit.x, hit.y, hit.z);
+    spray.burst(collisionFxPoint, 5, 3);
+    if (hit.boatId === 0) {
+      audio.collision(2.5);
+      haptics.impact('collision-light', 0.3, false);
+    }
+  }
+}
 
 function presentPlayerCollisions(hits: readonly CollisionHit[]): void {
   const playerHits = hits.filter((hit) => (hit.a === 0 || hit.b === 0) && hit.strength >= 0.8);
@@ -2213,6 +2231,26 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 0 });
       loop.advance(2.0);
       break;
+    case "buoy-hit": {
+      // Aim the player straight at the first checkpoint's right-hand buoy and
+      // hold throttle: the float gets smacked off its station, the hull
+      // keeps ~93% speed.
+      advanceUntil(() => race.phase === "racing", 8);
+      course.pointAt(CHECKPOINT_US[0], tmpP);
+      course.tangentAt(CHECKPOINT_US[0], tmpT).normalize();
+      const buoyX = tmpP.x + tmpT.z * 7;
+      const buoyZ = tmpP.z - tmpT.x * 7;
+      const sx = tmpP.x - tmpT.x * 26;
+      const sz = tmpP.z - tmpT.z * 26;
+      boats[0].teleport(sx, sz, Math.atan2(buoyX - sx, buoyZ - sz));
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => {
+        const p = boats[0].state.position;
+        return Math.hypot(buoyX - p.x, buoyZ - p.z) < 3;
+      }, 5);
+      loop.advance(0.5);
+      break;
+    }
     case "ocean-near-t2":
       advanceUntil(() => race.phase === "racing", 8);
       setHarnessInput({ throttle: 0 });

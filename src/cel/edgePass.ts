@@ -45,6 +45,8 @@ uniform float uNormalThreshold;   // Sobel magnitude -> crease line
 uniform float uDepthThreshold;    // meters of view-z gradient -> depth line
 uniform float uSilhouetteDepth;   // reject gradients beyond this (object vs background)
 uniform float uStrength;          // overall line opacity (still a hard step)
+uniform float uLineFadeNear;      // interior lines are a near-field device:
+uniform float uLineFadeFar;       // fade to zero across this view-depth band
 
 varying vec2 vUv;
 
@@ -107,7 +109,15 @@ void main() {
   // ------------------------------------------------------------------
   float mask = step(0.5, min(min(min(nL.a, nR.a), min(nT.a, nB.a)), nC.a));
 
-  float edge = max(normalEdge, depthEdge) * mask * uStrength;
+  // Near-field fade: past ~boat-pack distance a sub-pixel crease is not a
+  // line, it is noise — the Sobel fires on every pixel of a small rider or
+  // far buoy and the ink multiply crushes the whole shape into a dark blob.
+  // Interior inking is a close-range graphic device; silhouettes far away
+  // stay with the inverted hull, which already scales to constant width.
+  float dC = linearDepth(vUv);
+  float nearFade = 1.0 - smoothstep(uLineFadeNear, uLineFadeFar, dC);
+
+  float edge = max(normalEdge, depthEdge) * mask * nearFade * uStrength;
 
   // ------------------------------------------------------------------
   // APPLY: multiply ink over the scene color. Hard step — no soft gray.
@@ -151,10 +161,12 @@ export function createEdgePass(prePass: PrePass, camera: THREE.Camera): ShaderPa
       uCameraFar: { value: persp.far ?? 6000 },
       uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
       uInkGain: { value: 1.7 },
-      uNormalThreshold: { value: 0.75 },
+      uNormalThreshold: { value: 1.35 },
       uDepthThreshold: { value: 2.0 },
       uSilhouetteDepth: { value: 80.0 },
       uStrength: { value: 1.0 },
+      uLineFadeNear: { value: 9.0 },
+      uLineFadeFar: { value: 26.0 },
     },
     vertexShader,
     fragmentShader,
