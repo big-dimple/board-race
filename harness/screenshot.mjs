@@ -376,6 +376,12 @@ async function verifyMode(browser, mobile) {
   await page.evaluate(() => window.__harness.setFlightCharges(2));
   await page.evaluate(() => window.__harness.tapFlight());
   await page.evaluate(() => { window.__harness.advance(0.05); window.__harness.render(); });
+  // The card's opacity eases in on the wall clock, not the sim clock — wait
+  // for the transition instead of sampling a random phase of it.
+  await page.waitForFunction(() => {
+    const prompt = document.querySelector('.hud-flight-prompt.spent.on');
+    return prompt instanceof HTMLElement && Number(getComputedStyle(prompt).opacity) > 0.5;
+  }, null, { timeout: 5000 });
   const spent = await page.evaluate(() => {
     const prompt = document.querySelector('.hud-flight-prompt.spent.on');
     const rule = prompt?.querySelector('.hud-flight-prompt-rule');

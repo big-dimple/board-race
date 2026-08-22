@@ -1179,14 +1179,18 @@ function step(dt: number, _t: number): void {
     pcControlPrimer.active || coachPresentation?.focus === 'flight-control',
   );
 
-  // Landing feedback: camera shake + thud on slams, splash on soft landings.
+  // Landing feedback: the controller thuds on every real water re-entry
+  // (floored so soft flight recoveries still read); camera shake + audio
+  // stay reserved for slams.
   for (let i = 0; i < boats.length; i++) {
     const imp = boats[i].state.landImpulse;
+    if (i === 0 && imp > 3) {
+      haptics.impact('landing', Math.max(0.5, Math.min(1, imp / 14)), false);
+    }
     if (imp > 7) {
       if (i === 0) {
         cameraRig.shake(Math.min(1, imp / 16));
         audio.thud(Math.min(1, imp / 14));
-        haptics.impact('landing', Math.min(1, imp / 14), boats[0].state.drifting || boats[0].state.flightAirBrake > 0.28);
         // Opponent splashes remain visual-only until a spatial environment
         // sample is explicitly approved; otherwise pile-ups sound like an
         // unexplained noise wall at the player's position.

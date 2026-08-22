@@ -33,15 +33,17 @@ interface HapticProfile {
 }
 
 const PROFILES: Record<HapticCue, HapticProfile> = {
-  'drift-active': { strong: 0.08, weak: 0.22, duration: 12, mobileDuration: 8, priority: 1, cooldown: 0.45, lane: 'control' },
-  'drift-ready': { strong: 0.12, weak: 0.32, duration: 18, mobileDuration: 10, priority: 2, cooldown: 0.25, lane: 'control' },
+  'drift-active': { strong: 0.14, weak: 0.3, duration: 16, mobileDuration: 10, priority: 1, cooldown: 0.4, lane: 'control' },
+  'drift-ready': { strong: 0.18, weak: 0.42, duration: 24, mobileDuration: 12, priority: 2, cooldown: 0.25, lane: 'control' },
   charge: { strong: 0.18, weak: 0.38, duration: 24, mobileDuration: 12, priority: 3, cooldown: 0.2, lane: 'control' },
   boost: { strong: 0.24, weak: 0.5, duration: 30, mobileDuration: 14, priority: 4, cooldown: 0.2, lane: 'control' },
   'air-brake': { strong: 0.18, weak: 0.42, duration: 20, mobileDuration: 10, priority: 3, cooldown: 0.22, lane: 'control' },
   launch: { strong: 0.34, weak: 0.5, duration: 34, mobileDuration: 16, priority: 5, cooldown: 0.2, lane: 'control' },
   extend: { strong: 0.24, weak: 0.46, duration: 28, mobileDuration: 14, priority: 4, cooldown: 0.2, lane: 'control' },
   gate: { strong: 0.18, weak: 0.36, duration: 22, mobileDuration: 10, priority: 4, cooldown: 0.18, lane: 'control' },
-  landing: { strong: 0.3, weak: 0.18, duration: 30, mobileDuration: 14, priority: 5, cooldown: 0.22, lane: 'impact' },
+  // A water re-entry is the biggest routine hit the hull takes — full strong
+  // motor burst, never discounted for a held drift/air-brake.
+  landing: { strong: 1, weak: 0.45, duration: 80, mobileDuration: 30, priority: 6, cooldown: 0.25, lane: 'impact' },
   'collision-light': { strong: 0.26, weak: 0.18, duration: 28, mobileDuration: 12, priority: 5, cooldown: 0.2, lane: 'impact' },
   'collision-heavy': { strong: 0.55, weak: 0.25, duration: 52, mobileDuration: 20, priority: 7, cooldown: 0.28, lane: 'impact' },
   warning: { strong: 0.12, weak: 0.3, duration: 20, mobileDuration: 10, priority: 3, cooldown: 0.9, lane: 'presentation' },
