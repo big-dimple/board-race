@@ -928,11 +928,11 @@ const FLIGHT_ROUTE_MARKER_SHADE = PALETTE.flightMistShade;
 // The corridor is a mist veil, not a filled blue road. Ink edges and moving
 // white flow marks carry its readable shape; the ocean remains visible through
 // the neutral panel.
-const FLIGHT_GUIDE_PANEL_ALPHA = 0.095;
+const FLIGHT_GUIDE_PANEL_ALPHA = 0.15;
 const FLIGHT_GUIDE_PANEL_BEAT_ALPHA = 0.04;
-const FLIGHT_GUIDE_CENTER_ALPHA = 0.045;
-const FLIGHT_GUIDE_EDGE_ALPHA = 0.34;
-const FLIGHT_GUIDE_FLOW_ALPHA = 0.54;
+const FLIGHT_GUIDE_CENTER_ALPHA = 0.075;
+const FLIGHT_GUIDE_EDGE_ALPHA = 0.52;
+const FLIGHT_GUIDE_FLOW_ALPHA = 0.62;
 const FLIGHT_GUIDE_FAR_START_M = 55;
 const FLIGHT_GUIDE_FAR_END_M = 145;
 // A corridor is a volume of mist, not a cut-out rectangle. The final few
@@ -1282,6 +1282,7 @@ interface FlightRouteVisual {
   group: THREE.Group;
   ribbonMesh: THREE.Mesh;
   ribbon: THREE.ShaderMaterial;
+  curtain: THREE.ShaderMaterial;
   rail: THREE.MeshBasicMaterial;
   ring: THREE.MeshBasicMaterial;
   recoveryArrows: THREE.InstancedMesh;
@@ -2474,6 +2475,7 @@ export class Course implements ICourse {
       const warn = this.flightWarnRoute === routeIndex ? Math.min(1, this.flightWarn * 4) : 0;
       const upcoming = routeIndex === this.playerFlightIndex;
       visual.ribbon.uniforms.uTime.value = this.flightFlowTime;
+      visual.curtain.uniforms.uTime.value = this.flightFlowTime;
       visual.ribbon.uniforms.uWarn.value = warn;
       visual.ribbon.uniforms.uReady.value = upcoming && this.playerFlightReady ? 1 : 0;
       visual.ribbon.uniforms.uTurn.value = upcoming && this.flightTurnWarn[0] ? 1 : 0;
@@ -2696,8 +2698,8 @@ export class Course implements ICourse {
           float farBoost = smoothstep(uFarStart, uFarEnd, vViewDepth);
           float uvPixel = max(fwidth(vUv.x), 0.0005);
           float side = min(vUv.x, 1.0 - vUv.x);
-          float inkWidth = max(0.009, uvPixel * 1.05);
-          float edgeWidth = max(0.032, uvPixel * 2.2);
+          float inkWidth = max(0.011, uvPixel * 1.05);
+          float edgeWidth = max(0.052, uvPixel * 2.2);
           float inkEdge = 1.0 - smoothstep(inkWidth * 0.25, inkWidth, side);
           float edgeBand = (1.0 - smoothstep(inkWidth * 0.7, edgeWidth, side)) *
             (1.0 - inkEdge * 0.82);
@@ -2713,7 +2715,7 @@ export class Course implements ICourse {
             (1.0 - smoothstep(0.58, 0.96, packetPhase));
           float packetHead = 1.0 - smoothstep(0.035, 0.13, abs(packetPhase - 0.18));
           float packet = max(packetTail * 0.58, packetHead);
-          float flow = max(flowA, flowB) * (0.34 + packet * 0.66);
+          float flow = max(flowA, flowB) * (0.2 + packet * 0.8);
           float turnIn = smoothstep(uTurnFrom, min(uTurnFrom + 0.025, uTurnTo), vUv.y);
           float turnOut = 1.0 - smoothstep(max(uTurnFrom, uTurnTo - 0.025), uTurnTo, vUv.y);
           float turnZone = uHasTurn * turnIn * turnOut;
@@ -2744,8 +2746,8 @@ export class Course implements ICourse {
             (uPanelAlpha * mix(0.76, 1.0, panelCell) + scan * uPanelBeatAlpha + farBoost * 0.04) * 0.12;
           float centerVeil = (1.0 - smoothstep(0.08, 0.48, abs(vUv.x - 0.5))) * mistBreak;
           float alpha = virtualPanel * mistBreak + centerVeil * uCenterAlpha * 0.2 +
-            edgeBand * (uEdgeAlpha * 0.58 + farBoost * 0.08) +
-            inkEdge * (0.2 + farBoost * 0.06) +
+            edgeBand * (uEdgeAlpha * 0.58 + farBoost * 0.1) +
+            inkEdge * (0.3 + farBoost * 0.08) +
             flow * (uFlowAlpha + farBoost * 0.14 + ready * 0.08);
           alpha += turnZone * (0.055 + packet * 0.05);
 
@@ -2764,12 +2766,12 @@ export class Course implements ICourse {
           float recoveryCenter = (1.0 - smoothstep(0.08, 0.7, recoveryNorm)) * mistBreak;
           float recoveryFlowWidth = max(0.022, uvPixel * 1.2);
           float recoveryFlow = (1.0 - smoothstep(recoveryFlowWidth * 0.35, recoveryFlowWidth,
-            abs(recoverySide - recoveryHalf * 0.3))) * (0.34 + packet * 0.66);
+            abs(recoverySide - recoveryHalf * 0.3))) * (0.2 + packet * 0.8);
           float recoveryAlpha = recoveryVeil *
             (uPanelAlpha * mix(0.78, 1.0, panelCell) + farBoost * 0.04) * 0.12 +
             recoveryCenter * uCenterAlpha * 0.2 +
-            recoveryEdge * (uEdgeAlpha * 0.58 + farBoost * 0.08) +
-            recoveryInk * (0.2 + farBoost * 0.06) +
+            recoveryEdge * (uEdgeAlpha * 0.58 + farBoost * 0.1) +
+            recoveryInk * (0.3 + farBoost * 0.08) +
             recoveryFlow * (uFlowAlpha * 0.9 + farBoost * 0.14);
           recoveryAlpha = min(recoveryAlpha, 0.82);
           float recoveryStart = max(uGateF - 0.003, uRecoveryProgress - 0.035);
@@ -2981,7 +2983,7 @@ export class Course implements ICourse {
     const railMat = new THREE.MeshBasicMaterial({
       color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.85,
       depthWrite: false,
       toneMapped: false,
     });
@@ -2995,17 +2997,104 @@ export class Course implements ICourse {
         railPoints.push(new THREE.Vector3(p.x + t.z * HALF_W * side, p.y + 0.12, p.z - t.x * HALF_W * side));
       }
       const railCurve = new THREE.CatmullRomCurve3(railPoints, false, 'centripetal');
-      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.07, 5, false), railMat);
+      const rail = new THREE.Mesh(new THREE.TubeGeometry(railCurve, 120, 0.2, 5, false), railMat);
       rail.name = `${def.id}-rail-${side > 0 ? 'r' : 'l'}`;
       rail.renderOrder = 4;
       rail.layers.enable(LAYER_ENERGY);
       routeGroup.add(rail);
     }
 
+    // The flat mist ribbon vanishes at the chase camera's grazing angle. Two
+    // soft curtains hang from the corridor edges so the lane keeps a readable
+    // cross-section from behind; a sawtooth pulse travels toward the exit to
+    // carry direction. Static geometry, one shared material per route.
+    const curtainMat = new THREE.ShaderMaterial({
+      name: 'FlightRouteCurtain',
+      uniforms: {
+        uTime: { value: 0 },
+        uColor: { value: new THREE.Color().setHex(FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        uniform vec3 uColor;
+        varying vec2 vUv;
+        void main() {
+          float vFade = smoothstep(0.0, 0.06, vUv.y) * (1.0 - smoothstep(0.12, 1.0, vUv.y));
+          float endFade = smoothstep(0.0, 0.045, vUv.x) * (1.0 - smoothstep(0.955, 1.0, vUv.x));
+          float pulse = pow(fract(vUv.x * 16.0 - uTime * 1.35), 1.7);
+          float filament = 0.72 + 0.28 * sin(vUv.y * 24.0 + vUv.x * 34.0 - uTime * 2.1);
+          float alpha = vFade * endFade * filament * (0.1 + pulse * 0.24);
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    curtainMat.forceSinglePass = true;
+    for (const side of [-1, 1]) {
+      const cpos = new Float32Array((SEG + 1) * 2 * 3);
+      const cuv = new Float32Array((SEG + 1) * 2 * 2);
+      const cidx = new Uint16Array(SEG * 6);
+      for (let i = 0; i <= SEG; i++) {
+        const f = i / SEG;
+        const u = visualStartU + (def.exitU - visualStartU) * f;
+        this.routePointAt(def.id, u, p);
+        this.routeTangentAt(def.id, u, t);
+        const rx = t.z;
+        const rz = -t.x;
+        const startTaper = THREE.MathUtils.smoothstep(f, 0, FLIGHT_GUIDE_ENDPOINT_TAPER_F);
+        const endTaper = THREE.MathUtils.smoothstep(1 - f, 0, FLIGHT_GUIDE_ENDPOINT_TAPER_F);
+        const endpointWidth = FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH +
+          (1 - FLIGHT_GUIDE_ENDPOINT_MIN_WIDTH) * Math.min(startTaper, endTaper);
+        const edge = HALF_W * endpointWidth * side;
+        const o = i * 6;
+        cpos[o] = p.x + rx * edge;
+        cpos[o + 1] = p.y + 0.3;
+        cpos[o + 2] = p.z + rz * edge;
+        cpos[o + 3] = p.x + rx * edge;
+        cpos[o + 4] = p.y - 2.1;
+        cpos[o + 5] = p.z + rz * edge;
+        const q = i * 4;
+        cuv[q] = f;
+        cuv[q + 1] = 0;
+        cuv[q + 2] = f;
+        cuv[q + 3] = 1;
+        if (i < SEG) {
+          const k = i * 6;
+          const a = i * 2;
+          cidx[k] = a;
+          cidx[k + 1] = a + 1;
+          cidx[k + 2] = a + 2;
+          cidx[k + 3] = a + 1;
+          cidx[k + 4] = a + 3;
+          cidx[k + 5] = a + 2;
+        }
+      }
+      const curtainGeo = new THREE.BufferGeometry();
+      curtainGeo.setAttribute('position', new THREE.BufferAttribute(cpos, 3));
+      curtainGeo.setAttribute('uv', new THREE.BufferAttribute(cuv, 2));
+      curtainGeo.setIndex(new THREE.BufferAttribute(cidx, 1));
+      const curtain = new THREE.Mesh(curtainGeo, curtainMat);
+      curtain.name = `${def.id}-curtain-${side > 0 ? 'r' : 'l'}`;
+      curtain.renderOrder = 3;
+      curtain.layers.enable(LAYER_ENERGY);
+      routeGroup.add(curtain);
+    }
+
     const ringMat = new THREE.MeshBasicMaterial({
       color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
-      opacity: 0.92,
+      opacity: 1,
       depthWrite: false,
       toneMapped: false,
     });
@@ -3074,7 +3163,7 @@ export class Course implements ICourse {
         const core = new THREE.Mesh(corePillarGeo, coreMat);
         corePillars.push(core);
         core.position.copy(outer.position);
-        core.scale.set(0.16, pillarHeight * 1.04, 0.16);
+        core.scale.set(0.24, pillarHeight * 1.04, 0.24);
         const buoy = new THREE.Mesh(buoyGeo, ringMat);
         buoy.position.set(side * def.gateHalfWidth, -pillarHeight * 0.46, 0);
         buoy.scale.set(0.95, 0.55, 0.95);
@@ -3106,7 +3195,7 @@ export class Course implements ICourse {
         const locatorMaterial = new THREE.MeshBasicMaterial({
           color: FLIGHT_ROUTE_MARKER_COLOR,
           transparent: true,
-          opacity: 0.72,
+          opacity: 0.95,
           depthTest: false,
           depthWrite: false,
           side: THREE.DoubleSide,
@@ -3115,8 +3204,8 @@ export class Course implements ICourse {
         const locatorStem = new THREE.Mesh(beamGeo, locatorMaterial);
         locatorStem.name = `${def.id}-locator-stem`;
         locatorStem.position.set(0, gateHalfHeight + 2.25, 0.46);
-        locatorStem.scale.set(0.09, 2.7, 0.09);
-        const locator = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.34, 4), locatorMaterial);
+        locatorStem.scale.set(0.12, 2.7, 0.12);
+        const locator = new THREE.Mesh(new THREE.RingGeometry(1.14, 1.5, 4), locatorMaterial);
         locator.name = `${def.id}-locator-diamond`;
         locator.position.set(0, gateHalfHeight + 4.7, 0.48);
         locator.rotation.z = Math.PI * 0.25;
@@ -3158,6 +3247,7 @@ export class Course implements ICourse {
       group: routeGroup,
       ribbonMesh: ribbon,
       ribbon: ribbonMat,
+      curtain: curtainMat,
       rail: railMat,
       ring: ringMat,
       recoveryArrows,

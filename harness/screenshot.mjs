@@ -371,6 +371,25 @@ async function verifyMode(browser, mobile) {
   assert.equal((await elementStyle(page, '.hud-impact-flash')).display, 'none', `${label}: extension flash must be disabled`);
   assert.equal((await elementStyle(page, '.hud-impact-lines')).display, 'none', `${label}: extension lines must be disabled`);
 
+  // Pressing flight again after the one allowed extension must answer with
+  // the once-per-flight rule in the same card, not read as a broken button.
+  await page.evaluate(() => window.__harness.setFlightCharges(2));
+  await page.evaluate(() => window.__harness.tapFlight());
+  await page.evaluate(() => { window.__harness.advance(0.05); window.__harness.render(); });
+  const spent = await page.evaluate(() => {
+    const prompt = document.querySelector('.hud-flight-prompt.spent.on');
+    const rule = prompt?.querySelector('.hud-flight-prompt-rule');
+    if (!(prompt instanceof HTMLElement) || !(rule instanceof HTMLElement)) return null;
+    const style = getComputedStyle(prompt);
+    return { rule: rule.textContent?.trim() ?? '',
+      visible: style.visibility === 'visible' && Number(style.opacity) > 0.5,
+      fits: prompt.scrollWidth <= prompt.clientWidth + 1 && prompt.scrollHeight <= prompt.clientHeight + 1 &&
+        rule.scrollWidth <= rule.clientWidth + 1 && rule.scrollHeight <= rule.clientHeight + 1 };
+  });
+  assert.ok(spent?.visible && spent.fits,
+    `${label}: spent flight prompt is hidden or overflows: ${JSON.stringify(spent)}`);
+  assert.match(spent?.rule ?? '', /每飞限续\s*1\s*次/, `${label}: spent flight prompt lost the once-per-flight rule`);
+
   await stage(page, 'gate-copy', 80);
   const gateCopy = await page.evaluate(() => ({
     heading: document.querySelector('.hud-results-place')?.textContent?.trim() ?? '',

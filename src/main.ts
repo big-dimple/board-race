@@ -180,6 +180,9 @@ const hud = new HUD(
   openMedalGallery,
   disableDrivingCoach,
   dismissPcControlPrimer,
+  (mode: 'launch' | 'extend') => mode === 'extend'
+    ? !drivingCoach.progress.mastery.extendedFlight
+    : !drivingCoach.progress.mastery.launched,
 );
 const mixer = new MixerControls(app, audio);
 const tower = new RaceTower(hudLayer);
@@ -1395,6 +1398,7 @@ interface Harness {
   advance(seconds: number): void;
   render(): void;
   tapFlight(): void;
+  setFlightCharges(charges: number): void;
   playerState(): Record<string, number | string | boolean>;
   stats(): Record<string, number | string>;
   mobileStatus(): Record<string, number | string | boolean>;
@@ -2183,6 +2187,9 @@ if (HARNESS) {
       processCaptureQueue();
     },
     tapFlight: tapHarnessFlight,
+    setFlightCharges: (charges) => {
+      boats[0].state.flightCharges = Math.max(0, Math.min(MAX_FLIGHT_CHARGES, Math.round(charges)));
+    },
     playerState: () => ({
       flightCharges: boats[0].state.flightCharges,
       phase: race.phase,

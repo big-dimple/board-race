@@ -527,13 +527,13 @@
   bottom: auto;
   display: flex;
   align-items: center;
-  gap: 22px;
-  padding: 18px 34px 20px 26px;
+  gap: 18px;
+  padding: 14px 28px 16px 20px;
   color: var(--text);
   opacity: 0;
   background: rgba(8, 14, 44, 0.86);
-  border: 4px solid var(--flight);
-  box-shadow: 0 0 0 5px var(--ink), 12px 12px 0 var(--ink);
+  border: 3px solid var(--prompt-color);
+  box-shadow: 0 0 0 3px var(--ink), 8px 8px 0 var(--ink);
   transform: translateX(-50%) translateY(-24px) scale(0.82) skew(-8deg);
   transition: opacity 100ms linear, transform 200ms cubic-bezier(0.16, 1.6, 0.3, 1);
 }
@@ -545,17 +545,15 @@
 
 .hud-flight-prompt.extend {
   --prompt-color: var(--warn);
-  border-color: var(--warn);
-  box-shadow: 0 0 0 5px var(--ink), 12px 12px 0 var(--ink), 0 0 28px rgba(85, 231, 255, 0.3);
+  box-shadow: 0 0 0 3px var(--ink), 8px 8px 0 var(--ink), 0 0 28px rgba(85, 231, 255, 0.3);
 }
 
-.hud-flight-prompt.extend .hud-keycap {
-  border-color: var(--warn);
+.hud-flight-prompt.spent {
+  --prompt-color: var(--text);
 }
 
-.hud-flight-prompt.extend .hud-flight-prompt-en,
-.hud-flight-prompt.extend .hud-flight-prompt-rule {
-  color: var(--warn);
+.hud-flight-prompt.spent.on .hud-keycap {
+  animation: none;
 }
 
 /* Decorative chrome must stay INSIDE the card: anything poking out (negative
@@ -598,21 +596,21 @@
 
 .hud-keycap {
   width: auto;
-  min-width: 88px;
-  height: 88px;
+  min-width: 62px;
+  height: 62px;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  padding: 0 16px;
-  font-size: 30px;
+  padding: 0 13px;
+  font-size: 22px;
   font-weight: 950;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
   white-space: nowrap;
   line-height: 1;
   color: var(--ink);
   background: var(--text);
-  border: 6px solid var(--flight);
-  box-shadow: 7px 7px 0 var(--ink);
+  border: 4px solid var(--prompt-color, var(--flight));
+  box-shadow: 4px 4px 0 var(--ink);
   transform: skew(8deg);
 }
 
@@ -620,27 +618,24 @@
   animation: hud-keycap-hit 0.62s steps(2, jump-none) infinite;
 }
 
-.hud-flight-prompt-copy {
-  text-shadow: 3px 3px 0 var(--ink);
-}
-
 .hud-flight-prompt-en {
-  font-size: 23px;
+  font-size: 17px;
   line-height: 1;
-  color: var(--flight);
+  letter-spacing: 1px;
+  color: var(--prompt-color);
 }
 
 .hud-flight-prompt-cn {
-  margin-top: 5px;
-  font-size: 44px;
+  margin-top: 6px;
+  font-size: 46px;
   line-height: 1;
   white-space: nowrap;
 }
 
 .hud-flight-prompt-rule {
-  margin-top: 7px;
-  font: 800 14px/1.2 system-ui, sans-serif;
-  color: var(--warn);
+  margin-top: 8px;
+  font: 800 18px/1.25 system-ui, sans-serif;
+  color: var(--prompt-color);
   letter-spacing: 0;
   white-space: nowrap;
 }
@@ -2025,20 +2020,21 @@
     top: 22%;
     bottom: auto;
     gap: 12px;
-    padding: 11px 20px 13px 14px;
+    padding: 10px 18px 12px 13px;
   }
 
   .hud-keycap {
-    min-width: 62px;
+    min-width: 50px;
     width: auto;
-    height: 62px;
+    height: 50px;
     flex-basis: auto;
-    padding: 0 12px;
-    font-size: 22px;
+    padding: 0 11px;
+    font-size: 17px;
   }
 
-  .hud-flight-prompt-en { font-size: 14px; }
-  .hud-flight-prompt-cn { font-size: 27px; }
+  .hud-flight-prompt-en { font-size: 13px; }
+  .hud-flight-prompt-cn { font-size: 30px; }
+  .hud-flight-prompt-rule { font-size: 14px; }
 
   .hud-battle-sky { min-width: 420px; }
   .hud-battle-to { font-size: 52px; }
@@ -2178,10 +2174,10 @@
     padding: 9px 13px 11px 10px;
   }
 
-  .hud-keycap { min-width: 52px; width: auto; height: 52px; flex-basis: auto; padding: 0 10px; border-width: 4px; font-size: 18px; }
-  .hud-flight-prompt-en { font-size: 12px; }
-  .hud-flight-prompt-cn { font-size: 25px; }
-  .hud-flight-prompt-rule { font-size: 10px; white-space: normal; }
+  .hud-keycap { min-width: 42px; width: auto; height: 42px; flex-basis: auto; padding: 0 9px; border-width: 3px; font-size: 15px; }
+  .hud-flight-prompt-en { font-size: 11px; }
+  .hud-flight-prompt-cn { font-size: 26px; }
+  .hud-flight-prompt-rule { font-size: 12px; white-space: normal; }
 
   .hud-battle-sky {
     top: max(144px, calc(env(safe-area-inset-top) + 134px));
@@ -2254,10 +2250,10 @@
   .hud-flight-prompt.on { transform: translateY(0) scale(1) skew(-8deg); }
   .hud-flight-prompt::before,
   .hud-flight-prompt::after { inset: -9px -3px; }
-  .hud-flight-prompt .hud-keycap { min-width: 46px; width: auto; height: 46px; flex-basis: auto; padding: 0 10px; font-size: 18px; }
+  .hud-flight-prompt .hud-keycap { min-width: 40px; width: auto; height: 40px; flex-basis: auto; padding: 0 9px; border-width: 3px; font-size: 15px; }
   .hud-flight-prompt-en { font-size: 10px; }
-  .hud-flight-prompt-cn { margin-top: 2px; font-size: 20px; }
-  .hud-flight-prompt-rule { margin-top: 4px; font-size: 9px; white-space: normal; }
+  .hud-flight-prompt-cn { margin-top: 2px; font-size: 22px; }
+  .hud-flight-prompt-rule { margin-top: 4px; font-size: 10px; white-space: normal; }
 
   .hud-battle-sky {
     top: max(4px, env(safe-area-inset-top));
@@ -2659,52 +2655,39 @@
 .hud-flight-pip { height: 6px; border-width: 1px; }
 .hud-boost-seg { height: 9px; border-width: 1px; }
 
-/* Compact right-rail flight prompt and the centered extension variant are
-   touch-landscape tuning only. Desktop keeps the shared sightline card so
-   launch and extension prompts stay identical in position and size. */
+/* Touch-landscape keeps one compact right-rail card for launch, extension,
+   and spent notices: the center sightline stays on the corridor and gates,
+   and the card sits beside the thumb's flight button it refers to. */
 @media (pointer: coarse) and (orientation: landscape) {
   .hud-flight-prompt {
     --prompt-color: var(--flight);
     left: auto;
-    right: max(18px, env(safe-area-inset-right));
-    top: max(70px, calc(env(safe-area-inset-top) + 58px));
+    right: max(14px, env(safe-area-inset-right));
+    top: max(64px, calc(env(safe-area-inset-top) + 52px));
     display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
     align-items: center;
-    width: min(380px, calc(100vw - 36px));
-    min-height: 108px;
-    gap: 15px;
-    padding: 13px 38px 13px 13px;
+    width: min(300px, calc(100vw - 28px));
+    min-height: 76px;
+    gap: 10px;
+    padding: 10px 14px 10px 10px;
     overflow: hidden;
     border: 0;
-    border-left: 4px solid var(--prompt-color);
+    border-left: 3px solid var(--prompt-color);
     border-bottom: 2px solid var(--prompt-color);
     background: rgba(7, 12, 35, .9);
-    box-shadow: 0 9px 24px rgba(4, 7, 20, .32);
-    clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 11px 100%, 0 calc(100% - 11px));
-    transform: translateY(-10px) translateX(8px);
+    box-shadow: 0 8px 20px rgba(4, 7, 20, .3);
+    clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+    transform: translateY(-8px) translateX(6px);
   }
   .hud-flight-prompt.on { transform: translateY(0) translateX(0); }
-  .hud-flight-prompt.extend {
-    --prompt-color: var(--warn);
-    left: 50%;
-    right: auto;
-    top: max(70px, calc(env(safe-area-inset-top) + 58px));
-    grid-template-columns: 104px minmax(0, 1fr);
-    width: min(500px, calc(100vw - 48px));
-    min-height: 112px;
-    padding-right: 24px;
-    border-color: var(--prompt-color);
-    box-shadow:0 9px 24px rgba(4,7,20,.32);
-    transform: translateX(-50%) translateY(-10px);
-  }
-  .hud-flight-prompt.extend.on { transform: translateX(-50%) translateY(0); }
+  .hud-flight-prompt.extend { --prompt-color: var(--warn); }
   .hud-flight-prompt::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
-    width: 58%;
+    width: 52%;
     height: 2px;
     background: var(--prompt-color);
     opacity: .78;
@@ -2713,24 +2696,24 @@
   .hud-flight-prompt::after {
     content: '';
     position: absolute;
-    right: 15px;
-    bottom: 8px;
-    width: 22px;
+    right: 12px;
+    bottom: 7px;
+    width: 18px;
     height: 2px;
     background: var(--prompt-color);
-    box-shadow: -30px 0 0 var(--prompt-color), -52px 0 0 var(--prompt-color);
+    box-shadow: -24px 0 0 var(--prompt-color), -42px 0 0 var(--prompt-color);
     opacity: .38;
     pointer-events: none;
   }
   .hud-flight-prompt .hud-keycap {
-    width: 96px;
-    height: 50px;
-    flex: 0 0 96px;
+    width: 64px;
+    height: 40px;
+    flex: 0 0 64px;
     overflow: hidden;
     border: 2px solid var(--prompt-color);
     border-radius: 2px;
     box-shadow: inset 0 -3px 0 rgba(4,7,20,.2), 2px 2px 0 var(--ink);
-    font: normal 950 15px/1 system-ui, sans-serif;
+    font: normal 950 14px/1 system-ui, sans-serif;
     text-shadow: none;
     white-space: nowrap;
     transform: none;
@@ -2738,13 +2721,9 @@
   }
   .hud-flight-prompt.on .hud-keycap { animation: none; }
   .hud-flight-prompt-copy { min-width: 0; }
-  .hud-flight-prompt-en { color:var(--prompt-color); font-size:11px; letter-spacing:0; }
-  .hud-flight-prompt-cn { margin-top:4px; font-size:24px; letter-spacing:0; }
-  .hud-flight-prompt-rule { margin-top:6px; color:rgba(244,254,255,.78); font-size:14px; letter-spacing:0; }
-  .hud-flight-prompt.extend .hud-keycap { width:104px; flex-basis:104px; font-size:16px; }
-  .hud-flight-prompt.extend .hud-flight-prompt-en { font-size:13px; }
-  .hud-flight-prompt.extend .hud-flight-prompt-cn { font-size:31px; }
-  .hud-flight-prompt.extend .hud-flight-prompt-rule { font-size:15px; white-space:normal; }
+  .hud-flight-prompt-en { color: var(--prompt-color); font-size: 10px; letter-spacing: 0; }
+  .hud-flight-prompt-cn { margin-top: 3px; font-size: 18px; letter-spacing: 0; }
+  .hud-flight-prompt-rule { margin-top: 4px; color: rgba(244,254,255,.78); font-size: 11px; letter-spacing: 0; white-space: normal; }
 }
 
 .hud-turn-warning {
@@ -2837,7 +2816,6 @@
   .hud-pos-chip { width: 8px; height: 8px; }
   .hud-pos-gap { font-size: 9px; }
   .hud-power,
-  .hud-flight-prompt,
   .hud-turn-warning { display: none; }
   .hud-driver-power { width: 108px; height: 58px; }
   .hud-driver-rail { width: 6px; height: 44px; top: 7px; }

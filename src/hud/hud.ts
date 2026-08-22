@@ -121,11 +121,12 @@ export class HUD {
   private readonly flightPromptEn: HTMLDivElement;
   private readonly flightPromptCn: HTMLDivElement;
   private readonly flightPromptRule: HTMLDivElement;
-  private flightPromptMode: 'hidden' | 'launch' | 'extend' = 'hidden';
+  private flightPromptMode: 'hidden' | 'launch' | 'extend' | 'spent' = 'hidden';
   private flightPromptDevice: 'keyboard' | 'gamepad' | 'mobile' = 'keyboard';
   private controlDevice: CoachInputDevice = 'keyboard';
   private controlLabels = { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
   private flightPromptHitTimer = 0;
+  private flightPromptSpent = false;
   private readonly shownFlightPromptTokens = new Set<string>();
   private readonly pcPrimerEl: HTMLDivElement;
   private readonly pcPrimerKey: HTMLDivElement;
@@ -275,6 +276,8 @@ export class HUD {
     onMedalGallery: () => void = () => {},
     onCoachDisable: () => void = () => {},
     onPcPrimerDismiss: () => void = () => {},
+    // Veterans stay silent: once a skill is mastered its prompt never returns.
+    private readonly shouldShowFlightPrompt: (mode: 'launch' | 'extend') => boolean = () => true,
   ) {
     this.course = course;
     this.camera = camera ?? new THREE.PerspectiveCamera();
@@ -710,25 +713,36 @@ export class HUD {
         this.flightTokens[i].classList.toggle('active', flightActive && i < st.flightCharges);
       }
     }
-    const launchPromptToken = routeGuidance.actionCue === 'launch' && routeGuidance.actionRouteIndex >= 0 &&
+    const launchPromptUseful = this.shouldShowFlightPrompt('launch');
+    const extendPromptUseful = this.shouldShowFlightPrompt('extend');
+    const launchPromptToken = launchPromptUseful &&
+        routeGuidance.actionCue === 'launch' && routeGuidance.actionRouteIndex >= 0 &&
         !flightActive && st.flightCharges > 0
       ? `launch:${st.flightRouteCursor}:${routeGuidance.actionRouteIndex}`
       : '';
-    const extensionPromptToken = st.flightExtensionReady
+    const extensionPromptToken = extendPromptUseful && st.flightExtensionReady
       ? `extend:${st.flightRouteCursor}:${st.flightsCleared}`
       : '';
-    const newPromptToken = extensionPromptToken || launchPromptToken;
+    // A denied mid-air press after the one allowed extension is the exact
+    // "button feels broken" moment — answer it with the rule, in the same card.
+    const spentPromptToken = st.flightDenied && flightActive && st.flightExtensionUsed && st.flightCharges > 0
+      ? `spent:${st.flightRouteCursor}`
+      : '';
+    const newPromptToken = extensionPromptToken || launchPromptToken || spentPromptToken;
     if (race.phase === 'racing' && newPromptToken && !this.shownFlightPromptTokens.has(newPromptToken)) {
       this.shownFlightPromptTokens.add(newPromptToken);
-      this.flightPromptHitTimer = 2.15;
+      this.flightPromptSpent = newPromptToken === spentPromptToken && spentPromptToken !== '';
+      this.flightPromptHitTimer = this.flightPromptSpent ? 1.6 : 2.15;
       this.flightPrompt.classList.remove('acquired');
       void this.flightPrompt.offsetWidth;
       this.flightPrompt.classList.add('acquired');
     }
-    const availablePrompt: 'hidden' | 'launch' | 'extend' = st.flightExtensionReady
+    const availablePrompt: 'hidden' | 'launch' | 'extend' | 'spent' = this.flightPromptSpent
+      ? 'spent'
+      : extendPromptUseful && st.flightExtensionReady
       ? 'extend'
-      : routeGuidance.actionCue === 'launch' && !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
-    const promptMode: 'hidden' | 'launch' | 'extend' = this.primerOwnsFlight
+      : launchPromptUseful && routeGuidance.actionCue === 'launch' && !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
+    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' = this.primerOwnsFlight
       ? 'hidden'
       : this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
     const promptDevice = this.controlDevice;
@@ -737,23 +751,33 @@ export class HUD {
       this.flightPromptDevice = promptDevice;
       this.flightPrompt.classList.toggle('on', promptMode !== 'hidden');
       this.flightPrompt.classList.toggle('extend', promptMode === 'extend');
-      const key = promptDevice === 'mobile' ? (promptMode === 'extend' ? '续' : '飞') : this.controlLabels.flight;
-      const action = promptMode === 'extend' ? '续航' : '起飞';
-      if (promptMode === 'extend') {
+      this.flightPrompt.classList.toggle('spent', promptMode === 'spent');
+      const key = promptDevice === 'mobile' ? (promptMode === 'launch' ? '飞' : '续') : this.controlLabels.flight;
+      if (promptMode === 'spent') {
+        this.flightPromptKey.textContent = key;
+        this.flightPromptEn.textContent = 'AIR CHARGE SPENT';
+        this.flightPromptCn.textContent = '本飞续航已用完';
+        this.flightPromptRule.textContent = '每飞限续 1 次 · 剩余格留给下一飞';
+      } else if (promptMode === 'extend') {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'AIR CHARGE READY';
-        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「续」延长飞行' : `按 ${key} ${action}`;
-        this.flightPromptRule.textContent = '本飞最多用 2 格 · 起飞 1 + 续航 1';
+        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「续」延长飞行' : `按 ${key} 续航`;
+        this.flightPromptRule.textContent = promptDevice === 'mobile'
+          ? '本飞仅此 1 次续航'
+          : '本飞仅此 1 次续航 · 最多用 2 格（起飞 1 + 续航 1）';
       } else {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'FLIGHT READY';
-        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「飞」起飞' : `按 ${key} ${action}`;
-        this.flightPromptRule.textContent = '下一飞已就绪';
+        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「飞」起飞' : `按 ${key} 起飞`;
+        this.flightPromptRule.textContent = '起飞耗 1 格 · 空中最多再续 1 次';
       }
     }
     if (this.flightPromptHitTimer > 0) {
       this.flightPromptHitTimer -= dt;
-      if (this.flightPromptHitTimer <= 0) this.flightPrompt.classList.remove('acquired');
+      if (this.flightPromptHitTimer <= 0) {
+        this.flightPrompt.classList.remove('acquired');
+        this.flightPromptSpent = false;
+      }
     }
     if (flightActive !== this.lastFlightActive) {
       this.lastFlightActive = flightActive;
@@ -1161,9 +1185,10 @@ export class HUD {
 
   beginFreshRunGuidance(): void {
     this.flightPromptHitTimer = 0;
+    this.flightPromptSpent = false;
     this.shownFlightPromptTokens.clear();
     this.flightPromptMode = 'hidden';
-    this.flightPrompt.classList.remove('on', 'extend', 'acquired');
+    this.flightPrompt.classList.remove('on', 'extend', 'spent', 'acquired');
   }
 
   showPcControlPrimer(
@@ -1514,7 +1539,7 @@ export class HUD {
           metric: '',
         };
       case 'landing':
-        return { title: '提前落水', copy: `下一次：靠近入口再按 ${flight}；有备用格时空中再按可续航`, metric: '' };
+        return { title: '提前落水', copy: `下一次：靠近入口再按 ${flight}；续航每飞限 1 次`, metric: '' };
       case 'exit':
         return {
           title: '偏航先空刹 · 飞行未完成',
