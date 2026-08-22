@@ -73,9 +73,9 @@ const TUNING = {
   breathHz: 0.35, breathAmp: 0.03, breathBob: 0.008,
   followOmega: 3.5, followZeta: 1, followGain: 0.6, followMax: 0.12,
   lockSpeed: 12,          // m/s where idle bob is fully replaced by bracing
-  elbowPoleOut: 0.5,
-  elbowPoleForward: 0.43,
-  elbowPoleY: 0.42,
+  elbowPoleOut: 0.22,
+  elbowPoleForward: 0.36,
+  elbowPoleY: 0.38,
 
   // Celebration: ~0.4s blend in, loops while `celebrating`.
   celOmega: 7, celZeta: 1,

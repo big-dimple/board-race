@@ -660,6 +660,32 @@ function startRetryLesson(): void {
   hud.showPcControlPrimer(null);
 }
 
+type HarnessCameraView = {
+  target: THREE.Object3D;
+  offset: readonly [number, number, number];
+  lookAt: readonly [number, number, number];
+  fov: number;
+};
+
+let harnessCameraOverride: HarnessCameraView | null = null;
+const harnessCameraTargetPos = new THREE.Vector3();
+const harnessCameraLookAtPos = new THREE.Vector3();
+
+function applyHarnessCameraOverride(): void {
+  if (!harnessCameraOverride) return;
+  const view = harnessCameraOverride;
+  view.target.updateWorldMatrix(true, false);
+  harnessCameraTargetPos.set(view.offset[0], view.offset[1], view.offset[2]);
+  view.target.localToWorld(harnessCameraTargetPos);
+  harnessCameraLookAtPos.set(view.lookAt[0], view.lookAt[1], view.lookAt[2]);
+  view.target.localToWorld(harnessCameraLookAtPos);
+
+  stage.camera.position.copy(harnessCameraTargetPos);
+  stage.camera.lookAt(harnessCameraLookAtPos);
+  stage.camera.fov = view.fov;
+  stage.camera.updateProjectionMatrix();
+}
+
 function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentation = false): void {
   const frozen = boats[0].state;
   audio.setEngine(0, 0, false);
@@ -670,6 +696,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
   if (finalPresentation) {
     if (finaleElapsed >= FINALE_CAMERA_HERO_S && cameraRig.mode !== 'results') cameraRig.mode = 'results';
     cameraRig.update(dt, boats[0], presentationTime);
+    applyHarnessCameraOverride();
     ocean.update(presentationTime, stage.camera.position);
     sky.update(presentationTime, stage.camera.position);
     seaDecor.update(presentationTime, stage.camera.position);
@@ -686,6 +713,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
 }
 
 function resetRace(): void {
+  harnessCameraOverride = null;
   freshStartPending = false;
   openingShowcase.stop();
   seaDecor.setOpening(false);
@@ -882,6 +910,7 @@ function step(dt: number, _t: number): void {
     driverSelect.updateControllerStatus(gamepadInput.status());
     driverSelect.setCoachStatus(drivingCoach.progress.status);
     if (!frozenDesktopReady) cameraRig.update(dt, boats[0], presentationTime);
+    applyHarnessCameraOverride();
     const readySceneTime = openingShowcase.active ? presentationTime : worldTime;
     ocean.update(readySceneTime, stage.camera.position);
     sky.update(readySceneTime, stage.camera.position);
@@ -907,6 +936,7 @@ function step(dt: number, _t: number): void {
     if (!resuming) {
       worldTime += dt;
       cameraRig.update(dt, boats[0], presentationTime);
+      applyHarnessCameraOverride();
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
       seaDecor.update(worldTime, stage.camera.position);
@@ -1238,6 +1268,7 @@ function step(dt: number, _t: number): void {
   for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, race.racers[i].finished);
 
   cameraRig.update(dt, boats[0], worldTime);
+  applyHarnessCameraOverride();
   ocean.update(worldTime, stage.camera.position);
   sky.update(worldTime, stage.camera.position);
   seaDecor.update(worldTime, stage.camera.position);
@@ -1364,6 +1395,7 @@ function step(dt: number, _t: number): void {
 }
 
 function render(frameMs: number): void {
+  applyHarnessCameraOverride();
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
   pipeline.render();
   processCaptureQueue();
@@ -2162,6 +2194,7 @@ function stageHarnessGateFailure(): void {
 }
 
 function scenario(name: string): void {
+  harnessCameraOverride = null;
   harnessUsePlayerInput = false;
   harnessSuppressAirborneFlightTrigger = false;
   for (let id = 0; id < harnessBoatInputOverrides.length; id++) harnessBoatInputOverrides[id] = null;
@@ -2170,6 +2203,64 @@ function scenario(name: string): void {
   if (name !== "ready") startFreshCountdown();
 
   switch (name) {
+    case "race-straight":
+      advanceUntil(() => race.phase === "racing", 8);
+      setHarnessInput({ throttle: 1, steer: 0 });
+      loop.advance(0.8);
+      loop.advance(0.25);
+      setHarnessInput(null);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0.95, 2.1, -3.3],
+        lookAt: [0, 1.25, -0.6],
+        fov: 50,
+      };
+      break;
+    case "race-steer-left":
+      advanceUntil(() => race.phase === "racing", 8);
+      setHarnessInput({ throttle: 1, steer: -0.55 });
+      loop.advance(0.8);
+      loop.advance(0.25);
+      setHarnessInput(null);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0.95, 2.1, -3.3],
+        lookAt: [0, 1.25, -0.6],
+        fov: 50,
+      };
+      break;
+    case "race-flight":
+      advanceUntil(() => race.phase === "racing", 8);
+      earnHarnessFlight(false);
+      advanceUntil(() => boats[0].state.flightPhase !== "surface", 10);
+      if (boats[0].state.flightPhase === "surface") {
+        throw new Error("race-flight never took off");
+      }
+      loop.advance(0.35);
+      setHarnessInput(null);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0.95, 2.1, -3.3],
+        lookAt: [0, 1.25, -0.6],
+        fov: 50,
+      };
+      break;
+    case "race-landing-recovery":
+      advanceUntil(() => race.phase === "racing", 8);
+      earnHarnessFlight(false);
+      advanceUntil(() => boats[0].state.landImpulse > 0, 20);
+      if (boats[0].state.landImpulse <= 0) {
+        throw new Error("race-landing-recovery never touched water");
+      }
+      loop.advance(0.20);
+      setHarnessInput(null);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0.95, 2.1, -3.3],
+        lookAt: [0, 1.25, -0.6],
+        fov: 50,
+      };
+      break;
     case "ready":
       loop.advance(1.5);
       break;
@@ -2315,6 +2406,7 @@ if (HARNESS) {
     scenario,
     advance: (seconds) => loop.advance(seconds),
     render: () => {
+      applyHarnessCameraOverride();
       stage.renderer.info.reset();
       pipeline.render();
       processCaptureQueue();

@@ -1,30 +1,37 @@
 # Board Race 开发交接
 
-状态:`本轮实现完成，自动验证通过，待真机视觉验收`
+状态:`Milestone 1 车手手肘收拢完成并通过验收，准备执行 Milestone 2 尾翼发光与边缘重构`
 
-更新时间:2026-08-22
+更新时间:2026-08-23
 
-## 工作包
+## 当前活动工作包
 
-- PC 续航反馈回到统一的桌面冲击卡排版；横屏手机保留紧凑安全区布局。
-- 水面浮漂保持可见、可碰撞；撞击后沿夸张抛物线飞行、落水并延迟归位。
-- 握把位置与车手目标点由共享合同定义，行驶姿态用双骨骼解算保持双手抓握、肘部向前外侧。
-- 披肩发与长辫改为独立的发型骨架和蒙皮附件，切换选手时替换对应发型，不回落为圆帽轮廓。
-- 尾翼改为高架双三角翼、中央反应堆脊柱、分段发光件和环形核心，保留船体五批静态材质结构。
+- 赛艇视觉与体验四阶段串行优化主计划（Milestone 1 完成，准备执行 Milestone 2）。
+- 严密计划已在 `shots/plans/` 完成多轮审查与闭环：
+  1. M1 [已完成]: 车手手肘姿态收拢优化 (`shots/plans/rider_elbow_posture_plan.md`)
+  2. M2 [待执行]: 尾翼发光与边缘重构 (`shots/plans/tail_wing_glow_refinement_plan.md`)，唯一负责 `markInk` 剪枝契约
+  3. M3 [待执行]: 赛艇落水水花横向偏向 (`shots/plans/water_landing_splash_enhancement.md`)
+  4. M4 [待执行]: 车手清晰五官与偶像发型实施管线 (`shots/plans/rider_hair_and_face_pipeline_plan.md`)
 
-## 基线与证据
+## Milestone 1 验收记录
 
-- 基线提交:`8bc24dc`
-- `npm run build` 通过。
-- `npm run verify:smoke` 通过：桌面 225 calls / 337575 triangles，844x390 254 calls / 340723 triangles，均 16.7ms。
-- `npm run verify:collision` 通过：浮漂抛物线、落水、延迟归位及既有碰撞合同均通过。
-- 已检查桌面与 `844x390` 的续航、尾翼和车手画面；截图只作为人工视觉证据，不替代审美验收。
-
-## 保留风险
-
-- 披肩发/长辫背面剪影、尾翼未来科技观感和冲线欢呼仍需真机人工确认；自动化只验证发型骨架生命周期、姿态几何合同和运行路径。
-- 没有新增连续环境噪声、第二条飞行路线或脱离统一船体变换的特例。
+- **基线提交 (HEAD)**: `434574e348954e2c731887df35777e00af53b64e`
+- **改动代码**:
+  - `src/game/rider.ts`: `TUNING` (`elbowPoleOut: 0.22`, `elbowPoleForward: 0.36`, `elbowPoleY: 0.38`)
+  - `src/main.ts`: 引入共用 `harnessCameraOverride`，注册 4 个真实比赛 harness 场景 (`race-straight`, `race-steer-left`, `race-flight`, `race-landing-recovery`)
+- **数值与门禁对比**:
+  - `handGrip`: 左右手均为 `0.0000m <= 0.025m` (双手紧固车把，无脱手)
+  - `elbowOut`: 直行 `0.1746m / 0.1756m <= 0.26m`；左转 `0.2318m / 0.1230m <= 0.26m`；`elbowPoleOut` 参数降幅 56% (>= 45%)
+  - `elbowForward`: 稳定前探在 `[0.18m, 0.27m]`
+  - `elbowAngle`: 弧度范围 `[0.893, 1.949] rad`，无反折或异常
+- **资源门禁**:
+  - Draw Calls: `+0` (Desktop 225, Mobile 254)
+  - Triangles: `+0` (Desktop 337575, Mobile 340723)
+- **截图产物**:
+  - 桌面: `shots/evidence/m1-desktop/*.png`
+  - 移动: `shots/evidence/m1-mobile/*.png`
+- `npm run build` 与 `npm run verify:smoke` 保持通过。
 
 ## 唯一下一步
 
-- 在桌面和横屏手机各跑一局，确认尾翼、握把肘部、披肩发/长辫剪影及玩家冲线欢呼；若无回归，不再新增代码路径。
+- 执行 Milestone 2：在 `src/contracts.ts` 落地 `markInk` 递归剪枝契约；在 `src/game/boat.ts` 执行尾翼几何迁移（删除 shell 旧脊柱、删除 flight 旧发光条/环/核，新建 `boat-reactor-batch`，配置 toon 材质 emissiveIntensity 0.85，设置 Layer 0 + LAYER_ENERGY, noInk, noOutline）；在 `src/main.ts` 注册 `tail-inspection-sun/shade/side` 检查场景与断言；执行 build, smoke, A/B 截图，确认整帧 Calls <= +2, Triangles <= +150，更新 `docs/llmwiki.md` 并记录 Milestone 2 Checkpoint SHA。
