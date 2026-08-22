@@ -71,6 +71,8 @@ import {
 import { CapturePreview } from './hud/capturePreview';
 import { trackGameEvent } from './game/eventLog';
 import {
+  LAYER_ENERGY,
+  LAYER_INK,
   MAX_FLIGHT_CHARGES,
   type BoatInput,
   type ChallengeResult,
@@ -2261,6 +2263,54 @@ function scenario(name: string): void {
         fov: 50,
       };
       break;
+    case "tail-inspection-sun": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      const sunHeading = Math.atan2(VISIBLE_SUN_DIR.x, VISIBLE_SUN_DIR.z);
+      placeHarnessBoat(0, 0.22, 0);
+      boats[0].teleport(boats[0].state.position.x, boats[0].state.position.z, sunHeading);
+      loop.advance(0.05);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0, 1.6, -6],
+        lookAt: [0, 0.9, -2.3],
+        fov: 48,
+      };
+      break;
+    }
+    case "tail-inspection-shade": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      const shadeHeading = Math.atan2(VISIBLE_SUN_DIR.x, VISIBLE_SUN_DIR.z) + Math.PI;
+      placeHarnessBoat(0, 0.22, 0);
+      boats[0].teleport(boats[0].state.position.x, boats[0].state.position.z, shadeHeading);
+      loop.advance(0.05);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0, 1.6, -6],
+        lookAt: [0, 0.9, -2.3],
+        fov: 48,
+      };
+      // Assert reactor layer/userData properties
+      const reactor = boats[0].object.getObjectByName('boat-reactor-batch');
+      if (!reactor) throw new Error('boat-reactor-batch not found');
+      if (!reactor.layers.isEnabled(0)) throw new Error('reactor layer 0 disabled');
+      if (reactor.layers.isEnabled(LAYER_INK)) throw new Error('reactor LAYER_INK enabled');
+      if (!reactor.layers.isEnabled(LAYER_ENERGY)) throw new Error('reactor LAYER_ENERGY disabled');
+      if (reactor.userData.noInk !== true) throw new Error('reactor userData.noInk !== true');
+      if (reactor.userData.noOutline !== true) throw new Error('reactor userData.noOutline !== true');
+      break;
+    }
+    case "tail-inspection-side": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      placeHarnessBoat(0, 0.22, 0);
+      loop.advance(0.05);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [3.8, 1.2, -2.8],
+        lookAt: [0, 0.9, -2.3],
+        fov: 45,
+      };
+      break;
+    }
     case "ready":
       loop.advance(1.5);
       break;

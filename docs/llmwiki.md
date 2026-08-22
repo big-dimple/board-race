@@ -147,8 +147,10 @@ READY -> opening -> countdown -> racing
 - 每艘船的尾流保持单 Mesh / 单 draw、预分配带状几何和原位 typed-array 更新。中央含气洗流承担
   主读形；左右 Kelvin 肩浪只用错相的短程断续节拍补充，不能叠亮中央或读成连续双轨。
   落水水花必须来自真实接触事件并在退场后归零。
-- 船体、车手、路线和特效不能制造第二套 world transform。当前五材质批船体、16 骨骼
+- 船体、车手、路线和特效不能制造第二套 world transform。当前六材质批船体（shell、safety、mechanical、flight、reactor、decals）、16 骨骼
   SkinnedMesh 车手、共享材质、实例化和 typed-array 池是已知性能基线，不是禁止重构的美术规格。
+- 固体描边预渲染通过 `markInk(root)` 管理：递归遍历遇 `userData.noInk === true` 节点对该子树统一 `disable(LAYER_INK)` 并剪枝返回；
+  排除墨水预渲染的对象（如发光反应堆批次、Face Patch、贴纸等）需前置声明 `userData.noInk = true`、`userData.noOutline = true` 并确保 `layers.set(0)`。
 - 车手发型是独立的、按选手风格替换的骨骼蒙皮附件；切换 bob / ponytail 时必须替换
   对应骨架和轮廓，不能被初始短发网格或圆帽式头部覆盖。
 - Sobel 内部描边是近场设备:按视深淡出(远处剪影归反壳描边),法线阈值只放行硬折边,

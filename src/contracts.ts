@@ -596,5 +596,10 @@ export const LAYER_ENERGY = 2;
 
 /** Recursively enable the ink layer on an object subtree (call after building a mesh tree). */
 export function markInk(root: THREE.Object3D): void {
-  root.traverse((o) => o.layers.enable(LAYER_INK));
+  if (root.userData.noInk === true) {
+    root.traverse((object) => object.layers.disable(LAYER_INK));
+    return;
+  }
+  root.layers.enable(LAYER_INK);
+  for (const child of root.children) markInk(child);
 }

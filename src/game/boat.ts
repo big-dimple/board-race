@@ -732,8 +732,6 @@ function buildRearWingGeometry(): THREE.BufferGeometry {
     // Separate swept delta planes leave a deep V-shaped center void.
     prismFromPlan([[-0.18, -2.08], [-0.86, -2.2], [-1.02, -2.63], [-0.53, -2.82], [-0.27, -2.52]], 1.08, 1.17),
     prismFromPlan([[0.18, -2.08], [0.86, -2.2], [1.02, -2.63], [0.53, -2.82], [0.27, -2.52]], 1.08, 1.17),
-    // A raised reactor spine remains visually separate from both planes.
-    prismFromSide([[0.68, -1.72], [1.04, -2.0], [1.3, -2.43], [1.13, -2.72], [0.76, -2.5]], 0.075),
     // Tall tip blades are canted outward instead of being flat endplates.
     transformedPart(prismFromSide([[1.08, -2.21], [1.43, -2.35], [1.34, -2.73], [1.1, -2.66]], 0.05),
       [0.93, 0, 0], [0, 0, -0.16]),
@@ -748,16 +746,6 @@ function buildRearWingAccentGeometry(): THREE.BufferGeometry {
     prismFromPlan([[-0.3, -2.2], [-0.78, -2.29], [-0.75, -2.37], [-0.35, -2.31]], 1.17, 1.19),
     prismFromPlan([[0.3, -2.2], [0.78, -2.29], [0.75, -2.37], [0.35, -2.31]], 1.17, 1.19),
     prismFromSide([[1.06, -2.07], [1.2, -2.36], [1.16, -2.47], [1.02, -2.16]], 0.09),
-  ]);
-}
-
-/** Segmented emitters frame the void and converge on the rear reactor ring. */
-function buildRearWingGlowGeometry(): THREE.BufferGeometry {
-  return mergeFlatGeometryParts([
-    prismFromPlan([[-0.92, -2.57], [-0.55, -2.72], [-0.51, -2.78], [-0.94, -2.63]], 1.17, 1.205),
-    prismFromPlan([[0.92, -2.57], [0.55, -2.72], [0.51, -2.78], [0.94, -2.63]], 1.17, 1.205),
-    prismFromPlan([[-0.43, -2.49], [-0.28, -2.56], [-0.3, -2.63], [-0.47, -2.55]], 1.17, 1.215),
-    prismFromPlan([[0.43, -2.49], [0.28, -2.56], [0.3, -2.63], [0.47, -2.55]], 1.17, 1.215),
   ]);
 }
 
@@ -872,7 +860,7 @@ function buildBoatVisual(id: number, color: number): {
     return mesh;
   };
 
-  // Five static material batches replace the old collection of cockpit boxes
+  // Six static material batches replace the old collection of cockpit boxes
   // and one-mesh-per-fastener primitives. More shape, fewer submissions.
   const shellParts: THREE.BufferGeometry[] = [
     buildHullGeometry(),
@@ -919,11 +907,6 @@ function buildBoatVisual(id: number, color: number): {
     buildWindscreenGeometry(),
     buildSideLiveryGeometry(1),
     buildSideLiveryGeometry(-1),
-    buildRearWingGlowGeometry(),
-    // Twin luminous reactor rings sit inside the central negative space.
-    transformedPart(new THREE.TorusGeometry(0.14, 0.026, 8, 20), [0, 1.15, -2.6], [Math.PI / 2, 0, 0], [1, 1, 0.7]),
-    transformedPart(new THREE.TorusGeometry(0.085, 0.018, 8, 16), [0, 1.15, -2.615], [Math.PI / 2, 0, 0], [1, 1, 0.7]),
-    transformedPart(new THREE.CylinderGeometry(0.085, 0.085, 0.04, 16), [0, 0.21, -2.72], [Math.PI / 2, 0, 0]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [0.68, 0.12, -1.62]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [-0.68, 0.12, -1.62]),
   ];
@@ -931,6 +914,29 @@ function buildBoatVisual(id: number, color: number): {
   flightHardware.name = 'boat-flight-hardware-batch';
   flightHardware.userData.assetClass = 'anti-grav-hardware';
   flightHardware.userData.noOutline = true;
+
+  const reactorStations = [[0.68, -1.72], [1.04, -2.0], [1.3, -2.43], [1.13, -2.72], [0.76, -2.5]] as const;
+  const reactorParts: THREE.BufferGeometry[] = [
+    prismFromSide(reactorStations, 0.075),
+    transformedPart(prismFromSide(reactorStations, 0.065), [0, 0.0075, 0]),
+    transformedPart(new THREE.TorusGeometry(0.14, 0.026, 8, 20), [0, 1.15, -2.6], [Math.PI / 2, 0, 0], [1, 1, 0.7]),
+    transformedPart(new THREE.TorusGeometry(0.085, 0.018, 8, 16), [0, 1.15, -2.615], [Math.PI / 2, 0, 0], [1, 1, 0.7]),
+    transformedPart(new THREE.CylinderGeometry(0.085, 0.085, 0.04, 16), [0, 0.21, -2.72], [Math.PI / 2, 0, 0]),
+  ];
+  const reactorMat = createToonMaterial({
+    color: 0x163b68,
+    emissive: PALETTE.flight,
+    emissiveIntensity: 0.85,
+    rimColor: PALETTE.foam,
+    rimStrength: 0.6,
+  });
+  const reactor = add(mergeFlatGeometryParts(reactorParts), reactorMat);
+  reactor.name = 'boat-reactor-batch';
+  reactor.userData.assetClass = 'anti-grav-reactor-batch';
+  reactor.layers.set(0);
+  reactor.layers.enable(LAYER_ENERGY);
+  reactor.userData.noInk = true;
+  reactor.userData.noOutline = true;
 
   // racing-number decals on the bow sides (canvas texture; unlit sticker material)
   const decalMat = new THREE.MeshBasicMaterial({
@@ -948,8 +954,8 @@ function buildBoatVisual(id: number, color: number): {
   decalBatch.userData.assetClass = 'paired-number-decals';
   decalBatch.userData.noOutline = true;
 
-  root.userData.assetClass = 'five-batch-racing-hydrojet';
-  root.userData.staticBatchCount = 5;
+  root.userData.assetClass = 'six-batch-racing-hydrojet';
+  root.userData.staticBatchCount = 6;
 
   // rider attach point at the helm; local +Z = boat forward
   const riderMount = new THREE.Object3D();
