@@ -592,6 +592,7 @@ export class HUD {
     const stage = level >= 0.45 ? 2 : level > 0.01 ? 1 : 0;
     if (stage === this.corridorStage) return;
     this.corridorStage = stage;
+    this.root.classList.toggle('corridor-critical', stage === 2);
     if (stage === 0) {
       if (this.lastCourseWarning === 'none') this.wrongWayEl.classList.remove('on');
       return;

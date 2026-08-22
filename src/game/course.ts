@@ -2729,11 +2729,14 @@ export class Course implements ICourse {
           // Corridor storm: the mist shreds and its ink edges thrash while the
           // player is off-route. Calm frames keep the exact old field.
           float distress = uDistress;
+          // Losing-control band gets its own curve so the storm visibly
+          // shifts gear instead of just sliding along one ramp.
+          float stormDeep = smoothstep(0.42, 0.85, distress);
           float wuvX = vUv.x;
           if (distress > 0.001) {
             float thrash = sin(vUv.y * 84.0 + uTime * 19.0) * 0.62 +
               sin(vUv.y * 31.0 - uTime * 12.5 + 1.7) * 0.38;
-            wuvX += thrash * 0.045 * distress;
+            wuvX += thrash * (0.045 * distress + 0.05 * stormDeep);
           }
           float side = min(wuvX, 1.0 - wuvX);
           float inkWidth = max(0.011, uvPixel * 1.05);
@@ -2771,7 +2774,7 @@ export class Course implements ICourse {
           // corridor is lost entirely.
           float shred = 0.5 + 0.5 * sin(vUv.y * 121.0 - uTime * 23.0 + vUv.x * 29.0) *
             sin(vUv.y * 47.0 + uTime * 9.0);
-          mistBreak *= 1.0 - distress * (0.28 + 0.5 * shred);
+          mistBreak *= 1.0 - max(distress * 0.6, stormDeep) * (0.28 + 0.5 * shred);
           float scan = step(0.78, fract(vUv.y * 22.0 - uTime * 0.8));
           vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12);
           vec3 edgeColor = uFlight;
@@ -2784,7 +2787,8 @@ export class Course implements ICourse {
           float turnTint = min(uTurnTintMax, brakeInk * 0.34 + uTurn * turnZone * 0.06);
           color = mix(color, uTurnColor, turnTint);
           float stormWarn = distress * (0.55 + 0.45 * sin(uTime * 16.0)) *
-            (0.16 + 0.62 * (edgeBand + inkEdge));
+            (0.16 + 0.62 * (edgeBand + inkEdge)) +
+            stormDeep * 0.3 * (0.5 + 0.5 * sin(uTime * 20.0));
           color = mix(color, uWarnColor, clamp(uWarn + stormWarn, 0.0, 1.0));
           float ready = uReady * step(0.5, fract(uTime * 4.0));
           float virtualPanel = (1.0 - inkEdge) *
@@ -2795,7 +2799,8 @@ export class Course implements ICourse {
             inkEdge * (0.3 + farBoost * 0.08) +
             flow * (uFlowAlpha + farBoost * 0.14 + ready * 0.08);
           alpha += turnZone * (0.055 + packet * 0.05);
-          alpha *= 1.0 - distress * 0.24 * (0.5 + 0.5 * sin(uTime * 21.0 + vUv.y * 55.0));
+          alpha *= 1.0 - max(distress * 0.24, stormDeep * 0.42) *
+            (0.5 + 0.5 * sin(uTime * 21.0 + vUv.y * 55.0));
 
           float recoveryT = smoothstep(uGateF, 1.0, vUv.y);
           float recoverySide = abs(vUv.x - 0.5);

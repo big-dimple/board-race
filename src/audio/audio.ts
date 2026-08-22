@@ -147,6 +147,7 @@ export class GameAudio {
   private corridorGain: GainNode | null = null;
   private corridorBp: BiquadFilterNode | null = null;
   private lastCorridorTier = 0;
+  private corridorNextBeepAt = 0;
 
   // continuous-state mirrors (also used to skip redundant param events)
   private speedNorm = 0;
@@ -549,27 +550,32 @@ export class GameAudio {
 
   /**
    * Corridor-storm danger cue. Continuous wind shear scales with the course's
-   * danger level; crossing into the edge / losing-control bands fires one
-   * escalating warning blip each. Silence returns as soon as the hull is back
-   * inside the corridor.
+   * danger level, and a movie-style alarm beeper carries the staging: a slow
+   * single 嘟 at the edge band, an urgent fast 嘟嘟嘟 once losing control.
+   * The pattern restarts immediately on every band change so the transition
+   * is heard the frame it happens. Silence returns inside the corridor.
    */
   setCorridorDanger(level: number): void {
     const c = this.ctx;
     if (!c || !this.corridorGain || !this.corridorBp) return;
     const n = clamp01(level);
     const t = c.currentTime;
-    this.corridorGain.gain.setTargetAtTime(n * 0.15, t, n > 0 ? 0.05 : 0.14);
+    this.corridorGain.gain.setTargetAtTime(n * (0.1 + 0.14 * n), t, n > 0 ? 0.05 : 0.14);
     this.corridorBp.frequency.setTargetAtTime(420 + n * 2100, t, 0.07);
     const tier = n >= 0.45 ? 2 : n > 0.001 ? 1 : 0;
-    if (tier > this.lastCorridorTier) {
+    if (tier !== this.lastCorridorTier) {
+      this.corridorNextBeepAt = t;
+      this.lastCorridorTier = tier;
+    }
+    if (tier > 0 && t >= this.corridorNextBeepAt) {
       if (tier === 1) {
-        this.blip(300, t, 0.1, 0.09, 'square');
+        this.blip(520, t, 0.11, 0.15, 'square');
+        this.corridorNextBeepAt = t + 0.62;
       } else {
-        this.blip(520, t, 0.09, 0.11, 'square');
-        this.blip(660, t + 0.085, 0.13, 0.11, 'square');
+        this.blip(780, t, 0.085, 0.18, 'square');
+        this.corridorNextBeepAt = t + 0.27;
       }
     }
-    this.lastCorridorTier = tier;
   }
 
   setDrift(intensity: number): void {

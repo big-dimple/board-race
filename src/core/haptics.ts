@@ -17,6 +17,8 @@ export type HapticCue =
   | 'collision-light'
   | 'collision-heavy'
   | 'warning'
+  | 'storm-edge'
+  | 'storm-critical'
   | 'defeat'
   | 'medal';
 
@@ -47,6 +49,10 @@ const PROFILES: Record<HapticCue, HapticProfile> = {
   'collision-light': { strong: 0.26, weak: 0.18, duration: 28, mobileDuration: 12, priority: 5, cooldown: 0.2, lane: 'impact' },
   'collision-heavy': { strong: 0.55, weak: 0.25, duration: 52, mobileDuration: 20, priority: 7, cooldown: 0.28, lane: 'impact' },
   warning: { strong: 0.12, weak: 0.3, duration: 20, mobileDuration: 10, priority: 3, cooldown: 0.9, lane: 'presentation' },
+  // Corridor storm band entries. The critical jolt is a full-motor slam so
+  // the 失控 transition is felt in the hands, not just seen.
+  'storm-edge': { strong: 0.35, weak: 0.55, duration: 40, mobileDuration: 18, priority: 5, cooldown: 0.4, lane: 'presentation' },
+  'storm-critical': { strong: 0.95, weak: 0.6, duration: 80, mobileDuration: 40, priority: 7, cooldown: 0.5, lane: 'presentation' },
   defeat: { strong: 0.68, weak: 0.28, duration: 68, mobileDuration: 20, priority: 9, cooldown: 0.8, lane: 'presentation' },
   medal: { strong: 0.34, weak: 0.54, duration: 54, mobileDuration: 18, priority: 8, cooldown: 1, lane: 'presentation' },
 };
@@ -139,6 +145,33 @@ export class Haptics {
       return;
     }
     this.dispatch(pending.cue, pending.scale, 'impact');
+  }
+
+  private stormLastAt = -Infinity;
+
+  /**
+   * Sustained corridor-storm rumble, re-issued on a fixed cadence while the
+   * player is off-corridor. The weak motor carries a rising buzz from first
+   * contact; the strong motor joins only in the losing-control band.
+   */
+  setStorm(level: number): void {
+    if (!this.enabledValue || document.hidden) return;
+    const n = Math.max(0, Math.min(1, level));
+    if (n <= 0.01) return;
+    const now = performance.now() / 1000;
+    if (now - this.stormLastAt < 0.08) return;
+    this.stormLastAt = now;
+    const critical = Math.max(0, Math.min(1, (n - 0.45) / 0.55));
+    const device = this.activeDevice();
+    if (device === 'gamepad') {
+      this.gamepad.rumble(0.1 + critical * 0.45, 0.26 + 0.3 * n + 0.2 * critical, 80);
+    } else if (device === 'mobile' && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate(Math.round(6 + n * 16));
+      } catch {
+        // Vibration is optional; some WebViews reject after blur.
+      }
+    }
   }
 
   stop(): void {

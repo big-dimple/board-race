@@ -1188,6 +1188,41 @@
   animation: hud-wrongflash 0.55s steps(2, jump-none) infinite;
 }
 
+/* Corridor losing-control band: pulsing red side light owned by the HUD, so
+   the stage shift fills the periphery without touching the center lane. */
+.hud.corridor-critical::before,
+.hud.corridor-critical::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 96px;
+  pointer-events: none;
+  animation: hud-corridor-edge 0.5s steps(2, jump-none) infinite;
+}
+
+.hud.corridor-critical::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(255, 61, 127, 0.42), transparent);
+}
+
+.hud.corridor-critical::after {
+  right: 0;
+  background: linear-gradient(-90deg, rgba(255, 61, 127, 0.42), transparent);
+}
+
+@keyframes hud-corridor-edge {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .hud.corridor-critical::before,
+  .hud.corridor-critical::after {
+    width: 48px;
+  }
+}
+
 .hud-final-target {
   --final-target-angle: 0rad;
   position: absolute;

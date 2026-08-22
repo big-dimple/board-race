@@ -133,7 +133,7 @@ for (const racer of roster) {
   boat.setDriver(racer.color, driverProfile(racer.profileId).handling);
   stage.scene.add(boat.object);
   boats.push(boat);
-  const rider = new Rider({ color: racer.color, detailedInk });
+  const rider = new Rider({ color: racer.color, detailedInk, look: driverProfile(racer.profileId).look });
   boat.riderMount.add(rider.object);
   riders.push(rider);
 }
@@ -289,7 +289,7 @@ let prevBoosting = false;
 let prevAirBraking = false;
 let prevDrifting = false;
 let prevTurnWarning = false;
-let prevCorridorDanger = 0;
+let prevCorridorStage = 0;
 let harnessCheckpointEvents = 0;
 let harnessCollisionFxBursts = 0;
 let harnessRoutePilotIndex = -1;
@@ -354,7 +354,7 @@ function applySelectedDriver(id: string): void {
   for (const definition of roster) {
     const profile = driverProfile(definition.profileId);
     boats[definition.id].setDriver(definition.color, profile.handling);
-    riders[definition.id].setColor(definition.color);
+    riders[definition.id].setColor(definition.color, profile.look);
   }
   ais = buildAiControllers();
   race.setDefinitions(roster);
@@ -1200,6 +1200,29 @@ function step(dt: number, _t: number): void {
     }
   }
 
+  // Alongside rivals trade taunts. Pure presentation: the rider turns its
+  // head and raises a fist; an 8s per-rider cooldown keeps it a spice.
+  if (race.phase === 'racing') {
+    for (let i = 0; i < boats.length; i++) {
+      const bi = boats[i].state;
+      if (bi.flightPhase !== 'surface' || bi.speed < 14 || race.racers[i].finished) continue;
+      const fwdX = Math.sin(bi.heading);
+      const fwdZ = Math.cos(bi.heading);
+      for (let k = 0; k < boats.length; k++) {
+        if (k === i) continue;
+        const bk = boats[k].state;
+        if (bk.flightPhase !== 'surface' || race.racers[k].finished) continue;
+        const relX = bk.position.x - bi.position.x;
+        const relZ = bk.position.z - bi.position.z;
+        const along = relX * fwdX + relZ * fwdZ;
+        const side = relX * fwdZ - relZ * fwdX; // + = to port (rider's left)
+        if (Math.abs(along) < 4.5 && Math.abs(side) > 1.6 && Math.abs(side) < 7.5) {
+          riders[i].taunt(side, worldTime);
+          break;
+        }
+      }
+    }
+  }
   for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, race.racers[i].finished);
 
   cameraRig.update(dt, boats[0], worldTime);
@@ -1248,14 +1271,24 @@ function step(dt: number, _t: number): void {
   audio.setDrift(ps.drifting ? Math.min(1, ps.boostCharge * 0.75 + Math.abs(ps.lateralG) / 18) : 0);
   if (ps.flightRouteMiss) audio.flightMiss();
   // Corridor storm: one continuous danger level drives camera rumble, the
-  // wind-shear cue, the HUD banner and escalating haptics.
+  // wind-shear cue, the HUD banner and haptics. Band entries are real events
+  // — camera jolt + full-motor slam — so the shift into 失控 is felt, not
+  // just numerically closer to the fail.
   const corridorDanger = race.phase === 'racing' ? course.playerCorridorDanger : 0;
+  const corridorStage = corridorDanger >= 0.45 ? 2 : corridorDanger > 0.01 ? 1 : 0;
   cameraRig.setDistress(corridorDanger);
   audio.setCorridorDanger(corridorDanger);
   hud.setCorridorDanger(corridorDanger);
-  if (corridorDanger >= 0.45) haptics.cue('warning', 0.6 + 0.4 * corridorDanger);
-  else if (corridorDanger > 0 && prevCorridorDanger <= 0) haptics.cue('warning', 0.7);
-  prevCorridorDanger = corridorDanger;
+  haptics.setStorm(corridorDanger);
+  if (corridorStage > prevCorridorStage) {
+    if (corridorStage === 2) {
+      cameraRig.stormKick();
+      haptics.cue('storm-critical');
+    } else {
+      haptics.cue('storm-edge');
+    }
+  }
+  prevCorridorStage = corridorStage;
   pipeline.update(dt, worldTime, ps, race.phase);
 
   // Failures freeze for one impact beat and then enter the adaptive loading

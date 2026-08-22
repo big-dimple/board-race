@@ -2,12 +2,20 @@
  * One-batch procedural rider skin.
  *
  * The animation rig remains code-driven in rider.ts. This module turns that
- * rig into one SkinnedMesh with a small authored palette, so body, equipment,
- * helmet, gloves and boots move as one character instead of separate meshes.
+ * rig into one SkinnedMesh with a small authored palette, so body, hair,
+ * face, gloves and boots move as one character instead of separate meshes.
+ * Identity is portrait-locked: bare head, per-driver hair color/style and
+ * skin, white racing suit with team-color gloves and piping.
  */
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
 import { createToonMaterial } from '../cel/toonMaterial';
+
+export interface RiderLook {
+  hair: number;
+  skin: number;
+  hairStyle: 'short' | 'bob' | 'ponytail';
+}
 
 export interface RiderBones {
   hips: THREE.Bone;
@@ -41,7 +49,8 @@ const enum Role {
   Ink,
   Foam,
   Accent,
-  Visor,
+  Skin,
+  Hair,
   Metal,
 }
 
@@ -165,6 +174,7 @@ class SkinAssembler {
     private readonly root: THREE.Object3D,
     readonly bones: readonly THREE.Bone[],
     private color: number,
+    private readonly look: RiderLook,
   ) {
     bones.forEach((bone, index) => this.boneIndex.set(bone, index));
     root.updateMatrixWorld(true);
@@ -195,7 +205,7 @@ class SkinAssembler {
 
       const vertexRole = typeof role === 'function' ? role(_localPosition) : role;
       this.roleList.push(vertexRole);
-      const vertexColor = roleColor(vertexRole, this.color);
+      const vertexColor = roleColor(vertexRole, this.color, this.look);
       this.colors.push(vertexColor.r, vertexColor.g, vertexColor.b);
 
       const vertexWeights = weightFn?.(_localPosition) ?? [[bone, 1]];
@@ -226,17 +236,21 @@ class SkinAssembler {
   }
 }
 
-function roleColor(role: Role, baseHex: number): THREE.Color {
+function roleColor(role: Role, baseHex: number, look: RiderLook): THREE.Color {
   const base = new THREE.Color().setHex(baseHex, THREE.NoColorSpace);
   const foam = new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace);
   switch (role) {
-    case Role.Suit: return base;
-    case Role.SuitDark: return base.clone().multiplyScalar(0.52).lerp(new THREE.Color(0x11162e), 0.18);
-    case Role.SuitLight: return base.clone().lerp(foam, 0.27);
+    // Portrait-matched racing suit: near-white body with a faint team tint,
+    // dark navy side panels, saturated team color reserved for gloves and
+    // piping — never a head-to-toe single-color onesie.
+    case Role.Suit: return base.clone().lerp(foam, 0.84);
+    case Role.SuitDark: return new THREE.Color(0x232a44).lerp(base.clone().multiplyScalar(0.4), 0.25);
+    case Role.SuitLight: return base.clone().lerp(foam, 0.55);
     case Role.Ink: return new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace);
     case Role.Foam: return foam;
     case Role.Accent: return base.clone().lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.22);
-    case Role.Visor: return new THREE.Color().setHex(0x102a48, THREE.NoColorSpace);
+    case Role.Skin: return new THREE.Color().setHex(look.skin, THREE.NoColorSpace);
+    case Role.Hair: return new THREE.Color().setHex(look.hair, THREE.NoColorSpace);
     case Role.Metal: return new THREE.Color().setHex(0x66758c, THREE.NoColorSpace);
   }
 }
@@ -300,21 +314,44 @@ function appendPanel(
   out.append(armorPlate(size[0], size[1], size[2], size[3]), bone, role, transform(position, rotation), weightFn);
 }
 
-function appendHelmetPatch(
+/**
+ * Portrait hair in three authored shapes. The cap opens at the face (phi gap
+ * centered on +Z) so skin reads as forehead; a swept fringe band marks the
+ * hairline. Everything sits slightly proud of the skull so the toon outline
+ * reads hair silhouette, never scalp.
+ */
+function appendHair(
   out: SkinAssembler,
-  bone: THREE.Bone,
-  role: Role,
-  phiStart: number,
-  phiLength: number,
-  thetaStart: number,
-  thetaLength: number,
-  scale: number,
+  head: THREE.Bone,
+  look: RiderLook,
   sides: number,
 ): void {
-  const geometry = new THREE.SphereGeometry(1, Math.max(4, Math.floor(sides * phiLength / Math.PI)), 5,
-    phiStart, phiLength, thetaStart, thetaLength);
-  out.append(geometry, bone, role, transform([0, 0.1, 0.02], [0, 0, 0],
-    [0.142 * scale, 0.158 * scale, 0.15 * scale]));
+  const capTheta = look.hairStyle === 'bob' ? 2.32 : 2.0;
+  const capScale: readonly [number, number, number] =
+    look.hairStyle === 'bob' ? [0.141, 0.152, 0.145] : [0.133, 0.15, 0.14];
+  const faceGap = 0.78;
+  out.append(
+    new THREE.SphereGeometry(1, sides, Math.max(5, Math.floor(sides * 0.6)),
+      Math.PI * 0.5 + faceGap, Math.PI * 2 - faceGap * 2, 0, capTheta),
+    head,
+    Role.Hair,
+    transform([0, 0.104, 0.004], [0, 0, 0], capScale),
+  );
+  out.append(
+    new THREE.SphereGeometry(1, Math.max(4, Math.floor(sides * 0.5)), 4,
+      Math.PI * 0.5 - 0.85, 1.7, capTheta - 0.52, 0.52),
+    head,
+    Role.Hair,
+    transform([0, 0.104, 0.006], [0, 0, 0],
+      [capScale[0] * 1.012, capScale[1] * 1.012, capScale[2] * 1.012]),
+  );
+  if (look.hairStyle === 'ponytail') {
+    // High tail: accent tie band, then a three-bob arc falling down the back.
+    appendEllipsoid(out, head, Role.Accent, [0, 0.2, -0.078], [0.032, 0.032, 0.032], 6);
+    appendEllipsoid(out, head, Role.Hair, [0, 0.205, -0.115], [0.048, 0.05, 0.055], 8);
+    appendEllipsoid(out, head, Role.Hair, [0, 0.165, -0.205], [0.04, 0.045, 0.08], 8);
+    appendEllipsoid(out, head, Role.Hair, [0, 0.095, -0.265], [0.03, 0.036, 0.062], 8);
+  }
 }
 
 export function buildSkinnedRider(
@@ -322,6 +359,7 @@ export function buildSkinnedRider(
   rig: RiderBones,
   color: number,
   detailed: boolean,
+  look: RiderLook,
 ): RiderSkin {
   const bones = [
     rig.hips, rig.spine, rig.chest, rig.head,
@@ -329,7 +367,7 @@ export function buildSkinnedRider(
     rig.hipL, rig.hipR, rig.kneeL, rig.kneeR, rig.footL, rig.footR,
   ];
   const sides = detailed ? 12 : 8;
-  const out = new SkinAssembler(root, bones, color);
+  const out = new SkinAssembler(root, bones, color, look);
 
   // Pelvis and torso are authored lofts: narrow waist, broad protected
   // shoulders and a forward-rising racing posture rather than stacked balls.
@@ -364,6 +402,7 @@ export function buildSkinnedRider(
   appendPanel(out, rig.spine, Role.Accent, [0, 0.055, -0.105], [0.14, 0.105, 0.065, 0.03], [0.05, 0, 0], torsoWeights);
 
   // Arms retain elbow deformation but taper like protected wetsuit limbs.
+  // Gloves carry the team accent — bare dark forearms read as robot limbs.
   for (const [shoulder, elbow, hand, mirror] of [
     [rig.shoulderL, rig.elbowL, rig.handL, 1],
     [rig.shoulderR, rig.elbowR, rig.handR, -1],
@@ -371,9 +410,9 @@ export function buildSkinnedRider(
     appendEllipsoid(out, shoulder, Role.SuitLight, [0.012 * mirror, 0.012, 0.008], [0.082, 0.068, 0.078], sides);
     appendSegment(out, shoulder, elbow, 0.061, 0.052, Role.Suit, sides);
     appendEllipsoid(out, elbow, Role.SuitDark, [0, 0, 0], [0.06, 0.052, 0.058], sides);
-    appendSegment(out, elbow, hand, 0.052, 0.043, Role.SuitDark, sides);
-    appendEllipsoid(out, hand, Role.Ink, [0, 0, 0.012], [0.064, 0.052, 0.075], sides);
-    out.append(new THREE.CylinderGeometry(0.052, 0.052, 0.045, sides, 1), hand, Role.Accent,
+    appendSegment(out, elbow, hand, 0.052, 0.043, Role.Suit, sides);
+    appendEllipsoid(out, hand, Role.Accent, [0, 0, 0.012], [0.064, 0.052, 0.075], sides);
+    out.append(new THREE.CylinderGeometry(0.052, 0.052, 0.045, sides, 1), hand, Role.SuitDark,
       transform([0, 0.045, -0.015], [0, 0, 0]));
   }
 
@@ -384,7 +423,7 @@ export function buildSkinnedRider(
   ] as const) {
     appendEllipsoid(out, hip, Role.SuitDark, [0.006 * mirror, 0, 0], [0.105, 0.085, 0.1], sides);
     appendSegment(out, hip, knee, 0.1, 0.079, Role.Suit, sides);
-    appendEllipsoid(out, knee, Role.Ink, [0, 0, 0.012], [0.086, 0.068, 0.082], sides);
+    appendEllipsoid(out, knee, Role.SuitDark, [0, 0, 0.012], [0.086, 0.068, 0.082], sides);
     appendSegment(out, knee, foot, 0.073, 0.058, Role.SuitDark, sides);
     appendPanel(out, knee, Role.Accent, [0, 0.02, -0.064], [0.105, 0.085, 0.07, 0.027]);
     out.append(new THREE.BoxGeometry(0.125, 0.095, 0.275), foot, Role.Ink,
@@ -393,17 +432,20 @@ export function buildSkinnedRider(
       transform([0, -0.065, 0.078], [0.03, 0, 0]));
   }
 
-  // Neck seal and a motorsport helmet with a continuous crown stripe. The
-  // visor is a curved shell patch, not a rectangular sticker.
-  appendSegment(out, rig.chest, rig.head, 0.105, 0.09, Role.Ink, sides);
-  appendEllipsoid(out, rig.head, Role.Foam, [0, 0.1, 0.02], [0.142, 0.158, 0.15], detailed ? 16 : 10);
-  const patchSides = detailed ? 16 : 10;
-  const stripeWidth = 0.22;
-  appendHelmetPatch(out, rig.head, Role.Accent, Math.PI * 0.5 - stripeWidth, stripeWidth * 2, 0.05, 1.45, 1.012, patchSides);
-  appendHelmetPatch(out, rig.head, Role.Accent, Math.PI * 1.5 - stripeWidth, stripeWidth * 2, 0.05, 1.45, 1.012, patchSides);
-  appendHelmetPatch(out, rig.head, Role.Visor, Math.PI * 0.5 - 0.92, 1.84, 0.56, 0.82, 1.03, patchSides);
-  appendPanel(out, rig.head, Role.Ink, [0, 0.025, 0.145], [0.145, 0.205, 0.1, 0.05], [-0.1, 0, 0]);
-  appendPanel(out, rig.head, Role.Accent, [0, 0.055, -0.122], [0.17, 0.145, 0.045, 0.026]);
+  // Bare head, portrait-locked. Commercial arcade racers keep the face out:
+  // hair + skin is the character read from every camera, a full helmet throws
+  // the identity away. +Z is face-forward in head-bone space.
+  appendSegment(out, rig.chest, rig.head, 0.062, 0.052, Role.Skin, sides);
+  out.append(new THREE.CylinderGeometry(0.068, 0.078, 0.06, sides, 1), rig.head, Role.SuitDark,
+    transform([0, -0.015, 0.005], [0, 0, 0]));
+  const headSides = detailed ? 16 : 10;
+  appendEllipsoid(out, rig.head, Role.Skin, [0, 0.1, 0.02], [0.125, 0.14, 0.132], headSides);
+  // Face: painted-anime eyes and a small nose bridge, readable at dossier
+  // distance without pretending to be a texture.
+  appendEllipsoid(out, rig.head, Role.Ink, [0.047, 0.105, 0.143], [0.018, 0.025, 0.01], 6);
+  appendEllipsoid(out, rig.head, Role.Ink, [-0.047, 0.105, 0.143], [0.018, 0.025, 0.01], 6);
+  appendEllipsoid(out, rig.head, Role.Skin, [0, 0.082, 0.152], [0.014, 0.022, 0.014], 6);
+  appendHair(out, rig.head, look, headSides);
 
   const result = out.finish();
   const material = createToonMaterial({
@@ -427,7 +469,7 @@ export function buildSkinnedRider(
   mesh.frustumCulled = true;
   mesh.userData.assetClass = 'batched-skinned-rider';
   mesh.userData.boneCount = bones.length;
-  mesh.userData.paletteRoleCount = 8;
+  mesh.userData.paletteRoleCount = 9;
   root.add(mesh);
   const skeleton = new THREE.Skeleton(bones);
   mesh.bind(skeleton);
@@ -435,10 +477,10 @@ export function buildSkinnedRider(
   return { mesh, roles: result.roles, colorAttribute: result.colorAttribute };
 }
 
-export function updateSkinnedRiderColor(skin: RiderSkin, color: number): void {
+export function updateSkinnedRiderColor(skin: RiderSkin, color: number, look: RiderLook): void {
   const scratch = new THREE.Color();
   for (let i = 0; i < skin.roles.length; i++) {
-    scratch.copy(roleColor(skin.roles[i] as Role, color));
+    scratch.copy(roleColor(skin.roles[i] as Role, color, look));
     skin.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
   }
   skin.colorAttribute.needsUpdate = true;

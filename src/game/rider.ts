@@ -19,7 +19,7 @@
 import * as THREE from 'three';
 import { LAYER_INK, markInk, type BoatState } from '../contracts';
 import { addOutline } from '../cel/outline';
-import { buildSkinnedRider, updateSkinnedRiderColor, type RiderBones, type RiderSkin } from './riderMesh';
+import { buildSkinnedRider, updateSkinnedRiderColor, type RiderBones, type RiderLook, type RiderSkin } from './riderMesh';
 
 // ------------------------------------------------------------- tuning ----
 // Every number a polish pass might want to touch lives here. Angles in
@@ -73,9 +73,19 @@ const TUNING = {
   // Celebration: ~0.4s blend in, loops while `celebrating`.
   celOmega: 7, celZeta: 1,
   pumpHz: 1.7, pumpAmp: 0.45, pumpRaise: -2.3,
-  celLeftRaise: -1.6, celLeftLag: 1.1, // left hand rejoins late, returns each cycle
+  celLeftRaise: -2.1, celLeftLag: 0.9, // both hands off the bar at the line
   celNodHz: 0.9, celNodAmp: 0.12,
   celUpright: 0.35,
+
+  // Head-look into the steering direction: the rider eyes the corner, not
+  // the bow. Small, damped, suppressed while celebrating or taunting.
+  headSteerLook: 0.3,
+
+  // Taunt: a alongside rival gets a head turn plus a raised fist/wave for
+  // ~1.6s, then a long personal cooldown keeps it a spice, not a loop.
+  tauntOmega: 9, tauntZeta: 1,
+  tauntSeconds: 1.6, tauntCooldown: 8,
+  tauntHeadYaw: 0.95, tauntArmRaise: -1.85, tauntWaveHz: 2.4, tauntWaveAmp: 0.34,
 } as const;
 
 // Rest pose (baked into joint positions, meters). Standing racing crouch at
@@ -130,13 +140,17 @@ export class Rider {
   private readonly flightS = new Spring();
   private readonly crouchS = new Spring();
   private readonly celS = new Spring();
+  private readonly tauntS = new Spring();
   private readonly boatPitchS = new Spring();
   private readonly boatRollS = new Spring();
+  private tauntRemaining = 0;
+  private tauntCooldownUntil = 0;
+  private tauntSide = 1;
 
   // Scratch (no per-frame allocation).
   private readonly tmp = new THREE.Vector3();
 
-  constructor(opts: { color: number; detailedInk?: boolean }) {
+  constructor(opts: { color: number; detailedInk?: boolean; look: RiderLook }) {
     const root = new THREE.Group();
     root.name = 'rider';
 
@@ -168,7 +182,7 @@ export class Rider {
     const footR = joint(kneeR, 'footR', POSE.footL, -1);
     this.j = { hips, spine, chest, head, shoulderL, shoulderR, elbowL, elbowR, handL, handR, hipL, hipR, kneeL, kneeR, footL, footR };
     this.hipsBaseY = hips.position.y;
-    this.skin = buildSkinnedRider(root, this.j, opts.color, opts.detailedInk !== false);
+    this.skin = buildSkinnedRider(root, this.j, opts.color, opts.detailedInk !== false, opts.look);
     if (opts.detailedInk !== false) {
       addOutline(root);
       markInk(root);
@@ -178,8 +192,19 @@ export class Rider {
     this.object = root;
   }
 
-  setColor(color: number): void {
-    updateSkinnedRiderColor(this.skin, color);
+  setColor(color: number, look: RiderLook): void {
+    updateSkinnedRiderColor(this.skin, color, look);
+  }
+
+  /**
+   * Flash a rival alongside: head turns their way, same-side fist rises and
+   * waves. Presentation-only; long cooldown keeps races from becoming waves.
+   */
+  taunt(side: number, now: number): void {
+    if (now < this.tauntCooldownUntil || this.tauntRemaining > 0) return;
+    this.tauntSide = side >= 0 ? 1 : -1;
+    this.tauntRemaining = TUNING.tauntSeconds;
+    this.tauntCooldownUntil = now + TUNING.tauntSeconds + TUNING.tauntCooldown;
   }
 
   /** dt is fixed 1/60. Applies delta rotations on top of the baked rest pose. */
@@ -201,6 +226,9 @@ export class Rider {
     const air = this.airS.update(airT, T.airOmega, T.airZeta, dt);
     const flight = this.flightS.update(flightT, T.flightOmega, T.flightZeta, dt);
     const cel = this.celS.update(celT, T.celOmega, T.celZeta, dt);
+
+    this.tauntRemaining = Math.max(0, this.tauntRemaining - dt);
+    const taunt = this.tauntS.update(this.tauntRemaining > 0 ? 1 : 0, T.tauntOmega, T.tauntZeta, dt) * (1 - cel);
 
     // Landing crouch: impulse kicks the spring, underdamped ~0.4s recovery.
     if (boat.landImpulse > 0) this.crouchS.v += boat.landImpulse * T.landKick;
@@ -251,11 +279,12 @@ export class Rider {
       lean * T.leanChest * drive,
     );
 
-    // Head: counter-lean, tips up airborne, nods while celebrating.
+    // Head: counter-lean, tips up airborne, nods while celebrating, eyes the
+    // steering direction, and turns squarely at a taunted rival.
     j.head.rotation.set(
       POSE.headTiltUp - air * T.airHeadUp - pitch * 0.5
         + cel * Math.sin(t * 2 * Math.PI * T.celNodHz) * T.celNodAmp,
-      0,
+      (-boat.steer * T.headSteerLook * drive + taunt * T.tauntHeadYaw * this.tauntSide) * (1 - cel),
       -lean * T.headCounter * drive - secR * 0.4,
     );
 
@@ -284,10 +313,23 @@ export class Rider {
 
     // Constant arm tuck: shoulders rotated inward so the arms angle toward
     // the bars and read "holding the grips" from behind, not flared out.
-    j.shoulderL.rotation.set(armBase * (1 - cel) + cel * pumpL, 0, -T.armTuck * (1 - cel) - 0.1 * cel);
-    j.shoulderR.rotation.set(armBase * (1 - cel) + cel * pumpR, 0, T.armTuck * (1 - cel) + 0.1 * cel);
-    j.elbowL.rotation.set(elbBase + dropL, 0, 0);
-    j.elbowR.rotation.set(elbBase + dropR + cel * (Math.sin(pumpT) * 0.3 - 0.3), 0, 0);
+    // The taunting arm leaves its grip: fist rises toward the rival and waves.
+    const tauntWave = Math.sin(t * 2 * Math.PI * T.tauntWaveHz) * T.tauntWaveAmp;
+    const tauntArmL = this.tauntSide > 0 ? taunt * (T.tauntArmRaise + tauntWave) : 0;
+    const tauntArmR = this.tauntSide > 0 ? 0 : taunt * (T.tauntArmRaise + tauntWave);
+    j.shoulderL.rotation.set(
+      armBase * (1 - cel) * (1 - taunt * (this.tauntSide > 0 ? 1 : 0)) + cel * pumpL + tauntArmL,
+      0,
+      -T.armTuck * (1 - cel) - 0.1 * cel - taunt * (this.tauntSide > 0 ? 0.42 : 0),
+    );
+    j.shoulderR.rotation.set(
+      armBase * (1 - cel) * (1 - taunt * (this.tauntSide > 0 ? 0 : 1)) + cel * pumpR + tauntArmR,
+      0,
+      T.armTuck * (1 - cel) + 0.1 * cel + taunt * (this.tauntSide > 0 ? 0 : 0.42),
+    );
+    j.elbowL.rotation.set(elbBase + dropL - taunt * (this.tauntSide > 0 ? 0.55 : 0), 0, 0);
+    j.elbowR.rotation.set(elbBase + dropR + cel * (Math.sin(pumpT) * 0.3 - 0.3) -
+      taunt * (this.tauntSide > 0 ? 0 : 0.55), 0, 0);
 
     // Right wrist works the throttle; left stays quiet on its grip.
     const thr = clamp(boat.throttle, 0, 1);

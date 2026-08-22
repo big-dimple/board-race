@@ -131,9 +131,25 @@ export class CameraRig {
   }
 
   private distress = 0;
-  /** Sustained corridor-storm rumble (0..1); holds a shake floor each frame. */
+  /**
+   * Sustained corridor-storm rumble (0..1); holds a shake floor each frame.
+   * Deep in the red the lens also stays pinched, so the losing-control band
+   * reads as the world closing in rather than a bumped-up threshold.
+   */
   setDistress(level: number): void {
     this.distress = this.reducedMotion ? 0 : clamp(level, 0, 1);
+    if (this.distress > 0.45) {
+      const deep = (this.distress - 0.45) / 0.55;
+      this.impactFov = Math.min(this.impactFov, -1.5 * deep);
+    }
+  }
+
+  /** One-shot jolt the frame the storm enters the losing-control band. */
+  stormKick(): void {
+    if (this.reducedMotion) return;
+    this.shake(0.34);
+    this.impactFov = Math.min(this.impactFov, -1.8);
+    this.impactBack = Math.min(this.impactBack, -0.35);
   }
 
   flightGateKick(flightNumber = 1): void {
