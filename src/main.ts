@@ -674,6 +674,11 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     sky.update(presentationTime, stage.camera.position);
     seaDecor.update(presentationTime, stage.camera.position);
     course.update(dt, presentationTime);
+    // The race step returns early here, so without this the riders freeze in
+    // their driving pose: rivals who crossed earlier were seen celebrating,
+    // but the player's own rider never pumped a fist. Keep the celebration
+    // alive through the finale presentation.
+    for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime, race.racers[i].finished);
   }
   pipeline.update(dt, finalPresentation ? presentationTime : retryLessonFrozenT, frozen, phase);
   hud.update(dt, race, boats[0], boats);

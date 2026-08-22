@@ -91,17 +91,19 @@ const TUNING = {
 
 // Rest pose (baked into joint positions, meters). Standing racing crouch at
 // the helm: hips back, knees bent into the footwells, torso hinged FORWARD
-// (hunchSpine/hunchChest, applied in update()), arms reaching down-forward so
-// the hands land on the grips (~±0.26, 0.37, 0.40 in mount space — the bar
-// height). Rider's left = +X.
+// (hunchSpine/hunchChest, applied in update()). The elbow/hand offsets were
+// solved against the real grip position (boat-local ±0.28, 1.02, -0.65):
+// gloves rest ON the grips with a ~40° elbow bend — probed in-world, because
+// straight hanging arms hovering near the bar read as a robot, not a racer.
+// Rider's left = +X.
 const POSE = {
   hips: [0, 0.58, -0.22],
   spine: [0, 0.13, 0.05],
   chest: [0, 0.19, 0.09],
   head: [0, 0.2, 0.1],
   shoulderL: [0.2, 0.1, 0.03],
-  elbowL: [0.045, -0.129, 0.293],
-  handL: [-0.02, -0.17, 0.345],
+  elbowL: [0.046, -0.157, 0.278],
+  handL: [0.033, -0.383, 0.022],
   hipL: [0.11, -0.03, 0.05],
   kneeL: [0.09, -0.2, 0.26],
   footL: [-0.05, -0.28, 0.1],
@@ -318,13 +320,16 @@ export class Rider {
 
     // Constant arm tuck: shoulders rotated inward so the arms angle toward
     // the bars and read "holding the grips" from behind, not flared out.
+    // Counter-rotate the torso pitch at the shoulder: the chest hunches but
+    // the hands stay glued to the (boat-fixed) grips, like a real rider.
+    const armCounter = -(j.spine.rotation.x + j.chest.rotation.x) * (1 - cel);
     j.shoulderL.rotation.set(
-      armBase * (1 - cel) + cel * pumpL,
+      armCounter + armBase * (1 - cel) + cel * pumpL,
       0,
       -T.armTuck * (1 - cel) - 0.1 * cel,
     );
     j.shoulderR.rotation.set(
-      armBase * (1 - cel) + cel * pumpR,
+      armCounter + armBase * (1 - cel) + cel * pumpR,
       0,
       T.armTuck * (1 - cel) + 0.1 * cel,
     );

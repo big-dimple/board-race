@@ -701,19 +701,40 @@ function prismFromPlan(
   return flatGeometry(pos);
 }
 
-/** Split carbon hydrofoil: the center cut-out keeps it from reading as a bumper. */
+/**
+ * Raised anti-grav tail wing: two swept struts lift a wide, swept, split main
+ * plane clear of the tail cowl, with fin endplates at the tips. The old flat
+ * carbon foil sat low in the ink batch and merged with the nozzle and cowl
+ * into one black lump astern; a hull-colored raised wing reads as a wing from
+ * the chase camera and sells "this boat flies".
+ */
 function buildRearWingGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    prismFromPlan([[-0.66, -2.16], [-0.055, -2.18], [-0.13, -2.43], [-0.53, -2.48]], 0.775, 0.825),
-    prismFromPlan([[0.055, -2.18], [0.66, -2.16], [0.53, -2.48], [0.13, -2.43]], 0.775, 0.825),
+    // swept struts (hull color, outlined)
+    prismFromPlan([[0.3, -1.78], [0.44, -1.8], [0.52, -2.32], [0.38, -2.32]], 0.64, 1.02),
+    prismFromPlan([[-0.3, -1.78], [-0.44, -1.8], [-0.52, -2.32], [-0.38, -2.32]], 0.64, 1.02),
+    // split main plane, swept back, center cut-out
+    prismFromPlan([[-0.74, -2.2], [-0.05, -2.24], [-0.12, -2.52], [-0.62, -2.56]], 1.0, 1.06),
+    prismFromPlan([[0.05, -2.24], [0.74, -2.2], [0.62, -2.56], [0.12, -2.52]], 1.0, 1.06),
+    // fin endplates
+    prismFromPlan([[0.7, -2.18], [0.75, -2.18], [0.67, -2.58], [0.62, -2.58]], 0.9, 1.18),
+    prismFromPlan([[-0.7, -2.18], [-0.75, -2.18], [-0.67, -2.58], [-0.62, -2.58]], 0.9, 1.18),
   ]);
 }
 
-/** Racer-color leading edge laid over the split carbon foil. */
+/** Foam leading-edge flash laid over the raised wing. */
 function buildRearWingAccentGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    prismFromPlan([[-0.625, -2.158], [-0.065, -2.178], [-0.083, -2.225], [-0.6, -2.208]], 0.826, 0.842),
-    prismFromPlan([[0.065, -2.178], [0.625, -2.158], [0.6, -2.208], [0.083, -2.225]], 0.826, 0.842),
+    prismFromPlan([[-0.72, -2.196], [-0.065, -2.236], [-0.085, -2.29], [-0.69, -2.26]], 1.06, 1.078),
+    prismFromPlan([[0.065, -2.236], [0.72, -2.196], [0.69, -2.26], [0.085, -2.29]], 1.06, 1.078),
+  ]);
+}
+
+/** Anti-grav glow: cyan strip on the wing trailing edge + nozzle glow ring. */
+function buildRearWingGlowGeometry(): THREE.BufferGeometry {
+  return mergeFlatGeometryParts([
+    prismFromPlan([[-0.6, -2.545], [-0.13, -2.505], [-0.125, -2.55], [-0.595, -2.59]], 1.008, 1.052),
+    prismFromPlan([[0.13, -2.505], [0.6, -2.545], [0.595, -2.59], [0.125, -2.55]], 1.008, 1.052),
   ]);
 }
 
@@ -836,10 +857,8 @@ function buildBoatVisual(id: number, color: number): {
     buildSponsonGeometry(1),
     buildSponsonGeometry(-1),
     buildTailCowlGeometry(),
-    buildRearWingAccentGeometry(),
+    buildRearWingGeometry(),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.12, 0.34, 16), [0, 0.21, -2.56], [Math.PI / 2, 0, 0]),
-    transformedPart(new THREE.BoxGeometry(0.11, 0.24, 0.18), [0.35, 0.67, -2.28], [-0.12, 0, 0.08]),
-    transformedPart(new THREE.BoxGeometry(0.11, 0.24, 0.18), [-0.35, 0.67, -2.28], [-0.12, 0, -0.08]),
   ];
   const hull = add(mergeFlatGeometryParts(shellParts), hullMat);
   hull.name = 'boat-shell-batch';
@@ -850,9 +869,10 @@ function buildBoatVisual(id: number, color: number): {
     transformedPart(buildRubRailGeometry(-1)),
     buildCockpitCoamingGeometry(),
     buildDeckStripeGeometry(0.115, 0.009),
-    transformedPart(new THREE.CylinderGeometry(0.055, 0.075, 0.43, 14), [0, 0.81, -0.55], [-0.25, 0, 0]),
-    transformedPart(new THREE.CylinderGeometry(0.043, 0.043, 0.16, 12), [0.27, 1.0, -0.65], [0, 0, Math.PI / 2]),
-    transformedPart(new THREE.CylinderGeometry(0.043, 0.043, 0.16, 12), [-0.27, 1.0, -0.65], [0, 0, Math.PI / 2]),
+    buildRearWingAccentGeometry(),
+    transformedPart(new THREE.CylinderGeometry(0.055, 0.075, 0.43, 14), [0, 0.88, -0.72], [-0.42, 0, 0]),
+    transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), [0.28, 1.1, -0.8], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), [-0.28, 1.1, -0.8], [0, 0, Math.PI / 2]),
     transformedPart(new THREE.CylinderGeometry(0.018, 0.018, 0.67, 8), [0, 0.895, -0.385], [0, 0, Math.PI / 2]),
   ];
   const safety = add(mergeFlatGeometryParts(safetyParts), foamMat);
@@ -863,13 +883,9 @@ function buildBoatVisual(id: number, color: number): {
     buildCockpitTubGeometry(),
     buildDeckStripeGeometry(0.024, 0.017),
     buildAftVentGeometry(),
-    buildRearWingGeometry(),
-    transformedPart(new THREE.CylinderGeometry(0.03, 0.03, 0.62, 14), [0, 1.0, -0.65], [0, 0, Math.PI / 2]),
+    transformedPart(new THREE.CylinderGeometry(0.042, 0.042, 0.62, 14), [0, 1.1, -0.8], [0, 0, Math.PI / 2]),
     transformedPart(new THREE.CylinderGeometry(0.08, 0.066, 0.11, 16), [0, 0.21, -2.66], [Math.PI / 2, 0, 0]),
-    transformedPart(new THREE.BoxGeometry(0.055, 0.1, 0.35), [0.59, 0.8, -2.33], [-0.04, 0, -0.12]),
-    transformedPart(new THREE.BoxGeometry(0.055, 0.1, 0.35), [-0.59, 0.8, -2.33], [-0.04, 0, 0.12]),
     transformedPart(new THREE.BoxGeometry(0.42, 0.07, 0.31), [0, 0.605, -1.56], [-0.06, 0, 0]),
-    transformedPart(new THREE.CylinderGeometry(0.013, 0.013, 0.4, 8), [0.61, 0.84, -2.12], [0.08, 0, -0.12]),
   ];
   const mechanical = add(mergeFlatGeometryParts(mechanicalParts), inkMat);
   mechanical.name = 'boat-mechanical-batch';
@@ -880,6 +896,8 @@ function buildBoatVisual(id: number, color: number): {
     buildWindscreenGeometry(),
     buildSideLiveryGeometry(1),
     buildSideLiveryGeometry(-1),
+    buildRearWingGlowGeometry(),
+    transformedPart(new THREE.CylinderGeometry(0.085, 0.085, 0.04, 16), [0, 0.21, -2.72], [Math.PI / 2, 0, 0]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [0.68, 0.12, -1.62]),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.2, 0.08, 14), [-0.68, 0.12, -1.62]),
   ];

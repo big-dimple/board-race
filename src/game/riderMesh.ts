@@ -358,6 +358,11 @@ function appendPanel(
  * centered on +Z) so skin reads as forehead; a swept fringe band marks the
  * hairline. Everything sits slightly proud of the skull so the toon outline
  * reads hair silhouette, never scalp.
+ *
+ * The chase camera mostly sees the BACK of the head: a bare cap there reads
+ * as a swim cap / helmet. Every style gets a nape mass below the skull line;
+ * the bob grows shoulder-length curtains, the ponytail drops past the neck —
+ * silhouette identity from behind, not just from the front.
  */
 function appendHair(
   out: SkinAssembler,
@@ -384,12 +389,24 @@ function appendHair(
     transform([0, 0.104, 0.006], [0, 0, 0],
       [capScale[0] * 1.012, capScale[1] * 1.012, capScale[2] * 1.012]),
   );
+  // Nape mass: hair covering the back of the skull down to the neck line.
+  appendEllipsoid(out, head, Role.Hair, [0, 0.015, -0.045], [0.126, 0.115, 0.115], sides);
+  if (look.hairStyle === 'bob') {
+    // Shoulder-length curtains: fuller back mass plus side locks that break
+    // the head-and-shoulders silhouette from behind.
+    appendEllipsoid(out, head, Role.Hair, [0, -0.075, -0.055], [0.132, 0.15, 0.118], sides);
+    appendEllipsoid(out, head, Role.Hair, [0.112, -0.075, 0.015], [0.045, 0.135, 0.075], sides);
+    appendEllipsoid(out, head, Role.Hair, [-0.112, -0.075, 0.015], [0.045, 0.135, 0.075], sides);
+  }
   if (look.hairStyle === 'ponytail') {
-    // High tail: accent tie band, then a three-bob arc falling down the back.
+    // High tail: accent tie band, then a five-bob arc falling past the neck
+    // to mid-back — the long braid reads over the white suit from behind.
     appendEllipsoid(out, head, Role.Accent, [0, 0.2, -0.078], [0.032, 0.032, 0.032], 6);
     appendEllipsoid(out, head, Role.Hair, [0, 0.205, -0.115], [0.048, 0.05, 0.055], 8);
-    appendEllipsoid(out, head, Role.Hair, [0, 0.165, -0.205], [0.04, 0.045, 0.08], 8);
-    appendEllipsoid(out, head, Role.Hair, [0, 0.095, -0.265], [0.03, 0.036, 0.062], 8);
+    appendEllipsoid(out, head, Role.Hair, [0, 0.165, -0.205], [0.042, 0.047, 0.085], 8);
+    appendEllipsoid(out, head, Role.Hair, [0, 0.095, -0.275], [0.034, 0.04, 0.075], 8);
+    appendEllipsoid(out, head, Role.Hair, [0, 0.015, -0.31], [0.027, 0.033, 0.062], 8);
+    appendEllipsoid(out, head, Role.Hair, [0, -0.055, -0.315], [0.02, 0.026, 0.05], 8);
   }
 }
 
