@@ -25,6 +25,13 @@ export interface SprayDebugState {
   landingVolumeCapacity: number;
   landingEvents: number;
   playerLandingEvents: number;
+  lastPlayerLandingBias: number;
+  lastPlayerPortMultiplier: number;
+  lastPlayerStarboardMultiplier: number;
+  lastPlayerPortCount: number;
+  lastPlayerStarboardCount: number;
+  lastPlayerPortMeanLateralSpeed: number;
+  lastPlayerStarboardMeanLateralSpeed: number;
 }
 
 function markActive(attribute: THREE.InstancedBufferAttribute, count: number): void {
@@ -187,6 +194,7 @@ attribute vec2 aRight;
 attribute float aStrength;
 attribute float aAge;
 attribute float aScale;
+attribute float aLateralBias;
 
 varying float vPart;
 varying float vAlpha;
@@ -208,7 +216,10 @@ void main() {
   local.xz *= spread * mix(0.9, 1.15, aStrength);
   local.y *= height;
   if (aPart > 0.5) {
-    local.x *= 0.96 + age * 0.34;
+    float plumeSide = sign(position.x);
+    float biasMul = 1.0 + clamp(plumeSide * aLateralBias, -0.3, 0.4);
+    local.x *= (0.96 + age * 0.34) * biasMul;
+    local.y *= biasMul;
     local.z -= age * (0.28 + aStrength * 0.22);
     local.y -= max(0.0, age - 0.4) * max(0.0, age - 0.4) * 1.7;
   }
@@ -285,6 +296,7 @@ export class SpraySystem implements ISpray {
   private readonly volumeForward = new Float32Array(LANDING_VOLUME_CAPACITY * 2);
   private readonly volumeRight = new Float32Array(LANDING_VOLUME_CAPACITY * 2);
   private readonly volumeStrength = new Float32Array(LANDING_VOLUME_CAPACITY);
+  private readonly volumeLateralBias = new Float32Array(LANDING_VOLUME_CAPACITY);
   private readonly volumeAge = new Float32Array(LANDING_VOLUME_CAPACITY);
   private readonly volumeDuration = new Float32Array(LANDING_VOLUME_CAPACITY);
   private readonly volumeScale = new Float32Array(LANDING_VOLUME_CAPACITY);
@@ -292,6 +304,7 @@ export class SpraySystem implements ISpray {
   private readonly attrVolumeForward: THREE.InstancedBufferAttribute;
   private readonly attrVolumeRight: THREE.InstancedBufferAttribute;
   private readonly attrVolumeStrength: THREE.InstancedBufferAttribute;
+  private readonly attrVolumeLateralBias: THREE.InstancedBufferAttribute;
   private readonly attrVolumeAge: THREE.InstancedBufferAttribute;
   private readonly attrVolumeScale: THREE.InstancedBufferAttribute;
   private readonly volumeGeometry: THREE.InstancedBufferGeometry;
@@ -301,6 +314,13 @@ export class SpraySystem implements ISpray {
   private volumeStaticDirty = false;
   private landingEvents = 0;
   private playerLandingEvents = 0;
+  private lastPlayerLandingBias = 0;
+  private lastPlayerPortMultiplier = 1;
+  private lastPlayerStarboardMultiplier = 1;
+  private lastPlayerPortCount = 0;
+  private lastPlayerStarboardCount = 0;
+  private lastPlayerPortMeanLateralSpeed = 0;
+  private lastPlayerStarboardMeanLateralSpeed = 0;
   private rngState = 0x51f15e7d;
 
   constructor(quality: RenderQualityMode = 'auto', capacity = 1536) {
@@ -355,12 +375,14 @@ export class SpraySystem implements ISpray {
     this.attrVolumeForward = new THREE.InstancedBufferAttribute(this.volumeForward, 2).setUsage(dyn);
     this.attrVolumeRight = new THREE.InstancedBufferAttribute(this.volumeRight, 2).setUsage(dyn);
     this.attrVolumeStrength = new THREE.InstancedBufferAttribute(this.volumeStrength, 1).setUsage(dyn);
+    this.attrVolumeLateralBias = new THREE.InstancedBufferAttribute(this.volumeLateralBias, 1).setUsage(dyn);
     this.attrVolumeAge = new THREE.InstancedBufferAttribute(this.volumeAge, 1).setUsage(dyn);
     this.attrVolumeScale = new THREE.InstancedBufferAttribute(this.volumeScale, 1).setUsage(dyn);
     volumes.setAttribute('aOrigin', this.attrVolumeOrigin);
     volumes.setAttribute('aForward', this.attrVolumeForward);
     volumes.setAttribute('aRight', this.attrVolumeRight);
     volumes.setAttribute('aStrength', this.attrVolumeStrength);
+    volumes.setAttribute('aLateralBias', this.attrVolumeLateralBias);
     volumes.setAttribute('aAge', this.attrVolumeAge);
     volumes.setAttribute('aScale', this.attrVolumeScale);
     volumes.instanceCount = 0;
@@ -437,24 +459,44 @@ export class SpraySystem implements ISpray {
     forwardSpeed: number,
     visualScale = 1,
     sourceId = -1,
+    lateralBias = 0,
   ): void {
     if (impact <= 0.5 || visualScale <= 0) return;
+    const clampedBias = THREE.MathUtils.clamp(lateralBias ?? 0, -1, 1);
     const strength = THREE.MathUtils.clamp((impact - 3.5) / 10.5, 0.18, 1);
     const scale = THREE.MathUtils.clamp(visualScale, 0.3, 1) * (0.9 + strength * 0.34) * 1.2;
-    this.spawnLandingVolume(pos, forward, right, strength, scale);
+    this.spawnLandingVolume(pos, forward, right, strength, scale, clampedBias);
     this.landingEvents++;
     if (sourceId === 0) this.playerLandingEvents++;
 
     const count = Math.max(8, Math.round(LANDING_DROPLETS[this.quality] * visualScale));
     const eject = (4.8 + strength * 4.6) * 1.1;
+    let portCount = 0;
+    let starboardCount = 0;
+    let portSpeedSum = 0;
+    let starboardSpeedSum = 0;
+
     for (let i = 0; i < count; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const lateral = side * (0.5 + this.random() * 0.82);
+      const biasMul = 1 + THREE.MathUtils.clamp(side * clampedBias, -0.3, 0.4);
+      const lateral = side * (0.5 + this.random() * 0.82) * biasMul;
       const aft = 0.5 + this.random() * 0.72;
       const up = 0.62 + this.random() * 0.62;
       const inherit = Math.min(4.2, Math.max(0, forwardSpeed) * 0.08);
       const originSide = side * (0.42 + this.random() * 0.58);
       const originAft = (this.random() - 0.35) * 1.5;
+
+      if (sourceId === 0) {
+        const latSpeed = Math.abs(lateral * eject);
+        if (side > 0) {
+          portCount++;
+          portSpeedSum += latSpeed;
+        } else {
+          starboardCount++;
+          starboardSpeedSum += latSpeed;
+        }
+      }
+
       this.spawn(
         pos.x + right.x * originSide - forward.x * originAft,
         pos.y + 0.12 + this.random() * 0.16,
@@ -467,6 +509,16 @@ export class SpraySystem implements ISpray {
         this.random() < 0.28 ? 1 : 0,
         1.55 + strength * 0.4 + this.random() * 0.75,
       );
+    }
+
+    if (sourceId === 0) {
+      this.lastPlayerLandingBias = clampedBias;
+      this.lastPlayerPortMultiplier = 1 + THREE.MathUtils.clamp(1 * clampedBias, -0.3, 0.4);
+      this.lastPlayerStarboardMultiplier = 1 + THREE.MathUtils.clamp(-1 * clampedBias, -0.3, 0.4);
+      this.lastPlayerPortCount = portCount;
+      this.lastPlayerStarboardCount = starboardCount;
+      this.lastPlayerPortMeanLateralSpeed = portCount > 0 ? portSpeedSum / portCount : 0;
+      this.lastPlayerStarboardMeanLateralSpeed = starboardCount > 0 ? starboardSpeedSum / starboardCount : 0;
     }
   }
 
@@ -483,6 +535,13 @@ export class SpraySystem implements ISpray {
     this.volumeStaticDirty = false;
     this.landingEvents = 0;
     this.playerLandingEvents = 0;
+    this.lastPlayerLandingBias = 0;
+    this.lastPlayerPortMultiplier = 1;
+    this.lastPlayerStarboardMultiplier = 1;
+    this.lastPlayerPortCount = 0;
+    this.lastPlayerStarboardCount = 0;
+    this.lastPlayerPortMeanLateralSpeed = 0;
+    this.lastPlayerStarboardMeanLateralSpeed = 0;
     this.rngState = 0x51f15e7d;
     this.dropletGeometry.instanceCount = 0;
     this.volumeGeometry.instanceCount = 0;
@@ -498,6 +557,13 @@ export class SpraySystem implements ISpray {
       landingVolumeCapacity: LANDING_VOLUME_CAPACITY,
       landingEvents: this.landingEvents,
       playerLandingEvents: this.playerLandingEvents,
+      lastPlayerLandingBias: this.lastPlayerLandingBias,
+      lastPlayerPortMultiplier: this.lastPlayerPortMultiplier,
+      lastPlayerStarboardMultiplier: this.lastPlayerStarboardMultiplier,
+      lastPlayerPortCount: this.lastPlayerPortCount,
+      lastPlayerStarboardCount: this.lastPlayerStarboardCount,
+      lastPlayerPortMeanLateralSpeed: this.lastPlayerPortMeanLateralSpeed,
+      lastPlayerStarboardMeanLateralSpeed: this.lastPlayerStarboardMeanLateralSpeed,
     };
   }
 
@@ -566,6 +632,7 @@ export class SpraySystem implements ISpray {
         markActive(this.attrVolumeForward, this.activeVolumes);
         markActive(this.attrVolumeRight, this.activeVolumes);
         markActive(this.attrVolumeStrength, this.activeVolumes);
+        markActive(this.attrVolumeLateralBias, this.activeVolumes);
         markActive(this.attrVolumeScale, this.activeVolumes);
         this.volumeStaticDirty = false;
       }
@@ -602,6 +669,7 @@ export class SpraySystem implements ISpray {
     right: THREE.Vector3,
     strength: number,
     scale: number,
+    lateralBias: number,
   ): void {
     const i = this.activeVolumes < LANDING_VOLUME_CAPACITY
       ? this.activeVolumes++
@@ -616,6 +684,7 @@ export class SpraySystem implements ISpray {
     this.volumeRight[i2] = right.x;
     this.volumeRight[i2 + 1] = right.z;
     this.volumeStrength[i] = strength;
+    this.volumeLateralBias[i] = lateralBias;
     this.volumeAge[i] = 0;
     this.volumeDuration[i] = 0.68 + strength * 0.17;
     this.volumeScale[i] = scale;
@@ -652,6 +721,7 @@ export class SpraySystem implements ISpray {
       this.volumeRight[to2 + axis] = this.volumeRight[from2 + axis];
     }
     this.volumeStrength[index] = this.volumeStrength[last];
+    this.volumeLateralBias[index] = this.volumeLateralBias[last];
     this.volumeAge[index] = this.volumeAge[last];
     this.volumeDuration[index] = this.volumeDuration[last];
     this.volumeScale[index] = this.volumeScale[last];

@@ -1015,6 +1015,10 @@ export class Boat implements IBoat {
   private driftTrailCd = 0;
   private wakeSprayCd = 0;
   private landingVisualCooldown = 0;
+  private lastLandingDebugEvent = 0;
+  private lastLandingRoll = 0;
+  private lastLandingLateralG = 0;
+  private lastLandingBias = 0;
   private wakeInteractionStrength = 0;
   private wakeInteractionLift = 0;
   private wakeInteractionLateral = 0;
@@ -1406,11 +1410,6 @@ export class Boat implements IBoat {
       }
     }
 
-    if (landingImpact > 0.5 && this.landingVisualCooldown <= 0) {
-      this.emitLandingImpact(surfaceY, hSt, fwdX, fwdZ, portX, portZ, landingImpact, speedAbs);
-      this.landingVisualCooldown = TUNING.landingVisualCooldown;
-    }
-
     // Input is sampled before the vertical integrator discovers water contact.
     // Hand a held air-brake to surface drift on that exact fixed step so the
     // player never has to release and press Shift again after a normal flight.
@@ -1475,6 +1474,23 @@ export class Boat implements IBoat {
     this.pitch += this.pitchVel * dt;
     this.rollVel += (w * w * (rollT - this.roll) - 2 * w * this.rollVel) * dt;
     this.roll += this.rollVel * dt;
+
+    if (landingImpact > 0.5 && this.landingVisualCooldown <= 0) {
+      const lateralBias = clamp(
+        (-this.roll / TUNING.bankMax) * 0.7 +
+        (this.lateralG / TUNING.latGMax) * 0.3,
+        -1,
+        1,
+      );
+      if (this.id === 0) {
+        this.lastLandingDebugEvent++;
+        this.lastLandingRoll = this.roll;
+        this.lastLandingLateralG = this.lateralG;
+        this.lastLandingBias = lateralBias;
+      }
+      this.emitLandingImpact(surfaceY, hSt, fwdX, fwdZ, portX, portZ, landingImpact, speedAbs, lateralBias);
+      this.landingVisualCooldown = TUNING.landingVisualCooldown;
+    }
 
     _euler.set(-this.pitch, this.heading, this.roll, 'YXZ'); // euler.x is nose-down positive
     this.object.quaternion.setFromEuler(_euler);
@@ -2129,6 +2145,20 @@ export class Boat implements IBoat {
     };
   }
 
+  landingDebug(): {
+    event: number;
+    roll: number;
+    lateralG: number;
+    lateralBias: number;
+  } {
+    return {
+      event: this.lastLandingDebugEvent,
+      roll: this.lastLandingRoll,
+      lateralG: this.lastLandingLateralG,
+      lateralBias: this.lastLandingBias,
+    };
+  }
+
   collisionVelocity(out: THREE.Vector2): THREE.Vector2 {
     return out.set(this.velX, this.velZ);
   }
@@ -2274,6 +2304,7 @@ export class Boat implements IBoat {
     rightZ: number,
     impact: number,
     speedAbs: number,
+    lateralBias = 0,
   ): void {
     const pos = this.object.position;
     // Lift the shared splash volume above the sampled plane so the ocean depth
@@ -2289,6 +2320,7 @@ export class Boat implements IBoat {
       speedAbs,
       this.id === 0 ? 1 : this.opponentFxScale,
       this.id,
+      lateralBias,
     );
     _v2.set(pos.x - fwdX * 2.3, sternY + 0.05, pos.z - fwdZ * 2.3);
     this.wake.push(_v2, fwdX, fwdZ, 1);
@@ -2305,6 +2337,10 @@ export class Boat implements IBoat {
     this.pitchVel = 0;
     this.roll = 0;
     this.rollVel = 0;
+    this.lastLandingDebugEvent = 0;
+    this.lastLandingRoll = 0;
+    this.lastLandingLateralG = 0;
+    this.lastLandingBias = 0;
     this.boostTimer = 0;
     this.boostTotal = 0;
     this.wasDrifting = false;

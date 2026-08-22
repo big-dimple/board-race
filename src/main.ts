@@ -1508,6 +1508,10 @@ interface Harness {
   buoyCase(): Record<string, number | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
   riderHairState(): ReturnType<Rider['hairDebug']>;
+  sprayState(): {
+    spray: ReturnType<SpraySystem['debugState']>;
+    boat: ReturnType<Boat['landingDebug']>;
+  };
   selectDriver(id: string): void;
 }
 
@@ -1515,11 +1519,11 @@ let harnessUsePlayerInput = false;
 let harnessForceAirBrake = false;
 let harnessSuppressAirborneFlightTrigger = false;
 
-function advanceUntil(cond: () => boolean, maxSeconds: number): void {
+function advanceUntil(cond: () => boolean, maxSeconds: number, step = 0.25): void {
   let elapsed = 0;
   while (!cond() && elapsed < maxSeconds) {
-    loop.advance(0.25);
-    elapsed += 0.25;
+    loop.advance(step);
+    elapsed += step;
   }
 }
 
@@ -1607,6 +1611,24 @@ function earnHarnessFlight(combo = false): void {
   setHarnessInput({ throttle: 1, flightTrigger: combo });
   loop.advance(1 / 60);
   setHarnessInput(null);
+}
+
+function beginHarnessLandingDrop(steer: number): void {
+  advanceUntil(() => race.phase === 'racing', 8);
+  earnHarnessFlight(false);
+  setHarnessInput({ throttle: 1, steer });
+  advanceUntil(() => boats[0].state.landImpulse > 0, 20, 1 / 60);
+  if (boats[0].state.landImpulse <= 0) {
+    throw new Error('landing drop scenario never touched water');
+  }
+  loop.advance(2 / 60);
+  setHarnessInput(null);
+  harnessCameraOverride = {
+    target: boats[0].object,
+    offset: [0, 2.2, -4.8],
+    lookAt: [0, 0.8, -1.0],
+    fov: 50,
+  };
 }
 
 function beginHarnessRouteFlight(routeCursor = 0, initialCharges = 1): void {
@@ -2250,7 +2272,7 @@ function scenario(name: string): void {
     case "race-landing-recovery":
       advanceUntil(() => race.phase === "racing", 8);
       earnHarnessFlight(false);
-      advanceUntil(() => boats[0].state.landImpulse > 0, 20);
+      advanceUntil(() => boats[0].state.landImpulse > 0, 20, 1 / 60);
       if (boats[0].state.landImpulse <= 0) {
         throw new Error("race-landing-recovery never touched water");
       }
@@ -2262,6 +2284,15 @@ function scenario(name: string): void {
         lookAt: [0, 1.25, -0.6],
         fov: 50,
       };
+      break;
+    case "landing-straight-drop":
+      beginHarnessLandingDrop(0);
+      break;
+    case "landing-left-drop":
+      beginHarnessLandingDrop(-0.65);
+      break;
+    case "landing-right-drop":
+      beginHarnessLandingDrop(0.65);
       break;
     case "tail-inspection-sun": {
       advanceUntil(() => race.phase === 'racing', 8);
@@ -2484,6 +2515,10 @@ if (HARNESS) {
     buoyCase: runBuoyCase,
     riderPoseState: () => riders[0].poseDebug(),
     riderHairState: () => riders[0].hairDebug(),
+    sprayState: () => ({
+      spray: spray.debugState(),
+      boat: boats[0].landingDebug(),
+    }),
     selectDriver: (id) => applySelectedDriver(id),
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

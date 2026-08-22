@@ -322,6 +322,7 @@ export interface ISpray {
     forwardSpeed: number,
     visualScale?: number,
     sourceId?: number,
+    lateralBias?: number,
   ): void;
   update(dt: number, t: number): void;
   clear(): void;
