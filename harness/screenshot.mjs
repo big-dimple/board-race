@@ -160,6 +160,12 @@ async function verifyMode(browser, mobile) {
     .map((value) => value.split(' · ')[0]);
   assert.deepEqual(callsigns, ['唐老杰', '奥特曼', '美国豆包', '杨植麟', '蓬蓬头', '梁圣梁子'],
     `${label}: driver callsigns drifted`);
+  assert.equal(await page.locator('.driver-select-title').textContent(), '别懵逼，选最强',
+    `${label}: driver-select joke title drifted`);
+  assert.equal(await page.locator('.opening-driver-echo.female').count(), 2,
+    `${label}: opening showcase lost its two female competitors`);
+  assert.deepEqual(await page.locator('.opening-driver-echo.female .opening-driver-echo-badge').allTextContents(),
+    ['女将', '女将'], `${label}: female opening labels are not explicit`);
 
   const radioOnce = await page.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radioOnce.masteredFresh.activeKey, 'go', `${label}: mastered fresh run did not leave GO as the only active radio`);
@@ -316,10 +322,10 @@ async function verifyMode(browser, mobile) {
 
   await stage(page, 'flight-extension-spool', 280, false);
   const courseBuoys = await page.evaluate(() => window.__harness.buoyState());
-  assert.equal(courseBuoys.filter((state) => state.kind === 'checkpoint').length, 16,
-    `${label}: checkpoint buoy pairs left the authored surface route`);
-  assert.equal(courseBuoys.filter((state) => state.kind === 'launch').length, 14,
-    `${label}: launch entrances are not bounded by regular physical buoy pairs`);
+  assert.equal(courseBuoys.length, 16,
+    `${label}: only the eight authored checkpoint pairs may remain physical`);
+  assert.ok(courseBuoys.every((state) => state.kind === 'checkpoint'),
+    `${label}: flight navigation created a physical buoy`);
   assert.ok(courseBuoys.every((state) => state.visible),
     `${label}: a physical surface-route buoy disappeared with virtual flight guidance`);
   if (!mobile) await page.waitForFunction(() => {

@@ -82,7 +82,7 @@ export class DriverSelect {
 
     const header = element('div', 'driver-select-header', this.root);
     element('div', 'driver-select-kicker', header, 'WORLD HYDRO LEAGUE // DRIVER CONTRACT');
-    element('h1', 'driver-select-title', header, '选择你的选手');
+    element('h1', 'driver-select-title', header, '别懵逼，选最强');
     element('div', 'driver-select-objective', header, '三飞拿勋章 · 第一才算优秀 · 七飞冲向终点站');
 
     const featured = element('section', 'driver-featured', this.root);

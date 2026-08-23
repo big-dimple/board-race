@@ -8,6 +8,7 @@ type Echo = {
   readonly root: HTMLDivElement;
   readonly portrait: HTMLImageElement;
   readonly name: HTMLSpanElement;
+  readonly badge: HTMLSpanElement;
   readonly model: HTMLSpanElement;
   readonly anchor: THREE.Vector3;
 };
@@ -77,12 +78,18 @@ export class OpeningShowcase {
       copy.className = 'opening-driver-echo-copy';
       const name = document.createElement('span');
       name.className = 'opening-driver-echo-name';
+      const badge = document.createElement('span');
+      badge.className = 'opening-driver-echo-badge';
+      badge.textContent = '女将';
       const model = document.createElement('span');
       model.className = 'opening-driver-echo-model';
-      copy.append(name, model);
+      const headline = document.createElement('span');
+      headline.className = 'opening-driver-echo-headline';
+      headline.append(name, badge);
+      copy.append(headline, model);
       echoRoot.append(rail, portrait, copy);
       this.root.appendChild(echoRoot);
-      this.echoes.push({ root: echoRoot, portrait, name, model, anchor: new THREE.Vector3() });
+      this.echoes.push({ root: echoRoot, portrait, name, badge, model, anchor: new THREE.Vector3() });
     }
     this.setRoster(roster);
   }
@@ -110,6 +117,10 @@ export class OpeningShowcase {
       echo.portrait.src = profile.portraitUrl;
       echo.portrait.style.objectPosition = profile.portraitPosition;
       echo.name.textContent = profile.callsign;
+      const female = profile.pronouns === '她';
+      echo.root.classList.toggle('female', female);
+      echo.root.dataset.pronouns = profile.pronouns;
+      echo.badge.hidden = !female;
       echo.model.textContent = `${profile.name} // ${profile.specialty}`;
     }
   }

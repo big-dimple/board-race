@@ -1269,7 +1269,7 @@ interface Floater {
   homeQuaternion: THREE.Quaternion;
   /** Sea buoys are solid: a hull contact knocks them flying. */
   knockable?: boolean;
-  kind?: 'checkpoint' | 'launch';
+  kind?: 'checkpoint';
   knock?: BuoyKnock;
 }
 
@@ -1303,7 +1303,7 @@ export interface BuoyHit {
 
 export interface BuoyDebugState {
   index: number;
-  kind: 'checkpoint' | 'launch';
+  kind: 'checkpoint';
   knocked: boolean;
   landed: boolean;
   timer: number;
@@ -1535,9 +1535,8 @@ export class Course implements ICourse {
     this.surfaceGuideArrowCount = surfaceGuide.arrowCount;
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
-    const makeCourseBuoy = this.buildGates();
-    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) =>
-      this.buildLaunchGateVisual(runtime, makeCourseBuoy));
+    this.buildGates();
+    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildLaunchGateVisual(runtime));
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
@@ -3470,10 +3469,7 @@ export class Course implements ICourse {
 
   // ------------------------------------------------------------- ribbon ----
 
-  private buildLaunchGateVisual(
-    runtime: FlightRouteRuntime,
-    makeCourseBuoy: () => THREE.Group,
-  ): LaunchGateVisual {
+  private buildLaunchGateVisual(runtime: FlightRouteRuntime): LaunchGateVisual {
     const def = runtime.def;
     const group = new THREE.Group();
     group.name = `${def.id}-launch-gate`;
@@ -3527,27 +3523,6 @@ export class Course implements ICourse {
     group.userData.launchVectorPathLengthM = path.slice(1).reduce((sum, point, index) =>
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
     group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);
-
-    const right = new THREE.Vector3(launchTangent.z, 0, -launchTangent.x);
-    for (const side of [-1, 1]) {
-      const buoy = makeCourseBuoy();
-      buoy.name = `${def.id}-launch-buoy-${side < 0 ? 'left' : 'right'}`;
-      const x = launch.x + right.x * 7 * side;
-      const z = launch.z + right.z * 7 * side;
-      buoy.position.set(x, 0, z);
-      this.object.add(buoy);
-      this.floaters.push({
-        obj: buoy,
-        x,
-        z,
-        yawQ: new THREE.Quaternion(),
-        homeParent: this.object,
-        homePosition: buoy.position.clone(),
-        homeQuaternion: buoy.quaternion.clone(),
-        knockable: true,
-        kind: 'launch',
-      });
-    }
 
     const inkGeometry = new THREE.RingGeometry(0.72, 1.12, 4);
     const energyGeometry = new THREE.RingGeometry(0.68, 1.02, 4);
@@ -3837,7 +3812,7 @@ export class Course implements ICourse {
 
   // -------------------------------------------------------------- gates ----
 
-  private buildGates(): () => THREE.Group {
+  private buildGates(): void {
     const stripeTex = makeStripeTexture();
     const bodyMat = makeStripeToon(stripeTex);
     // committed accent: orange cap matching the body's accent band — no more
@@ -4004,7 +3979,6 @@ export class Course implements ICourse {
       homePosition: gantry.position.clone(),
       homeQuaternion: yawQ.clone(),
     });
-    return makeBuoy;
   }
 
   /** Gold energy columns that remain dormant until all seven routes are cleared. */

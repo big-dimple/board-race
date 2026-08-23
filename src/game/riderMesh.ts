@@ -17,6 +17,7 @@ import { LAYER_INK, markInk } from '../contracts';
 export interface RiderLook {
   driverId: string;
   hair: number;
+  hairAccent?: number;
   skin: number;
   hairStyle: 'short' | 'bob' | 'ponytail';
 }
@@ -269,8 +270,10 @@ function roleColor(role: Role, baseHex: number, look: RiderLook): THREE.Color {
     case Role.Accent: return base.clone().lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.22);
     case Role.Skin: return new THREE.Color().setHex(look.skin, THREE.NoColorSpace);
     case Role.Hair: return new THREE.Color().setHex(look.hair, THREE.NoColorSpace);
-    case Role.HairLight: return new THREE.Color().setHex(look.hair, THREE.NoColorSpace)
-      .lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.26);
+    case Role.HairLight: return look.hairAccent !== undefined
+      ? new THREE.Color().setHex(look.hairAccent, THREE.NoColorSpace)
+      : new THREE.Color().setHex(look.hair, THREE.NoColorSpace)
+        .lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.26);
     case Role.Metal: return new THREE.Color().setHex(0x66758c, THREE.NoColorSpace);
   }
 }
@@ -750,30 +753,40 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
 
   if (bobBones) {
     const [back, left, right] = bobBones;
-    // A layered shoulder curtain, not a larger cap. The wide side locks break
-    // beyond the shoulder line in the chase camera; staggered tapered tips
-    // keep the lower silhouette light and recognisably hair-like.
+    // Four curved, shoulder-length locks turn the cap into a bob without the
+    // old rigid slabs reaching the rider's waist.
     appendHairBlade(out, hairRoot, [0, 0.015, -0.115], 0.28, 0.22, 0.25, 0.08, [0.02, 0, 0]);
-    appendHairBlade(out, back, [0.068, -0.22, -0.035], 0.035, 0.15, 0.52, 0.085, [0.07, 0, -0.05]);
-    appendHairBlade(out, back, [-0.068, -0.24, -0.05], 0.03, 0.15, 0.55, 0.08, [0.09, 0, 0.05]);
-    appendHairBlade(out, left, [0.005, -0.24, -0.025], 0.045, 0.14, 0.55, 0.095, [0.07, 0, -0.12]);
-    appendHairBlade(out, left, [0.055, -0.2, -0.06], 0.022, 0.09, 0.43, 0.075, [0.11, 0, -0.17]);
-    appendHairBlade(out, right, [-0.005, -0.24, -0.025], 0.045, 0.14, 0.55, 0.095, [0.07, 0, 0.12]);
-    appendHairBlade(out, right, [-0.055, -0.2, -0.06], 0.022, 0.09, 0.43, 0.075, [0.11, 0, 0.17]);
-    appendHairBlade(out, back, [0.066, -0.17, -0.082], 0.024, 0.052, 0.34, 0.022,
-      [0.08, 0, -0.04], Role.HairLight);
-    appendHairBlade(out, back, [-0.066, -0.19, -0.09], 0.022, 0.05, 0.31, 0.022,
-      [0.1, 0, 0.04], Role.HairLight);
+    appendHairBlade(out, hairRoot, [0, -0.135, -0.18], 0.24, 0.28, 0.14, 0.035,
+      [0.02, 0, 0], Role.HairLight);
+    appendCurvedHairLock(out, back, [0.065, -0.02, -0.035], [0.045, 0.13, 0.16],
+      0.36, 0.1, -0.04, [0.07, 0, -0.05]);
+    appendCurvedHairLock(out, back, [-0.065, -0.025, -0.045], [0.04, 0.13, 0.16],
+      0.37, 0.1, -0.04, [0.08, 0, 0.05]);
+    appendCurvedHairLock(out, left, [0.045, -0.015, -0.06], [0.065, 0.18, 0.22],
+      0.34, 0.115, -0.035, [0.07, 0, -0.12]);
+    appendCurvedHairLock(out, right, [-0.045, -0.015, -0.06], [0.065, 0.18, 0.22],
+      0.34, 0.115, -0.035, [0.07, 0, 0.12]);
+    // Cyan-dipped overlays sit toward the chase camera, so the portrait cue
+    // stays visible instead of z-fighting inside the dark locks.
+    appendCurvedHairLock(out, back, [0.065, -0.245, -0.095], [0.025, 0.07, 0.085],
+      0.12, 0.035, -0.018, [0.07, 0, -0.05], Role.HairLight);
+    appendCurvedHairLock(out, back, [-0.065, -0.255, -0.1], [0.025, 0.07, 0.085],
+      0.12, 0.035, -0.018, [0.08, 0, 0.05], Role.HairLight);
+    appendCurvedHairLock(out, left, [0.045, -0.215, -0.14], [0.035, 0.11, 0.14],
+      0.12, 0.04, -0.016, [0.07, 0, -0.12], Role.HairLight);
+    appendCurvedHairLock(out, right, [-0.045, -0.215, -0.14], [0.035, 0.11, 0.14],
+      0.12, 0.04, -0.016, [0.07, 0, 0.12], Role.HairLight);
   } else if (braidBones) {
     const [tie, braid1, braid2, braid3, braid4] = braidBones;
     // Five overlapping curved sections make one high, side-swept ponytail.
     // Each child starts at the previous lock's tip, so the back silhouette
     // remains continuous through steering and landing secondary motion.
-    appendCurvedHairLock(out, tie, [0, 0, 0], [0.075, 0.09, 0.07], 0.115, 0.07, -0.045, [0.08, 0, -0.12]);
-    appendCurvedHairLock(out, braid1, [0, 0, 0], [0.065, 0.085, 0.075], 0.145, 0.075, -0.055, [-0.06, 0, -0.06]);
-    appendCurvedHairLock(out, braid2, [0, 0, 0], [0.055, 0.075, 0.065], 0.135, 0.065, -0.05, [0.05, 0, 0.05]);
-    appendCurvedHairLock(out, braid3, [0, 0, 0], [0.04, 0.06, 0.052], 0.125, 0.055, -0.04, [-0.04, 0, -0.04]);
-    appendCurvedHairLock(out, braid4, [0, 0, 0], [0.015, 0.035, 0.045], 0.1, 0.045, -0.03, [0.03, 0, 0.03]);
+    appendCurvedHairLock(out, tie, [0, 0, 0], [0.1, 0.125, 0.1], 0.15, 0.1, -0.055, [0.08, 0, -0.12]);
+    appendCurvedHairLock(out, braid1, [0, 0, 0], [0.09, 0.115, 0.1], 0.18, 0.1, -0.07, [-0.06, 0, -0.06]);
+    appendCurvedHairLock(out, braid2, [0, 0, 0], [0.075, 0.1, 0.09], 0.17, 0.09, -0.065, [0.05, 0, 0.05]);
+    appendCurvedHairLock(out, braid3, [0, 0, 0], [0.055, 0.08, 0.07], 0.16, 0.075, -0.055, [-0.04, 0, -0.04]);
+    appendCurvedHairLock(out, braid4, [0, 0, 0], [0.022, 0.052, 0.062], 0.14, 0.062, -0.045,
+      [0.03, 0, 0.03], Role.HairLight);
 
     // Four swept fringe locks frame the eyes; two narrow side locks bridge
     // the open forehead loft into the ponytail without covering the face.

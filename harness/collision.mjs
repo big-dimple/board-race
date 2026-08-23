@@ -54,10 +54,9 @@ try {
   const run = (name) => page.evaluate((caseName) => window.__harness.collisionCase(caseName), name);
 
   const courseBuoys = await page.evaluate(() => window.__harness.buoyState());
-  assert.equal(courseBuoys.filter((state) => state.kind === 'checkpoint').length, 16,
-    'all eight checkpoint pairs must remain physical');
-  assert.equal(courseBuoys.filter((state) => state.kind === 'launch').length, 14,
-    'all seven launch entrances must use regular physical buoy pairs');
+  assert.equal(courseBuoys.length, 16, 'only the eight checkpoint pairs may remain physical');
+  assert.ok(courseBuoys.every((state) => state.kind === 'checkpoint'),
+    'flight navigation must not create physical buoys');
   assert.ok(courseBuoys.every((state) => state.visible),
     'surface-route buoys must not inherit virtual flight-guide visibility');
 

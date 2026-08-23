@@ -2336,15 +2336,17 @@ function getRiderFaceTarget(): THREE.Object3D {
 }
 
 function prepareHarnessRiderInspection(): THREE.Object3D {
-  applySelectedDriver('sol');
   if (riders.some((rider) => !rider.faceDebug().hasFaceMesh) || getFaceTextureCacheSize() !== riders.length) {
     throw new Error('rider inspection requires one cached Face Patch per active rider');
   }
   const hair = riders[0].hairDebug();
-  const ponytailBones = ['braid-tie', 'braid-1', 'braid-2', 'braid-3', 'braid-4'];
-  if (hair.style !== 'ponytail' || !hair.visible ||
-      ponytailBones.some((name) => !hair.boneNames.includes(name))) {
-    throw new Error(`rider inspection lost the Sol ponytail rig: ${JSON.stringify(hair)}`);
+  const look = driverProfile(selectedDriverId).look;
+  const styleBones = look.hairStyle === 'ponytail'
+    ? ['braid-tie', 'braid-1', 'braid-2', 'braid-3', 'braid-4']
+    : look.hairStyle === 'bob' ? ['bob-back', 'bob-left', 'bob-right'] : ['hair-root'];
+  if (hair.style !== look.hairStyle || !hair.visible ||
+      styleBones.some((name) => !hair.boneNames.includes(name))) {
+    throw new Error(`rider inspection lost the ${selectedDriverId} hair rig: ${JSON.stringify(hair)}`);
   }
   placeHarnessBoat(0, 0.22, 0);
   boats[0].syncSurfacePresentation(worldTime);
@@ -2383,7 +2385,8 @@ function scenario(name: string): void {
   setHarnessEvidenceUiHidden(false);
   resetRace();
   const riderInspection = name === 'rider-inspection' || name.startsWith('rider-inspection-');
-  if (name !== 'ready' && !riderInspection) startFreshCountdown();
+  const openingInspection = name === 'opening-showcase';
+  if (name !== 'ready' && !riderInspection && !openingInspection) startFreshCountdown();
 
   switch (name) {
     case "race-straight":
@@ -2556,6 +2559,14 @@ function scenario(name: string): void {
       };
       break;
     }
+    case "opening-showcase":
+      openingShowcase.start(OPENING_SHOWCASE_S);
+      seaDecor.setOpening(true);
+      ocean.setOpeningIntensity(1);
+      sky.setOpeningIntensity(1);
+      driverSelect.setLaunchPending(true);
+      loop.advance(1.25);
+      break;
     case "ready":
       loop.advance(1.5);
       break;

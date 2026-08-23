@@ -55,13 +55,13 @@ export const DRIVER_PROFILES: readonly DriverProfile[] = [
   },
   {
     id: 'tide', name: 'ChatGPT', callsign: '奥特曼', age: 27, pronouns: '她', portraitUrl: tidePortrait, portraitPosition: '50% 20%',
-    color: PALETTE.hullNova, look: { driverId: 'tide', hair: 0x1c2a4a, skin: 0xf4cfae, hairStyle: 'bob' }, personality: 'clean', pace: 0.99, mood: '冷酷', moodIcon: '◈',
+    color: PALETTE.hullNova, look: { driverId: 'tide', hair: 0x1c2a4a, hairAccent: 0x35d7e8, skin: 0xf4cfae, hairStyle: 'bob' }, personality: 'clean', pace: 0.99, mood: '冷酷', moodIcon: '◈',
     specialty: '飞行专家', strength: '空刹精准，姿态恢复最快', weakness: '水面漂移蓄能稍慢',
     quote: '别眨眼，我只给一次机会。', handling: { acceleration: 0.99, steering: 1.01, driftCharge: 0.96, airControl: 1.06 }, rivalRank: 4,
   },
   {
     id: 'sol', name: 'Gemini', callsign: '美国豆包', age: 26, pronouns: '她', portraitUrl: solPortrait, portraitPosition: '50% 20%',
-    color: PALETTE.hullKai, look: { driverId: 'sol', hair: 0xc95f27, skin: 0xd9a06b, hairStyle: 'ponytail' }, personality: 'aggressive', pace: 1.01, mood: '骄傲', moodIcon: '▲',
+    color: PALETTE.hullKai, look: { driverId: 'sol', hair: 0xc95f27, hairAccent: 0xf6b34f, skin: 0xd9a06b, hairStyle: 'ponytail' }, personality: 'aggressive', pace: 1.01, mood: '骄傲', moodIcon: '▲',
     specialty: '起步猎手', strength: '加速强，超车窗口大胆', weakness: '急弯容易推头',
     quote: '第一名的位置，镜头最好。', handling: { acceleration: 1.05, steering: 0.97, driftCharge: 1.02, airControl: 0.99 }, rivalRank: 5,
   },
