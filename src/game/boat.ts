@@ -1161,6 +1161,9 @@ export class Boat implements IBoat {
   private flapRollVelL = 0;
   private flapRollR = 0;
   private flapRollVelR = 0;
+  private flapTargetPitchL = 0;
+  private flapTargetPitchR = 0;
+  private flapTurnIntensity = 0;
   // drift / boost
   private boostTimer = 0;
   private boostTotal = 0;
@@ -1670,7 +1673,7 @@ export class Boat implements IBoat {
       t,
       vF,
       vL,
-      st.steer,
+      steer,
       landingImpact,
       surfaceDrift,
       flightWasActive,
@@ -2051,12 +2054,7 @@ export class Boat implements IBoat {
     this.thrustRings.setMatrixAt(index, _fxMatrix);
   }
 
-  /**
-   * Physically grounded, critically damped active aerodynamic flap response:
-   * Simulates wind dynamic pressure, angle-of-attack pitch trim, differential
-   * aileron roll downforce, air-brake flare, landing shock inertia, and turbulent
-   * flutter via 2nd-order harmonic spring-damper integration (zero step snaps).
-   */
+  /** Visual-only active aero: readable arcade poses driven by the real control state. */
   private updateDynamicFlaps(
     dt: number,
     t: number,
@@ -2068,85 +2066,78 @@ export class Boat implements IBoat {
     inFlight: boolean,
     boosting: boolean,
   ): void {
-    // 1. Aerodynamic Dynamic Pressure (q = 1/2 rho v^2) -> High speed downforce
     const speedRatio = clamp(Math.abs(vF) / 42, 0, 1.4);
-    const aeroSpeedPitch = -0.028 * (speedRatio * speedRatio);
+    const aeroSpeedPitch = -0.032 * (speedRatio * speedRatio);
 
-    // 2. Angle-of-Attack (AoA) Pitch Compensation
-    // When the bow rises (pitch > 0), wing feathers down to reduce stall / stabilize attitude
-    const pitchTrim = -0.22 * this.pitch - 0.06 * this.pitchVel;
+    // Keep the low-amplitude cruise trim, but reserve the large silhouette
+    // change for drift and flight braking so the wing communicates an action.
+    const pitchTrim = -0.16 * this.pitch - 0.035 * this.pitchVel;
 
-    // 3. Roll & Turn Differential Elevons (Active Aero Cornering)
-    // Turning Left: Outside wing (Right) raises trailing edge (+pitch) to create stabilizing
-    // roll downforce; inside wing (Left) feathers down (-pitch).
-    const turnIntensity = clamp(steer * 0.65 - (this.roll / TUNING.bankMax) * 0.45 + (vL / 16) * 0.35, -1, 1);
-    const diffElevonL = -0.048 * turnIntensity;
-    const diffElevonR = +0.048 * turnIntensity;
+    const turnIntensity = clamp(
+      steer * 0.82 - (this.roll / TUNING.bankMax) * 0.12 + (vL / 16) * 0.12,
+      -1,
+      1,
+    );
+    const differentialGain = inFlight
+      ? 0.075 + 0.085 * this.airBrakeFx
+      : surfaceDrift ? 0.12 : 0.045;
+    const diffElevonL = -differentialGain * turnIntensity;
+    const diffElevonR = +differentialGain * turnIntensity;
 
-    // 4. Air-Brake, Drift Stabilizer & Flight Glide Profiles
-    let modePitch = 0;
-    if (this.airBrakeFx > 0.05) {
-      modePitch += 0.115 * this.airBrakeFx;
-    } else if (surfaceDrift) {
-      modePitch += 0.045;
-    }
-    if (inFlight) {
-      modePitch += 0.038 * (boosting ? 1.25 : 0.85);
-    }
+    const driftFlare = surfaceDrift ? 0.135 : 0;
+    const flightTrim = inFlight ? 0.052 * (boosting ? 1.12 : 1) : 0;
+    const brakeFlare = 0.24 * this.airBrakeFx;
+    const modePitch = driftFlare + flightTrim + brakeFlare;
 
-    // 5. Vertical Shock / Wave Chopping & Landing Impact Inertia
-    const shockG = clamp(landingImpact * 0.025, 0, 0.09);
+    const shockG = clamp(landingImpact * 0.028, 0, 0.105);
     const inertialPitch = -shockG;
 
-    // 6. Micro Airflow Breathing / High-Speed Turbulent Flutter
     const flutterFreq = 16 + speedRatio * 8;
-    const windFlutterL = 0.005 * Math.sin(t * flutterFreq + this.id * 1.7) * (0.25 + 0.75 * speedRatio);
-    const windFlutterR = 0.005 * Math.sin(t * flutterFreq + this.id * 1.7 + 1.1) * (0.25 + 0.75 * speedRatio);
+    const flutterScale = (surfaceDrift || this.airBrakeFx > 0.05 ? 0.008 : 0.004) *
+      (0.25 + 0.75 * speedRatio);
+    const windFlutterL = flutterScale * Math.sin(t * flutterFreq + this.id * 1.7);
+    const windFlutterR = flutterScale * Math.sin(t * flutterFreq + this.id * 1.7 + 1.1);
 
-    // Bounded target pitch angles (subtle race-aero range: ~ -5.5° to +9.5°)
     const targetPitchL = clamp(
       aeroSpeedPitch + pitchTrim + diffElevonL + modePitch + inertialPitch + windFlutterL,
-      -0.095,
-      0.165,
+      -0.18,
+      0.38,
     );
     const targetPitchR = clamp(
       aeroSpeedPitch + pitchTrim + diffElevonR + modePitch + inertialPitch + windFlutterR,
-      -0.095,
-      0.165,
+      -0.18,
+      0.38,
     );
+    this.flapTargetPitchL = targetPitchL;
+    this.flapTargetPitchR = targetPitchR;
+    this.flapTurnIntensity = turnIntensity;
 
-    // Spanwise dihedral flutter/flex (Z-axis rotation)
-    const targetRollL = clamp(+0.022 * targetPitchL - 0.016 * turnIntensity, -0.04, 0.04);
-    const targetRollR = clamp(-0.022 * targetPitchR - 0.016 * turnIntensity, -0.04, 0.04);
+    const targetRollL = clamp(+0.055 * targetPitchL - 0.035 * turnIntensity, -0.07, 0.07);
+    const targetRollR = clamp(-0.055 * targetPitchR - 0.035 * turnIntensity, -0.07, 0.07);
 
-    // 7. Second-Order Damped Harmonic Spring Solver
-    // omega = 16.5 rad/s, zeta = 0.82 (responsive, elastic, organic settle, zero jitter)
-    const omega = 16.5;
-    const zeta = 0.82;
+    // A deliberately under-damped response makes press, steering reversal,
+    // and release readable at chase-camera scale without becoming loose.
+    const omega = 11.5;
+    const zeta = 0.62;
     const fSpring = omega * omega;
     const fDamp = 2 * zeta * omega;
 
-    // Left Flap Pitch
     const accelPitchL = fSpring * (targetPitchL - this.flapPitchL) - fDamp * this.flapPitchVelL;
     this.flapPitchVelL += accelPitchL * dt;
     this.flapPitchL += this.flapPitchVelL * dt;
 
-    // Right Flap Pitch
     const accelPitchR = fSpring * (targetPitchR - this.flapPitchR) - fDamp * this.flapPitchVelR;
     this.flapPitchVelR += accelPitchR * dt;
     this.flapPitchR += this.flapPitchVelR * dt;
 
-    // Left Flap Spanwise Roll
     const accelRollL = fSpring * (targetRollL - this.flapRollL) - fDamp * this.flapRollVelL;
     this.flapRollVelL += accelRollL * dt;
     this.flapRollL += this.flapRollVelL * dt;
 
-    // Right Flap Spanwise Roll
     const accelRollR = fSpring * (targetRollR - this.flapRollR) - fDamp * this.flapRollVelR;
     this.flapRollVelR += accelRollR * dt;
     this.flapRollR += this.flapRollVelR * dt;
 
-    // Apply to visual nodes
     this.flapNodeL.rotation.x = this.flapPitchL;
     this.flapNodeL.rotation.z = this.flapRollL;
 
@@ -2320,6 +2311,33 @@ export class Boat implements IBoat {
       rings: this.flightRingActiveCount,
       plumeLength: this.flightPlumeLength,
       deflection: this.flightFlowDeflection,
+    };
+  }
+
+  /** Deterministic evidence for the real-input active-aero response. */
+  flapDebug(): {
+    leftPitch: number;
+    rightPitch: number;
+    leftVelocity: number;
+    rightVelocity: number;
+    leftTarget: number;
+    rightTarget: number;
+    commonPitch: number;
+    differential: number;
+    turnIntensity: number;
+    airBrake: number;
+  } {
+    return {
+      leftPitch: this.flapPitchL,
+      rightPitch: this.flapPitchR,
+      leftVelocity: this.flapPitchVelL,
+      rightVelocity: this.flapPitchVelR,
+      leftTarget: this.flapTargetPitchL,
+      rightTarget: this.flapTargetPitchR,
+      commonPitch: (this.flapPitchL + this.flapPitchR) * 0.5,
+      differential: this.flapPitchL - this.flapPitchR,
+      turnIntensity: this.flapTurnIntensity,
+      airBrake: this.airBrakeFx,
     };
   }
 
@@ -2630,6 +2648,19 @@ export class Boat implements IBoat {
     this.pitchVel = 0;
     this.roll = 0;
     this.rollVel = 0;
+    this.flapPitchL = 0;
+    this.flapPitchVelL = 0;
+    this.flapPitchR = 0;
+    this.flapPitchVelR = 0;
+    this.flapRollL = 0;
+    this.flapRollVelL = 0;
+    this.flapRollR = 0;
+    this.flapRollVelR = 0;
+    this.flapTargetPitchL = 0;
+    this.flapTargetPitchR = 0;
+    this.flapTurnIntensity = 0;
+    this.flapNodeL.rotation.set(0, 0, 0);
+    this.flapNodeR.rotation.set(0, 0, 0);
     this.lastLandingDebugEvent = 0;
     this.lastLandingRoll = 0;
     this.lastLandingLateralG = 0;

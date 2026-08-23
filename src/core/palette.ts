@@ -28,6 +28,13 @@ export const PALETTE = {
   foam: 0xf4feff,
   sparkle: 0xfffde7,
 
+  // Fixed sea landmark
+  lighthouseIvory: 0xf3e2be,
+  lighthouseTeal: 0x16b8c8,
+  lighthouseNavy: 0x182044,
+  lighthouseRock: 0x29364f,
+  lighthouseBeacon: 0xffc247,
+
   // Gameplay
   racingLine: 0x39ff88,
   boost: 0x7CFC00,

@@ -220,6 +220,42 @@ async function verifyMode(browser, mobile) {
       `failedAt=${offCourse.failureAfterS.toFixed(3)}s reason=${offCourse.reason}`);
   }
 
+  await stage(page, 'lighthouse-inspection');
+  const lighthouseBefore = await page.evaluate(() => window.__harness.lighthouseState());
+  await page.evaluate(() => window.__harness.advance(0.5));
+  const lighthouseAfter = await page.evaluate(() => window.__harness.lighthouseState());
+  assert.deepEqual({
+    x: lighthouseBefore.x,
+    z: lighthouseBefore.z,
+    height: lighthouseBefore.height,
+    beamRadius: lighthouseBefore.beamRadius,
+    solidMeshes: lighthouseBefore.solidMeshes,
+    effectMeshes: lighthouseBefore.effectMeshes,
+  }, { x: 110, z: 190, height: 34, beamRadius: 70, solidMeshes: 4, effectMeshes: 4 },
+  `${label}: lighthouse landmark contract drifted`);
+  assert.ok(Math.abs(lighthouseAfter.beamYaw - lighthouseBefore.beamYaw) > 0.1,
+    `${label}: lighthouse beacon did not rotate on simulation time`);
+
+  const flaps = await page.evaluate(() => window.__harness.flapCase());
+  assert.ok(flaps.drift.commonPitch > flaps.neutral.commonPitch + 0.07,
+    `${label}: drift did not visibly flare the active aero: ${JSON.stringify(flaps)}`);
+  assert.ok(Math.abs(flaps.drift.differential) > 0.09,
+    `${label}: drift steering did not split the two flaps: ${JSON.stringify(flaps.drift)}`);
+  assert.ok(flaps.driftRelease.commonPitch < flaps.drift.commonPitch - 0.025,
+    `${label}: drift release did not begin a damped return: ${JSON.stringify(flaps)}`);
+  assert.ok(flaps.flightLeft.airBrake > 0.8 && flaps.flightLeft.commonPitch > 0.18,
+    `${label}: real flight air-brake did not deploy the flaps: ${JSON.stringify(flaps.flightLeft)}`);
+  assert.ok(Math.abs(flaps.flightLeft.differential) > 0.12 &&
+    Math.abs(flaps.flightRight.differential) > 0.12 &&
+    Math.sign(flaps.flightLeft.differential) === -Math.sign(flaps.flightRight.differential),
+  `${label}: flight steering reversal did not reverse flap differential: ${JSON.stringify(flaps)}`);
+  assert.ok(Math.abs(flaps.flightRelease.leftVelocity) + Math.abs(flaps.flightRelease.rightVelocity) > 0.15,
+    `${label}: flight-brake release lost its damped motion: ${JSON.stringify(flaps.flightRelease)}`);
+  assert.ok(flaps.flightSettled.airBrake < 0.02 &&
+    Math.abs(flaps.flightSettled.leftPitch - flaps.flightSettled.leftTarget) < 0.035 &&
+    Math.abs(flaps.flightSettled.rightPitch - flaps.flightSettled.rightTarget) < 0.035,
+  `${label}: released flaps did not settle onto live trim: ${JSON.stringify(flaps.flightSettled)}`);
+
   await context.close();
   opened = await openHarness(browser, mobile);
   ({ context, page } = opened);

@@ -23,6 +23,7 @@ import { MobileControls } from './core/mobileControls';
 import { ImmersiveModeController } from './core/immersiveMode';
 import { Ocean } from './water/ocean';
 import { SeaDecor } from './water/seaDecor';
+import { LighthouseLandmark } from './water/lighthouse';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem } from './water/spray';
 import { waterHeight } from './water/waves';
@@ -108,6 +109,8 @@ const ocean = new Ocean({
 stage.scene.add(ocean.object);
 const seaDecor = new SeaDecor(stage.quality.mode);
 stage.scene.add(seaDecor.object);
+const lighthouse = new LighthouseLandmark();
+stage.scene.add(lighthouse.object);
 
 const spray = new SpraySystem(stage.quality.mode);
 spray.object.name = 'spray-system';
@@ -705,6 +708,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     ocean.update(presentationTime, stage.camera.position);
     sky.update(presentationTime, stage.camera.position);
     seaDecor.update(presentationTime, stage.camera.position);
+    lighthouse.update(presentationTime);
     course.update(dt, presentationTime);
     // The race step returns early here, so without this the riders freeze in
     // their driving pose: rivals who crossed earlier were seen celebrating,
@@ -920,6 +924,7 @@ function step(dt: number, _t: number): void {
     ocean.update(readySceneTime, stage.camera.position);
     sky.update(readySceneTime, stage.camera.position);
     seaDecor.update(readySceneTime, stage.camera.position);
+    lighthouse.update(readySceneTime);
     for (const boat of boats) boat.syncSurfacePresentation(readySceneTime);
     for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime, false);
     openingShowcase.update(dt);
@@ -946,6 +951,7 @@ function step(dt: number, _t: number): void {
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
       seaDecor.update(worldTime, stage.camera.position);
+      lighthouse.update(worldTime);
       for (const boat of boats) boat.syncSurfacePresentation(worldTime);
       for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, false);
       course.update(0, worldTime);
@@ -1280,6 +1286,7 @@ function step(dt: number, _t: number): void {
   ocean.update(worldTime, stage.camera.position);
   sky.update(worldTime, stage.camera.position);
   seaDecor.update(worldTime, stage.camera.position);
+  lighthouse.update(worldTime);
   course.update(dt, worldTime);
   for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
   spray.update(dt, worldTime);
@@ -1514,6 +1521,8 @@ interface Harness {
   buoyCase(): Record<string, number | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
   riderHairState(): ReturnType<Rider['hairDebug']>;
+  flapCase(): Record<string, unknown>;
+  lighthouseState(): ReturnType<LighthouseLandmark['debugState']>;
   faceState(): { active: number; withFaceMesh: number; cacheSize: number };
   sprayState(): {
     spray: ReturnType<SpraySystem['debugState']>;
@@ -2309,6 +2318,11 @@ const CLEAN_EVIDENCE_SCENARIOS = new Set([
   'tail-inspection-sun',
   'tail-inspection-shade',
   'tail-inspection-side',
+  'tail-drift-left',
+  'tail-drift-right',
+  'tail-airbrake-left',
+  'tail-airbrake-right',
+  'lighthouse-inspection',
   'landing-straight-drop',
   'landing-left-drop',
   'landing-right-drop',
@@ -2378,8 +2392,74 @@ function settleHarnessTailInspection(): void {
   throw new Error('tail inspection never reached a clear real-water phase');
 }
 
+function setHarnessTailCamera(): void {
+  harnessCameraOverride = {
+    target: boats[0].object,
+    offset: [0, 1.72, -6.15],
+    lookAt: [0, 0.98, -2.36],
+    fov: 46,
+  };
+}
+
+function prepareHarnessTailDrift(steer: number): void {
+  advanceUntil(() => race.phase === 'racing', 8);
+  placeHarnessBoat(0, 0.22, 0);
+  setHarnessInput({ throttle: 1 });
+  advanceUntil(() => boats[0].state.speed >= 20, 6, 1 / 60);
+  setHarnessInput({ throttle: 1, steer, drift: true });
+  loop.advance(0.55);
+  if (!boats[0].state.drifting) throw new Error('tail drift evidence did not use the real drift state');
+  setHarnessTailCamera();
+}
+
+function prepareHarnessTailAirBrake(steer: number): void {
+  advanceUntil(() => race.phase === 'racing', 8);
+  harnessKeepFlightMissRunning = true;
+  beginHarnessRouteFlight(0, 1);
+  setHarnessInput({ throttle: 1 });
+  advanceUntil(() => boats[0].state.flightPhase === 'cruise', 4, 1 / 60);
+  if (boats[0].state.flightPhase === 'surface') {
+    throw new Error('tail air-brake evidence never entered controlled flight');
+  }
+  setHarnessInput({ throttle: 1, steer, airBrake: true });
+  loop.advance(0.48);
+  if (boats[0].state.flightAirBrake < 0.8) {
+    throw new Error('tail air-brake evidence did not use the real flight brake state');
+  }
+  setHarnessTailCamera();
+}
+
+function runFlapCase(): Record<string, unknown> {
+  scenario('tail-inspection-sun');
+  const neutral = boats[0].flapDebug();
+
+  scenario('tail-drift-left');
+  const drift = boats[0].flapDebug();
+  setHarnessInput({ throttle: 1 });
+  loop.advance(0.12);
+  const driftRelease = boats[0].flapDebug();
+
+  scenario('tail-airbrake-left');
+  const flightLeft = boats[0].flapDebug();
+  setHarnessInput({ throttle: 1, steer: 0.85, airBrake: true });
+  loop.advance(0.42);
+  const flightRight = boats[0].flapDebug();
+  setHarnessInput({ throttle: 1, steer: 0, airBrake: false });
+  loop.advance(0.14);
+  const flightRelease = boats[0].flapDebug();
+  loop.advance(0.9);
+  const flightSettled = boats[0].flapDebug();
+
+  return { neutral, drift, driftRelease, flightLeft, flightRight, flightRelease, flightSettled };
+}
+
 function scenario(name: string): void {
   harnessCameraOverride = null;
+  course.object.visible = true;
+  spray.object.visible = true;
+  jetTrail.object.visible = true;
+  for (const boat of boats) boat.object.visible = true;
+  for (const wake of wakes) wake.object.visible = true;
   harnessUsePlayerInput = false;
   harnessSuppressAirborneFlightTrigger = false;
   harnessKeepFlightMissRunning = false;
@@ -2511,6 +2591,45 @@ function scenario(name: string): void {
       };
       break;
     }
+    case "tail-drift-left":
+      prepareHarnessTailDrift(-0.85);
+      break;
+    case "tail-drift-right":
+      prepareHarnessTailDrift(0.85);
+      break;
+    case "tail-airbrake-left":
+      prepareHarnessTailAirBrake(-0.85);
+      break;
+    case "tail-airbrake-right":
+      prepareHarnessTailAirBrake(0.85);
+      break;
+    case "lighthouse-inspection":
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(0.7);
+      course.object.visible = false;
+      spray.object.visible = false;
+      jetTrail.object.visible = false;
+      for (const boat of boats) boat.object.visible = false;
+      for (const wake of wakes) wake.object.visible = false;
+      harnessCameraOverride = {
+        target: lighthouse.object,
+        offset: [-54, 11, -38],
+        lookAt: [0, 15.2, 0],
+        fov: 36,
+      };
+      break;
+    case "lighthouse-chase":
+      advanceUntil(() => race.phase === 'racing', 8);
+      placeHarnessBoat(0, 0.02, 0);
+      setHarnessInput({ throttle: 1 });
+      loop.advance(1.2);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0.8, 3.0, -8.5],
+        lookAt: [10, 3.0, 45],
+        fov: 55,
+      };
+      break;
     case "rider-inspection":
     case "rider-inspection-front": {
       const face = prepareHarnessRiderInspection();
@@ -2748,6 +2867,8 @@ if (HARNESS) {
     buoyCase: runBuoyCase,
     riderPoseState: () => riders[0].poseDebug(),
     riderHairState: () => riders[0].hairDebug(),
+    flapCase: runFlapCase,
+    lighthouseState: () => lighthouse.debugState(),
     faceState: () => {
       let active = 0;
       let withFaceMesh = 0;
