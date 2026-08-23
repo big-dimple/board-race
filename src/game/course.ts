@@ -1271,6 +1271,27 @@ interface Floater {
   knockable?: boolean;
   kind?: 'checkpoint';
   knock?: BuoyKnock;
+  balloonObj?: THREE.Group;
+  balloonFlight?: BuoyBalloonFlight;
+}
+
+/** Ballistic & tumbling state of a tethered rubber ducky balloon popped off its buoy. */
+interface BuoyBalloonFlight {
+  boatId: number;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  vRotX: number;
+  vRotY: number;
+  vRotZ: number;
+  timer: number;
+  popped: boolean;
 }
 
 /** Ballistic state of a buoy smacked off its station. */
@@ -1301,6 +1322,8 @@ export interface BuoyHit {
   z: number;
 }
 
+export type BalloonPop = BuoyHit;
+
 export interface BuoyDebugState {
   index: number;
   kind: 'checkpoint';
@@ -1315,11 +1338,15 @@ export interface BuoyDebugState {
   visible: boolean;
 }
 
-// A buoy hit is a shrug, not a crash: the float takes the energy, the hull
-// keeps 93% of its speed.
+// The float takes the hit and the hull keeps 80% of its speed.
 const BUOY_HIT_RADIUS = 2.2;
 const BUOY_HIT_MIN_SPEED = 5;
-const BUOY_HIT_SPEED_CUT = 0.07;
+const BUOY_HIT_SPEED_CUT = 0.20; // 20% speed cut on buoy collision for punchy impact
+const BALLOON_POP_TIME = 0.72; // s before the balloon explodes in mid-air
+const BALLOON_LAUNCH_VY = 22.5; // m/s explosive upward rocket speed
+const BALLOON_GRAVITY = 9.8;
+const BALLOON_DRAG = 0.45;
+const BALLOON_IDLE_Y = 3.55;
 const BUOY_RESPAWN_S = 9;
 const BUOY_SINK_S = 0.8;
 const BUOY_GROW_S = 0.35;
@@ -1470,6 +1497,11 @@ export class Course implements ICourse {
   private readonly flightVisuals: FlightRouteVisual[];
   private readonly launchGateVisuals: LaunchGateVisual[];
   private readonly floaters: Floater[] = [];
+  private readonly balloonPops: BalloonPop[] = Array.from(
+    { length: CHECKPOINT_US.length * 2 },
+    () => ({ boatId: -1, x: 0, y: 0, z: 0 }),
+  );
+  private balloonPopCount = 0;
   private readonly flightPrev: THREE.Vector3[] = [];
   private readonly flightPrevClearance: number[] = [];
   private readonly flightLatched: number[] = [];
@@ -1589,6 +1621,14 @@ export class Course implements ICourse {
     return out;
   }
 
+  /** Drain any mid-air rubber ducky balloon pop events for visual/audio effects. */
+  consumeBalloonPops(out: BalloonPop[]): BalloonPop[] {
+    out.length = 0;
+    for (let i = 0; i < this.balloonPopCount; i++) out.push(this.balloonPops[i]);
+    this.balloonPopCount = 0;
+    return out;
+  }
+
   routePointAt(routeId: CourseRouteId, u: number, out: THREE.Vector3): THREE.Vector3 {
     // Lookahead is allowed to run through both joins. Returning to the surface
     // curve outside the authored span keeps AI from targeting a clamped end
@@ -1687,6 +1727,7 @@ export class Course implements ICourse {
   }
 
   resetFlightChallenge(): void {
+    this.balloonPopCount = 0;
     this.flightPrev.length = 0;
     this.flightPrevClearance.length = 0;
     this.flightLatched.length = 0;
@@ -1761,6 +1802,13 @@ export class Course implements ICourse {
       floater.obj.scale.setScalar(1);
       floater.obj.position.copy(floater.homePosition);
       floater.obj.quaternion.copy(floater.homeQuaternion);
+      if (floater.balloonObj) {
+        if (floater.balloonObj.parent !== floater.obj) floater.obj.add(floater.balloonObj);
+        floater.balloonObj.position.set(0, BALLOON_IDLE_Y, 0);
+        floater.balloonObj.rotation.set(0, 0, 0);
+        floater.balloonObj.visible = true;
+        floater.balloonFlight = undefined;
+      }
     }
   }
 
@@ -2658,6 +2706,36 @@ export class Course implements ICourse {
       }
     }
     for (const f of this.floaters) {
+      if (f.balloonFlight && !f.balloonFlight.popped && f.balloonObj) {
+        const b = f.balloonFlight;
+        b.timer += dt;
+        if (b.timer >= BALLOON_POP_TIME) {
+          b.popped = true;
+          f.balloonObj.visible = false;
+          const pop = this.balloonPops[this.balloonPopCount];
+          if (pop) {
+            pop.boatId = b.boatId;
+            pop.x = b.x;
+            pop.y = b.y;
+            pop.z = b.z;
+            this.balloonPopCount++;
+          }
+        } else {
+          b.vy -= BALLOON_GRAVITY * dt;
+          b.vx *= Math.max(0, 1 - BALLOON_DRAG * dt);
+          b.vz *= Math.max(0, 1 - BALLOON_DRAG * dt);
+          const wobble = Math.sin(b.timer * 34.0) * 0.6;
+          b.x += (b.vx + wobble) * dt;
+          b.y += b.vy * dt;
+          b.z += (b.vz - wobble) * dt;
+          b.rotX += b.vRotX * dt;
+          b.rotY += b.vRotY * dt;
+          b.rotZ += b.vRotZ * dt;
+          f.balloonObj.position.set(b.x, b.y, b.z);
+          f.balloonObj.rotation.set(b.rotX, b.rotY, b.rotZ);
+        }
+      }
+
       if (f.knock) {
         this.updateKnockedFloater(f, dt, t);
         continue;
@@ -2690,6 +2768,15 @@ export class Course implements ICourse {
         f.obj.position.copy(f.homePosition);
         f.obj.quaternion.copy(f.homeQuaternion);
         f.knock = undefined;
+        if (f.balloonObj) {
+          if (f.balloonObj.parent !== f.obj) {
+            f.obj.add(f.balloonObj);
+          }
+          f.balloonObj.position.set(0, BALLOON_IDLE_Y, 0);
+          f.balloonObj.rotation.set(0, 0, 0);
+          f.balloonObj.visible = true;
+          f.balloonFlight = undefined;
+        }
       }
       return;
     }
@@ -2783,6 +2870,32 @@ export class Course implements ICourse {
           landed: false,
           maxY: f.obj.position.y,
         };
+        if (f.balloonObj) {
+          f.balloonObj.parent?.remove(f.balloonObj);
+          this.object.add(f.balloonObj);
+          const startX = f.x;
+          const startY = f.obj.position.y + BALLOON_IDLE_Y;
+          const startZ = f.z;
+          f.balloonObj.position.set(startX, startY, startZ);
+          f.balloonObj.visible = true;
+          f.balloonFlight = {
+            boatId: boat.id,
+            x: startX,
+            y: startY,
+            z: startZ,
+            vx: kvx * 0.85,
+            vy: BALLOON_LAUNCH_VY,
+            vz: kvz * 0.85,
+            rotX: 0,
+            rotY: 0,
+            rotZ: 0,
+            vRotX: (18.0 + Math.random() * 8.0) * (Math.random() < 0.5 ? -1 : 1),
+            vRotY: (26.0 + Math.random() * 10.0) * (Math.random() < 0.5 ? -1 : 1),
+            vRotZ: (14.0 + Math.random() * 6.0) * (Math.random() < 0.5 ? -1 : 1),
+            timer: 0,
+            popped: false,
+          };
+        }
         boat.applyCollisionResponse(0, 0, -vel.x * BUOY_HIT_SPEED_CUT, -vel.y * BUOY_HIT_SPEED_CUT);
         out.push({ boatId: boat.id, x: f.x, y: f.obj.position.y + 0.6, z: f.z });
       }
@@ -3852,12 +3965,102 @@ export class Course implements ICourse {
       emissive: PALETTE.hullPlayer,
       emissiveIntensity: 0.5,
     });
-    // ~30% smaller float: the old disc was wider than the buoy above it is tall
+    // Professional Maritime Navigation Spar Buoy + Rubber Ducky Balloon
     const floatGeo = new THREE.TorusGeometry(0.88, 0.3, 10, 20);
     floatGeo.rotateX(Math.PI / 2);
-    const bodyGeo = new THREE.CylinderGeometry(0.75, 0.85, 1.9, 14);
-    const coneGeo = new THREE.ConeGeometry(0.66, 0.85, 14); // short squat cap, not a spire
+    const bodyGeo = new THREE.CylinderGeometry(0.68, 0.78, 1.8, 14);
+    const whiteBandGeo = new THREE.CylinderGeometry(0.705, 0.705, 0.5, 14);
+    const coneGeo = new THREE.ConeGeometry(0.62, 0.85, 14);
     const foamRingGeo = makeFoamRingGeometry();
+
+    const duckYellowMat = createToonMaterial({
+      color: PALETTE.hullKai,
+      emissive: PALETTE.hullKai,
+      emissiveIntensity: 0.42,
+    });
+    const duckBeakMat = createToonMaterial({
+      color: PALETTE.hullPlayer,
+      emissive: PALETTE.hullPlayer,
+      emissiveIntensity: 0.45,
+    });
+    const sparWhiteMat = createToonMaterial({
+      color: PALETTE.foam,
+      emissive: PALETTE.foam,
+      emissiveIntensity: 0.38,
+    });
+    const tetherMat = createToonMaterial({ color: PALETTE.ink });
+
+    // Ducky balloon geometry parts with eyes, knot and wing feathers.
+    const duckBodyGeo = new THREE.SphereGeometry(0.44, 12, 10);
+    duckBodyGeo.scale(1.0, 0.86, 1.22);
+    const duckHeadGeo = new THREE.SphereGeometry(0.3, 10, 8);
+    const duckBeakGeo = new THREE.ConeGeometry(0.12, 0.25, 8);
+    duckBeakGeo.rotateX(Math.PI / 2);
+    const duckEyeGeo = new THREE.SphereGeometry(0.045, 6, 6);
+    const duckWingGeo = new THREE.BoxGeometry(0.1, 0.18, 0.38);
+    const duckKnotGeo = new THREE.ConeGeometry(0.07, 0.12, 6);
+    duckKnotGeo.rotateX(Math.PI);
+    const tetherGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.85, 6);
+
+    const makeDuckBalloon = (): THREE.Group => {
+      const g = new THREE.Group();
+      g.name = 'ducky-balloon';
+      const body = new THREE.Mesh(duckBodyGeo, duckYellowMat);
+      body.position.y = 0.45;
+      const head = new THREE.Mesh(duckHeadGeo, duckYellowMat);
+      head.position.set(0, 0.74, 0.18);
+      const beak = new THREE.Mesh(duckBeakGeo, duckBeakMat);
+      beak.position.set(0, 0.72, 0.48);
+      const eyeL = new THREE.Mesh(duckEyeGeo, tetherMat);
+      eyeL.position.set(-0.16, 0.80, 0.36);
+      eyeL.userData.noOutline = true;
+      eyeL.userData.noInk = true;
+      const eyeR = new THREE.Mesh(duckEyeGeo, tetherMat);
+      eyeR.position.set(0.16, 0.80, 0.36);
+      eyeR.userData.noOutline = true;
+      eyeR.userData.noInk = true;
+      const wingL = new THREE.Mesh(duckWingGeo, duckYellowMat);
+      wingL.position.set(-0.42, 0.48, 0.05);
+      wingL.rotation.z = -0.22;
+      const wingR = new THREE.Mesh(duckWingGeo, duckYellowMat);
+      wingR.position.set(0.42, 0.48, 0.05);
+      wingR.rotation.z = 0.22;
+      const knot = new THREE.Mesh(duckKnotGeo, duckYellowMat);
+      knot.position.y = 0.05;
+      const tether = new THREE.Mesh(tetherGeo, tetherMat);
+      tether.position.y = -0.38;
+      tether.userData.noOutline = true;
+      tether.userData.noInk = true;
+
+      g.add(body, head, beak, eyeL, eyeR, wingL, wingR, knot, tether);
+      return g;
+    };
+
+    const makeBuoy = (): { group: THREE.Group; balloon: THREE.Group } => {
+      const g = new THREE.Group();
+      const f = new THREE.Mesh(floatGeo, floatMat);
+      f.position.y = 0.35;
+      const b = new THREE.Mesh(bodyGeo, coneMat); // high-visibility marine orange spar body
+      b.position.y = 1.45;
+      const band = new THREE.Mesh(whiteBandGeo, sparWhiteMat); // international reflective white band
+      band.position.y = 1.45;
+      band.userData.noOutline = true;
+      const c = new THREE.Mesh(coneGeo, coneMat);
+      c.position.y = 2.75;
+      const ring = new THREE.Mesh(foamRingGeo, foamRingMat);
+      ring.position.y = 0.1;
+      ring.userData.noOutline = true;
+
+      const balloon = makeDuckBalloon();
+      balloon.position.y = BALLOON_IDLE_Y;
+      g.add(f, b, band, c, ring, balloon);
+
+      addOutline(g, { width: 0.75 });
+      markInk(g);
+      ring.layers.disable(LAYER_INK);
+      return { group: g, balloon };
+    };
+
     const towerGeo = new THREE.CylinderGeometry(0.72, 1.05, 10.0, 12);
     const towerRadiusAt = (y: number): number => THREE.MathUtils.lerp(1.05, 0.72, y / 10);
     const towerSection = (fromY: number, toY: number): THREE.BufferGeometry => {
@@ -3879,28 +4082,6 @@ export class Course implements ICourse {
     const towerAccentGeo = towerSection(8.125, 10);
     const towerCapGeo = new THREE.ConeGeometry(1.08, 1.5, 12);
 
-    const makeBuoy = (): THREE.Group => {
-      const g = new THREE.Group();
-      const f = new THREE.Mesh(floatGeo, floatMat);
-      f.position.y = 0.35;
-      const b = new THREE.Mesh(bodyGeo, bodyMat);
-      b.position.y = 1.55;
-      const c = new THREE.Mesh(coneGeo, coneMat);
-      c.position.y = 2.93; // base sits on the body top (2.5), tip at 3.35
-      // scalloped foam ring at the waterline: bobs/tilts with the buoy;
-      // never outlined, never written into the ink prepass
-      const ring = new THREE.Mesh(foamRingGeo, foamRingMat);
-      ring.position.y = 0.1;
-      ring.userData.noOutline = true;
-      g.add(f, b, c, ring);
-      // thinner ink than the gantry: full-width outlines on a far buoy merge
-      // into a black cluster — at 0.75 the silhouette stays light-striped
-      addOutline(g, { width: 0.75 });
-      markInk(g);
-      ring.layers.disable(LAYER_INK);
-      return g;
-    };
-
     const p = new THREE.Vector3();
     const t = new THREE.Vector3();
 
@@ -3912,7 +4093,7 @@ export class Course implements ICourse {
       const rx = t.z * il; // right normal
       const rz = -t.x * il;
       for (const side of [-1, 1]) {
-        const buoy = makeBuoy();
+        const { group: buoy, balloon } = makeBuoy();
         const x = p.x + rx * 7 * side;
         const z = p.z + rz * 7 * side;
         buoy.position.set(x, 0, z);
@@ -3927,6 +4108,7 @@ export class Course implements ICourse {
           homeQuaternion: buoy.quaternion.clone(),
           knockable: true,
           kind: 'checkpoint',
+          balloonObj: balloon,
         });
       }
     }

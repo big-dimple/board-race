@@ -26,6 +26,7 @@ import { SeaDecor } from './water/seaDecor';
 import { LighthouseLandmark } from './water/lighthouse';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem } from './water/spray';
+import { FeatherSystem } from './water/feather';
 import { waterHeight } from './water/waves';
 import { Sky } from './cel/sky';
 import { VISIBLE_SUN_DIR } from './cel/toonMaterial';
@@ -56,7 +57,7 @@ import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
 import { BoatCollisionSystem, type CollisionHit } from './game/collision';
-import type { BuoyHit } from './game/course';
+import type { BalloonPop, BuoyHit } from './game/course';
 import { CameraRig, type CameraImpactLevel } from './game/chaseCamera';
 import { HUD } from './hud/hud';
 import { GameAudio } from './audio/audio';
@@ -115,6 +116,10 @@ stage.scene.add(lighthouse.object);
 const spray = new SpraySystem(stage.quality.mode);
 spray.object.name = 'spray-system';
 stage.scene.add(spray.object);
+
+const feathers = new FeatherSystem();
+feathers.object.name = 'feather-system';
+stage.scene.add(feathers.object);
 
 const jetTrail = new JetTrailSystem();
 stage.scene.add(jetTrail.object);
@@ -749,6 +754,7 @@ function resetRace(): void {
   course.resetFlightChallenge();
   collisions.reset();
   spray.clear();
+  feathers.clear();
   input.reset();
   gamepadInput.reset();
   mobileInput.reset();
@@ -1106,6 +1112,7 @@ function step(dt: number, _t: number): void {
     }
     presentPlayerCollisions(hits);
     presentBuoyHits(course.applyBuoyHits(boats, buoyHitScratch));
+    presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
   }
   let enteredMedal = false;
   if (playerPassedFlight && race.phase === 'racing') {
@@ -1290,6 +1297,7 @@ function step(dt: number, _t: number): void {
   course.update(dt, worldTime);
   for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
   spray.update(dt, worldTime);
+  feathers.update(dt, worldTime);
   jetTrail.update(dt);
 
   const ps = boats[0].state;
@@ -1749,17 +1757,32 @@ function placeHarnessBoat(id: number, u: number, lateral = 0): void {
 /** Move staged boats in small, non-teleport progress increments for battle UX. */
 const collisionFxPoint = new THREE.Vector3();
 const buoyHitScratch: BuoyHit[] = [];
+const balloonPopScratch: BalloonPop[] = [];
+const balloonPopPoint = new THREE.Vector3();
 
 /**
- * Buoy contacts are a shrug, not a crash: no camera kick, no radio callout —
- * just spray at the float and a light tap for the player.
+ * Buoy contacts: 20% speed cut, instant water splash + yellow feather puff,
+ * launching the rubber ducky into a wild 720-degree tumble before exploding.
  */
 function presentBuoyHits(hits: readonly BuoyHit[]): void {
   for (const hit of hits) {
     collisionFxPoint.set(hit.x, hit.y, hit.z);
-    spray.burst(collisionFxPoint, 5, 3);
+    spray.burst(collisionFxPoint, 8, 4.2);
+    feathers.burst(collisionFxPoint, 14, 6.0);
     if (hit.boatId === 0) {
-      audio.collision(2.5);
+      audio.collision(3.0);
+      haptics.impact('collision-heavy', 0.5, false);
+    }
+  }
+}
+
+function presentBalloonPops(pops: readonly BalloonPop[]): void {
+  for (const pop of pops) {
+    balloonPopPoint.set(pop.x, pop.y, pop.z);
+    feathers.burst(balloonPopPoint, 24, 8.5);
+    spray.burst(balloonPopPoint, 6, 4.0);
+    if (pop.boatId === 0) {
+      audio.collision(2.6);
       haptics.impact('collision-light', 0.3, false);
     }
   }
@@ -2760,10 +2783,57 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 0 });
       loop.advance(2.0);
       break;
+    case "buoy-inspection": {
+      advanceUntil(() => race.phase === "racing", 8);
+      loop.advance(1.5);
+      course.pointAt(CHECKPOINT_US[0], tmpP);
+      course.tangentAt(CHECKPOINT_US[0], tmpT).normalize();
+      const buoyX = tmpP.x + tmpT.z * 7;
+      const buoyZ = tmpP.z - tmpT.x * 7;
+      const sx = buoyX - tmpT.x * 8.5 - tmpT.z * 1.5;
+      const sz = buoyZ - tmpT.z * 8.5 + tmpT.x * 1.5;
+      boats[0].teleport(sx, sz, Math.atan2(buoyX - sx, buoyZ - sz));
+      setHarnessInput({ throttle: 0 });
+      loop.advance(0.6);
+      break;
+    }
+    case "buoy-tumble-spin": {
+      advanceUntil(() => race.phase === "racing", 8);
+      loop.advance(1.5);
+      course.pointAt(CHECKPOINT_US[0], tmpP);
+      course.tangentAt(CHECKPOINT_US[0], tmpT).normalize();
+      const buoyX = tmpP.x + tmpT.z * 7;
+      const buoyZ = tmpP.z - tmpT.x * 7;
+      const sx = buoyX - tmpT.x * 32;
+      const sz = buoyZ - tmpT.z * 32;
+      boats[0].teleport(sx, sz, Math.atan2(buoyX - sx, buoyZ - sz));
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => {
+        const p = boats[0].state.position;
+        return Math.hypot(buoyX - p.x, buoyZ - p.z) < 2.8;
+      }, 5);
+      loop.advance(0.24);
+      break;
+    }
+    case "buoy-feather-pop": {
+      advanceUntil(() => race.phase === "racing", 8);
+      loop.advance(1.5);
+      course.pointAt(CHECKPOINT_US[0], tmpP);
+      course.tangentAt(CHECKPOINT_US[0], tmpT).normalize();
+      const buoyX = tmpP.x + tmpT.z * 7;
+      const buoyZ = tmpP.z - tmpT.x * 7;
+      const sx = buoyX - tmpT.x * 32;
+      const sz = buoyZ - tmpT.z * 32;
+      boats[0].teleport(sx, sz, Math.atan2(buoyX - sx, buoyZ - sz));
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => {
+        const p = boats[0].state.position;
+        return Math.hypot(buoyX - p.x, buoyZ - p.z) < 2.8;
+      }, 5);
+      loop.advance(0.76);
+      break;
+    }
     case "buoy-hit": {
-      // Aim the player straight at the first checkpoint's right-hand buoy and
-      // hold throttle: the float gets smacked off its station, the hull
-      // keeps ~93% speed.
       advanceUntil(() => race.phase === "racing", 8);
       course.pointAt(CHECKPOINT_US[0], tmpP);
       course.tangentAt(CHECKPOINT_US[0], tmpT).normalize();
