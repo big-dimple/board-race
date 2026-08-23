@@ -787,71 +787,87 @@ function prismFromSide(
   return flatGeometry(pos);
 }
 
-/**
- * High-performance aerodynamic rear wing array:
- * Dual-tier folded foil plates with true thickness variation ("有厚有薄" — structural
- * leading edge spar tapering to razor-thin trailing plate), swept knife-edge blade pylons,
- * and sculpted thin-plate endplate winglets with aerodynamic vortex cutouts.
- */
-function buildRearWingGeometry(): THREE.BufferGeometry {
+/** Static rear wing pylons mounted firmly to the hull. */
+function buildRearWingBaseGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
     // Twin swept blade pylons: raked aerodynamic struts tapering from deck to wing spar
     transformedPart(prismFromSide([[0.64, -1.82], [1.10, -2.12], [1.10, -2.36], [0.64, -2.26]], 0.015),
       [0.34, 0, 0]),
     transformedPart(prismFromSide([[0.64, -1.82], [1.10, -2.12], [1.10, -2.36], [0.64, -2.26]], 0.015),
       [-0.34, 0, 0]),
-
-    // Primary lower foil blade: broad swept plate with 26mm leading spar tapering to 6mm trailing flap
-    prismFromTaperedFoldedPlan([
-      [-0.18, -2.06], [-0.88, -2.18], [-1.02, -2.58], [-0.52, -2.68], [-0.22, -2.48],
-    ], 1.08, -2.06, -2.68, 0.026, 0.006),
-    prismFromTaperedFoldedPlan([
-      [0.18, -2.06], [0.88, -2.18], [1.02, -2.58], [0.52, -2.68], [0.22, -2.48],
-    ], 1.08, -2.06, -2.68, 0.026, 0.006),
-
-    // Secondary elevated aero flap: upper slotted Gurney/DRS blade with negative space airflow gap
-    prismFromTaperedFoldedPlan([
-      [-0.24, -2.34], [-0.84, -2.42], [-0.96, -2.76], [-0.46, -2.82], [-0.26, -2.64],
-    ], 1.08, -2.34, -2.82, 0.016, 0.005, 0.038),
-    prismFromTaperedFoldedPlan([
-      [0.24, -2.34], [0.84, -2.42], [0.96, -2.76], [0.46, -2.82], [0.26, -2.64],
-    ], 1.08, -2.34, -2.82, 0.016, 0.005, 0.038),
-
-    // Thin sculpted endplate winglets: 14mm plate thickness, 25.2-degree outward cant, stepped aero cutouts
-    transformedPart(prismFromSide([
-      [-0.04, -2.14], [0.38, -2.28], [0.32, -2.78], [0.18, -2.76], [0.14, -2.68], [-0.02, -2.62],
-    ], 0.007), [0.98, rearWingBottomY(0.98), 0], [0, 0, -0.44]),
-    transformedPart(prismFromSide([
-      [-0.04, -2.14], [0.38, -2.28], [0.32, -2.78], [0.18, -2.76], [0.14, -2.68], [-0.02, -2.62],
-    ], 0.007), [-0.98, rearWingBottomY(-0.98), 0], [0, 0, 0.44]),
   ]);
 }
 
-/** Precision aerodynamic accent slats on the upper and lower flaps. */
-function buildRearWingAccentGeometry(): THREE.BufferGeometry {
-  return mergeFlatGeometryParts([
-    // Leading-edge trim slats on the lower foil
-    prismFromTaperedFoldedPlan([
-      [-0.28, -2.08], [-0.82, -2.19], [-0.78, -2.28], [-0.32, -2.20],
-    ], 1.08, -2.08, -2.28, 0.028, 0.022, 0.002),
-    prismFromTaperedFoldedPlan([
-      [0.28, -2.08], [0.82, -2.19], [0.78, -2.28], [0.32, -2.20],
-    ], 1.08, -2.08, -2.28, 0.028, 0.022, 0.002),
+/**
+ * Articulated aerodynamic flap geometry for one side (side = 1 for Left +X, -1 for Right -X).
+ * Pivot origin is at [side * 0.18, 1.08, -2.06].
+ */
+function buildRearWingFlapGeometry(side: 1 | -1): THREE.BufferGeometry {
+  const pivotX = side * 0.18;
+  const pivotY = 1.08;
+  const pivotZ = -2.06;
 
-    // Upper flap contrast chevron
-    prismFromTaperedFoldedPlan([
-      [-0.32, -2.36], [-0.76, -2.43], [-0.72, -2.52], [-0.36, -2.46],
-    ], 1.08, -2.36, -2.52, 0.018, 0.014, 0.040),
-    prismFromTaperedFoldedPlan([
-      [0.32, -2.36], [0.76, -2.43], [0.72, -2.52], [0.36, -2.46],
-    ], 1.08, -2.36, -2.52, 0.018, 0.014, 0.040),
-
-    // Endplate exterior aero strakes
-    transformedPart(prismFromSide([[0.10, -2.24], [0.28, -2.34], [0.24, -2.62], [0.12, -2.56]], 0.010),
-      [0.98, rearWingBottomY(0.98), 0], [0, 0, -0.44]),
-    transformedPart(prismFromSide([[0.10, -2.24], [0.28, -2.34], [0.24, -2.62], [0.12, -2.56]], 0.010),
-      [-0.98, rearWingBottomY(-0.98), 0], [0, 0, 0.44]),
+  const rawFlap = mergeFlatGeometryParts([
+    // Primary lower foil blade: broad swept plate with 26mm leading spar tapering to 6mm trailing flap
+    prismFromTaperedFoldedPlan(
+      side > 0
+        ? [[0.18, -2.06], [0.88, -2.18], [1.02, -2.58], [0.52, -2.68], [0.22, -2.48]]
+        : [[-0.18, -2.06], [-0.88, -2.18], [-1.02, -2.58], [-0.52, -2.68], [-0.22, -2.48]],
+      1.08, -2.06, -2.68, 0.026, 0.006,
+    ),
+    // Secondary elevated aero flap: upper slotted Gurney/DRS blade with negative space airflow gap
+    prismFromTaperedFoldedPlan(
+      side > 0
+        ? [[0.24, -2.34], [0.84, -2.42], [0.96, -2.76], [0.46, -2.82], [0.26, -2.64]]
+        : [[-0.24, -2.34], [-0.84, -2.42], [-0.96, -2.76], [-0.46, -2.82], [-0.26, -2.64]],
+      1.08, -2.34, -2.82, 0.016, 0.005, 0.038,
+    ),
+    // Thin sculpted endplate winglet: 14mm plate thickness, 25.2-degree outward cant, stepped aero cutouts
+    transformedPart(
+      prismFromSide([
+        [-0.04, -2.14], [0.38, -2.28], [0.32, -2.78], [0.18, -2.76], [0.14, -2.68], [-0.02, -2.62],
+      ], 0.007),
+      [side * 0.98, rearWingBottomY(0.98), 0],
+      [0, 0, -side * 0.44],
+    ),
   ]);
+
+  return transformedPart(rawFlap, [-pivotX, -pivotY, -pivotZ]);
+}
+
+/**
+ * Articulated flap accent trim for one side.
+ * Shifted relative to hinge pivot [side * 0.18, 1.08, -2.06].
+ */
+function buildRearWingFlapAccentGeometry(side: 1 | -1): THREE.BufferGeometry {
+  const pivotX = side * 0.18;
+  const pivotY = 1.08;
+  const pivotZ = -2.06;
+
+  const rawAccent = mergeFlatGeometryParts([
+    // Leading-edge trim slats on the lower foil
+    prismFromTaperedFoldedPlan(
+      side > 0
+        ? [[0.28, -2.08], [0.82, -2.19], [0.78, -2.28], [0.32, -2.20]]
+        : [[-0.28, -2.08], [-0.82, -2.19], [-0.78, -2.28], [-0.32, -2.20]],
+      1.08, -2.08, -2.28, 0.028, 0.022, 0.002,
+    ),
+    // Upper flap contrast chevron
+    prismFromTaperedFoldedPlan(
+      side > 0
+        ? [[0.32, -2.36], [0.76, -2.43], [0.72, -2.52], [0.36, -2.46]]
+        : [[-0.32, -2.36], [-0.76, -2.43], [-0.72, -2.52], [-0.36, -2.46]],
+      1.08, -2.36, -2.52, 0.018, 0.014, 0.040,
+    ),
+    // Endplate exterior aero strakes
+    transformedPart(
+      prismFromSide([[0.10, -2.24], [0.28, -2.34], [0.24, -2.62], [0.12, -2.56]], 0.010),
+      [side * 0.98, rearWingBottomY(0.98), 0],
+      [0, 0, -side * 0.44],
+    ),
+  ]);
+
+  return transformedPart(rawAccent, [-pivotX, -pivotY, -pivotZ]);
 }
 
 /** Curved-looking faceted wind deflector with a swept top edge. */
@@ -930,6 +946,8 @@ function buildBoatVisual(id: number, color: number): {
   riderMount: THREE.Object3D;
   hullMaterial: THREE.ShaderMaterial;
   lowDetailInkSolids: readonly THREE.Mesh[];
+  flapNodeL: THREE.Group;
+  flapNodeR: THREE.Group;
 } {
   const root = new THREE.Group();
   root.name = 'hull';
@@ -973,7 +991,7 @@ function buildBoatVisual(id: number, color: number): {
     buildSponsonGeometry(1),
     buildSponsonGeometry(-1),
     buildTailCowlGeometry(),
-    buildRearWingGeometry(),
+    buildRearWingBaseGeometry(),
     transformedPart(new THREE.CylinderGeometry(0.16, 0.12, 0.34, 16), [0, 0.21, -2.56], [Math.PI / 2, 0, 0]),
   ];
   const hull = add(mergeFlatGeometryParts(shellParts), hullMat);
@@ -985,7 +1003,6 @@ function buildBoatVisual(id: number, color: number): {
     transformedPart(buildRubRailGeometry(-1)),
     buildCockpitCoamingGeometry(),
     buildDeckStripeGeometry(0.115, 0.009),
-    buildRearWingAccentGeometry(),
     transformedPart(new THREE.CylinderGeometry(0.055, 0.075, 0.43, 14), [0, 0.88, -0.72], [-0.42, 0, 0]),
     transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), BOAT_GRIP_LOCAL.right, [0, 0, Math.PI / 2]),
     transformedPart(new THREE.CylinderGeometry(0.06, 0.06, 0.22, 12), BOAT_GRIP_LOCAL.left, [0, 0, Math.PI / 2]),
@@ -994,6 +1011,33 @@ function buildBoatVisual(id: number, color: number): {
   const safety = add(mergeFlatGeometryParts(safetyParts), foamMat);
   safety.name = 'boat-safety-trim-batch';
   safety.userData.assetClass = 'integrated-safety-trim';
+
+  // Articulated active aero flaps: Left and Right independent damped foil nodes
+  const flapNodeL = new THREE.Group();
+  flapNodeL.name = 'boat-flap-left';
+  flapNodeL.position.set(0.18, 1.08, -2.06);
+
+  const flapShellL = new THREE.Mesh(buildRearWingFlapGeometry(1), hullMat);
+  flapShellL.name = 'boat-flap-shell-left';
+  flapNodeL.add(flapShellL);
+
+  const flapAccentL = new THREE.Mesh(buildRearWingFlapAccentGeometry(1), foamMat);
+  flapAccentL.name = 'boat-flap-accent-left';
+  flapNodeL.add(flapAccentL);
+  root.add(flapNodeL);
+
+  const flapNodeR = new THREE.Group();
+  flapNodeR.name = 'boat-flap-right';
+  flapNodeR.position.set(-0.18, 1.08, -2.06);
+
+  const flapShellR = new THREE.Mesh(buildRearWingFlapGeometry(-1), hullMat);
+  flapShellR.name = 'boat-flap-shell-right';
+  flapNodeR.add(flapShellR);
+
+  const flapAccentR = new THREE.Mesh(buildRearWingFlapAccentGeometry(-1), foamMat);
+  flapAccentR.name = 'boat-flap-accent-right';
+  flapNodeR.add(flapAccentR);
+  root.add(flapNodeR);
 
   const mechanicalParts: THREE.BufferGeometry[] = [
     buildCockpitTubGeometry(),
@@ -1068,7 +1112,14 @@ function buildBoatVisual(id: number, color: number): {
   riderMount.position.set(0, 0.64, -1.05);
   root.add(riderMount);
 
-  return { root, riderMount, hullMaterial: hullMat, lowDetailInkSolids: [hull] };
+  return {
+    root,
+    riderMount,
+    hullMaterial: hullMat,
+    lowDetailInkSolids: [hull, flapShellL, flapShellR],
+    flapNodeL,
+    flapNodeR,
+  };
 }
 
 // ---------------------------------------------------------------- boat ----
@@ -1099,6 +1150,17 @@ export class Boat implements IBoat {
   private pitchVel = 0;
   private roll = 0;
   private rollVel = 0;
+  // dynamic active aero flaps (2nd-order damped harmonic oscillators)
+  private readonly flapNodeL: THREE.Group;
+  private readonly flapNodeR: THREE.Group;
+  private flapPitchL = 0;
+  private flapPitchVelL = 0;
+  private flapPitchR = 0;
+  private flapPitchVelR = 0;
+  private flapRollL = 0;
+  private flapRollVelL = 0;
+  private flapRollR = 0;
+  private flapRollVelR = 0;
   // drift / boost
   private boostTimer = 0;
   private boostTotal = 0;
@@ -1178,6 +1240,8 @@ export class Boat implements IBoat {
     presentation.add(visual.root);
     this.riderMount = visual.riderMount;
     this.hullMaterial = visual.hullMaterial;
+    this.flapNodeL = visual.flapNodeL;
+    this.flapNodeR = visual.flapNodeR;
 
     if (opts.detailedInk !== false) {
       addOutline(this.object);
@@ -1600,6 +1664,19 @@ export class Boat implements IBoat {
     _euler.set(-this.pitch, this.heading, this.roll, 'YXZ'); // euler.x is nose-down positive
     this.object.quaternion.setFromEuler(_euler);
 
+    // ---- active aerodynamic rear wing flaps ----
+    this.updateDynamicFlaps(
+      dt,
+      t,
+      vF,
+      vL,
+      st.steer,
+      landingImpact,
+      surfaceDrift,
+      flightWasActive,
+      boosting,
+    );
+
     // ---- ink blob shadow on the water ----
     // Child of the boat group, counter-rotated so it stays world-flat, glued
     // to the local water surface. Gap above the water swells/thins it — the
@@ -1974,6 +2051,109 @@ export class Boat implements IBoat {
     this.thrustRings.setMatrixAt(index, _fxMatrix);
   }
 
+  /**
+   * Physically grounded, critically damped active aerodynamic flap response:
+   * Simulates wind dynamic pressure, angle-of-attack pitch trim, differential
+   * aileron roll downforce, air-brake flare, landing shock inertia, and turbulent
+   * flutter via 2nd-order harmonic spring-damper integration (zero step snaps).
+   */
+  private updateDynamicFlaps(
+    dt: number,
+    t: number,
+    vF: number,
+    vL: number,
+    steer: number,
+    landingImpact: number,
+    surfaceDrift: boolean,
+    inFlight: boolean,
+    boosting: boolean,
+  ): void {
+    // 1. Aerodynamic Dynamic Pressure (q = 1/2 rho v^2) -> High speed downforce
+    const speedRatio = clamp(Math.abs(vF) / 42, 0, 1.4);
+    const aeroSpeedPitch = -0.028 * (speedRatio * speedRatio);
+
+    // 2. Angle-of-Attack (AoA) Pitch Compensation
+    // When the bow rises (pitch > 0), wing feathers down to reduce stall / stabilize attitude
+    const pitchTrim = -0.22 * this.pitch - 0.06 * this.pitchVel;
+
+    // 3. Roll & Turn Differential Elevons (Active Aero Cornering)
+    // Turning Left: Outside wing (Right) raises trailing edge (+pitch) to create stabilizing
+    // roll downforce; inside wing (Left) feathers down (-pitch).
+    const turnIntensity = clamp(steer * 0.65 - (this.roll / TUNING.bankMax) * 0.45 + (vL / 16) * 0.35, -1, 1);
+    const diffElevonL = -0.048 * turnIntensity;
+    const diffElevonR = +0.048 * turnIntensity;
+
+    // 4. Air-Brake, Drift Stabilizer & Flight Glide Profiles
+    let modePitch = 0;
+    if (this.airBrakeFx > 0.05) {
+      modePitch += 0.115 * this.airBrakeFx;
+    } else if (surfaceDrift) {
+      modePitch += 0.045;
+    }
+    if (inFlight) {
+      modePitch += 0.038 * (boosting ? 1.25 : 0.85);
+    }
+
+    // 5. Vertical Shock / Wave Chopping & Landing Impact Inertia
+    const shockG = clamp(landingImpact * 0.025, 0, 0.09);
+    const inertialPitch = -shockG;
+
+    // 6. Micro Airflow Breathing / High-Speed Turbulent Flutter
+    const flutterFreq = 16 + speedRatio * 8;
+    const windFlutterL = 0.005 * Math.sin(t * flutterFreq + this.id * 1.7) * (0.25 + 0.75 * speedRatio);
+    const windFlutterR = 0.005 * Math.sin(t * flutterFreq + this.id * 1.7 + 1.1) * (0.25 + 0.75 * speedRatio);
+
+    // Bounded target pitch angles (subtle race-aero range: ~ -5.5° to +9.5°)
+    const targetPitchL = clamp(
+      aeroSpeedPitch + pitchTrim + diffElevonL + modePitch + inertialPitch + windFlutterL,
+      -0.095,
+      0.165,
+    );
+    const targetPitchR = clamp(
+      aeroSpeedPitch + pitchTrim + diffElevonR + modePitch + inertialPitch + windFlutterR,
+      -0.095,
+      0.165,
+    );
+
+    // Spanwise dihedral flutter/flex (Z-axis rotation)
+    const targetRollL = clamp(+0.022 * targetPitchL - 0.016 * turnIntensity, -0.04, 0.04);
+    const targetRollR = clamp(-0.022 * targetPitchR - 0.016 * turnIntensity, -0.04, 0.04);
+
+    // 7. Second-Order Damped Harmonic Spring Solver
+    // omega = 16.5 rad/s, zeta = 0.82 (responsive, elastic, organic settle, zero jitter)
+    const omega = 16.5;
+    const zeta = 0.82;
+    const fSpring = omega * omega;
+    const fDamp = 2 * zeta * omega;
+
+    // Left Flap Pitch
+    const accelPitchL = fSpring * (targetPitchL - this.flapPitchL) - fDamp * this.flapPitchVelL;
+    this.flapPitchVelL += accelPitchL * dt;
+    this.flapPitchL += this.flapPitchVelL * dt;
+
+    // Right Flap Pitch
+    const accelPitchR = fSpring * (targetPitchR - this.flapPitchR) - fDamp * this.flapPitchVelR;
+    this.flapPitchVelR += accelPitchR * dt;
+    this.flapPitchR += this.flapPitchVelR * dt;
+
+    // Left Flap Spanwise Roll
+    const accelRollL = fSpring * (targetRollL - this.flapRollL) - fDamp * this.flapRollVelL;
+    this.flapRollVelL += accelRollL * dt;
+    this.flapRollL += this.flapRollVelL * dt;
+
+    // Right Flap Spanwise Roll
+    const accelRollR = fSpring * (targetRollR - this.flapRollR) - fDamp * this.flapRollVelR;
+    this.flapRollVelR += accelRollR * dt;
+    this.flapRollR += this.flapRollVelR * dt;
+
+    // Apply to visual nodes
+    this.flapNodeL.rotation.x = this.flapPitchL;
+    this.flapNodeL.rotation.z = this.flapRollL;
+
+    this.flapNodeR.rotation.x = this.flapPitchR;
+    this.flapNodeR.rotation.z = this.flapRollR;
+  }
+
   beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void {
     const st = this.state;
     if (st.flightRouteState !== 'idle' || routeCursor !== st.flightRouteCursor || routeIndex < 0) return;
@@ -2011,9 +2191,9 @@ export class Boat implements IBoat {
     if (st.flightRouteState !== 'passed' || st.flightPhase !== 'surface') return;
     st.flightRouteState = 'idle';
     st.flightRouteIndex = -1;
+    st.flightGateProgress = 0;
     st.flightRouteFailReason = 'none';
     st.flightFailure = null;
-    st.flightGateProgress = 0;
   }
 
   recoverFailedFlightRoute(): void {
@@ -2090,6 +2270,14 @@ export class Boat implements IBoat {
     const hSt = waterHeight(pos.x - fwdX * TUNING.sampleLong, pos.z - fwdZ * TUNING.sampleLong, t);
     const surfaceY = (hBowL + hBowR + hMidL + hMidR + hSt) / 5;
     this.presentation.position.y = surfaceY - TUNING.draft - pos.y;
+
+    // Gentle aerodynamic swell breathing when idling before start
+    const idleBreathingL = 0.014 * Math.sin(t * 3.4 + this.id * 1.2);
+    const idleBreathingR = 0.014 * Math.sin(t * 3.4 + this.id * 1.2 + 0.6);
+    this.flapNodeL.rotation.x = idleBreathingL;
+    this.flapNodeR.rotation.x = idleBreathingR;
+    this.flapNodeL.rotation.z = 0;
+    this.flapNodeR.rotation.z = 0;
   }
 
   /** Deterministic harness evidence for AI technique visibility. */
