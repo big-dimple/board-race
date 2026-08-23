@@ -25,6 +25,7 @@ import { Ocean } from './water/ocean';
 import { SeaDecor } from './water/seaDecor';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem } from './water/spray';
+import { waterHeight } from './water/waves';
 import { Sky } from './cel/sky';
 import { VISIBLE_SUN_DIR } from './cel/toonMaterial';
 import { createPostPipeline } from './cel/postPipeline';
@@ -355,7 +356,7 @@ function buildAiControllers(): AIController[] {
 }
 
 function applySelectedDriver(id: string): void {
-  if (race.phase !== 'ready' && !HARNESS) return;
+  if (race.phase !== 'ready') return;
   selectedDriverId = driverProfile(id).id;
   saveSelectedDriver(selectedDriverId);
   roster = buildRaceRoster(selectedDriverId);
@@ -1060,7 +1061,8 @@ function step(dt: number, _t: number): void {
     for (let i = 0; i < boats.length; i++) {
       const state = boats[i].state;
       const routeState = state.flightRouteState;
-      if (i > 0 && routeState === 'failed' && state.flightPhase === 'surface') {
+      if ((i > 0 || (HARNESS && harnessKeepFlightMissRunning)) &&
+          routeState === 'failed' && state.flightPhase === 'surface') {
         boats[i].recoverFailedFlightRoute();
         routeLifecycleStates[i] = boats[i].state.flightRouteState;
         harnessPrevRouteStates[i] = boats[i].state.flightRouteState;
@@ -1074,7 +1076,7 @@ function step(dt: number, _t: number): void {
       if (routeState === routeLifecycleStates[i]) continue;
       routeLifecycleStates[i] = routeState;
       if (routeState === 'failed') {
-        if (i === 0) {
+        if (i === 0 && !(HARNESS && harnessKeepFlightMissRunning)) {
           if (state.flightFailure) race.defeatFlight(state.flightFailure);
         }
       } else if (routeState === 'passed') {
@@ -1520,6 +1522,7 @@ interface Harness {
 let harnessUsePlayerInput = false;
 let harnessForceAirBrake = false;
 let harnessSuppressAirborneFlightTrigger = false;
+let harnessKeepFlightMissRunning = false;
 
 function advanceUntil(cond: () => boolean, maxSeconds: number, step = 0.25): void {
   let elapsed = 0;
@@ -1592,8 +1595,7 @@ function tapHarnessFlight(throttle = 1): void {
   setHarnessInput({ throttle, flightTrigger: false });
 }
 
-/** Trigger one Space edge while preserving the real AI steer/throttle output. */
-/** Earn through the real Space path; used to guard the core drift→flight contract. */
+/** Earn through the real drift-release path; combo can launch on the release step. */
 function earnHarnessFlight(combo = false): void {
   setHarnessInput({ throttle: 1 });
   let elapsed = 0;
@@ -1615,15 +1617,86 @@ function earnHarnessFlight(combo = false): void {
   setHarnessInput(null);
 }
 
+function launchEarnedHarnessFlight(): void {
+  if (boats[0].state.flightCharges < 1) {
+    throw new Error('Harness flight launch had no earned charge');
+  }
+  tapHarnessFlight();
+  advanceUntil(() => boats[0].state.flightPhase !== 'surface', 2, 1 / 60);
+  if (boats[0].state.flightPhase === 'surface') {
+    throw new Error('Harness flight edge never started controlled flight');
+  }
+}
+
+function assertHarnessRiderPose(scenarioName: string): void {
+  const pose = riders[0].poseDebug();
+  for (const [side, arm] of Object.entries(pose)) {
+    const values = [arm.handGrip, arm.elbowAngle, arm.elbowForward, arm.elbowOut];
+    if (!values.every(Number.isFinite) || arm.handGrip > 0.025 ||
+        arm.elbowAngle < 0.7 || arm.elbowAngle > 1.92 ||
+        arm.elbowForward < 0.23 || arm.elbowForward > 0.32 ||
+        arm.elbowOut <= 0 || arm.elbowOut > 0.13) {
+      throw new Error(`${scenarioName} ${side} arm failed its IK evidence gate: ${JSON.stringify(arm)}`);
+    }
+  }
+}
+
 function beginHarnessLandingDrop(steer: number): void {
   advanceUntil(() => race.phase === 'racing', 8);
   earnHarnessFlight(false);
+  harnessKeepFlightMissRunning = true;
+  launchEarnedHarnessFlight();
+  const eventBeforeContact = boats[0].landingDebug().event;
   setHarnessInput({ throttle: 1, steer });
-  advanceUntil(() => boats[0].state.landImpulse > 0, 20, 1 / 60);
-  if (boats[0].state.landImpulse <= 0) {
-    throw new Error('landing drop scenario never touched water');
+  advanceUntil(() => boats[0].state.flightPhase === 'descending', 12, 1 / 60);
+  if (boats[0].state.flightPhase !== 'descending') {
+    throw new Error('landing drop scenario never reached controlled descent');
+  }
+  advanceUntil(() => {
+    const debug = boats[0].landingDebug();
+    return boats[0].state.landImpulse > 0 && debug.event > eventBeforeContact;
+  }, 8, 1 / 60);
+  const landing = boats[0].landingDebug();
+  if (boats[0].state.landImpulse <= 0 || landing.event !== eventBeforeContact + 1) {
+    throw new Error(`landing drop expected one controlled contact, got event ${landing.event}`);
+  }
+  if (steer < 0 && landing.lateralG <= 0) {
+    throw new Error(`left landing lost positive lateralG: ${landing.lateralG}`);
+  }
+  if (steer > 0 && landing.lateralG >= 0) {
+    throw new Error(`right landing lost negative lateralG: ${landing.lateralG}`);
   }
   loop.advance(2 / 60);
+  const sprayEvidence = spray.debugState();
+  if (sprayEvidence.playerLandingEvents !== landing.event ||
+      Math.abs(sprayEvidence.lastPlayerLandingBias - landing.lateralBias) > 1e-4) {
+    throw new Error('landing drop boat and spray evidence came from different contacts');
+  }
+  const countImbalance = Math.abs(
+    sprayEvidence.lastPlayerPortCount - sprayEvidence.lastPlayerStarboardCount,
+  ) / Math.max(1, sprayEvidence.lastPlayerPortCount, sprayEvidence.lastPlayerStarboardCount);
+  if (countImbalance > 0.15) {
+    throw new Error(`landing drop side counts exceeded tolerance: ${countImbalance}`);
+  }
+  const maxMeanSpeed = Math.max(
+    1e-6,
+    sprayEvidence.lastPlayerPortMeanLateralSpeed,
+    sprayEvidence.lastPlayerStarboardMeanLateralSpeed,
+  );
+  const speedImbalance = Math.abs(
+    sprayEvidence.lastPlayerPortMeanLateralSpeed - sprayEvidence.lastPlayerStarboardMeanLateralSpeed,
+  ) / maxMeanSpeed;
+  if (steer === 0 && (Math.abs(landing.lateralG) > 0.5 || speedImbalance > 0.1)) {
+    throw new Error(`straight landing lost symmetry: lateralG=${landing.lateralG}, speed=${speedImbalance}`);
+  }
+  if (steer < 0 && (landing.lateralBias <= 0 ||
+      sprayEvidence.lastPlayerPortMultiplier <= sprayEvidence.lastPlayerStarboardMultiplier)) {
+    throw new Error(`left landing spray bias reversed: ${landing.lateralBias}`);
+  }
+  if (steer > 0 && (landing.lateralBias >= 0 ||
+      sprayEvidence.lastPlayerPortMultiplier >= sprayEvidence.lastPlayerStarboardMultiplier)) {
+    throw new Error(`right landing spray bias reversed: ${landing.lateralBias}`);
+  }
   setHarnessInput(null);
   harnessCameraOverride = {
     target: boats[0].object,
@@ -2222,6 +2295,33 @@ function stageHarnessGateFailure(): void {
 const riderInspectionAnchor = new THREE.Object3D();
 riderInspectionAnchor.name = 'rider-inspection-anchor';
 boats[0].riderMount.add(riderInspectionAnchor);
+const harnessTailCameraPoint = new THREE.Vector3();
+const harnessReactorPoint = new THREE.Vector3();
+
+const CLEAN_EVIDENCE_SCENARIOS = new Set([
+  'race-straight',
+  'race-steer-left',
+  'race-flight',
+  'race-landing-recovery',
+  'tail-inspection-sun',
+  'tail-inspection-shade',
+  'tail-inspection-side',
+  'landing-straight-drop',
+  'landing-left-drop',
+  'landing-right-drop',
+  'rider-inspection',
+  'rider-inspection-front',
+  'rider-inspection-three-quarter',
+  'rider-inspection-side',
+  'rider-inspection-back',
+  'rider-inspection-chase',
+]);
+
+function setHarnessEvidenceUiHidden(hidden: boolean): void {
+  hudLayer.style.display = hidden ? 'none' : '';
+  mobileInput.setOverlayHidden(hidden);
+  if (hidden) mixer.setVisible(false);
+}
 
 function getRiderFaceTarget(): THREE.Object3D {
   const head = boats[0].riderMount.getObjectByName('head');
@@ -2235,14 +2335,55 @@ function getRiderFaceTarget(): THREE.Object3D {
   return riderInspectionAnchor;
 }
 
+function prepareHarnessRiderInspection(): THREE.Object3D {
+  applySelectedDriver('sol');
+  if (riders.some((rider) => !rider.faceDebug().hasFaceMesh) || getFaceTextureCacheSize() !== riders.length) {
+    throw new Error('rider inspection requires one cached Face Patch per active rider');
+  }
+  const hair = riders[0].hairDebug();
+  const ponytailBones = ['braid-tie', 'braid-1', 'braid-2', 'braid-3', 'braid-4'];
+  if (hair.style !== 'ponytail' || !hair.visible ||
+      ponytailBones.some((name) => !hair.boneNames.includes(name))) {
+    throw new Error(`rider inspection lost the Sol ponytail rig: ${JSON.stringify(hair)}`);
+  }
+  placeHarnessBoat(0, 0.22, 0);
+  boats[0].syncSurfacePresentation(worldTime);
+  riders[0].update(1 / 60, boats[0].state, worldTime, false);
+  return getRiderFaceTarget();
+}
+
+function settleHarnessTailInspection(): void {
+  setHarnessInput({ throttle: 0 });
+  for (let step = 0; step < 900; step++) {
+    boats[0].object.updateWorldMatrix(true, false);
+    harnessTailCameraPoint.set(0, 1.6, -6);
+    boats[0].object.localToWorld(harnessTailCameraPoint);
+    harnessReactorPoint.set(0, 1.15, -2.6);
+    boats[0].object.localToWorld(harnessReactorPoint);
+    const cameraClearance = harnessTailCameraPoint.y -
+      waterHeight(harnessTailCameraPoint.x, harnessTailCameraPoint.z, worldTime);
+    const reactorClearance = harnessReactorPoint.y -
+      waterHeight(harnessReactorPoint.x, harnessReactorPoint.z, worldTime);
+    if (cameraClearance >= 0.45 && reactorClearance >= 0.25) {
+      setHarnessInput(null);
+      return;
+    }
+    loop.advance(1 / 60);
+  }
+  throw new Error('tail inspection never reached a clear real-water phase');
+}
+
 function scenario(name: string): void {
   harnessCameraOverride = null;
   harnessUsePlayerInput = false;
   harnessSuppressAirborneFlightTrigger = false;
+  harnessKeepFlightMissRunning = false;
   for (let id = 0; id < harnessBoatInputOverrides.length; id++) harnessBoatInputOverrides[id] = null;
   setHarnessInput(null);
+  setHarnessEvidenceUiHidden(false);
   resetRace();
-  if (name !== "ready") startFreshCountdown();
+  const riderInspection = name === 'rider-inspection' || name.startsWith('rider-inspection-');
+  if (name !== 'ready' && !riderInspection) startFreshCountdown();
 
   switch (name) {
     case "race-straight":
@@ -2274,10 +2415,8 @@ function scenario(name: string): void {
     case "race-flight":
       advanceUntil(() => race.phase === "racing", 8);
       earnHarnessFlight(false);
-      advanceUntil(() => boats[0].state.flightPhase !== "surface", 10);
-      if (boats[0].state.flightPhase === "surface") {
-        throw new Error("race-flight never took off");
-      }
+      harnessKeepFlightMissRunning = true;
+      launchEarnedHarnessFlight();
       loop.advance(0.35);
       setHarnessInput(null);
       harnessCameraOverride = {
@@ -2290,8 +2429,14 @@ function scenario(name: string): void {
     case "race-landing-recovery":
       advanceUntil(() => race.phase === "racing", 8);
       earnHarnessFlight(false);
-      advanceUntil(() => boats[0].state.landImpulse > 0, 20, 1 / 60);
-      if (boats[0].state.landImpulse <= 0) {
+      harnessKeepFlightMissRunning = true;
+      launchEarnedHarnessFlight();
+      const eventBeforeContact = boats[0].landingDebug().event;
+      advanceUntil(() => boats[0].state.flightPhase === 'descending', 12, 1 / 60);
+      advanceUntil(() => boats[0].state.landImpulse > 0 &&
+        boats[0].landingDebug().event > eventBeforeContact, 8, 1 / 60);
+      if (boats[0].state.landImpulse <= 0 ||
+          boats[0].landingDebug().event !== eventBeforeContact + 1) {
         throw new Error("race-landing-recovery never touched water");
       }
       loop.advance(0.20);
@@ -2317,7 +2462,7 @@ function scenario(name: string): void {
       const sunHeading = Math.atan2(VISIBLE_SUN_DIR.x, VISIBLE_SUN_DIR.z);
       placeHarnessBoat(0, 0.22, 0);
       boats[0].teleport(boats[0].state.position.x, boats[0].state.position.z, sunHeading);
-      loop.advance(0.05);
+      settleHarnessTailInspection();
       harnessCameraOverride = {
         target: boats[0].object,
         offset: [0, 1.6, -6],
@@ -2331,7 +2476,7 @@ function scenario(name: string): void {
       const shadeHeading = Math.atan2(VISIBLE_SUN_DIR.x, VISIBLE_SUN_DIR.z) + Math.PI;
       placeHarnessBoat(0, 0.22, 0);
       boats[0].teleport(boats[0].state.position.x, boats[0].state.position.z, shadeHeading);
-      loop.advance(0.05);
+      settleHarnessTailInspection();
       harnessCameraOverride = {
         target: boats[0].object,
         offset: [0, 1.6, -6],
@@ -2362,67 +2507,47 @@ function scenario(name: string): void {
     }
     case "rider-inspection":
     case "rider-inspection-front": {
-      advanceUntil(() => race.phase === 'racing', 8);
-      loop.advance(1.8);
-      placeHarnessBoat(0, 0.22, 0);
-      applySelectedDriver('sol');
-      loop.advance(1 / 60);
+      const face = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: boats[0].riderMount,
-        offset: [0, 0.90, 1.25],
-        lookAt: [0, 0.98, 0.15],
-        fov: 32,
+        target: face,
+        offset: [0, 0.10, 2.2],
+        lookAt: [0, 0.10, 0],
+        fov: 28,
       };
       break;
     }
     case "rider-inspection-three-quarter": {
-      advanceUntil(() => race.phase === 'racing', 8);
-      loop.advance(1.8);
-      placeHarnessBoat(0, 0.22, 0);
-      applySelectedDriver('sol');
-      loop.advance(1 / 60);
+      const face = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: boats[0].riderMount,
-        offset: [0.95, 0.94, 0.95],
-        lookAt: [0, 0.98, 0.15],
-        fov: 32,
+        target: face,
+        offset: [1.55, 0.14, 1.55],
+        lookAt: [0, 0.10, 0],
+        fov: 28,
       };
       break;
     }
     case "rider-inspection-side": {
-      advanceUntil(() => race.phase === 'racing', 8);
-      loop.advance(1.8);
-      placeHarnessBoat(0, 0.22, 0);
-      applySelectedDriver('sol');
-      loop.advance(1 / 60);
+      const face = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: boats[0].riderMount,
-        offset: [1.35, 0.96, 0.15],
-        lookAt: [0, 0.98, 0.15],
-        fov: 32,
+        target: face,
+        offset: [2.2, 0.12, 0],
+        lookAt: [0, 0.10, 0],
+        fov: 28,
       };
       break;
     }
     case "rider-inspection-back": {
-      advanceUntil(() => race.phase === 'racing', 8);
-      loop.advance(1.8);
-      placeHarnessBoat(0, 0.22, 0);
-      applySelectedDriver('sol');
-      loop.advance(1 / 60);
+      const face = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: boats[0].riderMount,
-        offset: [0, 1.02, -1.35],
-        lookAt: [0, 0.98, 0.15],
-        fov: 32,
+        target: face,
+        offset: [0, 0.16, -2.2],
+        lookAt: [0, 0.10, 0],
+        fov: 28,
       };
       break;
     }
     case "rider-inspection-chase": {
-      advanceUntil(() => race.phase === 'racing', 8);
-      loop.advance(1.8);
-      placeHarnessBoat(0, 0.22, 0);
-      applySelectedDriver('sol');
-      loop.advance(1 / 60);
+      prepareHarnessRiderInspection();
       harnessCameraOverride = {
         target: boats[0].object,
         offset: [0, 3.0, -8.0],
@@ -2548,6 +2673,11 @@ function scenario(name: string): void {
     default:
       throw new Error(`unknown scenario: `);
   }
+  if (name === 'race-straight' || name === 'race-steer-left' ||
+      name === 'race-flight' || name === 'race-landing-recovery') {
+    assertHarnessRiderPose(name);
+  }
+  if (CLEAN_EVIDENCE_SCENARIOS.has(name)) setHarnessEvidenceUiHidden(true);
 }
 
 function runBuoyCase(): Record<string, number | boolean> {

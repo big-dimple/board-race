@@ -475,11 +475,13 @@ export class SpraySystem implements ISpray {
     let starboardCount = 0;
     let portSpeedSum = 0;
     let starboardSpeedSum = 0;
+    let pairedLateralMagnitude = 0;
 
     for (let i = 0; i < count; i++) {
       const side = i % 2 === 0 ? -1 : 1;
       const biasMul = 1 + THREE.MathUtils.clamp(side * clampedBias, -0.3, 0.4);
-      const lateral = side * (0.5 + this.random() * 0.82) * biasMul;
+      if (i % 2 === 0) pairedLateralMagnitude = 0.5 + this.random() * 0.82;
+      const lateral = side * pairedLateralMagnitude * biasMul;
       const aft = 0.5 + this.random() * 0.72;
       const up = 0.62 + this.random() * 0.62;
       const inherit = Math.min(4.2, Math.max(0, forwardSpeed) * 0.08);

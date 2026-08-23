@@ -388,6 +388,65 @@ function appendHairBlade(
   appendPanel(out, bone, role, position, [bottomWidth, topWidth, height, depth], rotation);
 }
 
+function curvedHairLockGeometry(
+  bottomWidth: number,
+  middleWidth: number,
+  topWidth: number,
+  height: number,
+  depth: number,
+  bend: number,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const widths = [topWidth, middleWidth, bottomWidth];
+  for (let ring = 0; ring < 3; ring++) {
+    const t = ring / 2;
+    const y = -height * t;
+    const z = bend * t * t;
+    const halfWidth = widths[ring] * 0.5;
+    const halfDepth = depth * 0.5;
+    positions.push(
+      -halfWidth, y, z - halfDepth,
+      halfWidth, y, z - halfDepth,
+      halfWidth, y, z + halfDepth,
+      -halfWidth, y, z + halfDepth,
+    );
+  }
+  for (let ring = 0; ring < 2; ring++) {
+    const a = ring * 4;
+    const b = a + 4;
+    for (let side = 0; side < 4; side++) {
+      const next = (side + 1) % 4;
+      indices.push(a + side, a + next, b + side, a + next, b + next, b + side);
+    }
+  }
+  indices.push(0, 2, 1, 0, 3, 2, 8, 9, 10, 8, 10, 11);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function appendCurvedHairLock(
+  out: SkinAssembler,
+  bone: THREE.Bone,
+  position: readonly [number, number, number],
+  widths: readonly [bottom: number, middle: number, top: number],
+  height: number,
+  depth: number,
+  bend: number,
+  rotation: readonly [number, number, number] = [0, 0, 0],
+  role: Role.Hair | Role.HairLight = Role.Hair,
+): void {
+  out.append(
+    curvedHairLockGeometry(widths[0], widths[1], widths[2], height, depth, bend),
+    bone,
+    role,
+    transform(position, rotation),
+  );
+}
+
 function makeHairBone(parent: THREE.Object3D, name: string, position: readonly [number, number, number]): THREE.Bone {
   const bone = new THREE.Bone();
   bone.name = name;
@@ -430,9 +489,9 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   };
   const eyeColors = driverEyeGradients[driverId] ?? { top: '#2c2234', bottom: hairColorHex };
 
-  // Draw eyes at left eye (78, 138) and right eye (178, 138)
+  // Stable face anchors keep the expression centered on the curved patch.
   for (const cx of [78, 178]) {
-    const cy = 138;
+    const cy = 112;
 
     // Sclera (Eye White): width 58, height 27
     ctx.save();
@@ -491,14 +550,14 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
     ctx.stroke();
   }
 
-  // Brows at y = 106, styled using look.hair tint
+  // Brows at y = 84, styled using look.hair tint
   // Left brow
   ctx.beginPath();
   ctx.lineWidth = 4.5;
   ctx.strokeStyle = hairColorHex;
   ctx.lineCap = 'round';
-  ctx.moveTo(78 - 28, 112);
-  ctx.quadraticCurveTo(78 - 4, 102, 78 + 28, 108);
+  ctx.moveTo(78 - 28, 90);
+  ctx.quadraticCurveTo(78 - 4, 80, 78 + 28, 86);
   ctx.stroke();
 
   // Right brow
@@ -506,23 +565,23 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   ctx.lineWidth = 4.5;
   ctx.strokeStyle = hairColorHex;
   ctx.lineCap = 'round';
-  ctx.moveTo(178 - 28, 108);
-  ctx.quadraticCurveTo(178 + 4, 102, 178 + 28, 112);
+  ctx.moveTo(178 - 28, 86);
+  ctx.quadraticCurveTo(178 + 4, 80, 178 + 28, 90);
   ctx.stroke();
 
-  // Nose point at (128, 168)
+  // Nose point at (128, 139)
   ctx.beginPath();
   ctx.fillStyle = '#7a4230';
-  ctx.arc(128, 168, 2.5, 0, Math.PI * 2);
+  ctx.arc(128, 139, 2.5, 0, Math.PI * 2);
   ctx.fill();
 
-  // Mouth baseline at y = 188
+  // Mouth baseline at y = 157
   ctx.beginPath();
   ctx.lineWidth = 3.2;
   ctx.strokeStyle = '#682820';
   ctx.lineCap = 'round';
-  ctx.moveTo(114, 188);
-  ctx.quadraticCurveTo(128, 193, 142, 188);
+  ctx.moveTo(112, 157);
+  ctx.quadraticCurveTo(128, 163, 144, 157);
   ctx.stroke();
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -534,7 +593,7 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   return texture;
 }
 
-function buildFacePatch(headBone: THREE.Bone, look: RiderLook, detailed: boolean): THREE.Mesh {
+function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
   const geometry = new THREE.BufferGeometry();
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -611,6 +670,7 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook, detailed: boolean
 
 function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
   const rings = [
+    { y: 0.242, z: -0.006, rx: 0.032, rz: 0.036 }, // crown close
     { y: 0.225, z: 0.015, rx: 0.082, rz: 0.090 }, // crown
     { y: 0.175, z: 0.020, rx: 0.132, rz: 0.136 }, // parietal
     { y: 0.105, z: 0.025, rx: 0.136, rz: 0.132 }, // temple/hairline
@@ -641,6 +701,12 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
     }
   }
 
+  // Close only the crown arc. The wedge toward +Z remains open so this reads
+  // as a fitted hairstyle with a real forehead, not a spherical helmet.
+  const crownCenter = vertices.length / 3;
+  vertices.push(0, 0.252, -0.014);
+  for (let i = 0; i < sides; i++) indices.push(crownCenter, i, i + 1);
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
   geometry.setIndex(indices);
@@ -664,11 +730,11 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     bones.push(back, left, right);
     bobBones = [back, left, right];
   } else if (look.hairStyle === 'ponytail') {
-    const tie = makeHairBone(hairRoot, 'braid-tie', [0, 0.10, -0.08]);
-    const braid1 = makeHairBone(tie, 'braid-1', [0, -0.11, -0.105]);
-    const braid2 = makeHairBone(braid1, 'braid-2', [0, -0.105, -0.105]);
-    const braid3 = makeHairBone(braid2, 'braid-3', [0, -0.10, -0.10]);
-    const braid4 = makeHairBone(braid3, 'braid-4', [0, -0.09, -0.09]);
+    const tie = makeHairBone(hairRoot, 'braid-tie', [0.12, 0.19, -0.12]);
+    const braid1 = makeHairBone(tie, 'braid-1', [0.03, -0.105, -0.07]);
+    const braid2 = makeHairBone(braid1, 'braid-2', [0.04, -0.135, -0.08]);
+    const braid3 = makeHairBone(braid2, 'braid-3', [0.035, -0.125, -0.08]);
+    const braid4 = makeHairBone(braid3, 'braid-4', [0.025, -0.11, -0.07]);
     bones.push(tie, braid1, braid2, braid3, braid4);
     braidBones = [tie, braid1, braid2, braid3, braid4];
   }
@@ -700,21 +766,23 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
       [0.1, 0, 0.04], Role.HairLight);
   } else if (braidBones) {
     const [tie, braid1, braid2, braid3, braid4] = braidBones;
-    // 5-bone braid chain
-    appendHairBlade(out, hairRoot, [0, 0.15, -0.075], 0.045, 0.065, 0.09, 0.08, [0.15, 0, 0]);
-    appendHairBlade(out, tie, [0, -0.04, -0.03], 0.055, 0.050, 0.10, 0.09, [0.18, 0, 0]);
-    appendHairBlade(out, braid1, [0, -0.05, -0.035], 0.050, 0.043, 0.14, 0.10, [-0.18, 0, 0]);
-    appendHairBlade(out, braid2, [0, -0.045, -0.035], 0.043, 0.035, 0.13, 0.09, [0.18, 0, 0]);
-    appendHairBlade(out, braid3, [0, -0.04, -0.03], 0.035, 0.026, 0.11, 0.08, [-0.16, 0, 0]);
-    appendHairBlade(out, braid4, [0, -0.03, -0.025], 0.026, 0.014, 0.09, 0.07, [0.10, 0, 0]);
+    // Five overlapping curved sections make one high, side-swept ponytail.
+    // Each child starts at the previous lock's tip, so the back silhouette
+    // remains continuous through steering and landing secondary motion.
+    appendCurvedHairLock(out, tie, [0, 0, 0], [0.075, 0.09, 0.07], 0.115, 0.07, -0.045, [0.08, 0, -0.12]);
+    appendCurvedHairLock(out, braid1, [0, 0, 0], [0.065, 0.085, 0.075], 0.145, 0.075, -0.055, [-0.06, 0, -0.06]);
+    appendCurvedHairLock(out, braid2, [0, 0, 0], [0.055, 0.075, 0.065], 0.135, 0.065, -0.05, [0.05, 0, 0.05]);
+    appendCurvedHairLock(out, braid3, [0, 0, 0], [0.04, 0.06, 0.052], 0.125, 0.055, -0.04, [-0.04, 0, -0.04]);
+    appendCurvedHairLock(out, braid4, [0, 0, 0], [0.015, 0.035, 0.045], 0.1, 0.045, -0.03, [0.03, 0, 0.03]);
 
-    // 4 bangs + 2 side locks
-    appendHairBlade(out, hairRoot, [0.022, 0.16, 0.144], 0.040, 0.048, 0.11, 0.025, [-0.22, 0.05, -0.08]);
-    appendHairBlade(out, hairRoot, [-0.022, 0.16, 0.144], 0.040, 0.048, 0.11, 0.025, [-0.22, -0.05, 0.08]);
-    appendHairBlade(out, hairRoot, [0.055, 0.155, 0.128], 0.025, 0.035, 0.14, 0.025, [-0.18, 0.15, -0.15]);
-    appendHairBlade(out, hairRoot, [-0.055, 0.155, 0.128], 0.025, 0.035, 0.14, 0.025, [-0.18, -0.15, 0.15]);
-    appendHairBlade(out, hairRoot, [0.092, 0.10, 0.045], 0.025, 0.038, 0.22, 0.040, [0.08, 0.12, -0.08]);
-    appendHairBlade(out, hairRoot, [-0.092, 0.10, 0.045], 0.025, 0.038, 0.22, 0.040, [0.08, -0.12, 0.08]);
+    // Four swept fringe locks frame the eyes; two narrow side locks bridge
+    // the open forehead loft into the ponytail without covering the face.
+    appendCurvedHairLock(out, hairRoot, [0.032, 0.213, 0.13], [0.03, 0.038, 0.04], 0.07, 0.02, 0.012, [-0.1, 0.03, -0.18]);
+    appendCurvedHairLock(out, hairRoot, [-0.025, 0.215, 0.135], [0.028, 0.036, 0.038], 0.064, 0.02, 0.012, [-0.1, -0.02, 0.15]);
+    appendCurvedHairLock(out, hairRoot, [0.078, 0.195, 0.112], [0.02, 0.028, 0.032], 0.085, 0.02, 0.01, [-0.08, 0.06, -0.24]);
+    appendCurvedHairLock(out, hairRoot, [-0.075, 0.195, 0.115], [0.02, 0.028, 0.032], 0.08, 0.02, 0.01, [-0.08, -0.05, 0.22]);
+    appendCurvedHairLock(out, hairRoot, [0.108, 0.14, 0.058], [0.018, 0.026, 0.03], 0.17, 0.026, -0.008, [0.04, 0.08, -0.06]);
+    appendCurvedHairLock(out, hairRoot, [-0.108, 0.14, 0.058], [0.018, 0.026, 0.03], 0.17, 0.026, -0.008, [0.04, -0.08, 0.06]);
   }
 
   const result = out.finish();
@@ -872,7 +940,7 @@ export function buildSkinnedRider(
   mesh.bind(skeleton);
   mesh.normalizeSkinWeights();
   const hair = buildHairAccessory(rig.head, look, detailed);
-  const faceMesh = buildFacePatch(rig.head, look, detailed);
+  const faceMesh = buildFacePatch(rig.head, look);
   return { mesh, roles: result.roles, colorAttribute: result.colorAttribute, hair, faceMesh };
 }
 

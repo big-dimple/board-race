@@ -444,10 +444,19 @@ async function capture(browser, options) {
   try {
     for (const name of names) {
       await stage(page, name, options.settleMs);
+      let render = null;
+      let stats = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        render = await renderEvidence(page);
+        stats = await page.evaluate(() => window.__harness.stats());
+        if (render && render.lumaRange > 8 && Number(stats.calls) > 0) break;
+        await page.waitForTimeout(180);
+      }
+      assert.ok(render && render.lumaRange > 8 && Number(stats?.calls) > 0,
+        `${name}: renderer remained blank after retries: ${JSON.stringify({ render, stats })}`);
       const suffix = options.mobile ? (options.tilt ? '-mobile-tilt' : '-mobile') : '';
       const output = path.join(options.out, `${name}${suffix}.png`);
       await page.screenshot({ path: output });
-      const stats = await page.evaluate(() => window.__harness.stats());
       console.log(`${output}: calls=${stats.calls} triangles=${stats.triangles} pixels=${stats.drawingPixels}`);
     }
   } finally {
