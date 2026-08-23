@@ -22,17 +22,17 @@ function makeFeatherGeometry(): THREE.BufferGeometry {
     // Quill base
     0, 0, 0,
     // Left lobe
-    -0.08, 0.02, 0.14,
+    -0.12, 0.02, 0.2,
     // Right lobe
-    0.08, 0.02, 0.14,
+    0.12, 0.02, 0.2,
     // Quill mid
-    0, 0.03, 0.18,
+    0, 0.03, 0.28,
     // Left tip
-    -0.05, 0.015, 0.28,
+    -0.075, 0.015, 0.42,
     // Right tip
-    0.05, 0.015, 0.28,
+    0.075, 0.015, 0.42,
     // Tip
-    0, 0, 0.34,
+    0, 0, 0.52,
   ]);
 
   const indices = [
@@ -88,7 +88,7 @@ export class FeatherSystem {
 
     const geometry = makeFeatherGeometry();
     const material = new THREE.MeshBasicMaterial({
-      color: PALETTE.hullKai, // bright warm sunny gold-yellow
+      color: PALETTE.foam,
       side: THREE.DoubleSide,
       fog: true,
       toneMapped: false,
@@ -101,6 +101,14 @@ export class FeatherSystem {
     this.mesh.renderOrder = 3;
 
     this.object.add(this.mesh);
+
+    const yellow = new THREE.Color().setHex(PALETTE.hullKai, THREE.NoColorSpace);
+    const white = new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace);
+    for (let i = 0; i < FEATHER_CAPACITY; i++) this.mesh.setColorAt(i, i % 4 === 0 ? white : yellow);
+    if (this.mesh.instanceColor) {
+      this.mesh.instanceColor.setUsage(THREE.StaticDrawUsage);
+      this.mesh.instanceColor.needsUpdate = true;
+    }
 
     for (let i = 0; i < FEATHER_CAPACITY; i++) {
       this.particles.push({
@@ -130,7 +138,13 @@ export class FeatherSystem {
   /**
    * Emit a burst of fluttering yellow feathers at the specified 3D position.
    */
-  burst(point: THREE.Vector3, count = 22, baseSpeed = 7.5): void {
+  burst(
+    point: THREE.Vector3,
+    count = 22,
+    baseSpeed = 7.5,
+    carryX = 0,
+    carryZ = 0,
+  ): void {
     let emitted = 0;
     for (let i = 0; i < FEATHER_CAPACITY && emitted < count; i++) {
       const p = this.particles[i];
@@ -146,9 +160,9 @@ export class FeatherSystem {
       const phi = Math.random() * (Math.PI * 0.6); // bias upward
       const speed = baseSpeed * (0.5 + Math.random() * 0.7);
 
-      p.vx = Math.sin(phi) * Math.cos(theta) * speed;
-      p.vy = Math.cos(phi) * speed + 2.5 + Math.random() * 2.0; // upward pop
-      p.vz = Math.sin(phi) * Math.sin(theta) * speed;
+      p.vx = Math.sin(phi) * Math.cos(theta) * speed + carryX * 0.82;
+      p.vy = Math.cos(phi) * speed + 1.5 + Math.random() * 1.6;
+      p.vz = Math.sin(phi) * Math.sin(theta) * speed + carryZ * 0.82;
 
       p.rotX = Math.random() * Math.PI * 2;
       p.rotY = Math.random() * Math.PI * 2;
@@ -160,10 +174,10 @@ export class FeatherSystem {
 
       p.flutterPhase = Math.random() * Math.PI * 2;
       p.flutterFreq = 5.5 + Math.random() * 3.5;
-      p.baseScale = 0.7 + Math.random() * 0.35;
+      p.baseScale = 1.0 + Math.random() * 0.55;
       p.scale = p.baseScale;
       p.age = 0;
-      p.lifetime = 1.6 + Math.random() * 0.7;
+      p.lifetime = 2.0 + Math.random() * 0.9;
 
       emitted++;
     }

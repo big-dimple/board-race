@@ -221,20 +221,16 @@ async function verifyMode(browser, mobile) {
   }
 
   await stage(page, 'lighthouse-inspection');
-  const lighthouseBefore = await page.evaluate(() => window.__harness.lighthouseState());
-  await page.evaluate(() => window.__harness.advance(0.5));
-  const lighthouseAfter = await page.evaluate(() => window.__harness.lighthouseState());
+  const lighthouse = await page.evaluate(() => window.__harness.lighthouseState());
   assert.deepEqual({
-    x: lighthouseBefore.x,
-    z: lighthouseBefore.z,
-    height: lighthouseBefore.height,
-    beamRadius: lighthouseBefore.beamRadius,
-    solidMeshes: lighthouseBefore.solidMeshes,
-    effectMeshes: lighthouseBefore.effectMeshes,
-  }, { x: 110, z: 190, height: 34, beamRadius: 70, solidMeshes: 4, effectMeshes: 4 },
+    x: lighthouse.x,
+    z: lighthouse.z,
+    height: lighthouse.height,
+    daylightBeam: lighthouse.daylightBeam,
+    solidMeshes: lighthouse.solidMeshes,
+    effectMeshes: lighthouse.effectMeshes,
+  }, { x: 110, z: 190, height: 34, daylightBeam: false, solidMeshes: 5, effectMeshes: 1 },
   `${label}: lighthouse landmark contract drifted`);
-  assert.ok(Math.abs(lighthouseAfter.beamYaw - lighthouseBefore.beamYaw) > 0.1,
-    `${label}: lighthouse beacon did not rotate on simulation time`);
 
   const flaps = await page.evaluate(() => window.__harness.flapCase());
   assert.ok(flaps.drift.commonPitch > flaps.neutral.commonPitch + 0.07,

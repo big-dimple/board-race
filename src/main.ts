@@ -713,7 +713,6 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     ocean.update(presentationTime, stage.camera.position);
     sky.update(presentationTime, stage.camera.position);
     seaDecor.update(presentationTime, stage.camera.position);
-    lighthouse.update(presentationTime);
     course.update(dt, presentationTime);
     // The race step returns early here, so without this the riders freeze in
     // their driving pose: rivals who crossed earlier were seen celebrating,
@@ -930,7 +929,6 @@ function step(dt: number, _t: number): void {
     ocean.update(readySceneTime, stage.camera.position);
     sky.update(readySceneTime, stage.camera.position);
     seaDecor.update(readySceneTime, stage.camera.position);
-    lighthouse.update(readySceneTime);
     for (const boat of boats) boat.syncSurfacePresentation(readySceneTime);
     for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime, false);
     openingShowcase.update(dt);
@@ -957,7 +955,6 @@ function step(dt: number, _t: number): void {
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
       seaDecor.update(worldTime, stage.camera.position);
-      lighthouse.update(worldTime);
       for (const boat of boats) boat.syncSurfacePresentation(worldTime);
       for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, false);
       course.update(0, worldTime);
@@ -1293,7 +1290,6 @@ function step(dt: number, _t: number): void {
   ocean.update(worldTime, stage.camera.position);
   sky.update(worldTime, stage.camera.position);
   seaDecor.update(worldTime, stage.camera.position);
-  lighthouse.update(worldTime);
   course.update(dt, worldTime);
   for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
   spray.update(dt, worldTime);
@@ -1761,14 +1757,13 @@ const balloonPopScratch: BalloonPop[] = [];
 const balloonPopPoint = new THREE.Vector3();
 
 /**
- * Buoy contacts: 20% speed cut, instant water splash + yellow feather puff,
- * launching the rubber ducky into a wild 720-degree tumble before exploding.
+ * Buoy contacts: 20% speed cut and an immediate water hit, followed by the
+ * duck balloon's separate forward-moving feather burst.
  */
 function presentBuoyHits(hits: readonly BuoyHit[]): void {
   for (const hit of hits) {
     collisionFxPoint.set(hit.x, hit.y, hit.z);
     spray.burst(collisionFxPoint, 8, 4.2);
-    feathers.burst(collisionFxPoint, 14, 6.0);
     if (hit.boatId === 0) {
       audio.collision(3.0);
       haptics.impact('collision-heavy', 0.5, false);
@@ -1779,8 +1774,7 @@ function presentBuoyHits(hits: readonly BuoyHit[]): void {
 function presentBalloonPops(pops: readonly BalloonPop[]): void {
   for (const pop of pops) {
     balloonPopPoint.set(pop.x, pop.y, pop.z);
-    feathers.burst(balloonPopPoint, 24, 8.5);
-    spray.burst(balloonPopPoint, 6, 4.0);
+    feathers.burst(balloonPopPoint, 48, 9.5, pop.carryX, pop.carryZ);
     if (pop.boatId === 0) {
       audio.collision(2.6);
       haptics.impact('collision-light', 0.3, false);

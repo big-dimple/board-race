@@ -29,11 +29,12 @@ export const PALETTE = {
   sparkle: 0xfffde7,
 
   // Fixed sea landmark
-  lighthouseIvory: 0xf3e2be,
-  lighthouseTeal: 0x16b8c8,
-  lighthouseNavy: 0x182044,
-  lighthouseRock: 0x29364f,
-  lighthouseBeacon: 0xffc247,
+  lighthouseIvory: 0xe9e8df,
+  lighthouseTeal: 0x347b91,
+  lighthouseNavy: 0x1c2b38,
+  lighthouseRock: 0x4c5961,
+  lighthouseLens: 0x788b8f,
+  lighthouseGlass: 0xa8d3dc,
 
   // Gameplay
   racingLine: 0x39ff88,

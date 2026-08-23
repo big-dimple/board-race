@@ -2079,14 +2079,14 @@ export class Boat implements IBoat {
       1,
     );
     const differentialGain = inFlight
-      ? 0.075 + 0.085 * this.airBrakeFx
-      : surfaceDrift ? 0.12 : 0.045;
+      ? 0.12 + 0.17 * this.airBrakeFx
+      : surfaceDrift ? 0.23 : 0.065;
     const diffElevonL = -differentialGain * turnIntensity;
     const diffElevonR = +differentialGain * turnIntensity;
 
-    const driftFlare = surfaceDrift ? 0.135 : 0;
-    const flightTrim = inFlight ? 0.052 * (boosting ? 1.12 : 1) : 0;
-    const brakeFlare = 0.24 * this.airBrakeFx;
+    const driftFlare = surfaceDrift ? 0.255 : 0;
+    const flightTrim = inFlight ? 0.075 * (boosting ? 1.12 : 1) : 0;
+    const brakeFlare = 0.43 * this.airBrakeFx;
     const modePitch = driftFlare + flightTrim + brakeFlare;
 
     const shockG = clamp(landingImpact * 0.028, 0, 0.105);
@@ -2100,25 +2100,25 @@ export class Boat implements IBoat {
 
     const targetPitchL = clamp(
       aeroSpeedPitch + pitchTrim + diffElevonL + modePitch + inertialPitch + windFlutterL,
-      -0.18,
-      0.38,
+      -0.28,
+      0.68,
     );
     const targetPitchR = clamp(
       aeroSpeedPitch + pitchTrim + diffElevonR + modePitch + inertialPitch + windFlutterR,
-      -0.18,
-      0.38,
+      -0.28,
+      0.68,
     );
     this.flapTargetPitchL = targetPitchL;
     this.flapTargetPitchR = targetPitchR;
     this.flapTurnIntensity = turnIntensity;
 
-    const targetRollL = clamp(+0.055 * targetPitchL - 0.035 * turnIntensity, -0.07, 0.07);
-    const targetRollR = clamp(-0.055 * targetPitchR - 0.035 * turnIntensity, -0.07, 0.07);
+    const targetRollL = clamp(+0.09 * targetPitchL - 0.065 * turnIntensity, -0.13, 0.13);
+    const targetRollR = clamp(-0.09 * targetPitchR - 0.065 * turnIntensity, -0.13, 0.13);
 
     // A deliberately under-damped response makes press, steering reversal,
     // and release readable at chase-camera scale without becoming loose.
-    const omega = 11.5;
-    const zeta = 0.62;
+    const omega = 10.5;
+    const zeta = 0.48;
     const fSpring = omega * omega;
     const fDamp = 2 * zeta * omega;
 

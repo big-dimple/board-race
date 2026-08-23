@@ -1322,7 +1322,10 @@ export interface BuoyHit {
   z: number;
 }
 
-export type BalloonPop = BuoyHit;
+export interface BalloonPop extends BuoyHit {
+  carryX: number;
+  carryZ: number;
+}
 
 export interface BuoyDebugState {
   index: number;
@@ -1342,10 +1345,10 @@ export interface BuoyDebugState {
 const BUOY_HIT_RADIUS = 2.2;
 const BUOY_HIT_MIN_SPEED = 5;
 const BUOY_HIT_SPEED_CUT = 0.20; // 20% speed cut on buoy collision for punchy impact
-const BALLOON_POP_TIME = 0.72; // s before the balloon explodes in mid-air
-const BALLOON_LAUNCH_VY = 22.5; // m/s explosive upward rocket speed
+const BALLOON_POP_TIME = 0.58;
+const BALLOON_LAUNCH_VY = 7.5;
 const BALLOON_GRAVITY = 9.8;
-const BALLOON_DRAG = 0.45;
+const BALLOON_DRAG = 0.18;
 const BALLOON_IDLE_Y = 3.55;
 const BUOY_RESPAWN_S = 9;
 const BUOY_SINK_S = 0.8;
@@ -1499,7 +1502,7 @@ export class Course implements ICourse {
   private readonly floaters: Floater[] = [];
   private readonly balloonPops: BalloonPop[] = Array.from(
     { length: CHECKPOINT_US.length * 2 },
-    () => ({ boatId: -1, x: 0, y: 0, z: 0 }),
+    () => ({ boatId: -1, x: 0, y: 0, z: 0, carryX: 0, carryZ: 0 }),
   );
   private balloonPopCount = 0;
   private readonly flightPrev: THREE.Vector3[] = [];
@@ -2718,6 +2721,8 @@ export class Course implements ICourse {
             pop.x = b.x;
             pop.y = b.y;
             pop.z = b.z;
+            pop.carryX = b.vx;
+            pop.carryZ = b.vz;
             this.balloonPopCount++;
           }
         } else {
@@ -2883,9 +2888,9 @@ export class Course implements ICourse {
             x: startX,
             y: startY,
             z: startZ,
-            vx: kvx * 0.85,
+            vx: vel.x * 1.08,
             vy: BALLOON_LAUNCH_VY,
-            vz: kvz * 0.85,
+            vz: vel.y * 1.08,
             rotX: 0,
             rotY: 0,
             rotZ: 0,
@@ -3448,7 +3453,6 @@ export class Course implements ICourse {
     const pillarGeo = new THREE.CylinderGeometry(1, 1.2, 1, 10);
     const corePillarGeo = new THREE.CylinderGeometry(1, 1, 1, 8);
     const beamGeo = new THREE.BoxGeometry(1, 1, 1);
-    const buoyGeo = new THREE.SphereGeometry(1, 10, 6);
     const forward = new THREE.Vector3(0, 0, 1);
     const tangent3 = new THREE.Vector3();
     // Controlled flight follows the live water surface, while these authored
@@ -3479,10 +3483,7 @@ export class Course implements ICourse {
         corePillars.push(core);
         core.position.copy(outer.position);
         core.scale.set(0.24, pillarHeight * 1.04, 0.24);
-        const buoy = new THREE.Mesh(buoyGeo, ringMat);
-        buoy.position.set(side * def.gateHalfWidth, -pillarHeight * 0.46, 0);
-        buoy.scale.set(0.95, 0.55, 0.95);
-        gateGroup.add(spine, outer, core, buoy);
+        gateGroup.add(spine, outer, core);
       }
       const beamSpine = new THREE.Mesh(beamGeo, spineMat);
       beamSpine.position.y = gateHalfHeight + 0.62;
@@ -3965,12 +3966,11 @@ export class Course implements ICourse {
       emissive: PALETTE.hullPlayer,
       emissiveIntensity: 0.5,
     });
-    // Professional Maritime Navigation Spar Buoy + Rubber Ducky Balloon
+    // Keep the proven striped checkpoint silhouette; the duck is the only comedy layer.
     const floatGeo = new THREE.TorusGeometry(0.88, 0.3, 10, 20);
     floatGeo.rotateX(Math.PI / 2);
-    const bodyGeo = new THREE.CylinderGeometry(0.68, 0.78, 1.8, 14);
-    const whiteBandGeo = new THREE.CylinderGeometry(0.705, 0.705, 0.5, 14);
-    const coneGeo = new THREE.ConeGeometry(0.62, 0.85, 14);
+    const bodyGeo = new THREE.CylinderGeometry(0.75, 0.85, 1.9, 14);
+    const coneGeo = new THREE.ConeGeometry(0.66, 0.85, 14);
     const foamRingGeo = makeFoamRingGeometry();
 
     const duckYellowMat = createToonMaterial({
@@ -3982,11 +3982,6 @@ export class Course implements ICourse {
       color: PALETTE.hullPlayer,
       emissive: PALETTE.hullPlayer,
       emissiveIntensity: 0.45,
-    });
-    const sparWhiteMat = createToonMaterial({
-      color: PALETTE.foam,
-      emissive: PALETTE.foam,
-      emissiveIntensity: 0.38,
     });
     const tetherMat = createToonMaterial({ color: PALETTE.ink });
 
@@ -4040,20 +4035,17 @@ export class Course implements ICourse {
       const g = new THREE.Group();
       const f = new THREE.Mesh(floatGeo, floatMat);
       f.position.y = 0.35;
-      const b = new THREE.Mesh(bodyGeo, coneMat); // high-visibility marine orange spar body
-      b.position.y = 1.45;
-      const band = new THREE.Mesh(whiteBandGeo, sparWhiteMat); // international reflective white band
-      band.position.y = 1.45;
-      band.userData.noOutline = true;
+      const b = new THREE.Mesh(bodyGeo, bodyMat);
+      b.position.y = 1.55;
       const c = new THREE.Mesh(coneGeo, coneMat);
-      c.position.y = 2.75;
+      c.position.y = 2.93;
       const ring = new THREE.Mesh(foamRingGeo, foamRingMat);
       ring.position.y = 0.1;
       ring.userData.noOutline = true;
 
       const balloon = makeDuckBalloon();
       balloon.position.y = BALLOON_IDLE_Y;
-      g.add(f, b, band, c, ring, balloon);
+      g.add(f, b, c, ring, balloon);
 
       addOutline(g, { width: 0.75 });
       markInk(g);

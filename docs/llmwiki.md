@@ -151,11 +151,11 @@ READY -> opening -> countdown -> racing
 - 船体、车手、路线和特效不能制造第二套 world transform。当前六材质批船体（shell、safety、mechanical、flight、reactor、decals）、16 骨骼
   SkinnedMesh 车手、共享材质、实例化和 typed-array 池是已知性能基线，不是禁止重构的美术规格。
 - 左右主动尾翼是船体子节点上的纯表现层，不改变 `BoatInput`、操控或碰撞。它必须读取当前固定步的
-  实际转向值，漂移和飞行空刹分别提供可读的共模抬升与左右差动，松手由欠阻尼二阶弹簧回落；
+  实际转向值，漂移和飞行空刹分别提供夸张但不穿模的共模抬升与左右差动，松手由欠阻尼二阶弹簧回摆；
   `teleport()` / 重开必须同时清零翼面角度、速度和目标。动态验收必须走真实漂移、飞行空刹与转向
   输入，静态尾部截图不能代替动作证据。
-- `LighthouseLandmark` 是固定在 `(110, 0, 190)` 的纯视觉海上地标：34 m 象牙白塔身、青色分段、
-  深蓝灯室、暖黄灯芯与 70 m 扫光，18 s 随模拟时间旋转（系统减少动态时 36 s）。它不注册路线、
+- `LighthouseLandmark` 是固定在 `(110, 0, 190)` 的纯视觉海上地标：34 m 象牙白塔身、低饱和海蓝分段、
+  深蓝灯室与日光下熄灭的冷灰灯具。当前世界只有明亮日间，因此不生成体积光或水面扫光。它不注册路线、
   AI 或碰撞所有权；低矮岩礁只承担轮廓落点，不能扩成岛屿或港口。
 - 固体描边预渲染通过 `markInk(root)` 管理：递归遍历遇 `userData.noInk === true` 节点对该子树统一 `disable(LAYER_INK)` 并剪枝返回；
   排除墨水预渲染的对象（如发光反应堆批次、Face Patch、贴纸等）需前置声明 `userData.noInk = true`、`userData.noOutline = true` 并确保 `layers.set(0)`。
