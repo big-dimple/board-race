@@ -37,7 +37,10 @@ const TUNING = {
   leanGRef: 9.8,          // lateralG that maps to full lean
   leanSign: -1,           // flip if lean goes the wrong way on screen
   leanOmega: 8, leanZeta: 0.95,
-  leanHips: 0.45, leanSpine: 0.55, leanChest: 0.15, // distribution up the chain
+  // The lower body commits to the bank while the torso counter-braces against
+  // the fixed grips. Letting every spine link roll with the hips pulled the
+  // outside shoulder away far enough to force a right-angle elbow.
+  leanHips: 0.48, leanSpine: -0.28, leanChest: 0.04,
   headCounter: 0.35,      // head counter-lean fraction
   kneeFlare: 0.55,        // inside knee opens this much at full lean
 
@@ -58,16 +61,16 @@ const TUNING = {
   airLegExtend: 0.22,
   airBodyOpen: 0.16, airHeadUp: 0.2,
 
-  // Controlled anti-gravity flight: a compact, braced pose rather than the
+  // Controlled anti-gravity flight: a long, braced pose rather than the
   // natural-airborne "whee" animation used for wave jumps.
   flightOmega: 7, flightZeta: 1,
-  flightHipsDrop: 0.08, flightHunch: 0.12,
+  flightChestOpen: 0.18,
   flightKnee: 0.14,
 
   // Landing crouch: kicked by landImpulse (m/s), springy ~0.4s recovery.
   landKick: 0.05, landMax: 1.2,
   landOmega: 16, landZeta: 0.35,
-  landHipsDrop: 0.16, landSpine: 0.45, landKnee: 0.6, landHip: 0.35,
+  landKnee: 0.6, landHip: 0.35,
 
   // Idle: breathing + secondary motion lagging boat pitch/roll.
   breathHz: 0.35, breathAmp: 0.03, breathBob: 0.008,
@@ -407,17 +410,17 @@ export class Rider {
     // ------------------------------------------------------ composite ----
     // Hips: lean roll, drift twist, crouch drop, breathing bob.
     j.hips.rotation.set(
-      -air * T.airBodyOpen * 0.4 + flight * 0.04 - cel * 0.1,
+      -air * T.airBodyOpen * 0.4 + flight * T.airBodyOpen * 0.4 - cel * 0.1,
       drift * drive,
       lean * T.leanHips * drive + secR * 0.5,
     );
-    j.hips.position.y = this.hipsBaseY - crouch * T.landHipsDrop - flight * T.flightHipsDrop + bob;
+    j.hips.position.y = this.hipsBaseY + bob;
 
     // Spine: baked forward hunch + weight shift, lean, breathing, secondary
     // lag, celebration upright.
     j.spine.rotation.set(
-      POSE.hunchSpine + pitch + breath + secP + crouch * T.landSpine
-        - air * T.airBodyOpen + flight * T.flightHunch - cel * T.celUpright,
+      POSE.hunchSpine + pitch + breath + secP
+        - air * T.airBodyOpen - flight * T.flightChestOpen - cel * T.celUpright,
       0,
       lean * T.leanSpine * drive,
     );

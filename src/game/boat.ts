@@ -684,18 +684,63 @@ function buildTailCowlGeometry(): THREE.BufferGeometry {
   return flatGeometry(pos);
 }
 
+type PlanPoint = readonly [number, number];
+
+function clockwisePlan(plan: readonly PlanPoint[]): readonly PlanPoint[] {
+  let signedArea = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const next = plan[(i + 1) % plan.length];
+    signedArea += plan[i][0] * next[1] - next[0] * plan[i][1];
+  }
+  return signedArea > 0 ? [...plan].reverse() : plan;
+}
+
 function prismFromPlan(
-  plan: readonly (readonly [number, number])[],
+  plan: readonly PlanPoint[],
   bottomY: number,
   topY: number,
 ): THREE.BufferGeometry {
   const pos: number[] = [];
-  const bottom = plan.map(([x, z]) => [x, bottomY, z]);
-  const top = plan.map(([x, z]) => [x, topY, z]);
+  // Mirroring x reverses polygon winding. Solids still need +Y top normals on
+  // both sides or one half of a paired wing falls into the darkest toon band.
+  const ordered = clockwisePlan(plan);
+  const bottom = ordered.map(([x, z]) => [x, bottomY, z]);
+  const top = ordered.map(([x, z]) => [x, topY, z]);
   pushCap(pos, bottom, true);
   pushCap(pos, top, false);
-  for (let i = 0; i < plan.length; i++) {
-    const next = (i + 1) % plan.length;
+  for (let i = 0; i < ordered.length; i++) {
+    const next = (i + 1) % ordered.length;
+    pushQuad(pos, bottom[i], bottom[next], top[next], top[i]);
+  }
+  return flatGeometry(pos);
+}
+
+const REAR_WING_ROOT_X = 0.18;
+const REAR_WING_ROOT_Y = 1.08;
+const REAR_WING_FOLD_SLOPE = 0.26;
+
+function rearWingBottomY(x: number): number {
+  return REAR_WING_ROOT_Y + Math.max(0, Math.abs(x) - REAR_WING_ROOT_X) * REAR_WING_FOLD_SLOPE;
+}
+
+/** A solid planform whose upper surface rises toward the tip as a real dihedral fold. */
+function prismFromFoldedPlan(
+  plan: readonly PlanPoint[],
+  rootBottomY: number,
+  thickness: number,
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const ordered = clockwisePlan(plan);
+  const bottom = ordered.map(([x, z]) => [
+    x,
+    rootBottomY + Math.max(0, Math.abs(x) - REAR_WING_ROOT_X) * REAR_WING_FOLD_SLOPE,
+    z,
+  ]);
+  const top = bottom.map(([x, y, z]) => [x, y + thickness, z]);
+  pushCap(pos, bottom, true);
+  pushCap(pos, top, false);
+  for (let i = 0; i < ordered.length; i++) {
+    const next = (i + 1) % ordered.length;
     pushQuad(pos, bottom[i], bottom[next], top[next], top[i]);
   }
   return flatGeometry(pos);
@@ -729,22 +774,25 @@ function buildRearWingGeometry(): THREE.BufferGeometry {
     // Twin swept pylons lift the array clear of the tail cowl.
     prismFromPlan([[0.25, -1.76], [0.4, -1.8], [0.56, -2.33], [0.39, -2.4]], 0.64, 1.11),
     prismFromPlan([[-0.25, -1.76], [-0.4, -1.8], [-0.56, -2.33], [-0.39, -2.4]], 0.64, 1.11),
-    // Separate swept delta planes leave a deep V-shaped center void.
-    prismFromPlan([[-0.18, -2.08], [-0.86, -2.2], [-1.02, -2.63], [-0.53, -2.82], [-0.27, -2.52]], 1.08, 1.17),
-    prismFromPlan([[0.18, -2.08], [0.86, -2.2], [1.02, -2.63], [0.53, -2.82], [0.27, -2.52]], 1.08, 1.17),
-    // Tall tip blades are canted outward instead of being flat endplates.
-    transformedPart(prismFromSide([[1.08, -2.21], [1.43, -2.35], [1.34, -2.73], [1.1, -2.66]], 0.05),
-      [0.93, 0, 0], [0, 0, -0.16]),
-    transformedPart(prismFromSide([[1.08, -2.21], [1.43, -2.35], [1.34, -2.73], [1.1, -2.66]], 0.05),
-      [-0.93, 0, 0], [0, 0, 0.16]),
+    // Separate swept delta planes leave a deep V-shaped center void. Their
+    // 14.6-degree dihedral is visible from the chase camera instead of reading
+    // as one flat horizontal bar.
+    prismFromFoldedPlan([[-0.18, -2.08], [-0.86, -2.2], [-1.02, -2.63], [-0.53, -2.82], [-0.27, -2.52]], 1.08, 0.09),
+    prismFromFoldedPlan([[0.18, -2.08], [0.86, -2.2], [1.02, -2.63], [0.53, -2.82], [0.27, -2.52]], 1.08, 0.09),
+    // Tip fins start on the raised panel edge and lean 27.5 degrees outward;
+    // they are no longer near-vertical slabs.
+    transformedPart(prismFromSide([[0, -2.21], [0.34, -2.35], [0.25, -2.73], [0.02, -2.66]], 0.05),
+      [0.96, rearWingBottomY(0.96), 0], [0, 0, -0.48]),
+    transformedPart(prismFromSide([[0, -2.21], [0.34, -2.35], [0.25, -2.73], [0.02, -2.66]], 0.05),
+      [-0.96, rearWingBottomY(-0.96), 0], [0, 0, 0.48]),
   ]);
 }
 
 /** Inset foam chevrons leave the team-color leading edge exposed. */
 function buildRearWingAccentGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    prismFromPlan([[-0.3, -2.2], [-0.78, -2.29], [-0.75, -2.37], [-0.35, -2.31]], 1.17, 1.19),
-    prismFromPlan([[0.3, -2.2], [0.78, -2.29], [0.75, -2.37], [0.35, -2.31]], 1.17, 1.19),
+    prismFromFoldedPlan([[-0.3, -2.2], [-0.78, -2.29], [-0.75, -2.37], [-0.35, -2.31]], 1.176, 0.018),
+    prismFromFoldedPlan([[0.3, -2.2], [0.78, -2.29], [0.75, -2.37], [0.35, -2.31]], 1.176, 0.018),
     prismFromSide([[1.06, -2.07], [1.2, -2.36], [1.16, -2.47], [1.02, -2.16]], 0.09),
   ]);
 }

@@ -283,8 +283,8 @@ async function verifyMode(browser, mobile) {
   await stage(page, 'start');
   const pose = await page.evaluate(() => window.__harness.riderPoseState());
   for (const [side, arm] of Object.entries(pose)) {
-    assert.ok(arm.handGrip < 0.03 && arm.elbowAngle >= 0.48 && arm.elbowAngle <= 1.5 &&
-      arm.elbowForward > 0 && arm.elbowOut > 0,
+    assert.ok(arm.handGrip <= 0.025 && arm.elbowAngle >= 0 && arm.elbowAngle <= 0.65 &&
+      arm.elbowForward >= 0.18 && arm.elbowForward <= 0.34 && arm.elbowOut > 0 && arm.elbowOut <= 0.13,
     `${label}: ${side} rider arm lost its grip/pole solve: ${JSON.stringify(pose)}`);
   }
   const state = await page.evaluate(() => window.__harness.playerState());

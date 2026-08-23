@@ -1633,8 +1633,8 @@ function assertHarnessRiderPose(scenarioName: string): void {
   for (const [side, arm] of Object.entries(pose)) {
     const values = [arm.handGrip, arm.elbowAngle, arm.elbowForward, arm.elbowOut];
     if (!values.every(Number.isFinite) || arm.handGrip > 0.025 ||
-        arm.elbowAngle < 0.7 || arm.elbowAngle > 1.92 ||
-        arm.elbowForward < 0.23 || arm.elbowForward > 0.32 ||
+        arm.elbowAngle < 0 || arm.elbowAngle > 0.65 ||
+        arm.elbowForward < 0.18 || arm.elbowForward > 0.34 ||
         arm.elbowOut <= 0 || arm.elbowOut > 0.13) {
       throw new Error(`${scenarioName} ${side} arm failed its IK evidence gate: ${JSON.stringify(arm)}`);
     }
