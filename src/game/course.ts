@@ -1269,8 +1269,7 @@ interface Floater {
   homeQuaternion: THREE.Quaternion;
   /** Sea buoys are solid: a hull contact knocks them flying. */
   knockable?: boolean;
-  /** Parent group that may hide this floater (inactive flight-route groups). */
-  hiddenBy?: THREE.Object3D;
+  kind?: 'checkpoint' | 'launch';
   knock?: BuoyKnock;
 }
 
@@ -1304,9 +1303,9 @@ export interface BuoyHit {
 
 export interface BuoyDebugState {
   index: number;
+  kind: 'checkpoint' | 'launch';
   knocked: boolean;
   landed: boolean;
-  routeOwned: boolean;
   timer: number;
   x: number;
   y: number;
@@ -1314,7 +1313,6 @@ export interface BuoyDebugState {
   distance: number;
   maxHeight: number;
   visible: boolean;
-  parentVisible: boolean;
 }
 
 // A buoy hit is a shrug, not a crash: the float takes the energy, the hull
@@ -1380,16 +1378,8 @@ interface LaunchGateDiamond {
   waveWeight: number;
 }
 
-interface LaunchGateProjector {
-  root: THREE.Group;
-  lens: THREE.MeshBasicMaterial;
-  x: number;
-  z: number;
-}
-
 interface LaunchGateVisual {
   group: THREE.Group;
-  projectors: LaunchGateProjector[];
   diamonds: LaunchGateDiamond[];
   packets: THREE.Mesh[];
   packetMaterial: THREE.MeshBasicMaterial;
@@ -1545,8 +1535,9 @@ export class Course implements ICourse {
     this.surfaceGuideArrowCount = surfaceGuide.arrowCount;
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
-    this.buildGates();
-    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildLaunchGateVisual(runtime));
+    const makeCourseBuoy = this.buildGates();
+    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) =>
+      this.buildLaunchGateVisual(runtime, makeCourseBuoy));
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
@@ -1777,7 +1768,7 @@ export class Course implements ICourse {
   /** Read-only buoy lifecycle evidence for diagnostics and visual harnesses. */
   buoyDebugStates(): BuoyDebugState[] {
     return this.floaters.flatMap((floater, index) => {
-      if (!floater.knockable) return [];
+      if (!floater.knockable || !floater.kind) return [];
       let visible = floater.obj.visible;
       let ancestor = floater.obj.parent;
       while (visible && ancestor) {
@@ -1787,9 +1778,9 @@ export class Course implements ICourse {
       const knock = floater.knock;
       return [{
         index,
+        kind: floater.kind,
         knocked: knock !== undefined,
         landed: knock?.landed ?? false,
-        routeOwned: floater.hiddenBy !== undefined,
         timer: knock?.timer ?? 0,
         x: floater.obj.position.x,
         y: floater.obj.position.y,
@@ -1797,7 +1788,6 @@ export class Course implements ICourse {
         distance: knock ? Math.hypot(knock.x - knock.originX, knock.z - knock.originZ) : 0,
         maxHeight: knock ? knock.maxY - knock.originY : 0,
         visible,
-        parentVisible: floater.hiddenBy?.visible ?? true,
       }];
     });
   }
@@ -2492,12 +2482,6 @@ export class Course implements ICourse {
       const focus = 1 - THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
       const farScale = 1 + THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_PREVIEW_M, 0, 1) * 0.62;
       const energyColor = armed ? FLIGHT_ROUTE_MARKER_COLOR : PALETTE.sunFlare;
-      for (const projector of visual.projectors) {
-        projector.root.position.y = waterHeight(projector.x, projector.z, t);
-        projector.lens.color.setHex(energyColor, THREE.NoColorSpace);
-        projector.lens.opacity = (armed ? 0.92 : 0.74) * deploy;
-        projector.root.scale.setScalar(0.82 + deploy * (0.18 + focus * 0.08));
-      }
       for (let diamondIndex = 0; diamondIndex < visual.diamonds.length; diamondIndex++) {
         const diamond = visual.diamonds[diamondIndex];
         const wave = waterHeight(diamond.x, diamond.z, t);
@@ -2758,7 +2742,6 @@ export class Course implements ICourse {
       if (speed < BUOY_HIT_MIN_SPEED) continue;
       for (const f of this.floaters) {
         if (!f.knockable || f.knock) continue;
-        if (f.hiddenBy && !f.hiddenBy.visible) continue;
         const dx = f.x - st.position.x;
         const dz = f.z - st.position.z;
         const distSq = dx * dx + dz * dz;
@@ -2783,7 +2766,6 @@ export class Course implements ICourse {
         );
         const kvx = dirX * horizontal;
         const kvz = dirZ * horizontal;
-        if (f.hiddenBy && f.obj.parent !== this.object) this.object.attach(f.obj);
         f.knock = {
           originX: f.x,
           originY: f.obj.position.y,
@@ -3198,70 +3180,6 @@ export class Course implements ICourse {
       backing.instanceMatrix.needsUpdate = true;
       fill.instanceMatrix.needsUpdate = true;
       turnChevronGroup.add(backing, fill);
-      if (def.index === 4) {
-        const verticalInk = makeVerticalChevronGeometry();
-        const verticalFill = makeVerticalChevronGeometry(0.055);
-        const mastGeometry = new THREE.CylinderGeometry(0.07, 0.11, 1, 6);
-        const buoyGeometry = new THREE.CylinderGeometry(0.34, 0.48, 0.5, 8);
-        const foamGeometry = makeFoamRingGeometry();
-        const mastMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.ink, toneMapped: false });
-        const buoyMaterial = new THREE.MeshBasicMaterial({ color: FLIGHT_ROUTE_MARKER_SHADE, toneMapped: false });
-        const foamMaterial = new THREE.MeshBasicMaterial({
-          color: PALETTE.foam,
-          transparent: true,
-          opacity: 0.8,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          toneMapped: false,
-        });
-        for (let i = 0; i < markerSpecs.length; i++) {
-          const spec = markerSpecs[i];
-          const u = THREE.MathUtils.lerp(spec.cue.fromU, spec.cue.toU, spec.f);
-          runtimePointAt(runtime, u, p);
-          runtimeTangentAt(runtime, u, t).setY(0).normalize();
-          const outside = spec.cue.direction === 'right' ? 1 : -1;
-          const support = new THREE.Group();
-          support.name = `${def.id}-chevron-buoy-${i + 1}`;
-          support.userData.turnRole = spec.role;
-          support.userData.turnDirection = spec.cue.direction;
-          support.userData.routeTangentX = t.x;
-          support.userData.routeTangentZ = t.z;
-          support.position.set(p.x + t.z * (HALF_W + 1.75) * outside, 0, p.z - t.x * (HALF_W + 1.75) * outside);
-          const buoy = new THREE.Mesh(buoyGeometry, buoyMaterial);
-          buoy.position.y = 0.24;
-          const foam = new THREE.Mesh(foamGeometry, foamMaterial);
-          foam.position.y = 0.45;
-          foam.scale.setScalar(0.38);
-          const mastHeight = Math.max(3.8, p.y + 1.05);
-          const mast = new THREE.Mesh(mastGeometry, mastMaterial);
-          mast.position.y = mastHeight * 0.5;
-          mast.scale.y = mastHeight;
-          const signInk = new THREE.Mesh(verticalInk, backingMaterial);
-          signInk.position.y = mastHeight;
-          signInk.scale.setScalar(1.08);
-          const sign = new THREE.Mesh(verticalFill, turnChevronFill);
-          sign.position.set(0, mastHeight, 0.055);
-          sign.scale.setScalar(0.78);
-          sign.renderOrder = 6;
-          support.add(buoy, foam, mast, signInk, sign);
-          turnChevronGroup.add(support);
-          // Local +X is port/left in the route frame, so right cues need the
-          // half-turn. DoubleSide affects visibility, never cue direction.
-          const yaw = Math.atan2(t.x, t.z) + (spec.cue.direction === 'right' ? Math.PI : 0);
-          const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
-          this.floaters.push({
-            obj: support,
-            x: support.position.x,
-            z: support.position.z,
-            yawQ,
-            homeParent: turnChevronGroup,
-            homePosition: support.position.clone(),
-            homeQuaternion: yawQ.clone(),
-            knockable: true,
-            hiddenBy: routeGroup,
-          });
-        }
-      }
       routeGroup.add(turnChevronGroup);
     }
 
@@ -3552,7 +3470,10 @@ export class Course implements ICourse {
 
   // ------------------------------------------------------------- ribbon ----
 
-  private buildLaunchGateVisual(runtime: FlightRouteRuntime): LaunchGateVisual {
+  private buildLaunchGateVisual(
+    runtime: FlightRouteRuntime,
+    makeCourseBuoy: () => THREE.Group,
+  ): LaunchGateVisual {
     const def = runtime.def;
     const group = new THREE.Group();
     group.name = `${def.id}-launch-gate`;
@@ -3607,38 +3528,25 @@ export class Course implements ICourse {
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
     group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);
 
-    const projectorBody = new THREE.CylinderGeometry(0.34, 0.43, 0.62, 8);
-    const projectorFloat = new THREE.TorusGeometry(0.48, 0.14, 8, 16);
-    projectorFloat.rotateX(Math.PI / 2);
-    const projectorLens = new THREE.OctahedronGeometry(0.26, 0);
-    const bodyMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.ink, toneMapped: false });
-    const floatMaterial = new THREE.MeshBasicMaterial({ color: FLIGHT_ROUTE_MARKER_SHADE, toneMapped: false });
-    const lensMaterial = new THREE.MeshBasicMaterial({
-      color: PALETTE.sunFlare,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: false,
-      toneMapped: false,
-    });
     const right = new THREE.Vector3(launchTangent.z, 0, -launchTangent.x);
-    const projectors: LaunchGateProjector[] = [];
     for (const side of [-1, 1]) {
-      const root = new THREE.Group();
-      root.name = `${def.id}-launch-projector-${side < 0 ? 'left' : 'right'}`;
-      const x = launch.x + right.x * 5.2 * side;
-      const z = launch.z + right.z * 5.2 * side;
-      root.position.set(x, 0, z);
-      const floater = new THREE.Mesh(projectorFloat, floatMaterial);
-      floater.position.y = 0.2;
-      const body = new THREE.Mesh(projectorBody, bodyMaterial);
-      body.position.y = 0.54;
-      const lens = new THREE.Mesh(projectorLens, lensMaterial);
-      lens.position.y = 1.02;
-      lens.rotation.y = Math.PI * 0.25;
-      lens.layers.enable(LAYER_ENERGY);
-      root.add(floater, body, lens);
-      group.add(root);
-      projectors.push({ root, lens: lensMaterial, x, z });
+      const buoy = makeCourseBuoy();
+      buoy.name = `${def.id}-launch-buoy-${side < 0 ? 'left' : 'right'}`;
+      const x = launch.x + right.x * 7 * side;
+      const z = launch.z + right.z * 7 * side;
+      buoy.position.set(x, 0, z);
+      this.object.add(buoy);
+      this.floaters.push({
+        obj: buoy,
+        x,
+        z,
+        yawQ: new THREE.Quaternion(),
+        homeParent: this.object,
+        homePosition: buoy.position.clone(),
+        homeQuaternion: buoy.quaternion.clone(),
+        knockable: true,
+        kind: 'launch',
+      });
     }
 
     const inkGeometry = new THREE.RingGeometry(0.72, 1.12, 4);
@@ -3757,7 +3665,7 @@ export class Course implements ICourse {
       group.add(packet);
       packets.push(packet);
     }
-    return { group, projectors, diamonds, packets, packetMaterial, deploy: 0 };
+    return { group, diamonds, packets, packetMaterial, deploy: 0 };
   }
 
   /** Wave-conforming translucent route plus sparse authored arrow geometry. */
@@ -3929,7 +3837,7 @@ export class Course implements ICourse {
 
   // -------------------------------------------------------------- gates ----
 
-  private buildGates(): void {
+  private buildGates(): () => THREE.Group {
     const stripeTex = makeStripeTexture();
     const bodyMat = makeStripeToon(stripeTex);
     // committed accent: orange cap matching the body's accent band — no more
@@ -4043,6 +3951,7 @@ export class Course implements ICourse {
           homePosition: buoy.position.clone(),
           homeQuaternion: buoy.quaternion.clone(),
           knockable: true,
+          kind: 'checkpoint',
         });
       }
     }
@@ -4095,6 +4004,7 @@ export class Course implements ICourse {
       homePosition: gantry.position.clone(),
       homeQuaternion: yawQ.clone(),
     });
+    return makeBuoy;
   }
 
   /** Gold energy columns that remain dormant until all seven routes are cleared. */

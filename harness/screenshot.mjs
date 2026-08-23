@@ -315,9 +315,13 @@ async function verifyMode(browser, mobile) {
   assert.equal(fullInventory, 3, `${label}: runtime inventory cap is not three`);
 
   await stage(page, 'flight-extension-spool', 280, false);
-  const checkpointBuoys = await page.evaluate(() => window.__harness.buoyState().filter((state) => !state.routeOwned));
-  assert.ok(checkpointBuoys.length > 0 && checkpointBuoys.every((state) => state.visible),
-    `${label}: a checkpoint buoy disappeared while a flight route was active`);
+  const courseBuoys = await page.evaluate(() => window.__harness.buoyState());
+  assert.equal(courseBuoys.filter((state) => state.kind === 'checkpoint').length, 16,
+    `${label}: checkpoint buoy pairs left the authored surface route`);
+  assert.equal(courseBuoys.filter((state) => state.kind === 'launch').length, 14,
+    `${label}: launch entrances are not bounded by regular physical buoy pairs`);
+  assert.ok(courseBuoys.every((state) => state.visible),
+    `${label}: a physical surface-route buoy disappeared with virtual flight guidance`);
   if (!mobile) await page.waitForFunction(() => {
     const prompt = document.querySelector('.hud-flight-prompt.extend.on');
     return prompt instanceof HTMLElement && Number(getComputedStyle(prompt).opacity) > 0.5;

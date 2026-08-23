@@ -53,6 +53,14 @@ try {
 
   const run = (name) => page.evaluate((caseName) => window.__harness.collisionCase(caseName), name);
 
+  const courseBuoys = await page.evaluate(() => window.__harness.buoyState());
+  assert.equal(courseBuoys.filter((state) => state.kind === 'checkpoint').length, 16,
+    'all eight checkpoint pairs must remain physical');
+  assert.equal(courseBuoys.filter((state) => state.kind === 'launch').length, 14,
+    'all seven launch entrances must use regular physical buoy pairs');
+  assert.ok(courseBuoys.every((state) => state.visible),
+    'surface-route buoys must not inherit virtual flight-guide visibility');
+
   const buoy = await page.evaluate(() => window.__harness.buoyCase());
   assert.ok(buoy.maxHeight >= 5 && buoy.maxHeight <= 7,
     `buoy comedy arc must peak 5-7m above contact: ${JSON.stringify(buoy)}`);
