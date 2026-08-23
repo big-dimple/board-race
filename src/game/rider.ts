@@ -221,6 +221,15 @@ export class Rider {
     const footR = joint(kneeR, 'footR', POSE.footL, -1);
     this.j = { hips, spine, chest, head, shoulderL, shoulderR, elbowL, elbowR, handL, handR, hipL, hipR, kneeL, kneeR, footL, footR };
     this.hipsBaseY = hips.position.y;
+    this.object = root;
+    // Apply baseline rest hunch and solve arms IK immediately so the skeleton
+    // is never in an unposed or inverted rest state before the first tick.
+    spine.rotation.set(POSE.hunchSpine, 0, 0);
+    chest.rotation.set(POSE.hunchChest, 0, 0);
+    head.rotation.set(POSE.headTiltUp, 0, 0);
+    root.updateWorldMatrix(true, true);
+    this.solveArm(1, shoulderL, elbowL, handL, RIDER_GRIP_LOCAL.left, 0);
+    this.solveArm(-1, shoulderR, elbowR, handR, RIDER_GRIP_LOCAL.right, 0);
     this.skin = buildSkinnedRider(root, this.j, opts.color, opts.detailedInk !== false, opts.look);
     if (opts.detailedInk !== false) {
       addOutline(root);
@@ -229,7 +238,6 @@ export class Rider {
       this.skin.mesh.layers.enable(LAYER_INK);
       this.skin.hair.mesh.layers.enable(LAYER_INK);
     }
-    this.object = root;
   }
 
   setColor(color: number, look: RiderLook): void {

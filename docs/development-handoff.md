@@ -1,29 +1,20 @@
 # Board Race 开发交接
 
-状态：路线锥体与女性选手辨识修复已完成；本文件所在提交即该工作包的发布提交。
+状态：开场手臂 IK 初始解算、选手发型丰富化与空气动力学尾翼折板重构已完成；本文件所在提交即该工作包的发布提交。
 
 更新时间：2026-08-23
 
 ## 当前活动工作包
 
-- 基线：`1078cf7`。
-- 删除七个菱形升空入口两侧共 14 个额外浮锥；飞行入口与飞行分支都不再生成锥体或碰撞体，
-  只保留绿色水面正规路线上的 8 对 checkpoint 实体浮锥。
-- ChatGPT 的 3D bob 增加青色发梢，Gemini 的高马尾加粗、加长并增加暖金尾梢；开场身份牌
-  放大立绘，并为两位女选手明确显示“女将”。
-- READY 选角标题更新为最终文案 `别懵逼，选最强`；smoke 同时守住文案、两位女将标签和
-  仅 16 个 checkpoint 实体浮锥的合同。
+- 彻底排查并修复开场肘部朝向问题：在 `Rider` 构造函数中前置应用姿态并即时解算两臂 IK（帧 0 即就绪）；在 `main.ts` 的 `ready`（含 `OpeningShowcase`）与 `countdown` 阶段每帧驱动 `riders[i].update()`，并在切角色时即时同步。此前首次进游戏未在开场调用 update 导致骨骼停留在零旋转初始位（肘部反拐），而死后第二把复用已解算的持久化实例才正常。
+- 解决全员“像戴头盔”问题：在 `riderMesh.ts` 中为全员增加额前修容刘海、鬓角与差异化发型几何。蓬蓬头（Kai）赋予蓬松层叠乱发与碎刘海，杨植麟（Reef）赋予前冲竞技冠刺与利落刘海，梁圣梁子（Jinx）赋予斜刘海与凌厉侧发，唐老杰（Axle）赋予分头短发，奥特曼（Tide）与美国豆包（Sol）增加修容刘海，告别光面圆帽感。
+- 重构尾翼折板（“有厚有薄”与流线折板美感）：废弃原有 9cm 等厚方木板结构，新增 `prismFromTaperedFoldedPlan` 实现前缘 26mm 结构梁平滑渐变到后缘 6mm 刀锋薄板的真翼型流线截面；引入双层折板（主翼板 + 抬高带风隙的副翼板）、流线后掠刀片支架以及 14mm 阶梯端板小翼与导流拉花。
 
 ## 验证证据
 
-- `npm run build`、`npm run verify:smoke`、`npm run verify:collision`：通过。
-- 桌面证据：`shots/evidence/route-women-after-desktop/ready.png`、`opening-showcase.png`、
-  `rider-inspection-back.png`、`flight-ready.png`；Gemini 高马尾证据在
-  `shots/evidence/sol-after-desktop/rider-inspection-back.png`。
-- `844x390` 对应证据位于 `shots/evidence/route-women-after-mobile/` 与
-  `shots/evidence/sol-after-mobile/`；逐张人工审图确认标题、身份牌、发型均无重叠，飞行入口
-  下方不再有额外锥体。
+- `npm run build`、`npm run verify:smoke`、`npm run verify:collision`、`npm run verify:audio`：全部通过。
+- 桌面及移动端实测截图：`opening-showcase.png`（开场全体肘部自然入座、握把正确）、`tail-inspection-sun.png` 与 `tail-inspection-side.png`（尾翼刀锋渐变、双层风隙、流线支架与端板）、`rider-inspection-front.png` 与 `rider-inspection-back.png`。
 
 ## 唯一下一步
 
-- 当前工作包没有待实现项；等待用户复审实际游戏画面。
+- 当前工作包已完成并发布；等待用户复审。

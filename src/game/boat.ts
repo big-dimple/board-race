@@ -723,20 +723,32 @@ function rearWingBottomY(x: number): number {
   return REAR_WING_ROOT_Y + Math.max(0, Math.abs(x) - REAR_WING_ROOT_X) * REAR_WING_FOLD_SLOPE;
 }
 
-/** A solid planform whose upper surface rises toward the tip as a real dihedral fold. */
-function prismFromFoldedPlan(
+/**
+ * Aerodynamic folded flap with chordwise thickness tapering: thick structural
+ * leading edge spar tapering smoothly to a razor-thin knife-edge trailing plate.
+ */
+function prismFromTaperedFoldedPlan(
   plan: readonly PlanPoint[],
   rootBottomY: number,
-  thickness: number,
+  zLeading: number,
+  zTrailing: number,
+  tLeading: number,
+  tTrailing: number,
+  yOffset = 0,
 ): THREE.BufferGeometry {
   const pos: number[] = [];
   const ordered = clockwisePlan(plan);
-  const bottom = ordered.map(([x, z]) => [
-    x,
-    rootBottomY + Math.max(0, Math.abs(x) - REAR_WING_ROOT_X) * REAR_WING_FOLD_SLOPE,
-    z,
-  ]);
-  const top = bottom.map(([x, y, z]) => [x, y + thickness, z]);
+  const zSpan = Math.max(1e-4, Math.abs(zTrailing - zLeading));
+  const bottom = ordered.map(([x, z]) => {
+    const yBase = rootBottomY + yOffset + Math.max(0, Math.abs(x) - REAR_WING_ROOT_X) * REAR_WING_FOLD_SLOPE;
+    return [x, yBase, z];
+  });
+  const top = ordered.map(([x, z], i) => {
+    // z is negative (e.g. -2.08 to -2.75); chord fraction runs 0 at nose to 1 at trailing edge
+    const chordT = Math.min(1, Math.max(0, (zLeading - z) / zSpan));
+    const thickness = tLeading + (tTrailing - tLeading) * chordT;
+    return [x, bottom[i][1] + thickness, z];
+  });
   pushCap(pos, bottom, true);
   pushCap(pos, top, false);
   for (let i = 0; i < ordered.length; i++) {
@@ -776,36 +788,69 @@ function prismFromSide(
 }
 
 /**
- * Raised anti-grav tail array: twin delta planes frame real negative space
- * around a dorsal reactor spine. High outward-canted winglets make the flight
- * hardware readable from the chase camera instead of collapsing into a low
- * horizontal bar across the dark nozzle and cowl.
+ * High-performance aerodynamic rear wing array:
+ * Dual-tier folded foil plates with true thickness variation ("有厚有薄" — structural
+ * leading edge spar tapering to razor-thin trailing plate), swept knife-edge blade pylons,
+ * and sculpted thin-plate endplate winglets with aerodynamic vortex cutouts.
  */
 function buildRearWingGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    // Twin swept pylons lift the array clear of the tail cowl.
-    prismFromPlan([[0.25, -1.76], [0.4, -1.8], [0.56, -2.33], [0.39, -2.4]], 0.64, 1.11),
-    prismFromPlan([[-0.25, -1.76], [-0.4, -1.8], [-0.56, -2.33], [-0.39, -2.4]], 0.64, 1.11),
-    // Separate swept delta planes leave a deep V-shaped center void. Their
-    // 14.6-degree dihedral is visible from the chase camera instead of reading
-    // as one flat horizontal bar.
-    prismFromFoldedPlan([[-0.18, -2.08], [-0.86, -2.2], [-1.02, -2.63], [-0.53, -2.82], [-0.27, -2.52]], 1.08, 0.09),
-    prismFromFoldedPlan([[0.18, -2.08], [0.86, -2.2], [1.02, -2.63], [0.53, -2.82], [0.27, -2.52]], 1.08, 0.09),
-    // Tip fins start on the raised panel edge and lean 27.5 degrees outward;
-    // they are no longer near-vertical slabs.
-    transformedPart(prismFromSide([[0, -2.21], [0.34, -2.35], [0.25, -2.73], [0.02, -2.66]], 0.05),
-      [0.96, rearWingBottomY(0.96), 0], [0, 0, -0.48]),
-    transformedPart(prismFromSide([[0, -2.21], [0.34, -2.35], [0.25, -2.73], [0.02, -2.66]], 0.05),
-      [-0.96, rearWingBottomY(-0.96), 0], [0, 0, 0.48]),
+    // Twin swept blade pylons: raked aerodynamic struts tapering from deck to wing spar
+    transformedPart(prismFromSide([[0.64, -1.82], [1.10, -2.12], [1.10, -2.36], [0.64, -2.26]], 0.015),
+      [0.34, 0, 0]),
+    transformedPart(prismFromSide([[0.64, -1.82], [1.10, -2.12], [1.10, -2.36], [0.64, -2.26]], 0.015),
+      [-0.34, 0, 0]),
+
+    // Primary lower foil blade: broad swept plate with 26mm leading spar tapering to 6mm trailing flap
+    prismFromTaperedFoldedPlan([
+      [-0.18, -2.06], [-0.88, -2.18], [-1.02, -2.58], [-0.52, -2.68], [-0.22, -2.48],
+    ], 1.08, -2.06, -2.68, 0.026, 0.006),
+    prismFromTaperedFoldedPlan([
+      [0.18, -2.06], [0.88, -2.18], [1.02, -2.58], [0.52, -2.68], [0.22, -2.48],
+    ], 1.08, -2.06, -2.68, 0.026, 0.006),
+
+    // Secondary elevated aero flap: upper slotted Gurney/DRS blade with negative space airflow gap
+    prismFromTaperedFoldedPlan([
+      [-0.24, -2.34], [-0.84, -2.42], [-0.96, -2.76], [-0.46, -2.82], [-0.26, -2.64],
+    ], 1.08, -2.34, -2.82, 0.016, 0.005, 0.038),
+    prismFromTaperedFoldedPlan([
+      [0.24, -2.34], [0.84, -2.42], [0.96, -2.76], [0.46, -2.82], [0.26, -2.64],
+    ], 1.08, -2.34, -2.82, 0.016, 0.005, 0.038),
+
+    // Thin sculpted endplate winglets: 14mm plate thickness, 25.2-degree outward cant, stepped aero cutouts
+    transformedPart(prismFromSide([
+      [-0.04, -2.14], [0.38, -2.28], [0.32, -2.78], [0.18, -2.76], [0.14, -2.68], [-0.02, -2.62],
+    ], 0.007), [0.98, rearWingBottomY(0.98), 0], [0, 0, -0.44]),
+    transformedPart(prismFromSide([
+      [-0.04, -2.14], [0.38, -2.28], [0.32, -2.78], [0.18, -2.76], [0.14, -2.68], [-0.02, -2.62],
+    ], 0.007), [-0.98, rearWingBottomY(-0.98), 0], [0, 0, 0.44]),
   ]);
 }
 
-/** Inset foam chevrons leave the team-color leading edge exposed. */
+/** Precision aerodynamic accent slats on the upper and lower flaps. */
 function buildRearWingAccentGeometry(): THREE.BufferGeometry {
   return mergeFlatGeometryParts([
-    prismFromFoldedPlan([[-0.3, -2.2], [-0.78, -2.29], [-0.75, -2.37], [-0.35, -2.31]], 1.176, 0.018),
-    prismFromFoldedPlan([[0.3, -2.2], [0.78, -2.29], [0.75, -2.37], [0.35, -2.31]], 1.176, 0.018),
-    prismFromSide([[1.06, -2.07], [1.2, -2.36], [1.16, -2.47], [1.02, -2.16]], 0.09),
+    // Leading-edge trim slats on the lower foil
+    prismFromTaperedFoldedPlan([
+      [-0.28, -2.08], [-0.82, -2.19], [-0.78, -2.28], [-0.32, -2.20],
+    ], 1.08, -2.08, -2.28, 0.028, 0.022, 0.002),
+    prismFromTaperedFoldedPlan([
+      [0.28, -2.08], [0.82, -2.19], [0.78, -2.28], [0.32, -2.20],
+    ], 1.08, -2.08, -2.28, 0.028, 0.022, 0.002),
+
+    // Upper flap contrast chevron
+    prismFromTaperedFoldedPlan([
+      [-0.32, -2.36], [-0.76, -2.43], [-0.72, -2.52], [-0.36, -2.46],
+    ], 1.08, -2.36, -2.52, 0.018, 0.014, 0.040),
+    prismFromTaperedFoldedPlan([
+      [0.32, -2.36], [0.76, -2.43], [0.72, -2.52], [0.36, -2.46],
+    ], 1.08, -2.36, -2.52, 0.018, 0.014, 0.040),
+
+    // Endplate exterior aero strakes
+    transformedPart(prismFromSide([[0.10, -2.24], [0.28, -2.34], [0.24, -2.62], [0.12, -2.56]], 0.010),
+      [0.98, rearWingBottomY(0.98), 0], [0, 0, -0.44]),
+    transformedPart(prismFromSide([[0.10, -2.24], [0.28, -2.34], [0.24, -2.62], [0.12, -2.56]], 0.010),
+      [-0.98, rearWingBottomY(-0.98), 0], [0, 0, 0.44]),
   ]);
 }
 

@@ -365,6 +365,7 @@ function applySelectedDriver(id: string): void {
     const profile = driverProfile(definition.profileId);
     boats[definition.id].setDriver(definition.color, profile.handling);
     riders[definition.id].setColor(definition.color, profile.look);
+    riders[definition.id].update(1 / 60, boats[definition.id].state, presentationTime, false);
   }
   ais = buildAiControllers();
   race.setDefinitions(roster);
@@ -920,6 +921,7 @@ function step(dt: number, _t: number): void {
     sky.update(readySceneTime, stage.camera.position);
     seaDecor.update(readySceneTime, stage.camera.position);
     for (const boat of boats) boat.syncSurfacePresentation(readySceneTime);
+    for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime, false);
     openingShowcase.update(dt);
     course.update(0, readySceneTime);
     tower.update(dt, race);
@@ -945,6 +947,7 @@ function step(dt: number, _t: number): void {
       sky.update(worldTime, stage.camera.position);
       seaDecor.update(worldTime, stage.camera.position);
       for (const boat of boats) boat.syncSurfacePresentation(worldTime);
+      for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, false);
       course.update(0, worldTime);
     }
     tower.update(dt, race);
