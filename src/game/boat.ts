@@ -746,19 +746,31 @@ function prismFromFoldedPlan(
   return flatGeometry(pos);
 }
 
+function counterClockwiseProfile(
+  profile: readonly (readonly [number, number])[],
+): readonly (readonly [number, number])[] {
+  let signedArea = 0;
+  for (let i = 0; i < profile.length; i++) {
+    const next = profile[(i + 1) % profile.length];
+    signedArea += profile[i][0] * next[1] - profile[i][1] * next[0];
+  }
+  return signedArea > 0 ? [...profile].reverse() : profile;
+}
+
 /** Extrude a (y, z) side silhouette across x for fins and dorsal structures. */
 function prismFromSide(
   profile: readonly (readonly [number, number])[],
   halfWidth: number,
 ): THREE.BufferGeometry {
   const pos: number[] = [];
-  const left = profile.map(([y, z]) => [-halfWidth, y, z]);
-  const right = profile.map(([y, z]) => [halfWidth, y, z]);
-  pushCap(pos, left, true);
-  pushCap(pos, right, false);
-  for (let i = 0; i < profile.length; i++) {
-    const next = (i + 1) % profile.length;
-    pushQuad(pos, left[i], left[next], right[next], right[i]);
+  const ordered = counterClockwiseProfile(profile);
+  const left = ordered.map(([y, z]) => [-halfWidth, y, z]);
+  const right = ordered.map(([y, z]) => [halfWidth, y, z]);
+  pushCap(pos, left, false);
+  pushCap(pos, right, true);
+  for (let i = 0; i < ordered.length; i++) {
+    const next = (i + 1) % ordered.length;
+    pushQuad(pos, left[i], right[i], right[next], left[next]);
   }
   return flatGeometry(pos);
 }

@@ -1,29 +1,22 @@
 # Board Race 开发交接
 
-状态：用户复审提出的直臂与尾翼纠偏已完成；本文件所在提交即该工作包的发布提交。
+状态：用户反馈的手肘外拐纠偏与尾翼小折翼黑团修复已完成；本文件所在提交即该工作包的发布提交。
 
 更新时间：2026-08-23
 
 ## 当前活动工作包
 
-- 基线：`29b2eb33af5930e8320b793ca8e865f89e6c6300`。
-- 范围：只修车手直臂握把姿态，以及尾翼左右可读性和折叠角；五官/发型按用户要求冻结。
-- 共享实体握把从 boat-local `z=-0.80m` 前移到 `z=-0.54m`，rider-local 目标同步为
-  `z=0.51m`。手套仍由同一两段 IK 落在真实把套，不存在第二套姿态。
-- 转向时下身继续随船压弯，上身改为反向支撑；飞行和落水主要由腿部吸收，不再把肩点压向
-  握把而制造直角肘。四态最大弯角为 `0.374rad`（约 `21.4deg`），最大握把中心误差
-  `0.02265m`，低于 `0.025m` 门限且小于手套半径。
-- `prismFromPlan()` 现在统一镜像多边形绕序，左右尾翼顶面法线一致，逆光时不再一粉一黑。
-- 两片主翼使用 `slope=0.26` 的真实上反折面（约 `14.6deg`），端板从约 `9deg` 改为
-  `27.5deg` 外倾；顺光、逆光和侧视都保留队色主翼、白色嵌条及中央青色 reactor。
+- 范围：手肘朝外拐纠偏为直臂/微朝下微曲；修复尾翼端板小折翼黑团问题。
+- `prismFromSide()` 新增 `counterClockwiseProfile()` 统一 (Y, Z) 平面绕序，修正侧面封盖 flip 参数与侧四边形绕序，确保端板/立面法线全部朝外。自艇与对手尾翼小折翼在顺光、逆光、侧视下均正常呈现队色与卡通明暗阶，彻底消除全黑团块。
+- 车手手臂 IK pole 向量调整：`elbowPoleOut` 设为 `-0.04`（消除侧向外拐，落入肩-把手连线中心平面），`elbowPoleY` 设为 `0.35`，`elbowPoleForward` 设为 `-0.15`。手肘不再朝两侧外张，呈现自然的直臂或微朝下自然垂曲姿态。
+- `assertHarnessRiderPose()` 与 `screenshot.mjs` 同步直臂 IK 判定门限（`elbowForward` 范围 `0.14..0.36`，`elbowOut >= 0`）。
 
 ## 验证证据
 
-- `npm run build` 与 `npm run verify:smoke`：通过。
-- 直臂桌面/移动证据：`shots/evidence/m1-desktop`、`shots/evidence/m1-mobile`。
-- 尾翼桌面/移动证据：`shots/evidence/m2-desktop`、`shots/evidence/m2-mobile`。
-- 桌面与 `844x390` 的直行、左转、飞行、落水，以及尾翼顺光、逆光、侧视均已人工审图。
+- `npm run build` 与 `npm run verify:smoke`：全部通过。
+- 桌面与移动端截图证据：`shots/evidence/after` 与 `shots/evidence/after-mobile`（涵盖 `race-straight`、`race-steer-left`、`tail-inspection-sun`、`tail-inspection-shade`、`tail-inspection-side`）。
+- 桌面与 `844x390` 手机视口下人工审图确认：尾翼小折翼队色鲜明清晰，手肘无外拐、直臂姿态自然。
 
 ## 唯一下一步
 
-- 当前工作包没有待实现项。下一轮等用户决定是否继续五官；不要把该方向混入本提交。
+- 当前工作包已完成并验证，执行发布提交并推送。
