@@ -459,7 +459,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const server = spawn(process.execPath,
     [path.join(root, 'node_modules/vite/bin/vite.js'), '--port', String(port), '--strictPort'],
-    { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
+    { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, CHOKIDAR_USEPOLLING: '1' } });
   server.stderr.on('data', (data) => process.stderr.write(`[vite] ${data}`));
   let browser;
   try {

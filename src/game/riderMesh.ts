@@ -15,6 +15,7 @@ import { addOutline } from '../cel/outline';
 import { LAYER_INK, markInk } from '../contracts';
 
 export interface RiderLook {
+  driverId: string;
   hair: number;
   skin: number;
   hairStyle: 'short' | 'bob' | 'ponytail';
@@ -44,6 +45,7 @@ export interface RiderSkin {
   roles: Uint8Array;
   colorAttribute: THREE.BufferAttribute;
   hair: HairAccessory;
+  faceMesh: THREE.Mesh;
 }
 
 export interface HairAccessory {
@@ -394,17 +396,256 @@ function makeHairBone(parent: THREE.Object3D, name: string, position: readonly [
   return bone;
 }
 
-function appendHairCap(out: SkinAssembler, root: THREE.Bone, sides: number): void {
-  // The cap is deliberately shallow at the back; the authored locks below
-  // carry the silhouette so this can never read as a round helmet by itself.
-  out.append(
-    new THREE.SphereGeometry(1, sides, Math.max(6, Math.floor(sides * 0.7)),
-      Math.PI * 0.5 + 0.76, Math.PI * 2 - 1.52, 0, 2.18),
-    root,
-    Role.Hair,
-    transform([0, 0.105, 0.008], [0, 0, 0], [0.133, 0.15, 0.135]),
-  );
-  appendHairBlade(out, root, [0, 0.01, -0.07], 0.2, 0.27, 0.12, 0.07);
+const sharedFaceTextureCache = new Map<string, THREE.CanvasTexture>();
+
+export function getFaceTextureCacheSize(): number {
+  return sharedFaceTextureCache.size;
+}
+
+function hexToString(hex: number): string {
+  return '#' + hex.toString(16).padStart(6, '0');
+}
+
+function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.CanvasTexture {
+  const cached = sharedFaceTextureCache.get(driverId);
+  if (cached) return cached;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Failed to get 2d context for face texture canvas');
+
+  // clearRect first: transparent pixels reveal the skin ellipsoid underneath
+  ctx.clearRect(0, 0, 256, 256);
+
+  const hairColorHex = hexToString(look.hair);
+
+  const driverEyeGradients: Record<string, { top: string; bottom: string }> = {
+    sol: { top: '#a83c10', bottom: '#f59638' },
+    tide: { top: '#164878', bottom: '#3ca8d8' },
+    axle: { top: '#422818', bottom: '#7a5238' },
+    reef: { top: '#781c10', bottom: '#c84428' },
+    kai: { top: '#1c2038', bottom: '#485888' },
+    jinx: { top: '#481864', bottom: '#883ca8' },
+  };
+  const eyeColors = driverEyeGradients[driverId] ?? { top: '#2c2234', bottom: hairColorHex };
+
+  // Draw eyes at left eye (78, 138) and right eye (178, 138)
+  for (const cx of [78, 178]) {
+    const cy = 138;
+
+    // Sclera (Eye White): width 58, height 27
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 29, 13.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    // Clip iris within sclera
+    ctx.clip();
+
+    // Iris: radius 18
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 18, 18, 0, 0, Math.PI * 2);
+    const irisGrad = ctx.createLinearGradient(cx, cy - 18, cx, cy + 18);
+    irisGrad.addColorStop(0, eyeColors.top);
+    irisGrad.addColorStop(1, eyeColors.bottom);
+    ctx.fillStyle = irisGrad;
+    ctx.fill();
+
+    // Pupil: radius 8
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+    ctx.fillStyle = '#100c16';
+    ctx.fill();
+
+    // Double catchlights at +/- 6px
+    ctx.beginPath();
+    ctx.arc(cx - 6, cy - 6, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(cx + 6, cy + 5, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    ctx.restore();
+
+    // Upper lid: 4px
+    ctx.beginPath();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#181420';
+    ctx.lineCap = 'round';
+    ctx.moveTo(cx - 30, cy - 2);
+    ctx.quadraticCurveTo(cx, cy - 18, cx + 30, cy - 2);
+    ctx.stroke();
+
+    // Lower lid: 2px
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#2d2438';
+    ctx.lineCap = 'round';
+    ctx.moveTo(cx - 18, cy + 13);
+    ctx.quadraticCurveTo(cx, cy + 16, cx + 18, cy + 13);
+    ctx.stroke();
+  }
+
+  // Brows at y = 106, styled using look.hair tint
+  // Left brow
+  ctx.beginPath();
+  ctx.lineWidth = 4.5;
+  ctx.strokeStyle = hairColorHex;
+  ctx.lineCap = 'round';
+  ctx.moveTo(78 - 28, 112);
+  ctx.quadraticCurveTo(78 - 4, 102, 78 + 28, 108);
+  ctx.stroke();
+
+  // Right brow
+  ctx.beginPath();
+  ctx.lineWidth = 4.5;
+  ctx.strokeStyle = hairColorHex;
+  ctx.lineCap = 'round';
+  ctx.moveTo(178 - 28, 108);
+  ctx.quadraticCurveTo(178 + 4, 102, 178 + 28, 112);
+  ctx.stroke();
+
+  // Nose point at (128, 168)
+  ctx.beginPath();
+  ctx.fillStyle = '#7a4230';
+  ctx.arc(128, 168, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Mouth baseline at y = 188
+  ctx.beginPath();
+  ctx.lineWidth = 3.2;
+  ctx.strokeStyle = '#682820';
+  ctx.lineCap = 'round';
+  ctx.moveTo(114, 188);
+  ctx.quadraticCurveTo(128, 193, 142, 188);
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  sharedFaceTextureCache.set(driverId, texture);
+  return texture;
+}
+
+function buildFacePatch(headBone: THREE.Bone, look: RiderLook, detailed: boolean): THREE.Mesh {
+  const geometry = new THREE.BufferGeometry();
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const xmin = -0.066;
+  const xmax = 0.066;
+  const ymin = 0.048;
+  const ymax = 0.144;
+
+  const numCols = 8;
+  const numRows = 6;
+
+  for (let row = 0; row < numRows; row++) {
+    const tY = row / (numRows - 1);
+    const y = ymin + tY * (ymax - ymin);
+    const v = tY;
+    for (let col = 0; col < numCols; col++) {
+      const tX = col / (numCols - 1);
+      const x = xmin + tX * (xmax - xmin);
+      const u = tX;
+
+      const nx = x / 0.125;
+      const ny = (y - 0.100) / 0.140;
+      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+      const z = 0.020 + 0.132 * nz + 0.004;
+
+      positions.push(x, y, z);
+      uvs.push(u, v);
+    }
+  }
+
+  for (let row = 0; row < numRows - 1; row++) {
+    for (let col = 0; col < numCols - 1; col++) {
+      const a = row * numCols + col;
+      const b = a + 1;
+      const c = a + numCols;
+      const d = c + 1;
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const faceTexture = getOrCreateFaceTexture(look.driverId, look);
+  const faceMat = new THREE.MeshBasicMaterial({
+    map: faceTexture,
+    color: 0xffffff,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    side: THREE.FrontSide,
+    toneMapped: false,
+  });
+  faceMat.name = 'RiderFacePatch';
+
+  const faceMesh = new THREE.Mesh(geometry, faceMat);
+  faceMesh.name = 'rider-face-patch';
+  faceMesh.renderOrder = 1;
+  faceMesh.frustumCulled = false;
+  faceMesh.userData.noInk = true;
+  faceMesh.userData.noOutline = true;
+  faceMesh.layers.set(0);
+  headBone.add(faceMesh);
+
+  return faceMesh;
+}
+
+function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
+  const rings = [
+    { y: 0.225, z: 0.015, rx: 0.082, rz: 0.090 }, // crown
+    { y: 0.175, z: 0.020, rx: 0.132, rz: 0.136 }, // parietal
+    { y: 0.105, z: 0.025, rx: 0.136, rz: 0.132 }, // temple/hairline
+    { y: 0.035, z: -0.040, rx: 0.098, rz: 0.075 }, // nape
+  ];
+  const sides = detailed ? 12 : 8;
+  const frontGap = 0.58; // radians on each side of +Z; leave forehead open
+  const sweep = Math.PI * 2 - frontGap * 2;
+  const vertices: number[] = [];
+  const indices: number[] = [];
+
+  for (const ring of rings) {
+    for (let i = 0; i <= sides; i++) {
+      const theta = frontGap + (sweep * i) / sides;
+      const x = ring.rx * Math.sin(theta);
+      const z = ring.z + ring.rz * Math.cos(theta);
+      // push the loft back from the face only; do not add a front cap
+      vertices.push(x, ring.y, z - 0.004);
+    }
+  }
+  for (let ring = 0; ring < rings.length - 1; ring++) {
+    for (let i = 0; i < sides; i++) {
+      const a = ring * (sides + 1) + i;
+      const b = a + 1;
+      const c = a + sides + 1;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
 }
 
 function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean): HairAccessory {
@@ -423,11 +664,11 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     bones.push(back, left, right);
     bobBones = [back, left, right];
   } else if (look.hairStyle === 'ponytail') {
-    const tie = makeHairBone(hairRoot, 'braid-tie', [0, 0.11, -0.075]);
-    const braid1 = makeHairBone(tie, 'braid-1', [0, -0.095, -0.105]);
-    const braid2 = makeHairBone(braid1, 'braid-2', [0, -0.085, -0.11]);
-    const braid3 = makeHairBone(braid2, 'braid-3', [0, -0.075, -0.105]);
-    const braid4 = makeHairBone(braid3, 'braid-4', [0, -0.07, -0.09]);
+    const tie = makeHairBone(hairRoot, 'braid-tie', [0, 0.10, -0.08]);
+    const braid1 = makeHairBone(tie, 'braid-1', [0, -0.11, -0.105]);
+    const braid2 = makeHairBone(braid1, 'braid-2', [0, -0.105, -0.105]);
+    const braid3 = makeHairBone(braid2, 'braid-3', [0, -0.10, -0.10]);
+    const braid4 = makeHairBone(braid3, 'braid-4', [0, -0.09, -0.09]);
     bones.push(tie, braid1, braid2, braid3, braid4);
     braidBones = [tie, braid1, braid2, braid3, braid4];
   }
@@ -436,9 +677,10 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
   // the whole accessory skeleton first so style locks cannot fall back to the
   // root bone or be authored from identity matrices after a driver switch.
   object.updateWorldMatrix(true, true);
-  const sides = detailed ? 8 : 6;
   const out = new SkinAssembler(object, bones, 0xffffff, look);
-  appendHairCap(out, hairRoot, sides);
+
+  // Open-front fitted skull loft (~294°) is always appended first
+  out.append(buildSkullLoftGeometry(detailed), hairRoot, Role.Hair);
 
   if (bobBones) {
     const [back, left, right] = bobBones;
@@ -458,12 +700,21 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
       [0.1, 0, 0.04], Role.HairLight);
   } else if (braidBones) {
     const [tie, braid1, braid2, braid3, braid4] = braidBones;
-    appendHairBlade(out, hairRoot, [0, 0.16, -0.07], 0.035, 0.065, 0.09, 0.08);
-    appendHairBlade(out, tie, [0, -0.045, -0.03], 0.05, 0.085, 0.11, 0.09, [0.18, 0, 0]);
-    appendHairBlade(out, braid1, [0, -0.045, -0.035], 0.045, 0.09, 0.13, 0.1, [-0.2, 0, 0]);
-    appendHairBlade(out, braid2, [0, -0.04, -0.035], 0.04, 0.082, 0.13, 0.095, [0.2, 0, 0]);
-    appendHairBlade(out, braid3, [0, -0.035, -0.032], 0.032, 0.07, 0.12, 0.085, [-0.18, 0, 0]);
-    appendHairBlade(out, braid4, [0, -0.03, -0.028], 0.018, 0.058, 0.11, 0.07, [0.12, 0, 0]);
+    // 5-bone braid chain
+    appendHairBlade(out, hairRoot, [0, 0.15, -0.075], 0.045, 0.065, 0.09, 0.08, [0.15, 0, 0]);
+    appendHairBlade(out, tie, [0, -0.04, -0.03], 0.055, 0.050, 0.10, 0.09, [0.18, 0, 0]);
+    appendHairBlade(out, braid1, [0, -0.05, -0.035], 0.050, 0.043, 0.14, 0.10, [-0.18, 0, 0]);
+    appendHairBlade(out, braid2, [0, -0.045, -0.035], 0.043, 0.035, 0.13, 0.09, [0.18, 0, 0]);
+    appendHairBlade(out, braid3, [0, -0.04, -0.03], 0.035, 0.026, 0.11, 0.08, [-0.16, 0, 0]);
+    appendHairBlade(out, braid4, [0, -0.03, -0.025], 0.026, 0.014, 0.09, 0.07, [0.10, 0, 0]);
+
+    // 4 bangs + 2 side locks
+    appendHairBlade(out, hairRoot, [0.022, 0.16, 0.144], 0.040, 0.048, 0.11, 0.025, [-0.22, 0.05, -0.08]);
+    appendHairBlade(out, hairRoot, [-0.022, 0.16, 0.144], 0.040, 0.048, 0.11, 0.025, [-0.22, -0.05, 0.08]);
+    appendHairBlade(out, hairRoot, [0.055, 0.155, 0.128], 0.025, 0.035, 0.14, 0.025, [-0.18, 0.15, -0.15]);
+    appendHairBlade(out, hairRoot, [-0.055, 0.155, 0.128], 0.025, 0.035, 0.14, 0.025, [-0.18, -0.15, 0.15]);
+    appendHairBlade(out, hairRoot, [0.092, 0.10, 0.045], 0.025, 0.038, 0.22, 0.040, [0.08, 0.12, -0.08]);
+    appendHairBlade(out, hairRoot, [-0.092, 0.10, 0.045], 0.025, 0.038, 0.22, 0.040, [0.08, -0.12, 0.08]);
   }
 
   const result = out.finish();
@@ -582,15 +833,14 @@ export function buildSkinnedRider(
   // hair + skin is the character read from every camera, a full helmet throws
   // the identity away. +Z is face-forward in head-bone space.
   appendSegment(out, rig.chest, rig.head, 0.062, 0.052, Role.Skin, sides);
-  out.append(new THREE.CylinderGeometry(0.068, 0.078, 0.06, sides, 1), rig.head, Role.SuitDark,
-    transform([0, -0.015, 0.005], [0, 0, 0]));
+  const collarLocalInHead = new THREE.Matrix4().makeTranslation(0, -0.015, 0.005);
+  const collarLocalInChest = new THREE.Matrix4()
+    .copy(rig.chest.matrixWorld).invert()
+    .multiply(rig.head.matrixWorld)
+    .multiply(collarLocalInHead);
+  out.append(new THREE.CylinderGeometry(0.068, 0.078, 0.06, sides, 1), rig.chest, Role.SuitDark, collarLocalInChest);
   const headSides = detailed ? 16 : 10;
   appendEllipsoid(out, rig.head, Role.Skin, [0, 0.1, 0.02], [0.125, 0.14, 0.132], headSides);
-  // Face: painted-anime eyes and a small nose bridge, readable at dossier
-  // distance without pretending to be a texture.
-  appendEllipsoid(out, rig.head, Role.Ink, [0.047, 0.105, 0.143], [0.018, 0.025, 0.01], 6);
-  appendEllipsoid(out, rig.head, Role.Ink, [-0.047, 0.105, 0.143], [0.018, 0.025, 0.01], 6);
-  appendEllipsoid(out, rig.head, Role.Skin, [0, 0.082, 0.152], [0.014, 0.022, 0.014], 6);
 
   const result = out.finish();
   const material = createToonMaterial({
@@ -622,7 +872,8 @@ export function buildSkinnedRider(
   mesh.bind(skeleton);
   mesh.normalizeSkinWeights();
   const hair = buildHairAccessory(rig.head, look, detailed);
-  return { mesh, roles: result.roles, colorAttribute: result.colorAttribute, hair };
+  const faceMesh = buildFacePatch(rig.head, look, detailed);
+  return { mesh, roles: result.roles, colorAttribute: result.colorAttribute, hair, faceMesh };
 }
 
 export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: RiderLook): void {
@@ -648,6 +899,12 @@ export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: Rid
     skin.hair.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
   }
   skin.hair.colorAttribute.needsUpdate = true;
+
+  if (skin.faceMesh) {
+    const mat = skin.faceMesh.material as THREE.MeshBasicMaterial;
+    mat.map = getOrCreateFaceTexture(look.driverId, look);
+    mat.needsUpdate = true;
+  }
 }
 
 export function updateHairAccessory(

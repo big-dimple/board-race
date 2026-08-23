@@ -31,6 +31,7 @@ import { createPostPipeline } from './cel/postPipeline';
 import { Boat } from './game/boat';
 import { JetTrailSystem } from './game/jetTrail';
 import { Rider } from './game/rider';
+import { getFaceTextureCacheSize } from './game/riderMesh';
 import { CHECKPOINT_US, Course, GRID_SLOTS, SURFACE_ROUTE_FAIL_DISTANCE_M } from './game/course';
 import {
   buildRaceRoster,
@@ -354,7 +355,7 @@ function buildAiControllers(): AIController[] {
 }
 
 function applySelectedDriver(id: string): void {
-  if (race.phase !== 'ready') return;
+  if (race.phase !== 'ready' && !HARNESS) return;
   selectedDriverId = driverProfile(id).id;
   saveSelectedDriver(selectedDriverId);
   roster = buildRaceRoster(selectedDriverId);
@@ -1508,6 +1509,7 @@ interface Harness {
   buoyCase(): Record<string, number | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
   riderHairState(): ReturnType<Rider['hairDebug']>;
+  faceState(): { active: number; withFaceMesh: number; cacheSize: number };
   sprayState(): {
     spray: ReturnType<SpraySystem['debugState']>;
     boat: ReturnType<Boat['landingDebug']>;
@@ -2217,6 +2219,22 @@ function stageHarnessGateFailure(): void {
   mobileInput.setControlPhase('inactive');
 }
 
+const riderInspectionAnchor = new THREE.Object3D();
+riderInspectionAnchor.name = 'rider-inspection-anchor';
+boats[0].riderMount.add(riderInspectionAnchor);
+
+function getRiderFaceTarget(): THREE.Object3D {
+  const head = boats[0].riderMount.getObjectByName('head');
+  if (head) {
+    const headPos = new THREE.Vector3(0, 0, 0);
+    head.localToWorld(headPos);
+    boats[0].riderMount.worldToLocal(headPos);
+    riderInspectionAnchor.position.copy(headPos);
+    riderInspectionAnchor.updateMatrixWorld(true);
+  }
+  return riderInspectionAnchor;
+}
+
 function scenario(name: string): void {
   harnessCameraOverride = null;
   harnessUsePlayerInput = false;
@@ -2338,6 +2356,77 @@ function scenario(name: string): void {
         target: boats[0].object,
         offset: [3.8, 1.2, -2.8],
         lookAt: [0, 0.9, -2.3],
+        fov: 45,
+      };
+      break;
+    }
+    case "rider-inspection":
+    case "rider-inspection-front": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.8);
+      placeHarnessBoat(0, 0.22, 0);
+      applySelectedDriver('sol');
+      loop.advance(1 / 60);
+      harnessCameraOverride = {
+        target: boats[0].riderMount,
+        offset: [0, 0.90, 1.25],
+        lookAt: [0, 0.98, 0.15],
+        fov: 32,
+      };
+      break;
+    }
+    case "rider-inspection-three-quarter": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.8);
+      placeHarnessBoat(0, 0.22, 0);
+      applySelectedDriver('sol');
+      loop.advance(1 / 60);
+      harnessCameraOverride = {
+        target: boats[0].riderMount,
+        offset: [0.95, 0.94, 0.95],
+        lookAt: [0, 0.98, 0.15],
+        fov: 32,
+      };
+      break;
+    }
+    case "rider-inspection-side": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.8);
+      placeHarnessBoat(0, 0.22, 0);
+      applySelectedDriver('sol');
+      loop.advance(1 / 60);
+      harnessCameraOverride = {
+        target: boats[0].riderMount,
+        offset: [1.35, 0.96, 0.15],
+        lookAt: [0, 0.98, 0.15],
+        fov: 32,
+      };
+      break;
+    }
+    case "rider-inspection-back": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.8);
+      placeHarnessBoat(0, 0.22, 0);
+      applySelectedDriver('sol');
+      loop.advance(1 / 60);
+      harnessCameraOverride = {
+        target: boats[0].riderMount,
+        offset: [0, 1.02, -1.35],
+        lookAt: [0, 0.98, 0.15],
+        fov: 32,
+      };
+      break;
+    }
+    case "rider-inspection-chase": {
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.8);
+      placeHarnessBoat(0, 0.22, 0);
+      applySelectedDriver('sol');
+      loop.advance(1 / 60);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0, 3.0, -8.0],
+        lookAt: [0, 0.8, 0],
         fov: 45,
       };
       break;
@@ -2515,6 +2604,19 @@ if (HARNESS) {
     buoyCase: runBuoyCase,
     riderPoseState: () => riders[0].poseDebug(),
     riderHairState: () => riders[0].hairDebug(),
+    faceState: () => {
+      let active = 0;
+      let withFaceMesh = 0;
+      for (const rider of riders) {
+        active++;
+        if (rider.faceDebug().hasFaceMesh) withFaceMesh++;
+      }
+      return {
+        active,
+        withFaceMesh,
+        cacheSize: getFaceTextureCacheSize(),
+      };
+    },
     sprayState: () => ({
       spray: spray.debugState(),
       boat: boats[0].landingDebug(),

@@ -241,6 +241,10 @@ export class Rider {
     };
   }
 
+  faceDebug(): { hasFaceMesh: boolean } {
+    return { hasFaceMesh: Boolean(this.skin?.faceMesh) };
+  }
+
   /**
    * Flash a rival alongside: the head turns their way. Presentation-only;
    * long cooldown keeps races from becoming stare loops.
