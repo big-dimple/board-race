@@ -186,16 +186,16 @@ function nearestOnSplineNear(x: number, z: number, referenceU: number, maxDeltaU
 
 // ------------------------------------------------------------ checkpoints ----
 
-/** World-XZ anchors for the 8 checkpoint gates, snapped to the spline below. */
+/** World-XZ anchors for the 8 checkpoint gates in pure surface sectors, snapped to the spline below. */
 const GATE_ANCHORS: readonly (readonly [number, number])[] = [
-  [60, 400],     // sweeper mid
-  [240, 445],    // chicane in
-  [310, 500],    // chicane apex
-  [528, 340],    // loop corner mid
-  [230, 372],    // hairpin
-  [180, 300],    // airtime entry
-  [291, -8.7],   // airtime end
-  [215, -180],   // carousel mid
+  [4, 86],      // CP 1: start straightaway (u≈0.032)
+  [74, 435],    // CP 2: sweeper apex (u≈0.165)
+  [414, 555],   // CP 3: chicane exit / loop approach (u≈0.350)
+  [480, 240],   // CP 4: loop corner exit (u≈0.492)
+  [224, 294],   // CP 5: hairpin mid (u≈0.605)
+  [241, 112],   // CP 6: S-turn transition (u≈0.745)
+  [201, -200],  // CP 7: carousel mid (u≈0.880)
+  [3, -40],     // CP 8: final dock straightaway (u≈0.985)
 ];
 
 /** Gate u-positions on the closed spline, ascending. race.ts relies on the order. */
@@ -232,13 +232,13 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
   {
     id: 'flight-2',
     index: 1,
-    entryU: CHECKPOINT_US[1],
+    entryU: 0.2462,
     exitU: 0.315,
     gateUs: [0.3],
     nodes: [
-      { u: CHECKPOINT_US[1], lateral: 0, height: 0 },
+      { u: 0.2462, lateral: 0, height: 0 },
       { u: 0.262, lateral: 18, height: 4.5 },
-      { u: CHECKPOINT_US[2], lateral: 41, height: 4.5 },
+      { u: 0.2971, lateral: 41, height: 4.5 },
       { u: 0.3, lateral: 23, height: 4.5 },
       { u: 0.315, lateral: 0, height: 0 },
     ],
@@ -4084,20 +4084,23 @@ export class Course implements ICourse {
       const il = 1 / (Math.hypot(t.x, t.z) || 1);
       const rx = t.z * il; // right normal
       const rz = -t.x * il;
+      const heading = Math.atan2(t.x, t.z);
+      const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, heading);
       for (const side of [-1, 1]) {
         const { group: buoy, balloon } = makeBuoy();
         const x = p.x + rx * 7 * side;
         const z = p.z + rz * 7 * side;
         buoy.position.set(x, 0, z);
+        buoy.quaternion.copy(yawQ);
         this.object.add(buoy);
         this.floaters.push({
           obj: buoy,
           x,
           z,
-          yawQ: new THREE.Quaternion(),
+          yawQ: yawQ.clone(),
           homeParent: this.object,
           homePosition: buoy.position.clone(),
-          homeQuaternion: buoy.quaternion.clone(),
+          homeQuaternion: yawQ.clone(),
           knockable: true,
           kind: 'checkpoint',
           balloonObj: balloon,
