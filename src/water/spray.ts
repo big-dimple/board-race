@@ -428,6 +428,42 @@ export class SpraySystem implements ISpray {
     }
   }
 
+  chine(
+    pos: THREE.Vector3,
+    forward: THREE.Vector3,
+    right: THREE.Vector3,
+    side: number,
+    forwardSpeed: number,
+    count = 1,
+  ): void {
+    const n = Math.min(count, this.capacity);
+    const speedRatio = Math.max(0, forwardSpeed) / 34;
+    for (let i = 0; i < n; i++) {
+      const lateral = side * (0.75 + this.random() * 0.55);
+      const up = 0.42 + this.random() * 0.45;
+      const aft = 0.32 + this.random() * 0.38;
+      const ejectSpeed = (2.4 + speedRatio * 3.6) * (0.8 + this.random() * 0.4);
+      const inheritFwd = Math.min(2.5, forwardSpeed * 0.06);
+
+      const vx = right.x * lateral * ejectSpeed + forward.x * (inheritFwd - aft * ejectSpeed);
+      const vy = up * ejectSpeed;
+      const vz = right.z * lateral * ejectSpeed + forward.z * (inheritFwd - aft * ejectSpeed);
+
+      this.spawn(
+        pos.x + (this.random() - 0.5) * 0.15,
+        pos.y + 0.03 + this.random() * 0.06,
+        pos.z + (this.random() - 0.5) * 0.15,
+        vx,
+        vy,
+        vz,
+        0.38 + this.random() * 0.25,
+        Math.min(0.28, (0.065 + 0.065 * speedRatio) * (0.8 + this.random() * 0.45) * 1.15),
+        this.random() < 0.2 ? 1 : 0,
+        1.4 + this.random() * 0.5,
+      );
+    }
+  }
+
   takeoff(pos: THREE.Vector3, forward: THREE.Vector3, right: THREE.Vector3, count: number, speed: number): void {
     const n = Math.min(count, this.capacity);
     for (let i = 0; i < n; i++) {

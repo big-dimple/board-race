@@ -134,6 +134,8 @@ const TUNING = {
   // -- wake / spray --
   wakeDriftBoost: 0.4,   // wake intensity add while drifting
   wakeBoostBoost: 0.5,   // wake intensity add while boosting
+  cruiseSprayMinSpeed: 10, // m/s, speed threshold where hull chine spray begins
+  cruiseSprayPeriod: 0.065, // s between straight-line cruising spray pulses
   turnSprayG: 6,         // |lateralG| that starts leeward-chine spray
   turnSprayPeriod: 0.09, // s between chine spray bursts
   boostSprayPeriod: 0.08,// s between stern spray bursts while boosting
@@ -1179,6 +1181,8 @@ export class Boat implements IBoat {
   // bookkeeping
   private prevSpeed = 0;
   private lateralG = 0;
+  private cruiseSprayCd = 0;
+  private cruiseSpraySide = 1;
   private turnSprayCd = 0;
   private boostSprayCd = 0;
   private trailCd = 0;
@@ -1740,6 +1744,30 @@ export class Boat implements IBoat {
     }
     this.wakePreviousStrength = this.wakeInteractionStrength;
 
+    // ---- straight-line cruising & planing spray along hull chines ----
+    if (!st.airborne && st.flightPhase === 'surface' && speedAbs > TUNING.cruiseSprayMinSpeed &&
+        Math.abs(this.lateralG) <= TUNING.turnSprayG) {
+      this.cruiseSprayCd -= dt;
+      if (this.cruiseSprayCd <= 0) {
+        this.cruiseSprayCd = TUNING.cruiseSprayPeriod;
+        this.cruiseSpraySide = -this.cruiseSpraySide;
+        const side = this.cruiseSpraySide;
+        // Chine contact point: mid-to-stern where the planing hull slices the water
+        const longOffset = 0.45;
+        _v2.set(
+          pos.x + portX * side * (W * 0.92) - fwdX * longOffset,
+          (side > 0 ? hMidL : hMidR) + 0.04,
+          pos.z + portZ * side * (W * 0.92) - fwdZ * longOffset,
+        );
+        _v1.set(fwdX, 0, fwdZ);
+        _v3.set(portX, 0, portZ);
+        const count = this.id === 0 ? 1 : Math.max(0, Math.round(1 * this.opponentFxScale));
+        if (count > 0) this.spray.chine(_v2, _v1, _v3, side, speedAbs, count);
+      }
+    } else {
+      this.cruiseSprayCd = 0;
+    }
+
     // ---- turn spray off the leeward chine ----
     if (!st.airborne && st.flightPhase === 'surface' && Math.abs(this.lateralG) > TUNING.turnSprayG &&
         !(this.id > 0 && surfaceDrift)) {
@@ -1752,7 +1780,10 @@ export class Boat implements IBoat {
           (side > 0 ? hMidL : hMidR) + 0.06,
           pos.z + portZ * side * (W + 0.1) - fwdZ * 0.6,
         );
-        this.spray.burst(_v2, 2, 1.5 + speedAbs * 0.12);
+        _v1.set(fwdX, 0, fwdZ);
+        _v3.set(portX, 0, portZ);
+        const count = this.id === 0 ? 2 : Math.max(1, Math.round(1 * this.opponentFxScale));
+        this.spray.chine(_v2, _v1, _v3, side, speedAbs, count);
       }
     } else {
       this.turnSprayCd = 0;
@@ -2677,6 +2708,7 @@ export class Boat implements IBoat {
     this.flightPenaltyApplied = false;
     this.prevSpeed = 0;
     this.lateralG = 0;
+    this.cruiseSprayCd = 0;
     this.turnSprayCd = 0;
     this.boostSprayCd = 0;
     this.trailCd = 0;

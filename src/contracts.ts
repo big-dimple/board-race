@@ -311,6 +311,15 @@ export interface IWake {
 export interface ISpray {
   /** Emit `count` spray particles at pos with base speed (m/s). */
   burst(pos: THREE.Vector3, count: number, speed: number): void;
+  /** Directional hull/chine spray: outward along right * side, upward, trailing with forward motion. */
+  chine(
+    pos: THREE.Vector3,
+    forward: THREE.Vector3,
+    right: THREE.Vector3,
+    side: number,
+    forwardSpeed: number,
+    count?: number,
+  ): void;
   /** Directional launch sheet: forward and right are planar unit vectors. */
   takeoff(pos: THREE.Vector3, forward: THREE.Vector3, right: THREE.Vector3, count: number, speed: number): void;
   /** One-shot hull impact: a pooled water crown, side sheets, and directional droplets. */
