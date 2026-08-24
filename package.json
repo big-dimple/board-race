@@ -13,6 +13,7 @@
     "verify:smoke": "node harness/screenshot.mjs --verify-smoke",
     "verify:collision": "node harness/collision.mjs",
     "verify:audio": "node harness/audio.mjs",
+    "verify:team": "node harness/team.mjs",
     "release:checked": "bash scripts/release-checked.sh"
   },
   "dependencies": {

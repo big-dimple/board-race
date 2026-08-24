@@ -1513,6 +1513,7 @@ export class Course implements ICourse {
   private readonly flightRecoveryLimit: number[] = [];
   private readonly flightDebug: string[] = [];
   private readonly flightTurnWarn: boolean[] = [];
+  private readonly externalGateLocks = new Array<boolean>(FLIGHT_ROUTES.length).fill(false);
   private flightWarn = 0;
   private flightWarnRoute = -1;
   /** Player corridor-storm danger 0..1, smoothed for presentation. */
@@ -1537,6 +1538,7 @@ export class Course implements ICourse {
   private playerLaunchGateDistanceM = -1;
   private playerLaunchGateDiamondCount = 0;
   private playerPreviousFlightPhase: FlightPhase = 'surface';
+  private guidanceBoatId = 0;
   private playerLaunchCommittedRoute = -1;
   private playerLaunchCommittedU = -1;
   private surfaceGuideTurnArrowCount = 0;
@@ -1575,6 +1577,21 @@ export class Course implements ICourse {
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
+  }
+
+  /** Selects which local player owns the shared flight-route guidance visuals. */
+  setGuidanceBoat(id: number): void {
+    if (this.guidanceBoatId === id) return;
+    this.guidanceBoatId = id;
+    this.playerPreviousFlightPhase = 'surface';
+    this.playerLaunchCommittedRoute = -1;
+    this.playerLaunchCommittedU = -1;
+  }
+
+  /** Team mode may lock one portal until its surface relay is activated. */
+  setFlightGateLocked(routeIndex: number, locked: boolean): void {
+    if (routeIndex < 0 || routeIndex >= this.externalGateLocks.length) return;
+    this.externalGateLocks[routeIndex] = locked;
   }
 
   /** Cold-load contract for the START landmark. No browser canvas upload is allowed. */
@@ -1739,6 +1756,7 @@ export class Course implements ICourse {
     this.flightRecoveryLimit.length = 0;
     this.flightDebug.length = 0;
     this.flightTurnWarn.length = 0;
+    this.externalGateLocks.fill(false);
     this.flightWarn = 0;
     this.flightWarnRoute = -1;
     this.playerCorridorDanger = 0;
@@ -2015,17 +2033,19 @@ export class Course implements ICourse {
     this.playerLaunchGateDistanceM = -1;
     this.playerLaunchGateDiamondCount = 0;
     this.playerCorridorDangerTarget = 0;
+    let guidanceBoat: IBoat | undefined;
     for (const boat of boats) {
       const id = boat.id;
       const pos = boat.state.position;
       const st = boat.state;
+      if (id === this.guidanceBoatId) guidanceBoat = boat;
       // The corridor storm is re-published every fixed step; silence is the
       // default so any path that leaves the route clears the wind.
       boat.setCorridorDistress(0, 0, 0);
       if (st.flightRouteState === 'idle') this.flightDebug[id] = 'idle';
       this.sample(pos, _routeSample, 'surface');
       const surfaceU = _routeSample.u;
-      if (id === 0) {
+      if (id === this.guidanceBoatId) {
         const acceptedLaunch = this.playerPreviousFlightPhase === 'surface' && st.flightPhase === 'spool';
         this.playerPreviousFlightPhase = st.flightPhase;
         this.playerSurfaceU = surfaceU;
@@ -2080,7 +2100,7 @@ export class Course implements ICourse {
 
       const jump = prev.distanceToSquared(pos) > 60 * 60;
       const flightActive = st.flightPhase !== 'surface';
-      if (id === 0 && !this.finalArmed) {
+      if (id === this.guidanceBoatId && !this.finalArmed) {
         if (flightActive && this.playerLaunchCommittedRoute >= 0) {
           this.playerLaunchGateState = 'committed';
           this.playerLaunchGateRouteIndex = this.playerLaunchCommittedRoute;
@@ -2112,7 +2132,7 @@ export class Course implements ICourse {
           }
         }
       }
-      if (id === 0 && this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
+      if (id === this.guidanceBoatId && this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
           st.flightRouteState === 'idle') {
         // The seventh pass owns the approach until Race certifies the line.
         prev.copy(pos);
@@ -2132,7 +2152,7 @@ export class Course implements ICourse {
       const def = runtime.def;
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
-      if (id === 0 && (flightActive || st.flightRouteState !== 'idle' ||
+      if (id === this.guidanceBoatId && (flightActive || st.flightRouteState !== 'idle' ||
           (surfaceU >= flightGuideFromU(def) && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
@@ -2143,7 +2163,7 @@ export class Course implements ICourse {
         : primaryTurn && near.u >= primaryTurn.fromU && near.u <= primaryTurn.toU
           ? primaryTurn
           : null;
-      if (id === 0 && !this.finalArmed && activeTurn &&
+      if (id === this.guidanceBoatId && !this.finalArmed && activeTurn &&
           flightActive && st.flightRouteState === 'active') {
         this.playerActionCue = 'turn';
         this.playerActionRouteIndex = routeIndex;
@@ -2171,7 +2191,7 @@ export class Course implements ICourse {
             Math.max(2.5, Math.min(4, runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
         this.flightRecoveryT[id] = elapsed;
         this.flightRecoveryLimit[id] = limit;
-        if (id === 0) {
+        if (id === this.guidanceBoatId) {
           this.playerRecoveryRoute = routeIndex;
           this.playerRecoverySurface = !flightActive;
           this.playerRecoveryElapsed = elapsed;
@@ -2206,7 +2226,7 @@ export class Course implements ICourse {
           this.flightRecoveryT[id] = 0;
           this.flightRecoveryLimit[id] = 0;
           this.flightDebug[id] = certifiedHandoff ? 'handoff:exit' : 'handoff:timeout';
-          if (id === 0) {
+          if (id === this.guidanceBoatId) {
             visual.recoveryFade = 0.3;
             this.playerRecoveryRoute = -1;
             this.playerRecoveryElapsed = 0;
@@ -2259,9 +2279,16 @@ export class Course implements ICourse {
             if (!certifiedPhase || crossingClearance < 2.8) {
               this.flightDebug[id] = `late-height:f${routeIndex + 1}:y${crossingClearance.toFixed(2)}`;
               this.failFlight(boat, visual, 'late', gate.u, gateIndex + 1, lateral, lateralLimit);
+            } else if (this.externalGateLocks[routeIndex]) {
+              this.flightDebug[id] = `team-lock:f${routeIndex + 1}`;
+              this.failFlight(boat, visual, 'gate', gate.u, gateIndex + 1, lateral, lateralLimit);
+              if (id === this.guidanceBoatId) {
+                this.flightWarn = 0.8;
+                this.flightWarnRoute = routeIndex;
+              }
             } else if (Math.abs(lateral) <= lateralLimit) {
               boat.applyFlightGatePass(gateIndex);
-              if (id === 0) {
+              if (id === this.guidanceBoatId) {
                 gate.pulse = 0.36;
                 gate.cleared = true;
                 gate.anchor.visible = false;
@@ -2272,7 +2299,7 @@ export class Course implements ICourse {
                 this.flightRecoveryLimit[id] = def.navigation?.postGateRecovery?.maxDurationS ??
                   Math.max(2.5, Math.min(4,
                     runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
-                if (id === 0) {
+                if (id === this.guidanceBoatId) {
                   this.playerLaunchCommittedRoute = -1;
                   this.playerLaunchCommittedU = -1;
                   this.playerRecoveryRoute = routeIndex;
@@ -2286,7 +2313,7 @@ export class Course implements ICourse {
               const reason = lateral < 0 ? 'gate_left' : 'gate_right';
               this.flightDebug[id] = `gate${gateIndex + 1}:lat${lateral.toFixed(2)}:limit${lateralLimit.toFixed(2)}`;
               this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, lateral, lateralLimit);
-              if (id === 0) {
+              if (id === this.guidanceBoatId) {
                 this.flightWarn = 0.8;
                 this.flightWarnRoute = routeIndex;
               }
@@ -2295,7 +2322,7 @@ export class Course implements ICourse {
           if (st.flightRouteState === 'active' && near.u > gate.u + FLIGHT_GATE_BYPASS_U) {
             this.flightDebug[id] = `bypass${gateIndex + 1}:u${near.u.toFixed(4)}`;
             this.failFlight(boat, visual, 'gate', near.u, gateIndex + 1);
-            if (id === 0) {
+            if (id === this.guidanceBoatId) {
               this.flightWarn = 0.8;
               this.flightWarnRoute = routeIndex;
             }
@@ -2329,14 +2356,14 @@ export class Course implements ICourse {
             }
             this.flightDebug[id] =
               `corridor:${near.distance.toFixed(2)}:f${routeIndex + 1}:d${danger.toFixed(2)}`;
-            if (id === 0) {
+            if (id === this.guidanceBoatId) {
               this.playerCorridorDangerTarget = Math.min(1, danger);
               this.playerCorridorDangerRoute = routeIndex;
             }
           }
           if (danger >= 1) {
             this.failFlight(boat, visual, 'corridor', near.u, null, null, null, near.distance);
-            if (id === 0) {
+            if (id === this.guidanceBoatId) {
               this.flightWarn = 0.8;
               this.flightWarnRoute = routeIndex;
             }
@@ -2347,13 +2374,13 @@ export class Course implements ICourse {
       if (st.flightRouteState === 'active' && surfaceU > def.exitU + 0.006) {
         this.flightDebug[id] = `exit:g${st.flightGateProgress}`;
         this.failFlight(boat, visual, 'exit', surfaceU, null);
-        if (id === 0) {
+        if (id === this.guidanceBoatId) {
           this.flightWarn = 0.8;
           this.flightWarnRoute = routeIndex;
         }
       }
 
-      if (id === 0 && st.flightRouteMiss) {
+      if (id === this.guidanceBoatId && st.flightRouteMiss) {
         this.flightWarn = 0.8;
         this.flightWarnRoute = routeIndex;
       }
@@ -2367,7 +2394,7 @@ export class Course implements ICourse {
       prev.copy(pos);
       this.flightPrevClearance[id] = st.flightClearance;
     }
-    this.updatePlayerGuidance(boats[0]);
+    this.updatePlayerGuidance(guidanceBoat);
   }
 
   /** Contact separation changes the next frame's baseline, never the just-checked flight path. */
@@ -2376,6 +2403,34 @@ export class Course implements ICourse {
       const prev = this.flightPrev[boat.id];
       if (prev) prev.copy(boat.state.position);
       this.flightPrevClearance[boat.id] = boat.state.flightClearance;
+    }
+  }
+
+  /** Rebase one teleported team boat without disturbing its partner's live route attempt. */
+  resetFlightTrackingForBoat(boat: IBoat): void {
+    const id = boat.id;
+    const prev = this.flightPrev[id] ?? new THREE.Vector3();
+    prev.copy(boat.state.position);
+    this.flightPrev[id] = prev;
+    this.flightPrevClearance[id] = boat.state.flightClearance;
+    this.flightLatched[id] = -1;
+    this.flightOffCorridorT[id] = 0;
+    this.flightRecoveryT[id] = 0;
+    this.flightRecoveryLimit[id] = 0;
+    this.flightDebug[id] = 'checkpoint-rebase';
+    this.flightTurnWarn[id] = false;
+    boat.setCorridorDistress(0, 0, 0);
+    if (id === this.guidanceBoatId) {
+      this.playerPreviousFlightPhase = boat.state.flightPhase;
+      this.playerLaunchCommittedRoute = -1;
+      this.playerLaunchCommittedU = -1;
+      this.playerRecoveryRoute = -1;
+      this.playerRecoveryElapsed = 0;
+      this.playerRecoveryLimit = 0;
+      this.playerCorridorDanger = 0;
+      this.playerCorridorDangerTarget = 0;
+      this.flightWarn = 0;
+      this.flightWarnRoute = -1;
     }
   }
 

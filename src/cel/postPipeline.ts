@@ -21,6 +21,7 @@ export type ImpactPulse = 'ready' | 'boost' | 'launch' | 'gate' | 'overtake' | '
 
 export interface PostPipeline {
   render(): void;
+  renderToTexture(): THREE.Texture;
   update(dt: number, t: number, state: BoatState, phase: RacePhase): void;
   pulse(kind: ImpactPulse, strength?: number): void;
   setSize(w: number, h: number, pr: number): void;
@@ -204,8 +205,7 @@ export function createPostPipeline(
   let flight = 0;
   const oldClear = new THREE.Color();
 
-  return {
-    render(): void {
+  const renderPipeline = (toScreen: boolean): void => {
       prePass.render(renderer, scene, camera);
 
       const previousMask = camera.layers.mask;
@@ -221,7 +221,17 @@ export function createPostPipeline(
       renderer.setClearColor(oldClear, previousAlpha);
 
       finalMaterial.uniforms.tEnergy.value = energyComposer.readBuffer.texture;
+      composer.renderToScreen = toScreen;
       composer.render();
+  };
+
+  return {
+    render(): void {
+      renderPipeline(true);
+    },
+    renderToTexture(): THREE.Texture {
+      renderPipeline(false);
+      return composer.readBuffer.texture;
     },
     update(dt: number, t: number, state: BoatState, phase: RacePhase): void {
       impact *= Math.exp(-6.8 * dt);

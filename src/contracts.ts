@@ -276,6 +276,9 @@ export interface IBoat {
     wakeFields?: readonly IWake[],
   ): void;
   teleport(x: number, z: number, heading: number): void;
+  setPlayerOwned(owned: boolean): void;
+  restoreFlightCheckpoint(routeCursor: number, charges?: number): void;
+  grantFlightCharge(): boolean;
   beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void;
   applyFlightGatePass(gateIndex: number): void;
   completeFlightRoute(routeIndex: number, routeCursor: number): void;

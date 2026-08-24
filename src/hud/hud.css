@@ -3074,3 +3074,5 @@
   }
   .hud-coach-spotlight.on { animation: none; }
 }
+.hud.team-hidden,
+.hud.team-hidden * { visibility: hidden !important; }

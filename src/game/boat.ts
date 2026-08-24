@@ -1138,6 +1138,7 @@ export class Boat implements IBoat {
   private readonly presentation: THREE.Group;
   private readonly hullMaterial: THREE.ShaderMaterial;
   private handling: DriverHandling = { acceleration: 1, steering: 1, driftCharge: 1, airControl: 1 };
+  private playerOwned: boolean;
 
   // planar dynamics
   private heading = 0;
@@ -1232,8 +1233,9 @@ export class Boat implements IBoat {
 
   constructor(opts: BoatOptions) {
     this.id = opts.id;
+    this.playerOwned = opts.id === 0;
     this.wake = opts.wake;
-    this.wake.setVisualScale(this.id === 0 ? 1 : TUNING.opponentWakeScale);
+    this.wake.setVisualScale(this.playerOwned ? 1 : TUNING.opponentWakeScale);
     this.spray = opts.spray;
     this.trail = opts.trail;
 
@@ -1362,9 +1364,9 @@ export class Boat implements IBoat {
     const surfaceBoost = boosting && !flightWasActive && !surfaceReturnBrake;
     // Race-director pacing is a physical target-speed contract, not merely an
     // AI throttle preference. Applying it to the engine taper keeps it effective
-    // after throttle has saturated, while id 0 is unconditionally player-owned.
-    const aiSurfaceScale = this.id > 0 ? clamp(surfaceTargetScale, 1, 1.18) : 1;
-    const aiFlightScale = this.id > 0 ? clamp(flightTargetScale, 1, 1.02) : 1;
+    // after throttle has saturated, while locally owned boats ignore AI pacing.
+    const aiSurfaceScale = !this.playerOwned ? clamp(surfaceTargetScale, 1, 1.18) : 1;
+    const aiFlightScale = !this.playerOwned ? clamp(flightTargetScale, 1, 1.02) : 1;
     const taperRef = TUNING.topSpeed * TUNING.taperHeadroom *
       (surfaceBoost ? TUNING.boostTopMul : 1) * aiSurfaceScale;
     const accel = TUNING.accel * this.handling.acceleration * (surfaceBoost ? TUNING.boostAccelMul : 1);
@@ -1477,7 +1479,7 @@ export class Boat implements IBoat {
 
     // drift charge / boost payout on release
     if (surfaceDrift && !this.wasDrifting) {
-      if (this.id > 0) this.driftHoldStarts++;
+      if (!this.playerOwned) this.driftHoldStarts++;
     }
     if (surfaceDrift) {
       this.accrueDriftCharge(dt, speedAbs);
@@ -1658,7 +1660,7 @@ export class Boat implements IBoat {
         -1,
         1,
       );
-      if (this.id === 0) {
+      if (this.playerOwned) {
         this.lastLandingDebugEvent++;
         this.lastLandingRoll = this.roll;
         this.lastLandingLateralG = this.lateralG;
@@ -1723,8 +1725,8 @@ export class Boat implements IBoat {
     // warm hold wind or green release. Rival technique remains visible through
     // real state-driven energy FX, while their ordinary wash stays restrained.
     const wakeI = clamp(vF / TUNING.topSpeed, 0, 1) +
-      (this.id === 0 && input.drift ? TUNING.wakeDriftBoost : 0) +
-      (this.id === 0 && boosting ? TUNING.wakeBoostBoost : 0);
+      (this.playerOwned && input.drift ? TUNING.wakeDriftBoost : 0) +
+      (this.playerOwned && boosting ? TUNING.wakeBoostBoost : 0);
     // Zero intensity while airborne: the ribbon coasts (no emission in flight)
     // instead of drawing an unbroken confetti trail beneath a flying boat.
     const flightWake = 1 - clamp(Math.max(0, st.flightClearance) / 1.5, 0, 1);
@@ -1739,7 +1741,7 @@ export class Boat implements IBoat {
         wakeRise > 0.055 && this.wakeSprayCd <= 0) {
       this.wakeSprayCd = 0.18;
       _v2.set(pos.x + fwdX * L, (hBowL + hBowR) * 0.5 + 0.08, pos.z + fwdZ * L);
-      const count = this.id === 0 ? 4 : Math.max(1, Math.round(2 * this.opponentFxScale));
+      const count = this.playerOwned ? 4 : Math.max(1, Math.round(2 * this.opponentFxScale));
       this.spray.burst(_v2, count, 1.6 + speedAbs * 0.12);
     }
     this.wakePreviousStrength = this.wakeInteractionStrength;
@@ -1761,7 +1763,7 @@ export class Boat implements IBoat {
         );
         _v1.set(fwdX, 0, fwdZ);
         _v3.set(portX, 0, portZ);
-        const count = this.id === 0 ? 1 : Math.max(0, Math.round(1 * this.opponentFxScale));
+        const count = this.playerOwned ? 1 : Math.max(0, Math.round(1 * this.opponentFxScale));
         if (count > 0) this.spray.chine(_v2, _v1, _v3, side, speedAbs, count);
       }
     } else {
@@ -1770,7 +1772,7 @@ export class Boat implements IBoat {
 
     // ---- turn spray off the leeward chine ----
     if (!st.airborne && st.flightPhase === 'surface' && Math.abs(this.lateralG) > TUNING.turnSprayG &&
-        !(this.id > 0 && surfaceDrift)) {
+        !(!this.playerOwned && surfaceDrift)) {
       this.turnSprayCd -= dt;
       if (this.turnSprayCd <= 0) {
         this.turnSprayCd = TUNING.turnSprayPeriod;
@@ -1782,7 +1784,7 @@ export class Boat implements IBoat {
         );
         _v1.set(fwdX, 0, fwdZ);
         _v3.set(portX, 0, portZ);
-        const count = this.id === 0 ? 2 : Math.max(1, Math.round(1 * this.opponentFxScale));
+        const count = this.playerOwned ? 2 : Math.max(1, Math.round(1 * this.opponentFxScale));
         this.spray.chine(_v2, _v1, _v3, side, speedAbs, count);
       }
     } else {
@@ -1795,16 +1797,16 @@ export class Boat implements IBoat {
       _v2.set(pos.x, surfaceY + 0.08, pos.z);
       _v1.set(fwdX, 0, fwdZ);
       _v3.set(portX, 0, portZ);
-      this.spray.takeoff(_v2, _v1, _v3, this.id === 0 ? 34 : Math.round(12 * this.opponentFxScale), 7.5);
+      this.spray.takeoff(_v2, _v1, _v3, this.playerOwned ? 34 : Math.round(12 * this.opponentFxScale), 7.5);
     }
 
-    const opponentBoostStarted = this.id > 0 && boosting && !this.opponentBoostWasActive &&
+    const opponentBoostStarted = !this.playerOwned && boosting && !this.opponentBoostWasActive &&
       !st.airborne && st.flightClearance < 1.2;
     if (opponentBoostStarted) {
       this.opponentReleaseBeats++;
     }
 
-    if (this.id === 0 && boosting && !st.airborne && st.flightClearance < 1.2) {
+    if (this.playerOwned && boosting && !st.airborne && st.flightClearance < 1.2) {
       this.boostSprayCd -= dt;
       if (this.boostSprayCd <= 0) {
         this.boostSprayCd = TUNING.boostSprayPeriod;
@@ -1814,7 +1816,7 @@ export class Boat implements IBoat {
     }
 
     this.driftTrailCd -= dt;
-    if (this.id === 0 && surfaceDrift && st.boostCharge > 0.04 &&
+    if (this.playerOwned && surfaceDrift && st.boostCharge > 0.04 &&
         speedAbs > TUNING.driftMinSpeed && this.driftTrailCd <= 0) {
       this.driftTrailCd = 0.05;
       const side = Math.abs(this.lateralG) > 0.5 ? (this.lateralG > 0 ? -1 : 1) : (steer >= 0 ? 1 : -1);
@@ -1894,15 +1896,15 @@ export class Boat implements IBoat {
     const boostPulse = 0.9 + 0.1 * Math.sin(t * 34 + this.id);
     // Surface boost hands off to the twin anti-grav emitters instead of
     // stacking three bright plumes on the launch frame.
-    const boostVisual = (this.id === 0 ? this.boostFx : this.boostFx * 1.0 * this.opponentTechniqueFxScale) *
+    const boostVisual = (this.playerOwned ? this.boostFx : this.boostFx * 1.0 * this.opponentTechniqueFxScale) *
       (1 - this.flightFx * 0.92);
     // A rival's release must survive the chase camera and water contrast. The
     // same pooled emitter is used for the player, but rivals get a restrained
     // readability lift so the real BOOST payout reads as a short stern pulse
     // instead of disappearing behind their hull and wake.
-    const opponentReadability = this.id > 0 ? 1.72 + this.opponentFxScale * 0.72 : 1;
+    const opponentReadability = !this.playerOwned ? 1.72 + this.opponentFxScale * 0.72 : 1;
     const boostLen = (0.06 + boostVisual * 4.35 * boostPulse) * opponentReadability;
-    const boostY = this.id > 0 ? 0.34 : 0.2;
+    const boostY = !this.playerOwned ? 0.34 : 0.2;
     this.setThrustInstance(
       'outer', 0, 0, boostY, -2.64 - boostLen * 0.5, _fxQBoost,
       0.42 * boostVisual * opponentReadability, boostLen,
@@ -2002,11 +2004,11 @@ export class Boat implements IBoat {
     this.thrustRings.instanceMatrix.needsUpdate = true;
 
     this.trailCd -= dt;
-    if (this.trailCd <= 0 && ((this.id === 0 && this.boostFx > 0.25) || this.flightFx > 0.3)) {
+    if (this.trailCd <= 0 && ((this.playerOwned && this.boostFx > 0.25) || this.flightFx > 0.3)) {
       this.trailCd = this.flightFx > 0.3 ? 0.1 : 0.055;
       const pos = this.object.position;
       const pulse = 0.85 + 0.15 * Math.sin(t * 19 + this.id * 2.3);
-      if (this.id === 0 && this.boostFx > 0.25) {
+      if (this.playerOwned && this.boostFx > 0.25) {
         this.trail.emit(
           pos.x - fwdX * 2.85,
           pos.y + 0.2,
@@ -2042,7 +2044,7 @@ export class Boat implements IBoat {
   }
 
   private updateOpponentDriftBurst(dt: number, _t: number, boostStarted: boolean): void {
-    if (this.id === 0) return;
+    if (this.playerOwned) return;
     // The readable pulse is now the same stern emitter used by the player.
     // Keep a short debug edge for harnesses, but let the actual BOOST envelope
     // own the lifetime so a held drift remains completely clean.
@@ -2267,10 +2269,51 @@ export class Boat implements IBoat {
     };
   }
 
+  /** Local-team ownership changes presentation/pace policy, never the physics model. */
+  setPlayerOwned(owned: boolean): void {
+    this.playerOwned = owned;
+    this.wake.setVisualScale(owned ? 1 : TUNING.opponentWakeScale);
+    if (owned) {
+      this.opponentFxScale = 1;
+      this.opponentTechniqueFxScale = 1;
+    }
+  }
+
+  /** Restore only authored flight progress after a team checkpoint teleport. */
+  restoreFlightCheckpoint(routeCursor: number, charges = 0): void {
+    const cursor = Math.max(0, Math.floor(routeCursor));
+    const st = this.state;
+    this.wasDrifting = false;
+    this.boostTimer = 0;
+    this.boostTotal = 0;
+    st.boostCharge = 0;
+    st.driftBankProgress = 0;
+    st.driftReleaseReady = false;
+    st.drifting = false;
+    st.boosting = false;
+    st.boostRemaining = 0;
+    st.flightCharges = clamp(Math.floor(charges), 0, MAX_FLIGHT_CHARGES);
+    st.flightsCleared = cursor;
+    st.flightRouteCursor = cursor;
+    st.flightRouteIndex = -1;
+    st.flightRouteState = 'idle';
+    st.flightRouteFailReason = 'none';
+    st.flightFailure = null;
+    st.flightGateProgress = 0;
+    st.flightPenaltyRemaining = 0;
+    this.flightPenaltyApplied = false;
+  }
+
+  grantFlightCharge(): boolean {
+    if (this.state.flightCharges >= MAX_FLIGHT_CHARGES) return false;
+    this.state.flightCharges++;
+    return true;
+  }
+
   /** Main-thread visual LOD; has no effect on physics or AI input. */
   setOpponentEffectDistance(distance: number): void {
-    this.opponentFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);
-    this.opponentTechniqueFxScale = this.id === 0 ? 1 : clamp(1 - (distance - 55) / 95, 0, 1);
+    this.opponentFxScale = this.playerOwned ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);
+    this.opponentTechniqueFxScale = this.playerOwned ? 1 : clamp(1 - (distance - 55) / 95, 0, 1);
   }
 
   /** Keep the authored READY/countdown presentation seated on the moving swell.
@@ -2313,7 +2356,7 @@ export class Boat implements IBoat {
     burstActive: boolean;
     wakeScale: number;
   } {
-    const burstStrength = this.id > 0 && this.state.boosting
+    const burstStrength = !this.playerOwned && this.state.boosting
       ? this.boostFx * 1.0 * this.opponentTechniqueFxScale
       : 0;
     return {
@@ -2327,8 +2370,8 @@ export class Boat implements IBoat {
         : 'idle',
       holdStarts: this.driftHoldStarts,
       burstStrength,
-      burstActive: this.id > 0 && this.state.boosting && !this.state.drifting && burstStrength > 0.05,
-      wakeScale: this.id === 0 ? 1 : TUNING.opponentWakeScale,
+      burstActive: !this.playerOwned && this.state.boosting && !this.state.drifting && burstStrength > 0.05,
+      wakeScale: this.playerOwned ? 1 : TUNING.opponentWakeScale,
     };
   }
 
@@ -2660,7 +2703,7 @@ export class Boat implements IBoat {
       _v3,
       impact,
       speedAbs,
-      this.id === 0 ? 1 : this.opponentFxScale,
+      this.playerOwned ? 1 : this.opponentFxScale,
       this.id,
       lateralBias,
     );
@@ -2734,6 +2777,9 @@ export class Boat implements IBoat {
     this.liftSplashPending = false;
     this.flightMissFxTimer = 0;
     this.airBrakeFx = 0;
+    this.corridorDistress = 0;
+    this.corridorPushX = 0;
+    this.corridorPushZ = 0;
     this.flightTargetSpeed = 42;
     this.flightRingActiveCount = 0;
     this.flightPlumeLength = 0;

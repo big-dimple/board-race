@@ -1,6 +1,6 @@
 # Board Race AI 运行手册
 
-状态：`current / schema-v8`
+状态：`current / schema-v9`
 
 本文只记录接手代码必须知道的稳定结构和行为合同。每个任务都要完整读取本文、根目录
 `AGENTS.md` 和 [`development-handoff.md`](development-handoff.md)。当前进度不写在本文；
@@ -9,11 +9,15 @@
 
 ## 一分钟恢复上下文
 
-- Board Race 是横屏 Three.js 街机赛艇游戏。玩家自动前进，只控制转向、水面漂移 /
+- Board Race 是横屏 Three.js 街机赛艇游戏。玩法目录当前包含“独立竞技”和桌面本地
+  “队伍协作”；这些是玩法协议名，不用人数命名，未来资料片可注册新条目。
+- 船自动前进，玩家只控制转向、水面漂移 /
   空中空刹，以及起飞 / 一次空中续航。
 - 核心循环是 `漂移到黄线 -> 松开入库 -> 在白雾入口起飞 -> 穿门 -> 落水回线`。
 - 三飞完成基础资格；第七飞通过并完成 recovery 后，进入可双向穿越的 Final Station。
 - `BoatInput`、60 Hz fixed-step、唯一 flight branch 和统一 boat transform 是最重要的跨模块合同。
+- 队伍协作固定左右 50/50：设备、屏幕侧与船 id 在入座后保持不变，协作站只交换
+  `leader / wing` 职责。每席仍消费完整且独立的 `BoatInput`。
 - 本地修改、已推送、Actions 成功和 Pages 已更新是不同状态。常规发布只负责构建、冒烟、
   提交和普通推送，不等待或比对远端 SHA。
 
@@ -26,6 +30,9 @@
 | 船与飞行物理 | `src/game/boat.ts` |
 | 路线、门和视觉分支 | `src/game/course.ts` |
 | 比赛生命周期、失败与排名 | `src/game/race.ts` |
+| 队伍协作职责、恢复与站点 | `src/game/teamExpedition.ts` |
+| 本地设备入座 | `src/core/localMultiplayerInput.ts` |
+| 玩法目录、协作选角与 HUD | `src/hud/teamExperience.ts` |
 | 存档和迁移 | `src/game/records.ts` |
 | 当前任务进度 | `docs/development-handoff.md` |
 | 稳定美术方向 | `docs/art-direction.md` |
@@ -66,17 +73,48 @@
   swept Final portal 排名，使用亚帧 crossing time；已完赛车手继续保留实体和碰撞。
 - Final 回港刹车不能触发漂移、BOOST、飞行库存变化、倒车或额外反馈。
 
+### 队伍协作
+
+- `TeamExpedition` 复用七条 `FLIGHT_ROUTES`，但不运行 `Race`，因此追击艇不进入排名、
+  三飞勋章、独立竞技纪录或 Final 结算。
+- 奇数站左席领航、右席翼手，偶数站互换；设备和左右相机永不交换。领航员不能触发飞行，
+  翼手不能自行漂移入库，链接完成时由导演通过 `grantFlightCharge()` 发放一格真实库存。
+- 每站有三处尾流节点、一个水面中继、一个受外部锁控制的真实飞行门和一个会合环。
+  三处节点全部激活且链接满格才发放库存；中继开启前 `Course` 的门锁会真实拒绝过门，不是 HUD 假门。
+- 只有当前翼手传入 `Course.updateFlightRoute()`；`Course.setGuidanceBoat()` 把既有引导视觉原子切给
+  当前翼手。协作翼手在空中获得有限回正辅助，空手时权重较高、玩家主动转向时降到低权重；
+  它不改变走廊和门判定。`Boat.restoreFlightCheckpoint()` 只恢复路线游标、库存和门状态，不改变操控参数。
+- 单席离线超过边界或飞行失败时只恢复该艇；两个恢复请求在 0.5 秒窗口内重叠才执行共同站点重置。
+  队友接触使用同一 swept collision solver，但冲量、分离和反馈降为轻推；追击艇接触保持原强度。
+- 换职遮罩期间两艇原子布置到下一站起点并清空本站瞬态；个人恢复只消费该艇最后一个未失败的
+  安全点，失败落点不能覆盖重试位置，也不能重置队友的飞行跟踪。
+- 追击艇仅在第 3 / 6 / 7 站分别启用 1 / 2 / 3 艘，走真实 `BoatInput -> Boat.update` 水面控制，
+  不飞行、不传送、不拥有协作进度。
+- 队伍存档 key 为 `board-race:team-expedition:v1`，保存下一站、两名选手与完整七站最快时间。
+  中途续玩不覆盖完整远征最快时间。
+
 ## 输入、浏览器与生命周期
 
 ```text
-READY -> opening -> countdown -> racing
+玩法目录 -> 独立竞技 -> READY -> opening -> countdown -> racing
        -> medal freeze -> resume countdown -> same run
        -> defeated -> review -> READY
        -> Final Station -> frozen finale / dossier
+
+玩法目录 -> 队伍协作 -> 进度选择 -> 按键入座 -> 双席选角
+       -> countdown -> station racing -> role swap -> next station
+       -> expedition complete -> 玩法目录
 ```
 
 - 键盘、手柄和移动输入最终合并为一个 `BoatInput`。一次性动作只接受首个 keydown；
   steering/drift 等持续动作允许 repeat 恢复 held state。
+- 队伍协作不合并设备。`keyboard-left`、`keyboard-right` 和每个 `gamepad:index` 都是独立设备；
+  入座时按左 / 右声明屏幕所有权。左区使用 `A/D + Left Shift + Space + Q`，右区使用
+  `ArrowLeft/Right + Numpad0 + NumpadEnter + NumpadDecimal`，`J/L + K + I + U` 是无小键盘备用。
+  每只手柄独立使用方向 / 摇杆、X、A、B、Start。菜单边沿与物理 hold 分开，repeat 不造飞行边沿。
+- 队伍协作当前只在桌面开放；手机继续进入独立竞技。暂停、页面隐藏或已占座设备断开时，
+  两侧 fixed-step 和计时一起冻结，恢复时清边沿；暂停层确认继续，返回键或按钮退出到玩法目录；
+  结算层保留最终结果，任一席确认或返回后退出。
 - 页面隐藏、旋转阻断和系统 UI 冻结模拟。恢复时清边沿，但不能让物理仍按住的 Shift 永久失效。
 - 手机默认触控转向；重力模式只有玩家主动选择后才请求权限。右手漂移和飞行触区不可移动。
 - Safari 缩放抑制只在横屏活跃游戏控制层生效，不加 viewport 锁、全局 touchmove 取消或缩放重置。
@@ -93,6 +131,7 @@ READY -> opening -> countdown -> racing
   写入失败不能阻塞当前比赛。
 - 倒计时为 `3 -> 2 -> 1 -> GO`，GO 使用一次非语音合成信号。未审核的持续水声和空气
   白噪声保持关闭；碰撞、落水和触觉按真实事件、设备所有权与优先级处理。
+- 队伍协作的短事件在所属席位使用固定左右声像；音乐、发动机和其他连续总线保持居中。
 - 强敌只能通过真实 `AIController -> BoatInput -> Boat.update` 追赶、漂移和 BOOST；禁止
   传送、假进度、碰撞免疫、玩家减速或脱离状态的循环特效。
 - 正规水面路线上的 8 对 checkpoint 门浮标是唯一的实体锥体：水面船体接触会损失 20% 速度，
@@ -127,6 +166,12 @@ READY -> opening -> countdown -> racing
 - 同一时刻只允许一个教育提示；碰撞、路线危险、勋章和 Final 表现拥有更高优先级。
 
 ## 渲染与美术合同
+
+- 独立竞技继续由一个 `PostPipeline` 直接出屏。队伍协作的左右相机各有独立 `PrePass` 与
+  `PostPipeline`，两张完成后处理的纹理由 `SplitScreenRenderer` 一次合成为严格 50/50 竖分屏；
+  两视口总像素预算等于整屏预算。全屏只用于两侧输入都被冻结的换职、暂停、断连和结算。
+- 海面深度纹理、分辨率、天空与海面相机跟随值必须在渲染每一侧前切到该侧相机，不能让
+  右侧预通道覆盖左侧已经使用的泡沫 / 深度真相。
 
 - `waves.ts` 是海面唯一真相：CPU 浮力与 GPU 使用同一组八向二阶高度波（128 m 涌浪 +
   48/27/15 m 能带各拆 ±15-20° 双分量形成短峰海 + 8.5 m 船身尺度碎浪），水面保持
@@ -176,11 +221,17 @@ READY -> opening -> countdown -> racing
 ```bash
 npm run build
 npm run verify:smoke
+npm run verify:team
 ```
 
-`verify:smoke` 只检查桌面和横屏手机能启动、画面非空，以及 Gemini、艇边库存、续航提示和
+`verify:smoke` 只检查独立竞技的桌面和横屏手机能启动、画面非空，以及 Gemini、艇边库存、续航提示和
 撞柱文案的关键布局。截图使用 `npm run shot -- <scenario...>`；可加 `--mobile` 和
 `--out <directory>`。
+
+`verify:team` 用真实输入完成第一站的漂移、链接、中继与起飞，再检查玩法协议命名、左右键区与
+双标准 Gamepad 入座、角色互斥、输入不串席、双视口非空、个人恢复、角色交换、七站追击艇、
+续玩存档、Start 暂停及断连冻结。
+物理双手柄仍需实机复核。
 
 碰撞与音频改动分别按需运行：
 

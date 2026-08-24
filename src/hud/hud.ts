@@ -87,6 +87,10 @@ export class HUD {
   private readonly course: ICourse;
   private readonly camera: THREE.PerspectiveCamera;
 
+  setVisible(visible: boolean): void {
+    this.root.classList.toggle('team-hidden', !visible);
+  }
+
   // speedometer
   private readonly speedNum: HTMLDivElement;
   private readonly gctx: CanvasRenderingContext2D;

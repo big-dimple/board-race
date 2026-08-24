@@ -17,6 +17,7 @@ import { Stage, resolveQualityMode } from './core/stage';
 import { PrePass } from './core/prePass';
 import { Loop, SIM_DT } from './core/loop';
 import { Input } from './core/input';
+import { LocalMultiplayerInput, type SeatSide } from './core/localMultiplayerInput';
 import { GamepadInput } from './core/gamepadInput';
 import { Haptics } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
@@ -31,6 +32,7 @@ import { waterHeight } from './water/waves';
 import { Sky } from './cel/sky';
 import { VISIBLE_SUN_DIR } from './cel/toonMaterial';
 import { createPostPipeline } from './cel/postPipeline';
+import { SplitScreenRenderer } from './core/splitScreenRenderer';
 import { Boat } from './game/boat';
 import { JetTrailSystem } from './game/jetTrail';
 import { Rider } from './game/rider';
@@ -57,6 +59,7 @@ import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
 import { BoatCollisionSystem, type CollisionHit } from './game/collision';
+import { TeamExpedition, type TeamExpeditionEvent } from './game/teamExpedition';
 import type { BalloonPop, BuoyHit } from './game/course';
 import { CameraRig, type CameraImpactLevel } from './game/chaseCamera';
 import { HUD } from './hud/hud';
@@ -73,6 +76,12 @@ import {
   type CaptureExportOutcome,
 } from './core/capture';
 import { CapturePreview } from './hud/capturePreview';
+import {
+  TeamExperience,
+  loadTeamSave,
+  saveTeamProgress,
+  type TeamSelection,
+} from './hud/teamExperience';
 import { trackGameEvent } from './game/eventLog';
 import {
   LAYER_ENERGY,
@@ -92,6 +101,8 @@ const params = new URLSearchParams(location.search);
 const HARNESS = import.meta.env.DEV && params.has('harness');
 const DESKTOP_DRIVER_STAGE = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
 const harnessEndlessMode = HARNESS;
+type AppMode = 'front-door' | 'independent' | 'team-play';
+let appMode: AppMode = 'front-door';
 
 // ------------------------------------------------------------ construction
 const app = document.getElementById('app')!;
@@ -162,6 +173,10 @@ let ais = buildAiControllers();
 const collisions = new BoatCollisionSystem();
 
 const cameraRig = new CameraRig(stage.camera);
+const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
+const teamRightCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
+const teamLeftCameraRig = new CameraRig(teamLeftCamera);
+const teamRightCameraRig = new CameraRig(teamRightCamera);
 const audio = new GameAudio();
 window.addEventListener('keydown', () => {
   audio.resume();
@@ -242,6 +257,7 @@ const expansionGallery = new ExpansionGallery(
 );
 
 const input = new Input();
+const localInput = new LocalMultiplayerInput();
 const gamepadInput = new GamepadInput();
 let activeInputDevice: CoachInputDevice = mobileInput.enabled ? 'mobile' : 'keyboard';
 const haptics = new Haptics(gamepadInput, () => activeInputDevice);
@@ -256,11 +272,46 @@ mixer.attachCameraImpact(
   (level) => cameraRig.setCollisionImpactLevel(level),
 );
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
+const teamLeftPrePass = new PrePass(4, 4);
+const teamRightPrePass = new PrePass(4, 4);
+const teamLeftPipeline = createPostPipeline(
+  stage.renderer, stage.scene, teamLeftCamera, teamLeftPrePass, stage.quality,
+);
+const teamRightPipeline = createPostPipeline(
+  stage.renderer, stage.scene, teamRightCamera, teamRightPrePass, stage.quality,
+);
+const splitScreen = new SplitScreenRenderer(stage.renderer);
 stage.onResize((w, h, pr) => {
   pipeline.setSize(w, h, pr);
   prePass.setSize(w * pr, h * pr);
+  const halfW = Math.max(1, Math.floor(w / 2));
+  teamLeftCamera.aspect = halfW / h;
+  teamRightCamera.aspect = halfW / h;
+  teamLeftCamera.updateProjectionMatrix();
+  teamRightCamera.updateProjectionMatrix();
+  teamLeftPipeline.setSize(halfW, h, pr);
+  teamRightPipeline.setSize(halfW, h, pr);
+  teamLeftPrePass.setSize(halfW * pr, h * pr);
+  teamRightPrePass.setSize(halfW * pr, h * pr);
   ocean.setResolution(w * pr, h * pr, stage.camera.fov);
 });
+
+let teamSave = loadTeamSave();
+let activeTeamSelection: TeamSelection | null = null;
+let teamPaused = false;
+const teamExpedition = new TeamExpedition(course, boats, wakes, handleTeamEvent);
+stage.scene.add(teamExpedition.visuals.object);
+const teamExperience = new TeamExperience(hudLayer, {
+  onIndependent: enterIndependentCompetition,
+  onTeamStart: startTeamExpedition,
+  onExitTeam: enterFrontDoor,
+  onAudioIntent: () => {
+    audio.resume();
+    audio.startReadyMusic();
+  },
+});
+teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
 
 // -------------------------------------------------------------- race events
 let resultsShown = false;
@@ -442,6 +493,176 @@ function syncDrivingCoachUi(): void {
     coachPresentation = null;
     hud.showCoach(null);
   }
+}
+
+function enterIndependentCompetition(): void {
+  teamExpedition.stop();
+  localInput.reset();
+  collisions.setFriendlyPair(0, 1, false);
+  activeTeamSelection = null;
+  teamPaused = false;
+  appMode = 'independent';
+  resetRace();
+  applySelectedDriver(selectedDriverId);
+  teamExperience.hideAll();
+  hud.setVisible(true);
+  tower.setVisible(true);
+  mixer.setVisible(!mobileInput.enabled);
+  mobileInput.setOverlayHidden(false);
+}
+
+function enterFrontDoor(): void {
+  teamExpedition.stop();
+  localInput.reset();
+  collisions.setFriendlyPair(0, 1, false);
+  activeTeamSelection = null;
+  teamPaused = false;
+  appMode = 'front-door';
+  resetRace();
+  applySelectedDriver(selectedDriverId);
+  driverSelect.hide();
+  hud.setVisible(false);
+  tower.setVisible(false);
+  mixer.setVisible(false);
+  mobileInput.setOverlayHidden(true);
+  teamSave = loadTeamSave();
+  teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+  teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
+  teamExperience.showMode();
+  audio.setScene('ready');
+}
+
+function startTeamExpedition(selection: TeamSelection): void {
+  activeTeamSelection = selection;
+  appMode = 'team-play';
+  teamSave = {
+    ...teamSave,
+    stage: selection.resumeStage === 0 ? 1 : Math.max(1, teamSave.stage),
+    completed: selection.resumeStage === 0 ? false : teamSave.completed,
+    leftDriverId: selection.left.profile.id,
+    rightDriverId: selection.right.profile.id,
+  };
+  saveTeamProgress(teamSave);
+  teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+  resetRace();
+  const profiles = [selection.left.profile, selection.right.profile] as const;
+  for (let id = 0; id < 2; id++) {
+    const profile = profiles[id];
+    boats[id].setDriver(profile.color, profile.handling);
+    riders[id].setColor(profile.color, profile.look);
+  }
+  driverSelect.hide();
+  openingShowcase.stop();
+  hud.setVisible(false);
+  tower.setVisible(false);
+  mixer.setVisible(false);
+  mobileInput.setOverlayHidden(true);
+  collisions.setFriendlyPair(0, 1, true);
+  teamPaused = false;
+  localInput.reset();
+  teamLeftCameraRig.mode = 'chase';
+  teamRightCameraRig.mode = 'chase';
+  teamExpedition.start({
+    resumeStage: selection.resumeStage,
+    leftDeviceId: selection.left.deviceId,
+    rightDeviceId: selection.right.deviceId,
+  });
+  teamExperience.showGameplay();
+  const snapshot = teamExpedition.snapshot();
+  teamExperience.showTransition(
+    'TEAM EXPEDITION',
+    `协作站 ${snapshot.stage}`,
+    `${snapshot.leaderSide === 'left' ? '左侧' : '右侧'}领航 · 另一侧翼手`,
+    3.2,
+  );
+  audio.startRaceScore(true);
+  audio.setScene('countdown');
+}
+
+function handleTeamEvent(event: TeamExpeditionEvent): void {
+  if (!activeTeamSelection) return;
+  const device = event.side ? teamExpedition.deviceFor(event.side) : null;
+  if (event.type === 'countdown') {
+    audio.countdownStage(event.value ?? 1);
+    audio.countdownBeep(false);
+  } else if (event.type === 'go') {
+    teamExperience.hideTransition();
+    audio.setScene('racing');
+    if (audio.startSignal() !== 'played') audio.countdownBeep(true);
+  } else if (event.type === 'anchor') {
+    audio.driftReleaseReady();
+    if (event.side) audio.teamSpatialCue(event.side, 'anchor');
+    if (device) localInput.rumble(device, 0.18, 0.45, 48);
+  } else if (event.type === 'link-ready') {
+    audio.flightReady(1);
+    if (event.side) audio.teamSpatialCue(event.side, 'ready');
+    teamLeftPipeline.pulse('ready', 0.72);
+    teamRightPipeline.pulse('ready', 0.72);
+    if (device) localInput.rumble(device, 0.35, 0.82, 70);
+  } else if (event.type === 'relay') {
+    audio.routeClear(Math.min(3, ((event.stage - 1) % 3) + 1));
+    if (event.side) audio.teamSpatialCue(event.side, 'relay');
+    teamLeftPipeline.pulse('gate', 0.45);
+    teamRightPipeline.pulse('gate', 0.45);
+  } else if (event.type === 'gate') {
+    audio.flightGate(Math.min(3, ((event.stage - 1) % 3) + 1));
+    if (event.side) audio.teamSpatialCue(event.side, 'gate');
+    teamLeftPipeline.pulse('gate', 0.72);
+    teamRightPipeline.pulse('gate', 0.72);
+    if (device) localInput.rumble(device, 0.48, 0.78, 76);
+  } else if (event.type === 'recover') {
+    audio.flightMiss();
+    if (event.shared || event.side === 'left') teamLeftPipeline.pulse('lost', event.shared ? 0.72 : 0.42);
+    if (event.shared || event.side === 'right') teamRightPipeline.pulse('lost', event.shared ? 0.72 : 0.42);
+    if (event.side) audio.teamSpatialCue(event.side, 'impact');
+    if (event.shared) {
+      teamExperience.showTransition('TEAM RESET', '共同检查点', '两名队员同时失误，回到本协作站起点', 1.15);
+    } else if (device) localInput.rumble(device, 0.65, 0.24, 72);
+  } else if (event.type === 'stage') {
+    teamSave = {
+      ...teamSave,
+      stage: Math.max(teamSave.stage, event.value ?? event.stage),
+      completed: false,
+      leftDriverId: activeTeamSelection.left.profile.id,
+      rightDriverId: activeTeamSelection.right.profile.id,
+    };
+    saveTeamProgress(teamSave);
+    teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+    teamExperience.showTransition(
+      `STAGE ${event.stage} CLEAR`,
+      '职责交换',
+      '左右画面保持不变 · 领航员与翼手互换',
+      1.45,
+    );
+  } else if (event.type === 'finish') {
+    const elapsed = event.value ?? teamExpedition.snapshot().elapsed;
+    const elapsedMs = Math.round(elapsed * 1000);
+    const fullRun = teamExpedition.snapshot().fullRun;
+    if (fullRun && (teamSave.bestMs === null || elapsedMs < teamSave.bestMs)) teamSave.bestMs = elapsedMs;
+    teamSave.stage = 7;
+    teamSave.completed = true;
+    teamSave.leftDriverId = activeTeamSelection.left.profile.id;
+    teamSave.rightDriverId = activeTeamSelection.right.profile.id;
+    saveTeamProgress(teamSave);
+    teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+    teamExperience.showTransition(
+      'EXPEDITION COMPLETE',
+      '远征完成',
+      `${formatTeamTime(elapsed)}${fullRun && teamSave.bestMs === elapsedMs ? ' · NEW BEST' : ''}`,
+      0,
+      true,
+    );
+    audio.finishSting();
+    audio.setScene('medal');
+    teamLeftPipeline.pulse('finish', 1.2);
+    teamRightPipeline.pulse('finish', 1.2);
+  }
+}
+
+function formatTeamTime(seconds: number): string {
+  const minutes = Math.floor(Math.max(0, seconds) / 60);
+  const rest = Math.max(0, seconds) - minutes * 60;
+  return `${minutes}:${rest.toFixed(2).padStart(5, '0')}`;
 }
 
 function updateActiveInputDevice(): void {
@@ -803,15 +1024,29 @@ function resetRace(): void {
   cameraRig.mode = 'orbit';
   if (DESKTOP_DRIVER_STAGE.matches) cameraRig.snapOrbit(boats[0], presentationTime);
   hud.hideReady();
-  driverSelect.show();
+  const showIndependentFrontDoor = appMode === 'independent' || mobileInput.enabled || HARNESS;
+  if (showIndependentFrontDoor) {
+    driverSelect.show();
+    hud.setVisible(true);
+    tower.setVisible(true);
+  } else {
+    driverSelect.hide();
+    hud.setVisible(false);
+    tower.setVisible(false);
+  }
   syncDrivingCoachUi();
   mobileInput.setGoPrompt(false);
-  mixer.setVisible(!mobileInput.enabled);
+  mixer.setVisible(showIndependentFrontDoor && !mobileInput.enabled);
   mixer.sync();
   audio.setScene('ready');
 }
 
-resetRace();
+if (HARNESS || mobileInput.enabled) {
+  appMode = 'independent';
+  resetRace();
+} else {
+  enterFrontDoor();
+}
 
 // ------------------------------------------------------------------- step
 const ZERO_INPUT: BoatInput = {
@@ -826,7 +1061,211 @@ let harnessFlightTriggerPulse = false;
 const harnessLastBoatInputs: BoatInput[] = boats.map(() => ({ ...ZERO_INPUT }));
 const harnessBoatInputOverrides: Array<Partial<BoatInput> | null> = boats.map(() => null);
 
+function updateFrontDoor(dt: number, t: number): void {
+  presentationTime += dt;
+  cameraRig.update(dt, boats[0], presentationTime);
+  applyHarnessCameraOverride();
+  ocean.update(presentationTime, stage.camera.position);
+  sky.update(presentationTime, stage.camera.position);
+  seaDecor.update(presentationTime, stage.camera.position);
+  for (const boat of boats) boat.syncSurfacePresentation(presentationTime);
+  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime, false);
+  openingShowcase.update(dt);
+  course.update(0, presentationTime);
+  teamExperience.update(dt, localInput);
+  pipeline.update(dt, t, boats[0].state, 'ready');
+  audio.setEngine(0, 0, false);
+  audio.update(dt);
+}
+
+function updateTeamSession(dt: number, t: number): void {
+  const leftDevice = teamExpedition.deviceFor('left');
+  const rightDevice = teamExpedition.deviceFor('right');
+  if (teamExpedition.snapshot().phase === 'finished') {
+    let exit = false;
+    for (const id of [leftDevice, rightDevice]) {
+      exit ||= localInput.confirmEdge(id) || localInput.cancelEdge(id);
+    }
+    if (exit) {
+      enterFrontDoor();
+      localInput.endFrame();
+      return;
+    }
+    updateTeamPresentation(0, t);
+    localInput.endFrame();
+    return;
+  }
+  const devicesConnected = localInput.connected(leftDevice) && localInput.connected(rightDevice);
+  if (!devicesConnected && !teamPaused) {
+    teamPaused = true;
+    teamExperience.showTransition('DEVICE LINK', '设备已断开', '两侧画面与计时已冻结 · 重新连接后按确认继续', 0, true);
+  }
+  if (teamPaused) {
+    if (devicesConnected) {
+      let resume = false;
+      let exit = false;
+      for (const id of [leftDevice, rightDevice]) {
+        resume ||= localInput.confirmEdge(id);
+        exit ||= localInput.cancelEdge(id);
+      }
+      if (exit) {
+        enterFrontDoor();
+        localInput.endFrame();
+        return;
+      }
+      if (resume) {
+        teamPaused = false;
+        teamExperience.hideTransition();
+      }
+    }
+    updateTeamPresentation(0, t);
+    localInput.endFrame();
+    return;
+  }
+  let pause = false;
+  for (const id of [leftDevice, rightDevice]) pause ||= localInput.pauseEdge(id);
+  if (pause) {
+    teamPaused = true;
+    teamExperience.showTransition('TEAM PAUSE', '远征暂停', '按任一设备确认继续 · 返回键退出', 0, true);
+    updateTeamPresentation(0, t);
+    localInput.endFrame();
+    return;
+  }
+
+  const leftState = boats[0].state;
+  const rightState = boats[1].state;
+  const leftInput = localInput.readBoat(leftDevice, dt, leftState.flightPhase !== 'surface');
+  const rightInput = localInput.readBoat(rightDevice, dt, rightState.flightPhase !== 'surface');
+  const activeBoats = teamExpedition.activeBoats();
+  collisions.capture(activeBoats);
+  worldTime += dt;
+  const advanced = teamExpedition.step(dt, worldTime, leftInput, rightInput);
+  if (advanced) {
+    const hits = collisions.resolve(activeBoats);
+    if (collisions.debugState().maxCorrection > 0) course.syncFlightTrackingAfterCollisions(activeBoats);
+    presentTeamCollisions(hits);
+    presentBuoyHits(course.applyBuoyHits(activeBoats, buoyHitScratch));
+    presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
+  }
+  updateTeamPresentation(dt, worldTime);
+  localInput.endFrame();
+}
+
+function updateTeamPresentation(dt: number, t: number): void {
+  teamLeftCameraRig.update(dt, boats[0], t);
+  teamRightCameraRig.update(dt, boats[1], t);
+  teamExperience.updateTransition(dt);
+  for (let i = 0; i < boats.length; i++) {
+    if (!boats[i].object.visible) continue;
+    riders[i].update(dt, boats[i].state, t, false);
+    wakes[i].update(dt, t);
+  }
+  spray.update(dt, t);
+  feathers.update(dt, t);
+  jetTrail.update(dt);
+  course.update(dt, t);
+  const snapshot = teamExpedition.snapshot();
+  if (activeTeamSelection) {
+    teamExperience.updateHud({
+      stage: snapshot.stage,
+      totalStages: snapshot.totalStages,
+      elapsed: snapshot.elapsed,
+      objective: snapshot.objective,
+      left: teamHudSeat(
+        activeTeamSelection.left.profile,
+        boats[0],
+        teamExpedition.roleFor('left'),
+        snapshot,
+        !localInput.connected(teamExpedition.deviceFor('left')),
+      ),
+      right: teamHudSeat(
+        activeTeamSelection.right.profile,
+        boats[1],
+        teamExpedition.roleFor('right'),
+        snapshot,
+        !localInput.connected(teamExpedition.deviceFor('right')),
+      ),
+    });
+  }
+  const left = boats[0].state;
+  const right = boats[1].state;
+  const averageSpeed = (Math.abs(left.speed) + Math.abs(right.speed)) * 0.5;
+  const activeState = snapshot.wingSide === 'left' ? left : right;
+  audio.setScene(snapshot.phase === 'countdown' ? 'countdown' : snapshot.phase === 'finished' ? 'medal' : 'racing');
+  audio.setEngine(Math.max(left.rpm, right.rpm), Math.max(left.throttle, right.throttle), left.boosting || right.boosting);
+  audio.setWaterRush(Math.min(1, averageSpeed / 34));
+  audio.setAirborne(left.airborne || right.airborne);
+  audio.setFlight(
+    activeState.flightThrust,
+    activeState.flightPhase !== 'surface',
+    activeState.flightPressure,
+    Math.max(0, activeState.flightClearance),
+    activeState.flightPhase === 'surface' ? 0 : activeState.flightAirBrake,
+    activeState.steer,
+    activeState.flightRouteIndex >= 0 ? activeState.flightRouteIndex : snapshot.stage - 1,
+  );
+  audio.setDrift(left.drifting || right.drifting ? 0.62 : 0);
+  audio.update(dt);
+  teamLeftPipeline.update(dt, t, left, snapshot.phase === 'countdown' ? 'countdown' : 'racing');
+  teamRightPipeline.update(dt, t, right, snapshot.phase === 'countdown' ? 'countdown' : 'racing');
+}
+
+function teamHudSeat(
+  profile: ReturnType<typeof driverProfile>,
+  boat: Boat,
+  role: 'leader' | 'wing',
+  snapshot: ReturnType<TeamExpedition['snapshot']>,
+  disconnected: boolean,
+): {
+  profile: ReturnType<typeof driverProfile>;
+  role: 'leader' | 'wing';
+  speedKmh: number;
+  link: number;
+  relays: number;
+  relayTotal: number;
+  status: string;
+  disconnected: boolean;
+} {
+  return {
+    profile,
+    role,
+    speedKmh: Math.abs(boat.state.speed) * 3.6,
+    link: snapshot.link,
+    relays: snapshot.anchors,
+    relayTotal: snapshot.anchorTotal,
+    status: role === 'leader'
+      ? snapshot.relayOpen ? '中继已开启 · 掩护翼手' : snapshot.objective
+      : snapshot.wingCleared ? '飞行门通过 · 前往会合' : snapshot.objective,
+    disconnected,
+  };
+}
+
+function presentTeamCollisions(hits: readonly CollisionHit[]): void {
+  for (const hit of hits) {
+    if ((hit.a < 2 && hit.b < 2) || hit.strength < 0.8) continue;
+    const playerId = hit.a < 2 ? hit.a : hit.b < 2 ? hit.b : -1;
+    if (playerId < 0) continue;
+    const device = teamExpedition.deviceFor(playerId === 0 ? 'left' : 'right');
+    audio.collision(hit.strength * 0.5);
+    audio.teamSpatialCue(playerId === 0 ? 'left' : 'right', 'impact');
+    localInput.rumble(device, Math.min(0.8, 0.25 + hit.strength / 18), 0.42, 56);
+    collisionFxPoint.set(hit.x, hit.y + 0.15, hit.z);
+    spray.burst(collisionFxPoint, 3 + Math.min(5, Math.round(hit.strength * 0.16)), 2.4);
+  }
+}
+
 function step(dt: number, _t: number): void {
+  localInput.poll();
+  if (appMode === 'front-door') {
+    immersive.update(dt);
+    updateFrontDoor(dt, worldTime);
+    return;
+  }
+  if (appMode === 'team-play') {
+    immersive.update(dt);
+    updateTeamSession(dt, worldTime);
+    return;
+  }
   gamepadInput.poll(race.phase === 'ready' && !interruptionActive);
   updateActiveInputDevice();
   haptics.update();
@@ -1413,12 +1852,43 @@ function step(dt: number, _t: number): void {
   audio.update(dt);
 }
 
+const renderDrawingSize = new THREE.Vector2();
+
 function render(frameMs: number): void {
-  applyHarnessCameraOverride();
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
-  pipeline.render();
-  processCaptureQueue();
+  if (appMode === 'team-play') {
+    renderTeamSplit();
+  } else {
+    applyHarnessCameraOverride();
+    stage.renderer.getDrawingBufferSize(renderDrawingSize);
+    ocean.uniforms.uDepthTex.value = prePass.depthTexture;
+    ocean.setResolution(renderDrawingSize.x, renderDrawingSize.y, stage.camera.fov);
+    pipeline.render();
+    processCaptureQueue();
+  }
   stage.updatePerf(frameMs);
+}
+
+function renderTeamSplit(): void {
+  const drawing = stage.renderer.getDrawingBufferSize(renderDrawingSize);
+  const halfWidth = Math.max(1, Math.floor(drawing.x / 2));
+
+  ocean.uniforms.uDepthTex.value = teamLeftPrePass.depthTexture;
+  ocean.setResolution(halfWidth, drawing.y, teamLeftCamera.fov);
+  ocean.update(worldTime, teamLeftCamera.position);
+  sky.update(worldTime, teamLeftCamera.position);
+  seaDecor.update(worldTime, teamLeftCamera.position);
+  const left = teamLeftPipeline.renderToTexture();
+
+  ocean.uniforms.uDepthTex.value = teamRightPrePass.depthTexture;
+  ocean.setResolution(halfWidth, drawing.y, teamRightCamera.fov);
+  ocean.update(worldTime, teamRightCamera.position);
+  sky.update(worldTime, teamRightCamera.position);
+  seaDecor.update(worldTime, teamRightCamera.position);
+  const right = teamRightPipeline.renderToTexture();
+
+  splitScreen.render(left, right);
+  ocean.uniforms.uDepthTex.value = prePass.depthTexture;
 }
 
 function processCaptureQueue(): void {
@@ -1453,6 +1923,20 @@ function startInterruptionPadPoll(): void {
 
 function handleVisibility(hidden: boolean): void {
   audio.setVisibility(hidden);
+  if (appMode === 'team-play') {
+    localInput.reset();
+    if (hidden) {
+      if (teamExpedition.snapshot().phase !== 'finished') {
+        teamPaused = true;
+        teamExperience.showTransition('TEAM PAUSE', '远征暂停', '画面与计时已冻结 · 返回后按确认继续', 0, true);
+      }
+      if (!HARNESS) loop.stop();
+    } else if (!HARNESS) {
+      loop.start();
+      requestAnimationFrame(() => render(16.7));
+    }
+    return;
+  }
   haptics.stop();
   input.reset();
   gamepadInput.reset();
@@ -1493,7 +1977,8 @@ window.addEventListener('keydown', (event) => {
   }
   // Keep the request inside the trusted READY keydown. The fixed-step loop
   // still consumes the edge and starts the countdown on its normal schedule.
-  if (race.phase === 'ready' && !freshStartPending && (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
+  if (appMode === 'independent' && race.phase === 'ready' && !freshStartPending &&
+      (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
     immersive.requestGo();
   }
 });
@@ -1533,6 +2018,10 @@ interface Harness {
     boat: ReturnType<Boat['landingDebug']>;
   };
   selectDriver(id: string): void;
+  teamFrontDoor(): void;
+  teamState(): Record<string, unknown>;
+  teamAdvanceStage(): void;
+  teamDisplace(side: SeatSide): void;
 }
 
 let harnessUsePlayerInput = false;
@@ -2902,12 +3391,7 @@ if (HARNESS) {
     ready: true,
     scenario,
     advance: (seconds) => loop.advance(seconds),
-    render: () => {
-      applyHarnessCameraOverride();
-      stage.renderer.info.reset();
-      pipeline.render();
-      processCaptureQueue();
-    },
+    render: () => render(16.7),
     tapFlight: tapHarnessFlight,
     setFlightCharges: (charges) => {
       boats[0].state.flightCharges = Math.max(0, Math.min(MAX_FLIGHT_CHARGES, Math.round(charges)));
@@ -2951,6 +3435,41 @@ if (HARNESS) {
       boat: boats[0].landingDebug(),
     }),
     selectDriver: (id) => applySelectedDriver(id),
+    teamFrontDoor: enterFrontDoor,
+    teamState: () => {
+      const snapshot = teamExpedition.snapshot();
+      course.sample(boats[0].state.position, harnessPilotSample, 'surface');
+      const leftU = harnessPilotSample.u;
+      const leftDistance = harnessPilotSample.distance;
+      course.sample(boats[1].state.position, harnessPilotSample, 'surface');
+      const rightU = harnessPilotSample.u;
+      const rightDistance = harnessPilotSample.distance;
+      return {
+        appMode,
+        teamPaused,
+        ...snapshot,
+        leftRole: teamExpedition.roleFor('left'),
+        rightRole: teamExpedition.roleFor('right'),
+        leftPhase: boats[0].state.flightPhase,
+        rightPhase: boats[1].state.flightPhase,
+        leftSteer: boats[0].state.steer,
+        rightSteer: boats[1].state.steer,
+        leftCharges: boats[0].state.flightCharges,
+        rightCharges: boats[1].state.flightCharges,
+        leftRouteState: boats[0].state.flightRouteState,
+        rightRouteState: boats[1].state.flightRouteState,
+        progress: { leftU, rightU, leftDistance, rightDistance },
+        visibleBoats: boats.filter((boat) => boat.object.visible).map((boat) => boat.id),
+        guidance: course.guidanceStatus(),
+      };
+    },
+    teamAdvanceStage: () => teamExpedition.debugAdvanceStage(),
+    teamDisplace: (side) => {
+      if (teamExpedition.snapshot().phase !== 'racing') return;
+      const boat = boats[side === 'left' ? 0 : 1];
+      const state = boat.state;
+      boat.teleport(state.position.x + 180, state.position.z + 180, state.heading);
+    },
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
 } else {

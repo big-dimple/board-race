@@ -674,6 +674,29 @@ export class GameAudio {
     this.duckMusic(0.72, 0.2);
   }
 
+  /** Short local-team locator; continuous vehicle and music buses stay centered. */
+  teamSpatialCue(side: 'left' | 'right', kind: 'anchor' | 'ready' | 'relay' | 'gate' | 'impact'): void {
+    const c = this.ctx;
+    if (!c || !this.eventBus || this.activeOneShots >= this.maxOneShots) return;
+    const frequencies = { anchor: 620, ready: 980, relay: 760, gate: 1180, impact: 260 } as const;
+    const durations = { anchor: 0.09, ready: 0.16, relay: 0.13, gate: 0.18, impact: 0.11 } as const;
+    const t = c.currentTime;
+    const duration = durations[kind];
+    const oscillator = c.createOscillator();
+    oscillator.type = kind === 'impact' ? 'square' : 'triangle';
+    oscillator.frequency.value = frequencies[kind];
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(kind === 'impact' ? 0.055 : 0.045, t + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    const pan = c.createStereoPanner();
+    pan.pan.value = side === 'left' ? -0.72 : 0.72;
+    oscillator.connect(gain);
+    gain.connect(pan);
+    pan.connect(this.eventBus);
+    this.trackOneShot(oscillator, [gain, pan], t, t + duration + 0.04);
+  }
+
   flightMiss(): void {
     const c = this.ctx;
     if (!c) return;

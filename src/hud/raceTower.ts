@@ -34,6 +34,10 @@ export class RaceTower {
   private raceTime = 0;
   private renderedRevision = -1;
 
+  setVisible(visible: boolean): void {
+    this.root.hidden = !visible;
+  }
+
   constructor(parent: HTMLElement) {
     this.root = node('div', 'race-tower', parent);
     node('div', 'race-tower-head', this.root, 'W.H.L // LIVE');

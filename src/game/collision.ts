@@ -46,6 +46,13 @@ export class BoatCollisionSystem {
   private readonly contact: PairContact = { hit: false, toi: 1, nx: 1, nz: 0, aOffset: 0, bOffset: 0 };
   private cooldowns = new Float32Array(0);
   private maxCorrection = 0;
+  private friendlyA = -1;
+  private friendlyB = -1;
+
+  setFriendlyPair(a: number, b: number, enabled: boolean): void {
+    this.friendlyA = enabled ? Math.min(a, b) : -1;
+    this.friendlyB = enabled ? Math.max(a, b) : -1;
+  }
 
   capture(boats: readonly IBoat[]): void {
     this.ensure(boats.length);
@@ -91,7 +98,8 @@ export class BoatCollisionSystem {
     const rvz = _va.y - _vb.y;
     const closing = -(rvx * contact.nx + rvz * contact.nz);
     const flightMul = a.state.flightPhase !== 'surface' || b.state.flightPhase !== 'surface' ? 0.68 : 1;
-    const j = Math.max(0, closing) * (1 + RESTITUTION) * 0.5 * flightMul;
+    const friendly = Math.min(a.id, b.id) === this.friendlyA && Math.max(a.id, b.id) === this.friendlyB;
+    const j = Math.max(0, closing) * (1 + RESTITUTION) * 0.5 * flightMul * (friendly ? 0.28 : 1);
     const aAttack = Math.max(0, -(_va.x * contact.nx + _va.y * contact.nz)) * (a.state.boosting ? 1.28 : 1);
     const bAttack = Math.max(0, _vb.x * contact.nx + _vb.y * contact.nz) * (b.state.boosting ? 1.28 : 1);
     const aIsAttacker = aAttack > bAttack + 1.2;
@@ -103,7 +111,10 @@ export class BoatCollisionSystem {
     const tangentRel = rvx * tx + rvz * tz;
     const frictionJ = Math.max(-j * FRICTION, Math.min(j * FRICTION, -tangentRel * 0.5));
     const distance = this.currentSampleDistance(a, b, contact.aOffset, contact.bOffset);
-    const correction = Math.min(MAX_PAIR_CORRECTION, Math.max(0.04, (DIAMETER - distance) * 0.52));
+    const correction = Math.min(
+      friendly ? MAX_PAIR_CORRECTION * 0.5 : MAX_PAIR_CORRECTION,
+      Math.max(0.025, (DIAMETER - distance) * (friendly ? 0.28 : 0.52)),
+    );
     const cx = contact.nx * correction * 0.5;
     const cz = contact.nz * correction * 0.5;
     const ax = a.state.position.x + Math.sin(a.state.heading) * contact.aOffset;
@@ -118,7 +129,7 @@ export class BoatCollisionSystem {
       this.hits.push({
         a: a.id,
         b: b.id,
-        strength: Math.max(0, closing) * Math.max(aTake, bTake),
+        strength: Math.max(0, closing) * Math.max(aTake, bTake) * (friendly ? 0.2 : 1),
         toi: contact.toi,
         correction,
         nx: contact.nx,
@@ -153,7 +164,8 @@ export class BoatCollisionSystem {
     }
     const distance = Math.sqrt(best);
     if (distance >= DIAMETER) return;
-    const correction = Math.min(0.18, (DIAMETER - distance) * 0.35);
+    const friendly = Math.min(a.id, b.id) === this.friendlyA && Math.max(a.id, b.id) === this.friendlyB;
+    const correction = Math.min(friendly ? 0.08 : 0.18, (DIAMETER - distance) * (friendly ? 0.2 : 0.35));
     a.applyCollisionResponse(nx * correction * 0.5, nz * correction * 0.5, 0, 0);
     b.applyCollisionResponse(-nx * correction * 0.5, -nz * correction * 0.5, 0, 0);
     this.maxCorrection = Math.max(this.maxCorrection, correction);
