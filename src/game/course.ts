@@ -188,14 +188,14 @@ function nearestOnSplineNear(x: number, z: number, referenceU: number, maxDeltaU
 
 /** World-XZ anchors for the 8 checkpoint gates in pure surface sectors, snapped to the spline below. */
 const GATE_ANCHORS: readonly (readonly [number, number])[] = [
-  [4, 86],      // CP 1: start straightaway (u≈0.032)
-  [74, 435],    // CP 2: sweeper apex (u≈0.165)
-  [414, 555],   // CP 3: chicane exit / loop approach (u≈0.350)
-  [480, 240],   // CP 4: loop corner exit (u≈0.492)
-  [224, 294],   // CP 5: hairpin mid (u≈0.605)
-  [241, 112],   // CP 6: S-turn transition (u≈0.745)
-  [201, -200],  // CP 7: carousel mid (u≈0.880)
-  [3, -40],     // CP 8: final dock straightaway (u≈0.985)
+  [-2.7, 75.3],     // CP 1: start straightaway (u≈0.030)
+  [60.3, 408.8],    // CP 2: sweeper mid (u≈0.170)
+  [474.6, 454.0],   // CP 3: chicane exit (u≈0.350)
+  [405.3, 198.6],   // CP 4: loop corner exit (u≈0.492)
+  [206.5, 378.7],   // CP 5: hairpin apex after Flight 4 (u≈0.605)
+  [275.3, 64.2],    // CP 6: S-turn transition after Flight 5 (u≈0.745)
+  [174.6, -196.3],  // CP 7: carousel mid after Flight 6 (u≈0.875)
+  [-1.2, -37.6],    // CP 8: final dock straightaway after Flight 7 (u≈0.985)
 ];
 
 /** Gate u-positions on the closed spline, ascending. race.ts relies on the order. */
