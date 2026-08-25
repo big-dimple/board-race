@@ -1302,6 +1302,18 @@ function step(dt: number, _t: number): void {
   if (coachDismissed && pcControlPrimer.active && pcPrimerPresentation) dismissPcControlPrimer();
   else if (coachDismissed && drivingCoach.progress.status === 'active') disableDrivingCoach();
 
+  if (expansionGallery.visible()) {
+    mobileInput.consumeAnyPress();
+    const selectLeft = gamepadInput.consumeSelectLeft();
+    const selectRight = gamepadInput.consumeSelectRight();
+    const dismiss = gamepadInput.consumeDismiss();
+    if (selectLeft) expansionGallery.move(-1);
+    if (selectRight) expansionGallery.move(1);
+    if (dismiss) expansionGallery.hide();
+    updateFrozenPresentation(dt, race.phase === 'medal' ? 'medal' : 'finished', true);
+    return;
+  }
+
   if (race.phase === 'medal') {
     mobileInput.consumeAnyPress();
     // Browsing the dossier pauses the ceremony clock; it resumes on return.
@@ -2265,7 +2277,7 @@ function presentBalloonPops(pops: readonly BalloonPop[]): void {
     balloonPopPoint.set(pop.x, pop.y, pop.z);
     feathers.burst(balloonPopPoint, 48, 9.5, pop.carryX, pop.carryZ);
     if (pop.boatId === 0) {
-      audio.collision(2.6);
+      audio.balloonPop();
       haptics.impact('collision-light', 0.3, false);
     }
   }

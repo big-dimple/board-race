@@ -1763,7 +1763,7 @@ export class Boat implements IBoat {
         );
         _v1.set(fwdX, 0, fwdZ);
         _v3.set(portX, 0, portZ);
-        const count = this.playerOwned ? 1 : Math.max(0, Math.round(1 * this.opponentFxScale));
+        const count = this.playerOwned ? 3 : Math.max(0, Math.round(3 * this.opponentFxScale));
         if (count > 0) this.spray.chine(_v2, _v1, _v3, side, speedAbs, count);
       }
     } else {

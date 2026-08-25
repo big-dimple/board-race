@@ -339,18 +339,24 @@ export class GamepadInput {
     const prevAnalog = deadZone(prevAnalogRaw * this.bindings.steerScale);
     this.steer = left === right ? analog : left ? -1 : 1;
     this.steerActive = left || right || Math.abs(analog) > 0;
-    const navLeft = left || analog <= -NAV_THRESHOLD;
-    const navRight = right || analog >= NAV_THRESHOLD;
-    const prevNavLeft = prevLeft || prevAnalog <= -NAV_THRESHOLD;
-    const prevNavRight = prevRight || prevAnalog >= NAV_THRESHOLD;
+    const bumperLeft = this.bindingSource === 'standard' && button(current, 4);
+    const bumperRight = this.bindingSource === 'standard' && button(current, 5);
+    const prevBumperLeft = this.bindingSource === 'standard' && button(previous, 4);
+    const prevBumperRight = this.bindingSource === 'standard' && button(previous, 5);
+    const navLeft = left || analog <= -NAV_THRESHOLD || bumperLeft;
+    const navRight = right || analog >= NAV_THRESHOLD || bumperRight;
+    const prevNavLeft = prevLeft || prevAnalog <= -NAV_THRESHOLD || prevBumperLeft;
+    const prevNavRight = prevRight || prevAnalog >= NAV_THRESHOLD || prevBumperRight;
     const drift = this.driftButtonHeld(current);
     const flight = button(current, this.bindings.flightButton);
     const confirm = flight || button(current, this.bindings.confirmButton);
     const prevFlight = button(previous, this.bindings.flightButton);
     const prevConfirm = prevFlight || button(previous, this.bindings.confirmButton);
     const dismissSafe = ![this.bindings.driftButton, this.bindings.flightButton, this.bindings.confirmButton].includes(8);
-    const dismiss = dismissSafe && button(current, 8);
-    const prevDismiss = dismissSafe && button(previous, 8);
+    const bButton = this.bindingSource === 'standard' && button(current, 1);
+    const prevBButton = this.bindingSource === 'standard' && button(previous, 1);
+    const dismiss = (dismissSafe && button(current, 8)) || bButton;
+    const prevDismiss = (dismissSafe && button(previous, 8)) || prevBButton;
 
     if (selected.activity > 0.01) this.activitySerialValue++;
 

@@ -767,9 +767,7 @@ export class HUD {
       : extendPromptUseful && st.flightExtensionReady
       ? 'extend'
       : launchPromptUseful && routeGuidance.actionCue === 'launch' && !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
-    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' = this.primerOwnsFlight
-      ? 'hidden'
-      : this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
+    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' = this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
     const promptDevice = this.controlDevice;
     if (promptMode !== this.flightPromptMode || promptDevice !== this.flightPromptDevice) {
       this.flightPromptMode = promptMode;

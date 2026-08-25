@@ -87,7 +87,10 @@ export class PcControlPrimer {
     const presentationDt = frame.presentationBlocked ? 0 : Math.max(0, dt);
     if (this.current === 'banked') {
       this.timer = Math.max(0, this.timer - presentationDt);
-      if (this.timer <= 0) this.current = 'waiting-launch';
+      if (this.timer <= 0) {
+        this.stop();
+        return null;
+      }
     } else if (this.current === 'success') {
       this.timer = Math.max(0, this.timer - presentationDt);
       if (this.timer <= 0) {

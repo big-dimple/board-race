@@ -146,7 +146,7 @@ export class ExpansionGallery {
 
   visible(): boolean { return this.open; }
 
-  private move(direction: number): void {
+  move(direction: number): void {
     if (this.loading || this.loadFailed) return;
     this.setIndex(this.index + direction);
   }

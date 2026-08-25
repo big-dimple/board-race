@@ -455,6 +455,48 @@ export class GameAudio {
     this.duckMusic(0.72 - n * 0.18, 0.12 + n * 0.1);
   }
 
+  /** Crisp, punchy rubber balloon pop for the buoyant rubber ducky burst. */
+  balloonPop(): void {
+    const c = this.ctx;
+    if (!c || !this.eventBus) return;
+    if (this.activeOneShots + 3 >= this.maxOneShots) return;
+    const t0 = c.currentTime;
+
+    // 1. Snappy rubber tension snap (fast downward pitch plunge)
+    const snapOsc = c.createOscillator();
+    snapOsc.type = 'triangle';
+    snapOsc.frequency.setValueAtTime(940, t0);
+    snapOsc.frequency.exponentialRampToValueAtTime(130, t0 + 0.05);
+    const snapGain = c.createGain();
+    snapGain.gain.setValueAtTime(0, t0);
+    snapGain.gain.linearRampToValueAtTime(0.28, t0 + 0.003);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+    snapOsc.connect(snapGain);
+    snapGain.connect(this.eventBus);
+    this.trackOneShot(snapOsc, [snapGain], t0, t0 + 0.07);
+
+    // 2. High-frequency crisp pressure rupture
+    if (this.noiseBuf) {
+      const burstNoise = c.createBufferSource();
+      burstNoise.buffer = this.noiseBuf;
+      const bp = c.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(2600, t0);
+      bp.frequency.exponentialRampToValueAtTime(650, t0 + 0.055);
+      bp.Q.value = 1.2;
+      const burstGain = c.createGain();
+      burstGain.gain.setValueAtTime(0.34, t0);
+      burstGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.055);
+      burstNoise.connect(bp);
+      bp.connect(burstGain);
+      burstGain.connect(this.eventBus);
+      this.trackOneShot(burstNoise, [bp, burstGain], t0, t0 + 0.07);
+    }
+
+    // 3. Hollow rubber pop chirp
+    this.blip(580, t0 + 0.006, 0.04, 0.15, 'sine');
+  }
+
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */
   setEngine(rpm: number, throttle: number, boosting: boolean): void {
     const c = this.ctx;
