@@ -225,7 +225,7 @@ export class LocalMultiplayerInput {
     } else if (id === 'keyboard-right') {
       left = this.keys.has('ArrowLeft') || this.keys.has('KeyJ');
       right = this.keys.has('ArrowRight') || this.keys.has('KeyL');
-      drift = this.keys.has('Numpad0') || this.keys.has('KeyK');
+      drift = this.keys.has('Numpad0') || this.keys.has('KeyK') || this.keys.has('ShiftRight');
       flightTrigger = this.consumeAny(['NumpadEnter', 'KeyI']);
       if (context.manualThrottle) {
         throttle = (this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('ArrowDown') ? 1 : 0);
@@ -396,7 +396,7 @@ function compactPadLabel(id: string, index: number): string {
 function isOwnedKey(code: string): boolean {
   return [
     'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space', 'KeyQ',
-    'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'Numpad0', 'NumpadEnter', 'NumpadDecimal',
+    'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'ShiftRight', 'Numpad0', 'NumpadEnter', 'NumpadDecimal',
     'KeyJ', 'KeyL', 'KeyK', 'KeyI', 'KeyU', 'Escape',
   ].includes(code);
 }

@@ -212,16 +212,18 @@
 .team-hud-role { color: var(--seat-color); font: 800 9px/1.2 Arial, sans-serif; }
 .team-hud-objective { position: absolute; left: 18px; bottom: max(17px, env(safe-area-inset-bottom)); width: min(310px, calc(100% - 70px)); display: grid; gap: 4px; padding: 9px 11px; border-left: 3px solid var(--seat-color); background: rgba(4, 7, 15, .7); }
 .team-seat-right .team-hud-objective { left: auto; right: 18px; border-left: 0; border-right: 3px solid var(--seat-color); text-align: right; }
-.team-hud-status { overflow: hidden; text-overflow: ellipsis; font: 800 11px/1.2 Arial, sans-serif; white-space: nowrap; }
+.team-hud-status { min-height: 16px; font: 800 13px/1.25 Arial, sans-serif; white-space: normal; }
 .team-link-meter { height: 5px; overflow: hidden; background: rgba(244, 247, 239, .16); }
 .team-link-meter i { display: block; width: 100%; height: 100%; transform: scaleX(0); transform-origin: left; background: var(--seat-color); transition: transform 100ms linear; }
+.team-hud-seat.team-seat-left .team-link-meter i { background: var(--team-cyan); }
+.team-hud-seat.team-seat-right .team-link-meter i { background: var(--team-lime); }
 .team-seat-right .team-link-meter i { transform-origin: right; }
-.team-hud-action { color: rgba(244, 247, 239, .68); font: 800 9px/1 Arial, sans-serif; }
+.team-hud-action { color: var(--team-paper); font: 900 12px/1.15 Arial, sans-serif; }
 .team-hud-speed { position: absolute; right: 18px; bottom: max(18px, env(safe-area-inset-bottom)); color: rgba(244, 247, 239, .8); font-size: 12px; }
 .team-seat-right .team-hud-speed { right: auto; left: 18px; }
 .team-mission { position: absolute; z-index: 3; top: max(13px, env(safe-area-inset-top)); left: 50%; display: grid; min-width: 178px; padding: 7px 16px; transform: translateX(-50%); background: #070b18; text-align: center; box-sizing: border-box; }
 .team-mission-stage { color: var(--team-cyan); font: 900 9px/1 Arial, sans-serif; }
-.team-mission-objective { margin-top: 3px; font-size: 11px; white-space: nowrap; }
+.team-mission-objective { margin-top: 3px; font-size: 12px; white-space: nowrap; }
 .team-mission-time { margin-top: 2px; color: rgba(244, 247, 239, .55); font: 700 9px/1 Arial, sans-serif; }
 .team-device-lost { display: none; position: absolute; inset: 0; z-index: 4; align-items: center; justify-content: center; background: rgba(4, 7, 15, .82); color: var(--team-coral); font-size: 18px; }
 .team-hud-seat.lost .team-device-lost { display: flex; }

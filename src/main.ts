@@ -577,7 +577,7 @@ function startTeamExpedition(selection: TeamSelection): void {
   teamExperience.showTransition(
     snapshot.tutorialActive ? 'CONTROL CALIBRATION' : 'TEAM CO-OP',
     snapshot.stationName,
-    snapshot.tutorialActive ? '两侧独立校准 · 完成后进入三站协作' : '互补能力 · 看见伙伴造成的结果',
+    snapshot.tutorialActive ? '两侧独立校准 · 完成后进入三站协作' : teamStationIntro(snapshot),
     3.2,
   );
   audio.startRaceScore(true);
@@ -608,7 +608,7 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
     teamSave.tutorialCompleted = true;
     saveTeamProgress(teamSave);
     teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
-    teamExperience.showTransition('CALIBRATION COMPLETE', '驾驶已校准', '前进、刹车、倒车和能力键都已就绪', 1.05);
+    teamExperience.showTransition('CALIBRATION COMPLETE', '驾驶已校准', teamStationIntro(teamExpedition.snapshot()), 2);
   } else if (event.type === 'send') {
     audio.flightReady(1);
     if (event.side) audio.teamSpatialCue(event.side, 'ready');
@@ -672,6 +672,14 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
     teamLeftPipeline.pulse('finish', 1.2);
     teamRightPipeline.pulse('finish', 1.2);
   }
+}
+
+function teamStationIntro(snapshot: ReturnType<TeamExpedition['snapshot']>): string {
+  if (snapshot.station === 1) {
+    return `蓝圈：${snapshot.left.actionLabel} · 黄圈：${snapshot.right.actionLabel} · 入圈同时按住约半秒`;
+  }
+  if (snapshot.station === 2) return '供能手进圈按住能力键 · 突进手等门升起后穿过目标圈';
+  return '门控手进圈按住能力键并左右移门 · 飞行员到入口按起飞键';
 }
 
 function formatTeamTime(seconds: number): string {
@@ -1202,7 +1210,6 @@ function updateTeamPresentation(dt: number, t: number): void {
       beatTotal: snapshot.beatTotal,
       elapsed: snapshot.elapsed,
       objective: snapshot.objective,
-      progress: snapshot.progress,
       hintLevel: snapshot.hintLevel,
       left: teamHudSeat(
         activeTeamSelection.left.profile,
@@ -1252,6 +1259,7 @@ function teamHudSeat(
   speedKmh: number;
   status: string;
   actionLabel: string;
+  interactionProgress: number;
   ready: boolean;
   disconnected: boolean;
 } {
@@ -1261,6 +1269,7 @@ function teamHudSeat(
     speedKmh: Math.abs(boat.state.speed) * 3.6,
     status: seat.instruction,
     actionLabel: seat.actionLabel,
+    interactionProgress: seat.interactionProgress,
     ready: seat.ready,
     disconnected,
   };

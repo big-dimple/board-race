@@ -1,6 +1,6 @@
 # Board Race AI 运行手册
 
-状态：`current / schema-v10`
+状态：`current / schema-v11`
 
 本文只记录接手代码必须知道的稳定结构和行为合同。每个任务都要完整读取本文、根目录
 `AGENTS.md` 和 [`development-handoff.md`](development-handoff.md)。当前进度不写在本文；
@@ -79,7 +79,9 @@
   三站纵向试玩：共振接力、双锁水闸、水空协奏；没有追击艇和尾流蓄能。
 - 首次进入必须分别完成前进、左右转向、刹停、倒车和能力键校准；完成后默认跳过，入口可主动重玩。
   教学不计时，正式三站用时才参与最快纪录。
-- 共振接力的发射泊位、接收圈和飞行脉冲属于世界状态；漏接只重置当前一拍。双锁水闸要求供能者
+- 共振接力两席各自进入同色实体泊位；接收手的能力键会提前锁定接收器，投递手完成蓄能后脉冲
+  自动飞向已锁定的接收圈。两人可同时按住，漏接只重置当前一拍；能力键在有效泊位内帮助船体停稳。
+  双锁水闸要求供能者
   留在实体区域并持续按能力键，未供能越线会把穿门者恢复到当前门前；两拍后双方共同接通终端。
 - 水空协奏只有飞行员进入 `Course.updateFlightRoute()`。门控手在水面区域持续供能并用转向改变
   `Course.setTeamFlightGateControl()` 的横向偏移；门模型、swept 穿越平面和评分中心共享同一偏移。
@@ -108,7 +110,7 @@
   steering/drift 等持续动作允许 repeat 恢复 held state。
 - 队伍协作不合并设备。`keyboard-left`、`keyboard-right` 和每个 `gamepad:index` 都是独立设备；
   入座时按左 / 右声明屏幕所有权。左区使用 `W/S + A/D + Left Shift + Space + Q`；右区使用
-  `ArrowUp/Down/Left/Right + Numpad0 + NumpadEnter + NumpadDecimal`，`J/L + K + I + U` 是能力与菜单备用。
+  `ArrowUp/Down/Left/Right + RightShift + NumpadEnter + NumpadDecimal`，`J/L + K/Numpad0 + I + U` 是能力与菜单备用。
   手柄使用 RT/LT 油门与制动倒车、方向 / 摇杆、X、A、B、Start。菜单边沿与物理 hold 分开，
   repeat 不造飞行边沿；能力是 hold，起飞保持独立 edge。
 - 队伍协作当前只在桌面开放；手机继续进入独立竞技。暂停、页面隐藏或已占座设备断开时，

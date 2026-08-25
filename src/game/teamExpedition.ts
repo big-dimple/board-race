@@ -33,6 +33,7 @@ export interface TeamSeatSnapshot {
   role: TeamRole;
   instruction: string;
   actionLabel: string;
+  interactionProgress: number;
   inTarget: boolean;
   ready: boolean;
 }
@@ -46,7 +47,6 @@ export interface TeamExpeditionSnapshot {
   beatTotal: number;
   elapsed: number;
   objective: string;
-  progress: number;
   hintLevel: 0 | 1 | 2;
   left: TeamSeatSnapshot;
   right: TeamSeatSnapshot;
@@ -92,9 +92,10 @@ export class TeamExpedition {
   private swapRoles = false;
   private beat = 0;
   private beatProgress = 0;
+  private receiverCharge = 0;
   private objectiveClock = 0;
   private pulseTimer = -1;
-  private readonly pulseDuration = 2.35;
+  private readonly pulseDuration = 1.2;
   private gateOffset = 0;
   private gatePowered = false;
   private flightCleared = false;
@@ -134,6 +135,11 @@ export class TeamExpedition {
     this.playTutorial = config.playTutorial && this.stationIndex === 0;
     this.swapRoles = config.swapRoles;
     this.elapsed = 0;
+    this.beat = 0;
+    this.beatProgress = 0;
+    this.receiverCharge = 0;
+    this.objectiveClock = 0;
+    this.pulseTimer = -1;
     this.seatDevices = { left: config.leftDeviceId, right: config.rightDeviceId };
     this.tutorialStep.fill(0);
     this.tutorialHold.fill(0);
@@ -195,6 +201,7 @@ export class TeamExpedition {
       this.boats[id].update(dt, inputs[id], t, 'drift', 1, 1, this.wakes);
       if (this.stationIndex !== 2 || id !== this.pilotId()) this.boats[id].state.flightCharges = 0;
     }
+    if (this.phase === 'racing') this.applyStationMooring(dt, inputs);
     if (this.phase === 'racing' && this.stationIndex === 2) {
       this.flightBoatBuffer[0] = this.boats[this.pilotId()];
       this.course.updateFlightRoute(dt, this.flightBoatBuffer);
@@ -223,7 +230,6 @@ export class TeamExpedition {
       beatTotal: this.phase === 'tutorial' ? 6 : this.stationIndex === 0 ? 4 : 3,
       elapsed: this.elapsed,
       objective: this.objective(),
-      progress: this.progress(),
       hintLevel: this.objectiveClock >= 15 ? 2 : this.objectiveClock >= 8 ? 1 : 0,
       left: this.seatSnapshot('left'),
       right: this.seatSnapshot('right'),
@@ -284,6 +290,7 @@ export class TeamExpedition {
     this.stationIndex = index;
     this.beat = 0;
     this.beatProgress = 0;
+    this.receiverCharge = 0;
     this.objectiveClock = 0;
     this.pulseTimer = -1;
     this.gateOffset = (this.swapRoles ? -1 : 1) * 4.5;
@@ -337,7 +344,7 @@ export class TeamExpedition {
     this.onEvent({ type: 'tutorial', station: 0 });
     this.pendingStation = 0;
     this.phase = 'station-transition';
-    this.phaseTimer = 1.05;
+    this.phaseTimer = 2;
   }
 
   private updateResonance(dt: number): void {
@@ -350,6 +357,11 @@ export class TeamExpedition {
     const targetU = sourceU + 0.0045;
     const senderIn = this.inTarget(senderId, sourceU, sideLateral(sender));
     const receiverIn = this.inTarget(receiverId, targetU, sideLateral(receiver));
+    if (this.receiverCharge < 1) {
+      this.receiverCharge = receiverIn && this.actionHeld[receiverId]
+        ? Math.min(1, this.receiverCharge + dt / 0.42)
+        : Math.max(0, this.receiverCharge - dt * 1.8);
+    }
 
     if (this.pulseTimer < 0) {
       this.beatProgress = senderIn && this.actionHeld[senderId]
@@ -365,18 +377,29 @@ export class TeamExpedition {
     }
 
     this.pulseTimer += dt;
-    const catchWindow = this.pulseTimer >= this.pulseDuration * 0.48;
-    if (catchWindow && receiverIn && this.actionHeld[receiverId]) {
+    if (this.pulseTimer >= this.pulseDuration && this.receiverCharge >= 1) {
       this.onEvent({ type: 'catch', station: 1, side: receiver, value: this.beat + 1 });
       this.beat++;
       this.pulseTimer = -1;
       this.beatProgress = 0;
+      this.receiverCharge = 0;
       this.objectiveClock = 0;
       if (this.beat >= 4) this.completeStation();
     } else if (this.pulseTimer >= this.pulseDuration) {
       this.pulseTimer = -1;
       this.beatProgress = 0;
+      this.receiverCharge = 0;
       this.objectiveClock = 8;
+    }
+  }
+
+  private applyStationMooring(dt: number, inputs: [BoatInput, BoatInput]): void {
+    const damping = Math.max(0, 1 - dt * 8);
+    for (let id = 0; id < 2; id++) {
+      if (!this.actionHeld[id] || Math.abs(inputs[id].throttle) > 0.12) continue;
+      const target = this.targetFor(sideForBoat(id));
+      if (!target.active || !this.inTarget(id, target.u, target.lateral)) continue;
+      this.boats[id].state.speed *= damping;
     }
   }
 
@@ -563,7 +586,7 @@ export class TeamExpedition {
       const sending = this.pulseTimer < 0;
       return side === sender
         ? { u: sourceU, lateral: sideLateral(side), kind: 'source', active: sending, complete: !sending }
-        : { u: sourceU + 0.0045, lateral: sideLateral(side), kind: 'receiver', active: !sending, complete: false };
+        : { u: sourceU + 0.0045, lateral: sideLateral(side), kind: 'receiver', active: true, complete: this.receiverCharge >= 1 };
     }
     if (this.stationIndex === 1) {
       if (this.beat < 2) {
@@ -592,6 +615,7 @@ export class TeamExpedition {
         role: 'trainee',
         instruction: this.tutorialStep[id] >= 6 ? '校准完成 · 等待伙伴' : this.tutorialInstruction(side, step),
         actionLabel: this.controlLabel(side, step === 5 ? 'action' : step === 3 || step === 4 ? 'reverse' : step === 0 ? 'forward' : 'steer'),
+        interactionProgress: this.tutorialStep[id] >= 6 ? 1 : clamp(this.tutorialHold[id] / (step === 3 ? 0.18 : step === 5 ? 0.35 : 0.28), 0, 1),
         inTarget,
         ready: this.tutorialStep[id] >= 6,
       };
@@ -600,20 +624,26 @@ export class TeamExpedition {
       const sender = this.resonanceSender(Math.min(3, this.beat));
       const role: TeamRole = side === sender ? 'sender' : 'receiver';
       const waiting = this.pulseTimer < 0;
+      const marker = side === 'left' ? '蓝色圈' : '黄色圈';
       return {
         role,
         instruction: role === 'sender'
-          ? waiting ? inTarget ? '按住能力键发射共振脉冲' : '驶入发射泊位' : '脉冲在路上 · 看伙伴屏幕'
-          : waiting ? '提前驶入接收圈' : inTarget ? '脉冲靠近时按住能力键' : '追上前方接收圈',
+          ? waiting
+            ? inTarget ? `按住 ${this.controlLabel(side, 'action')} 蓄能发射` : `驶入${marker}并松开油门`
+            : '发射完成 · 等伙伴接收'
+          : this.receiverCharge >= 1
+            ? waiting ? '接收器已锁定 · 等伙伴发射' : '接收器已锁定 · 脉冲传输中'
+            : inTarget ? `按住 ${this.controlLabel(side, 'action')} 锁定接收器` : `驶入${marker}并松开油门`,
         actionLabel: this.controlLabel(side, 'action'),
+        interactionProgress: role === 'sender' ? waiting ? this.beatProgress : 1 : this.receiverCharge,
         inTarget,
-        ready: role === 'sender' ? !waiting : !waiting && inTarget,
+        ready: role === 'sender' ? !waiting : this.receiverCharge >= 1,
       };
     }
     if (this.stationIndex === 1) {
       if (this.beat >= 2) return {
         role: 'dock', instruction: inTarget ? '停稳并与伙伴同时按住能力键' : '驶入你的终端泊位',
-        actionLabel: this.controlLabel(side, 'action'), inTarget, ready: inTarget,
+        actionLabel: this.controlLabel(side, 'action'), interactionProgress: this.dockHold / 0.6, inTarget, ready: inTarget,
       };
       const anchor = this.lockAnchor(this.beat);
       const role: TeamRole = side === anchor ? 'anchor' : 'runner';
@@ -623,6 +653,7 @@ export class TeamExpedition {
           ? inTarget ? '按住能力键并稳住船位' : '驶入供能区'
           : this.beatProgress >= 0.74 ? '水闸已升起 · 立即穿过目标圈' : '等待伙伴把水闸升起',
         actionLabel: role === 'anchor' ? this.controlLabel(side, 'action') : this.controlLabel(side, 'forward'),
+        interactionProgress: this.beatProgress,
         inTarget,
         ready: role === 'anchor' ? inTarget && this.actionHeld[id] : this.beatProgress >= 0.74,
       };
@@ -635,6 +666,7 @@ export class TeamExpedition {
           ? inTarget ? '按住能力键供能 · 左右移动飞行门' : '驶入门控轨道'
           : this.gatePowered ? '飞行门已通电 · 到入口按起飞键' : '驶向起飞入口 · 等伙伴供能',
         actionLabel: role === 'operator' ? this.controlLabel(side, 'action') : this.controlLabel(side, 'flight'),
+        interactionProgress: this.gatePowered ? 1 : 0,
         inTarget,
         ready: this.gatePowered,
       };
@@ -645,6 +677,7 @@ export class TeamExpedition {
         ? Math.abs(this.boats[id].state.speed) <= 2.5 ? '按住能力键完成双泊位' : '继续刹车 · 速度降到 9 km/h'
         : '飞行完成 · 前往终点泊位',
       actionLabel: this.controlLabel(side, 'action'),
+      interactionProgress: this.dockHold / 0.6,
       inTarget,
       ready: inTarget && Math.abs(this.boats[id].state.speed) <= 2.5,
     };
@@ -659,17 +692,17 @@ export class TeamExpedition {
       const slowest = Math.min(this.tutorialStep[0], this.tutorialStep[1]);
       return slowest >= 6 ? '校准完成' : TUTORIAL_LABELS[slowest];
     }
-    if (this.stationIndex === 0) return this.pulseTimer < 0 ? '投递者发射 · 接收者就位' : '接住飞来的共振脉冲';
+    if (this.stationIndex === 0) {
+      if (this.pulseTimer >= 0) return this.receiverCharge >= 1
+        ? '接收已锁定 · 脉冲自动传输中'
+        : '脉冲传输中 · 接收手现在按住能力键';
+      if (this.receiverCharge >= 1) return '接收已锁定 · 投递手按住能力键';
+      if (this.beatProgress > 0.08) return '投递正在蓄能 · 接收手也要按住能力键';
+      return `${this.beat === 2 ? '职责已交换 · ' : ''}两人各进自己颜色圈 · 同时按住能力键`;
+    }
     if (this.stationIndex === 1) return this.beat < 2 ? '一人稳住水闸 · 一人穿门' : '双人同时接通终端';
     if (!this.flightCleared) return this.gatePowered ? '门控手对准 · 飞行员穿门' : '门控手先接通飞行门';
     return this.boats[this.pilotId()].state.flightPhase === 'surface' ? '双人泊位会合' : '飞行员安全落水';
-  }
-
-  private progress(): number {
-    if (this.phase === 'tutorial') return (this.tutorialStep[0] + this.tutorialStep[1]) / 12;
-    if (this.stationIndex === 0) return clamp((this.beat + (this.pulseTimer >= 0 ? 0.5 : this.beatProgress * 0.45)) / 4, 0, 1);
-    if (this.stationIndex === 1) return clamp((this.beat + this.beatProgress) / 3, 0, 1);
-    return clamp((this.flightCleared ? 2 : this.gatePowered ? 0.7 + this.beatProgress * 0.3 : 0) / 3 + this.dockHold / 1.8, 0, 1);
   }
 
   private visualState(): TeamVisualState {
@@ -719,8 +752,8 @@ export class TeamExpedition {
     if (device.startsWith('gamepad:')) {
       return control === 'forward' ? 'RT' : control === 'reverse' ? 'LT' : control === 'steer' ? '左摇杆' : control === 'action' ? 'X' : 'A';
     }
-    if (side === 'left') return control === 'forward' ? 'W' : control === 'reverse' ? 'S' : control === 'steer' ? 'A / D' : control === 'action' ? 'SHIFT' : 'SPACE';
-    return control === 'forward' ? '↑' : control === 'reverse' ? '↓' : control === 'steer' ? '← / →' : control === 'action' ? 'NUM 0 / K' : 'NUM ENTER / I';
+    if (side === 'left') return control === 'forward' ? 'W' : control === 'reverse' ? 'S' : control === 'steer' ? 'A / D' : control === 'action' ? '左 SHIFT' : 'SPACE';
+    return control === 'forward' ? '↑' : control === 'reverse' ? '↓' : control === 'steer' ? '← / →' : control === 'action' ? '右 SHIFT / K' : 'NUM ENTER / I';
   }
 
   private resonanceSender(beat: number): SeatSide {

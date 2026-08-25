@@ -153,10 +153,13 @@ try {
   await page.evaluate(() => window.__harness.advance(0.45));
   await page.keyboard.up('ShiftLeft');
   await page.keyboard.up('Numpad0');
-  await page.evaluate(() => window.__harness.advance(1.15));
+  await page.evaluate(() => window.__harness.advance(2.1));
   state = await page.evaluate(() => window.__harness.teamState());
   assert.equal(state.phase, 'racing', `calibration did not reach station 1: ${JSON.stringify(state)}`);
   assert.equal(state.station, 1);
+  const resonanceHud = (await page.locator('.team-game-hud').innerText()).replace(/\s+/g, ' ');
+  assert.match(resonanceHud, /左 SHIFT/, 'left station must name its exact ability key');
+  assert.match(resonanceHud, /右 SHIFT \/ K/, 'right station must name its exact ability key');
 
   await page.evaluate(() => {
     window.__harness.teamPlaceAtTarget('left');
@@ -170,21 +173,26 @@ try {
   assert.equal(state.beat, 1, 'missed pulse must retry the same relay beat');
   assert.ok(state.hintLevel >= 1, 'missed pulse should surface a contextual hint');
 
+  let relayScreenshotTaken = false;
   const completeRelay = async () => {
-    const current = await page.evaluate(() => window.__harness.teamState());
     await page.evaluate(() => {
       window.__harness.teamPlaceAtTarget('left');
       window.__harness.teamPlaceAtTarget('right');
     });
-    const senderKey = current.left.role === 'sender' ? 'ShiftLeft' : 'Numpad0';
-    const receiverKey = current.left.role === 'receiver' ? 'ShiftLeft' : 'Numpad0';
-    await page.keyboard.down(senderKey);
+    await page.keyboard.down('ShiftLeft');
+    await page.keyboard.down('ShiftRight');
     await page.evaluate(() => window.__harness.advance(0.5));
-    await page.keyboard.up(senderKey);
-    await page.evaluate(() => window.__harness.advance(1.2));
-    await page.keyboard.down(receiverKey);
-    await page.evaluate(() => window.__harness.advance(0.35));
-    await page.keyboard.up(receiverKey);
+    let relayState = await page.evaluate(() => window.__harness.teamState());
+    assert.equal(relayState.left.ready, true, 'left Shift should visibly charge its station role');
+    assert.equal(relayState.right.ready, true, 'right Shift should visibly charge its station role');
+    if (!relayScreenshotTaken) {
+      await page.evaluate(() => window.__harness.render());
+      await page.screenshot({ path: path.join(root, 'shots/team-resonance-ready-desktop.png') });
+      relayScreenshotTaken = true;
+    }
+    await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('ShiftRight');
+    await page.evaluate(() => window.__harness.advance(1.25));
   };
   for (let relay = 0; relay < 4; relay++) await completeRelay();
   state = await page.evaluate(() => window.__harness.teamState());

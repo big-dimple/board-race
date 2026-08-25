@@ -24,6 +24,7 @@ export interface TeamHudSeat {
   speedKmh: number;
   status: string;
   actionLabel: string;
+  interactionProgress: number;
   ready: boolean;
   disconnected: boolean;
 }
@@ -36,7 +37,6 @@ export interface TeamHudState {
   beatTotal: number;
   elapsed: number;
   objective: string;
-  progress: number;
   hintLevel: 0 | 1 | 2;
   left: TeamHudSeat;
   right: TeamHudSeat;
@@ -333,9 +333,9 @@ export class TeamExperience {
       seat.querySelector<HTMLElement>('.team-hud-name')!.textContent = data.profile.name;
       seat.querySelector<HTMLElement>('.team-hud-role')!.textContent = ROLE_LABEL[data.role];
       seat.querySelector<HTMLElement>('.team-hud-status')!.textContent = data.status;
-      seat.querySelector<HTMLElement>('.team-hud-action')!.textContent = `${data.actionLabel} · ${state.beat} / ${state.beatTotal}`;
+      seat.querySelector<HTMLElement>('.team-hud-action')!.textContent = `操作键：${data.actionLabel} · 第 ${state.beat} / ${state.beatTotal} 拍`;
       seat.querySelector<HTMLElement>('.team-hud-speed')!.textContent = `${Math.round(data.speedKmh)} km/h`;
-      seat.querySelector<HTMLElement>('.team-link-meter i')!.style.transform = `scaleX(${clamp01(state.progress)})`;
+      seat.querySelector<HTMLElement>('.team-link-meter i')!.style.transform = `scaleX(${clamp01(data.interactionProgress)})`;
     }
   }
 
