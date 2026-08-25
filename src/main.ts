@@ -1305,8 +1305,8 @@ function step(dt: number, _t: number): void {
   if (expansionGallery.visible()) {
     mobileInput.consumeAnyPress();
     const selectLeft = gamepadInput.consumeSelectLeft();
-    const selectRight = gamepadInput.consumeSelectRight();
-    const dismiss = gamepadInput.consumeDismiss();
+    const selectRight = gamepadInput.consumeSelectRight() || gamepadInput.consumeFlight() || gamepadInput.consumeConfirm();
+    const dismiss = gamepadInput.consumeDrift() || gamepadInput.consumeDismiss();
     if (selectLeft) expansionGallery.move(-1);
     if (selectRight) expansionGallery.move(1);
     if (dismiss) expansionGallery.hide();

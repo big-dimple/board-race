@@ -95,6 +95,7 @@ export class GamepadInput {
   private steer = 0;
   private steerActive = false;
   private driftHeld = false;
+  private driftPressed = false;
   private flightPressed = false;
   private confirmPressed = false;
   private selectLeftPressed = false;
@@ -233,6 +234,12 @@ export class GamepadInput {
     return value;
   }
 
+  consumeDrift(): boolean {
+    const value = this.driftPressed;
+    this.driftPressed = false;
+    return value;
+  }
+
   consumeDismiss(): boolean {
     const value = this.dismissPressed;
     this.dismissPressed = false;
@@ -348,15 +355,14 @@ export class GamepadInput {
     const prevNavLeft = prevLeft || prevAnalog <= -NAV_THRESHOLD || prevBumperLeft;
     const prevNavRight = prevRight || prevAnalog >= NAV_THRESHOLD || prevBumperRight;
     const drift = this.driftButtonHeld(current);
+    const prevDrift = this.driftButtonHeld(previous);
     const flight = button(current, this.bindings.flightButton);
     const confirm = flight || button(current, this.bindings.confirmButton);
     const prevFlight = button(previous, this.bindings.flightButton);
     const prevConfirm = prevFlight || button(previous, this.bindings.confirmButton);
     const dismissSafe = ![this.bindings.driftButton, this.bindings.flightButton, this.bindings.confirmButton].includes(8);
-    const bButton = this.bindingSource === 'standard' && button(current, 1);
-    const prevBButton = this.bindingSource === 'standard' && button(previous, 1);
-    const dismiss = (dismissSafe && button(current, 8)) || bButton;
-    const prevDismiss = (dismissSafe && button(previous, 8)) || prevBButton;
+    const dismiss = dismissSafe && button(current, 8);
+    const prevDismiss = dismissSafe && button(previous, 8);
 
     if (selected.activity > 0.01) this.activitySerialValue++;
 
@@ -364,6 +370,7 @@ export class GamepadInput {
       this.suppressActionsUntilRelease = false;
     }
     this.driftHeld = !this.suppressActionsUntilRelease && drift;
+    this.driftPressed = !this.suppressActionsUntilRelease && drift && !prevDrift;
     this.flightPressed = !this.suppressActionsUntilRelease && flight && !prevFlight;
     this.confirmPressed = !this.suppressActionsUntilRelease && confirm && !prevConfirm;
     this.selectLeftPressed = navLeft && !prevNavLeft;
@@ -523,6 +530,7 @@ export class GamepadInput {
   private clearEdges(): void {
     this.flightPressed = false;
     this.confirmPressed = false;
+    this.driftPressed = false;
     this.selectLeftPressed = false;
     this.selectRightPressed = false;
     this.dismissPressed = false;
