@@ -77,6 +77,10 @@ try {
       pads[index].buttons[button].value = value;
       pads[index].timestamp++;
     };
+    window.__setTeamPadAxis = (index, axis, value) => {
+      pads[index].axes[axis] = value;
+      pads[index].timestamp++;
+    };
     window.__setTeamPadConnected = (index, connected) => {
       pads[index].connected = connected;
       pads[index].timestamp++;
@@ -135,13 +139,17 @@ try {
   await page.keyboard.up('KeyW');
   await page.keyboard.up('ArrowUp');
   for (const [leftKey, rightKey, seconds] of [
-    ['KeyA', 'ArrowLeft', 0.45], ['KeyD', 'ArrowRight', 0.55],
+    ['KeyA', 'ArrowLeft', 0.7], ['KeyD', 'ArrowRight', 0.7],
   ]) {
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('ArrowUp');
     await page.keyboard.down(leftKey);
     await page.keyboard.down(rightKey);
     await page.evaluate((duration) => window.__harness.advance(duration), seconds);
     await page.keyboard.up(leftKey);
     await page.keyboard.up(rightKey);
+    await page.keyboard.up('KeyW');
+    await page.keyboard.up('ArrowUp');
   }
   await page.keyboard.down('KeyS');
   await page.keyboard.down('ArrowDown');
@@ -157,9 +165,9 @@ try {
   state = await page.evaluate(() => window.__harness.teamState());
   assert.equal(state.phase, 'racing', `calibration did not reach station 1: ${JSON.stringify(state)}`);
   assert.equal(state.station, 1);
-  const resonanceHud = (await page.locator('.team-game-hud').innerText()).replace(/\s+/g, ' ');
-  assert.match(resonanceHud, /左 SHIFT/, 'left station must name its exact ability key');
-  assert.match(resonanceHud, /右 SHIFT \/ K/, 'right station must name its exact ability key');
+  const anchorHammerHud = (await page.locator('.team-game-hud').innerText()).replace(/\s+/g, ' ');
+  assert.match(anchorHammerHud, /左 SHIFT/, 'left station must name its exact ability key');
+  assert.match(anchorHammerHud, /右 SHIFT \/ K/, 'right station must name its exact ability key');
 
   await page.evaluate(() => {
     window.__harness.teamPlaceAtTarget('left');
@@ -168,7 +176,12 @@ try {
   await page.keyboard.down('ShiftLeft');
   await page.evaluate(() => window.__harness.advance(0.5));
   await page.keyboard.up('ShiftLeft');
-  await page.evaluate(() => window.__harness.advance(2.5));
+  await page.evaluate(() => window.__harness.advance(1.6));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.match(state.objective, /核心落水/, 'miss must explain the physical failure before resetting');
+  await page.evaluate(() => window.__harness.render());
+  await page.screenshot({ path: path.join(root, 'shots/team-anchor-core-miss-desktop.png') });
+  await page.evaluate(() => window.__harness.advance(0.9));
   state = await page.evaluate(() => window.__harness.teamState());
   assert.equal(state.beat, 1, 'missed pulse must retry the same relay beat');
   assert.ok(state.hintLevel >= 1, 'missed pulse should surface a contextual hint');
@@ -187,7 +200,7 @@ try {
     assert.equal(relayState.right.ready, true, 'right Shift should visibly charge its station role');
     if (!relayScreenshotTaken) {
       await page.evaluate(() => window.__harness.render());
-      await page.screenshot({ path: path.join(root, 'shots/team-resonance-ready-desktop.png') });
+      await page.screenshot({ path: path.join(root, 'shots/team-anchor-hammer-ready-desktop.png') });
       relayScreenshotTaken = true;
     }
     await page.keyboard.up('ShiftLeft');
@@ -201,6 +214,18 @@ try {
   state = await page.evaluate(() => window.__harness.teamState());
   assert.equal(state.station, 2);
 
+  await page.evaluate(() => {
+    window.__harness.teamPlaceAtTarget('left');
+    window.__harness.teamPlaceAtTarget('right');
+  });
+  const earlyRunnerKey = state.left.role === 'runner' ? 'KeyW' : 'ArrowUp';
+  await page.keyboard.down(earlyRunnerKey);
+  await page.evaluate(() => window.__harness.advance(2.2));
+  await page.keyboard.up(earlyRunnerKey);
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.beat, 1, `unpowered lock crossing must return the runner without scoring: ${JSON.stringify(state)}`);
+
+  let lockScreenshotTaken = false;
   const completeLock = async () => {
     const current = await page.evaluate(() => window.__harness.teamState());
     await page.evaluate(() => {
@@ -208,12 +233,25 @@ try {
       window.__harness.teamPlaceAtTarget('right');
     });
     const anchorKey = current.left.role === 'anchor' ? 'ShiftLeft' : 'Numpad0';
+    const runnerKey = current.left.role === 'runner' ? 'KeyW' : 'ArrowUp';
     await page.keyboard.down(anchorKey);
-    await page.evaluate(() => window.__harness.advance(0.55));
+    await page.evaluate(() => window.__harness.advance(0.38));
+    if (!lockScreenshotTaken) {
+      await page.evaluate(() => window.__harness.render());
+      await page.screenshot({ path: path.join(root, 'shots/team-lock-winch-desktop.png') });
+      lockScreenshotTaken = true;
+    }
+    await page.keyboard.down(runnerKey);
+    await page.evaluate(() => window.__harness.advance(2.2));
+    await page.keyboard.up(runnerKey);
     await page.keyboard.up(anchorKey);
   };
   await completeLock();
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.beat, 2, `first runner did not physically cross the raised lock: ${JSON.stringify(state)}`);
   await completeLock();
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.beat, 3, `second runner did not physically cross the raised lock: ${JSON.stringify(state)}`);
   await page.evaluate(() => {
     window.__harness.teamPlaceAtTarget('left');
     window.__harness.teamPlaceAtTarget('right');
@@ -250,6 +288,8 @@ try {
   await page.keyboard.down('KeyA');
   await page.evaluate(() => window.__harness.advance(0.65));
   await page.keyboard.up('KeyA');
+  await page.evaluate(() => window.__harness.render());
+  await page.screenshot({ path: path.join(root, 'shots/team-sky-console-desktop.png') });
   await page.keyboard.down('NumpadEnter');
   await page.evaluate(() => window.__harness.advance(1 / 60));
   await page.keyboard.up('NumpadEnter');
@@ -293,7 +333,7 @@ try {
 
   await page.evaluate(() => window.__harness.teamFrontDoor());
   await page.locator('.team-mode-team').click();
-  await page.locator('.team-save-action').filter({ hasText: '从第一站开始' }).click();
+  await page.locator('.team-save-action').filter({ hasText: '重玩驾驶校准' }).click();
   const padButton = async (pad, button) => {
     await page.evaluate(([index, target]) => window.__setTeamPadButton(index, target, true), [pad, button]);
     await page.evaluate(() => window.__harness.advance(1 / 60));
@@ -309,12 +349,71 @@ try {
   await padButton(1, 0);
   await page.evaluate(() => window.__harness.advance(0.6));
   await page.evaluate(() => window.__harness.advance(3.4));
-  await page.evaluate(() => window.__setTeamPadButton(0, 7, true, 0.72));
-  await page.evaluate(() => window.__harness.advance(0.65));
-  await page.evaluate(() => window.__setTeamPadButton(0, 7, false, 0));
   state = await page.evaluate(() => window.__harness.teamState());
-  assert.ok(state.leftSpeed > 1, `gamepad RT did not drive the left seat: ${state.leftSpeed}`);
-  assert.ok(Math.abs(state.rightSpeed) < 0.3, `gamepad RT leaked into the right seat: ${state.rightSpeed}`);
+  assert.equal(state.phase, 'tutorial', `gamepad flow must enter calibration: ${JSON.stringify(state)}`);
+  const gamepadHud = (await page.locator('.team-game-hud').innerText()).replace(/\s+/g, ' ');
+  assert.match(gamepadHud, /左摇杆 ↑ \/ RT/, 'gamepad calibration must name stick-forward and RT');
+  await page.evaluate(() => window.__harness.render());
+  await page.screenshot({ path: path.join(root, 'shots/team-gamepad-calibration-desktop.png') });
+
+  await page.evaluate(() => window.__setTeamPadAxis(0, 1, -0.78));
+  await page.evaluate(() => window.__harness.advance(0.8));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.ok(state.leftSpeed > 1, `gamepad stick-up did not drive the left seat: ${state.leftSpeed}`);
+  assert.ok(state.leftThrottle > 0.5, `gamepad stick-up did not produce forward throttle: ${state.leftThrottle}`);
+  assert.ok(Math.abs(state.rightSpeed) < 0.3, `gamepad stick-up leaked into the right seat: ${state.rightSpeed}`);
+  assert.equal(state.left.inTarget, true, `enlarged calibration target did not catch the left boat: ${JSON.stringify(state)}`);
+  const speedBeforeAssist = Math.abs(state.leftSpeed);
+  await page.evaluate(() => window.__setTeamPadAxis(0, 1, 0));
+  await page.evaluate(() => window.__harness.advance(0.45));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.ok(Math.abs(state.leftSpeed) < Math.max(0.8, speedBeforeAssist * 0.25),
+    `calibration target did not settle the released boat: ${JSON.stringify(state)}`);
+  assert.match(state.left.instruction, /前进并左转/, 'turn calibration must explain the combined forward-turn input');
+  assert.match(state.left.actionLabel, /左摇杆 ↖/, 'gamepad turn calibration must show a diagonal stick direction');
+  await page.evaluate(() => window.__setTeamPadButton(1, 12, true));
+  await page.evaluate(() => window.__harness.advance(1.2));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.ok(state.rightThrottle > 0.5, `gamepad D-pad up did not drive the right seat: ${JSON.stringify(state)}`);
+  await page.evaluate(() => {
+    window.__setTeamPadButton(1, 12, false);
+    window.__setTeamPadAxis(0, 1, -0.72);
+    window.__setTeamPadAxis(1, 1, -0.72);
+    window.__setTeamPadAxis(0, 0, -1);
+    window.__setTeamPadAxis(1, 0, -1);
+  });
+  await page.evaluate(() => window.__harness.advance(1.2));
+  await page.evaluate(() => {
+    window.__setTeamPadAxis(0, 0, 1);
+    window.__setTeamPadAxis(1, 0, 1);
+  });
+  await page.evaluate(() => window.__harness.advance(1.2));
+  await page.evaluate(() => {
+    window.__setTeamPadAxis(0, 0, 0);
+    window.__setTeamPadAxis(1, 0, 0);
+    window.__setTeamPadAxis(0, 1, 1);
+    window.__setTeamPadAxis(1, 1, 0);
+    window.__setTeamPadButton(1, 6, true);
+  });
+  await page.evaluate(() => window.__harness.advance(2.1));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.ok(state.leftThrottle < -0.5 && state.rightThrottle < -0.5,
+    `gamepad stick-down / LT did not brake or reverse both seats: ${JSON.stringify(state)}`);
+  await page.evaluate(() => {
+    window.__setTeamPadAxis(0, 1, 0);
+    window.__setTeamPadAxis(1, 1, 0);
+    window.__setTeamPadButton(1, 6, false);
+    window.__setTeamPadButton(0, 2, true);
+    window.__setTeamPadButton(1, 2, true);
+  });
+  await page.evaluate(() => window.__harness.advance(0.45));
+  await page.evaluate(() => {
+    window.__setTeamPadButton(0, 2, false);
+    window.__setTeamPadButton(1, 2, false);
+  });
+  await page.evaluate(() => window.__harness.advance(2.1));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.phase, 'racing', `gamepad calibration did not complete: ${JSON.stringify(state)}`);
   assert.deepEqual(pageErrors, [], `team flow emitted browser errors: ${pageErrors.join('\n')}`);
 
   console.log('team cooperation contract: OK');

@@ -65,9 +65,9 @@ const TEAM_STORAGE_KEY = 'board-race:team-expedition:v2';
 const LEGACY_TEAM_STORAGE_KEY = 'board-race:team-expedition:v1';
 const ROLE_LABEL: Record<TeamRole, string> = {
   trainee: '驾驶校准',
-  sender: '投递手',
-  receiver: '接收手',
-  anchor: '门锁手',
+  sender: '冲击锤手',
+  receiver: '锚钉手',
+  anchor: '绞盘手',
   runner: '突进手',
   pilot: '飞行员',
   operator: '门控手',
@@ -332,7 +332,7 @@ export class TeamExperience {
       seat.classList.toggle('lost', data.disconnected);
       seat.querySelector<HTMLElement>('.team-hud-name')!.textContent = data.profile.name;
       seat.querySelector<HTMLElement>('.team-hud-role')!.textContent = ROLE_LABEL[data.role];
-      seat.querySelector<HTMLElement>('.team-hud-status')!.textContent = data.status;
+      seat.querySelector<HTMLElement>('.team-hud-status')!.textContent = `${side === 'left' ? '蓝席' : '黄席'}：${data.status}`;
       seat.querySelector<HTMLElement>('.team-hud-action')!.textContent = `操作键：${data.actionLabel} · 第 ${state.beat} / ${state.beatTotal} 拍`;
       seat.querySelector<HTMLElement>('.team-hud-speed')!.textContent = `${Math.round(data.speedKmh)} km/h`;
       seat.querySelector<HTMLElement>('.team-link-meter i')!.style.transform = `scaleX(${clamp01(data.interactionProgress)})`;

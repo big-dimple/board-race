@@ -2548,6 +2548,18 @@ export class Boat implements IBoat {
     return out.set(this.velX, this.velZ);
   }
 
+  /** A powered co-op station behaves like a damped mooring, not a teleport. */
+  applyMooringAssist(targetX: number, targetZ: number, dt: number, strength = 1): void {
+    if (this.state.flightPhase !== 'surface') return;
+    const pull = Math.max(0, strength);
+    const spring = 2.2 * pull;
+    const damping = Math.exp(-8.5 * pull * dt);
+    this.velX = (this.velX + (targetX - this.object.position.x) * spring * dt) * damping;
+    this.velZ = (this.velZ + (targetZ - this.object.position.z) * spring * dt) * damping;
+    this.yawRate *= Math.exp(-6 * pull * dt);
+    this.state.speed = this.velX * Math.sin(this.heading) + this.velZ * Math.cos(this.heading);
+  }
+
   applyCollisionResponse(correctionX: number, correctionZ: number, impulseX: number, impulseZ: number): void {
     const correctionLength = Math.hypot(correctionX, correctionZ);
     if (correctionLength > 0.4) {

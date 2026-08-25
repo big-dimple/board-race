@@ -577,7 +577,7 @@ function startTeamExpedition(selection: TeamSelection): void {
   teamExperience.showTransition(
     snapshot.tutorialActive ? 'CONTROL CALIBRATION' : 'TEAM CO-OP',
     snapshot.stationName,
-    snapshot.tutorialActive ? '两侧独立校准 · 完成后进入三站协作' : teamStationIntro(snapshot),
+    snapshot.tutorialActive ? teamCalibrationIntro(snapshot) : teamStationIntro(snapshot),
     3.2,
   );
   audio.startRaceScore(true);
@@ -619,6 +619,13 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
     teamLeftPipeline.pulse('ready', 0.42);
     teamRightPipeline.pulse('ready', 0.42);
     if (device) localInput.rumble(device, 0.32, 0.68, 64);
+  } else if (event.type === 'miss') {
+    audio.flightMiss();
+    if (event.side) {
+      audio.teamSpatialCue(event.side, 'impact');
+      (event.side === 'left' ? teamLeftPipeline : teamRightPipeline).pulse('lost', 0.58);
+    }
+    if (device) localInput.rumble(device, 0.72, 0.3, 84);
   } else if (event.type === 'gate') {
     audio.flightGate(3);
     if (event.side) audio.teamSpatialCue(event.side, 'gate');
@@ -644,7 +651,7 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
     teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
     if (event.station < 3) teamExperience.showTransition(
       `STATION ${event.station} CLEAR`,
-      event.station === 1 ? '接力完成' : '水闸贯通',
+      event.station === 1 ? '锚芯装配完成' : '水闸贯通',
       event.station === 1 ? '下一站轮流稳门与穿门' : '下一站一人飞行、一人控制真实飞行门',
       1.35,
     );
@@ -674,11 +681,17 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
   }
 }
 
+function teamCalibrationIntro(snapshot: ReturnType<TeamExpedition['snapshot']>): string {
+  return `前进：${snapshot.left.actionLabel} / ${snapshot.right.actionLabel} · 光圈内松开输入会自动稳船`;
+}
+
 function teamStationIntro(snapshot: ReturnType<TeamExpedition['snapshot']>): string {
   if (snapshot.station === 1) {
-    return `蓝圈：${snapshot.left.actionLabel} · 黄圈：${snapshot.right.actionLabel} · 入圈同时按住约半秒`;
+    const leftTool = snapshot.left.role === 'sender' ? '冲击锤' : '锚钉机';
+    const rightTool = snapshot.right.role === 'sender' ? '冲击锤' : '锚钉机';
+    return `蓝席${leftTool}：${snapshot.left.actionLabel} · 黄席${rightTool}：${snapshot.right.actionLabel} · 锚先锁、锤后击`;
   }
-  if (snapshot.station === 2) return '供能手进圈按住能力键 · 突进手等门升起后穿过目标圈';
+  if (snapshot.station === 2) return '绞盘手进圈按住能力键 · 突进手等门升起后向前穿过实体闸门';
   return '门控手进圈按住能力键并左右移门 · 飞行员到入口按起飞键';
 }
 

@@ -246,9 +246,12 @@ export class LocalMultiplayerInput {
       drift = Boolean(state.current.buttons[2]);
       flightTrigger = padButtonEdge(state, 0);
       if (context.manualThrottle) {
+        const stickThrottle = -deadZone(state.current.axes[1] ?? 0);
+        const dpadThrottle = (state.current.buttons[12] ? 1 : 0) - (state.current.buttons[13] ? 1 : 0);
         const forward = Math.max(state.current.values[7] ?? 0, state.current.buttons[7] ? 1 : 0);
         const reverse = Math.max(state.current.values[6] ?? 0, state.current.buttons[6] ? 1 : 0);
-        throttle = clamp01(forward) - clamp01(reverse);
+        const triggerThrottle = clamp01(forward) - clamp01(reverse);
+        throttle = strongestSigned(stickThrottle, dpadThrottle, triggerThrottle);
       }
     }
 
@@ -409,6 +412,13 @@ function approach(current: number, target: number, maxDelta: number): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function strongestSigned(a: number, b: number, c: number): number {
+  let strongest = a;
+  if (Math.abs(b) > Math.abs(strongest)) strongest = b;
+  if (Math.abs(c) > Math.abs(strongest)) strongest = c;
+  return Math.max(-1, Math.min(1, strongest));
 }
 
 function padActuator(pad: Gamepad): HapticActuatorLike | null {

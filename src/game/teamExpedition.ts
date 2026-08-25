@@ -22,7 +22,7 @@ export interface TeamExpeditionStart {
 }
 
 export interface TeamExpeditionEvent {
-  type: 'countdown' | 'go' | 'tutorial' | 'send' | 'catch' | 'lock' | 'gate' | 'recover' | 'station' | 'finish';
+  type: 'countdown' | 'go' | 'tutorial' | 'send' | 'catch' | 'miss' | 'lock' | 'gate' | 'recover' | 'station' | 'finish';
   station: number;
   side?: SeatSide;
   value?: number;
@@ -60,16 +60,17 @@ export interface TeamExpeditionSnapshot {
 const TOTAL_STATIONS = 3;
 const COUNTDOWN_S = 3.15;
 const TRANSITION_S = 1.35;
-const TARGET_RADIUS_M = 10;
+const TARGET_RADIUS_M = 14;
 const OFF_COURSE_M = 66;
 const SAFE_COURSE_M = 20;
 const FLIGHT_ROUTE_INDEX = 0;
 const LANE = 5;
-const STATION_NAMES = ['共振接力', '双锁水闸', '水空协奏'] as const;
+const STATION_NAMES = ['锚锤工坊', '双锁水闸', '水空协奏'] as const;
 const TUTORIAL_LABELS = ['前进离港', '向左转向', '向右转向', '刹停入位', '倒车脱离', '能力校准'] as const;
 const RESONANCE_US = [0.017, 0.025, 0.033, 0.041] as const;
 const LOCK_ANCHOR_US = [0.208, 0.222] as const;
 const LOCK_RUNNER_US = [0.218, 0.232] as const;
+const LOCK_GATE_CLEARANCE_U = 0.001;
 const LOCK_DOCK_U = 0.24;
 const SKY_START_U = 0.012;
 const SKY_CONTROL_U = 0.042;
@@ -96,6 +97,8 @@ export class TeamExpedition {
   private objectiveClock = 0;
   private pulseTimer = -1;
   private readonly pulseDuration = 1.2;
+  private pulseMissTimer = 0;
+  private readonly pulseMissDuration = 0.85;
   private gateOffset = 0;
   private gatePowered = false;
   private flightCleared = false;
@@ -140,6 +143,7 @@ export class TeamExpedition {
     this.receiverCharge = 0;
     this.objectiveClock = 0;
     this.pulseTimer = -1;
+    this.pulseMissTimer = 0;
     this.seatDevices = { left: config.leftDeviceId, right: config.rightDeviceId };
     this.tutorialStep.fill(0);
     this.tutorialHold.fill(0);
@@ -201,7 +205,7 @@ export class TeamExpedition {
       this.boats[id].update(dt, inputs[id], t, 'drift', 1, 1, this.wakes);
       if (this.stationIndex !== 2 || id !== this.pilotId()) this.boats[id].state.flightCharges = 0;
     }
-    if (this.phase === 'racing') this.applyStationMooring(dt, inputs);
+    this.applyTargetAssist(dt, inputs);
     if (this.phase === 'racing' && this.stationIndex === 2) {
       this.flightBoatBuffer[0] = this.boats[this.pilotId()];
       this.course.updateFlightRoute(dt, this.flightBoatBuffer);
@@ -293,6 +297,7 @@ export class TeamExpedition {
     this.receiverCharge = 0;
     this.objectiveClock = 0;
     this.pulseTimer = -1;
+    this.pulseMissTimer = 0;
     this.gateOffset = (this.swapRoles ? -1 : 1) * 4.5;
     this.gatePowered = false;
     this.flightCleared = false;
@@ -349,6 +354,10 @@ export class TeamExpedition {
 
   private updateResonance(dt: number): void {
     if (this.beat >= 4) return;
+    if (this.pulseMissTimer > 0) {
+      this.pulseMissTimer = Math.max(0, this.pulseMissTimer - dt);
+      return;
+    }
     const sender = this.resonanceSender(this.beat);
     const receiver = opposite(sender);
     const senderId = boatId(sender);
@@ -387,19 +396,37 @@ export class TeamExpedition {
       if (this.beat >= 4) this.completeStation();
     } else if (this.pulseTimer >= this.pulseDuration) {
       this.pulseTimer = -1;
+      this.pulseMissTimer = this.pulseMissDuration;
       this.beatProgress = 0;
       this.receiverCharge = 0;
       this.objectiveClock = 8;
+      this.onEvent({ type: 'miss', station: 1, side: receiver });
     }
   }
 
-  private applyStationMooring(dt: number, inputs: [BoatInput, BoatInput]): void {
-    const damping = Math.max(0, 1 - dt * 8);
+  private applyTargetAssist(dt: number, inputs: [BoatInput, BoatInput]): void {
+    if (this.phase !== 'tutorial' && this.phase !== 'racing') return;
     for (let id = 0; id < 2; id++) {
-      if (!this.actionHeld[id] || Math.abs(inputs[id].throttle) > 0.12) continue;
-      const target = this.targetFor(sideForBoat(id));
+      const side = sideForBoat(id);
+      const target = this.targetFor(side);
       if (!target.active || !this.inTarget(id, target.u, target.lateral)) continue;
-      this.boats[id].state.speed *= damping;
+      const neutralCalibration = this.phase === 'tutorial' &&
+        Math.abs(inputs[id].throttle) <= 0.12 && Math.abs(inputs[id].steer) <= 0.12;
+      const activeMooring = this.phase === 'racing' &&
+        Math.abs(inputs[id].throttle) <= 0.12 && (
+          this.actionHeld[id] ||
+          (target.kind === 'receiver' && this.receiverCharge >= 0.6) ||
+          (target.kind === 'anchor' && this.beatProgress > 0.08)
+        );
+      if (!neutralCalibration && !activeMooring) continue;
+      targetWorld(this.course, target.u, target.lateral, _point);
+      const position = this.boats[id].state.position;
+      this.boats[id].applyMooringAssist(
+        neutralCalibration ? position.x : _point.x,
+        neutralCalibration ? position.z : _point.z,
+        dt,
+        neutralCalibration ? 0.9 : 1.25,
+      );
     }
   }
 
@@ -410,17 +437,17 @@ export class TeamExpedition {
       const anchorId = boatId(anchor);
       const runnerId = boatId(runner);
       const anchorIn = this.inTarget(anchorId, LOCK_ANCHOR_US[this.beat], sideLateral(anchor));
-      const runnerIn = this.inTarget(runnerId, LOCK_RUNNER_US[this.beat], sideLateral(runner));
       const powered = anchorIn && this.actionHeld[anchorId];
       this.beatProgress = powered
         ? Math.min(1, this.beatProgress + dt / 0.6)
         : Math.max(0, this.beatProgress - dt / 0.75);
-      if (this.beatProgress >= 0.74 && runnerIn) {
+      const gateCleared = this.samples[runnerId].u > LOCK_RUNNER_US[this.beat] + LOCK_GATE_CLEARANCE_U;
+      if (this.beatProgress >= 0.74 && gateCleared) {
         this.onEvent({ type: 'lock', station: 2, side: runner, value: this.beat + 1 });
         this.beat++;
         this.beatProgress = 0;
         this.objectiveClock = 0;
-      } else if (this.samples[runnerId].u > LOCK_RUNNER_US[this.beat] + 0.004 && this.beatProgress < 0.74) {
+      } else if (gateCleared) {
         this.placeBoat(runnerId, LOCK_RUNNER_US[this.beat] - 0.009, sideLateral(runner));
         this.course.resetFlightTrackingForBoat(this.boats[runnerId]);
         this.wakes[runnerId].clear();
@@ -578,12 +605,12 @@ export class TeamExpedition {
   private targetFor(side: SeatSide): { u: number; lateral: number; kind: TeamMarkerKind; active: boolean; complete: boolean } {
     const id = boatId(side);
     if (this.phase === 'tutorial' || (this.phase === 'countdown' && this.playTutorial)) {
-      return { u: 0.008 + Math.min(5, this.tutorialStep[id]) * 0.003, lateral: sideLateral(side), kind: 'drive', active: true, complete: this.tutorialStep[id] >= 6 };
+      return { u: 0.008, lateral: sideLateral(side), kind: 'drive', active: true, complete: this.tutorialStep[id] >= 6 };
     }
     if (this.stationIndex === 0) {
       const sender = this.resonanceSender(Math.min(3, this.beat));
       const sourceU = RESONANCE_US[Math.min(3, this.beat)];
-      const sending = this.pulseTimer < 0;
+      const sending = this.pulseTimer < 0 && this.pulseMissTimer <= 0;
       return side === sender
         ? { u: sourceU, lateral: sideLateral(side), kind: 'source', active: sending, complete: !sending }
         : { u: sourceU + 0.0045, lateral: sideLateral(side), kind: 'receiver', active: true, complete: this.receiverCharge >= 1 };
@@ -593,7 +620,7 @@ export class TeamExpedition {
         const anchor = this.lockAnchor(this.beat);
         return side === anchor
           ? { u: LOCK_ANCHOR_US[this.beat], lateral: sideLateral(side), kind: 'anchor', active: true, complete: false }
-          : { u: LOCK_RUNNER_US[this.beat], lateral: sideLateral(side), kind: 'runner', active: this.beatProgress >= 0.74, complete: false };
+          : { u: LOCK_RUNNER_US[this.beat] - 0.006, lateral: sideLateral(side), kind: 'runner', active: this.beatProgress >= 0.74, complete: false };
       }
       return { u: LOCK_DOCK_U, lateral: sideLateral(side), kind: 'dock', active: true, complete: false };
     }
@@ -614,7 +641,9 @@ export class TeamExpedition {
       return {
         role: 'trainee',
         instruction: this.tutorialStep[id] >= 6 ? '校准完成 · 等待伙伴' : this.tutorialInstruction(side, step),
-        actionLabel: this.controlLabel(side, step === 5 ? 'action' : step === 3 || step === 4 ? 'reverse' : step === 0 ? 'forward' : 'steer'),
+        actionLabel: step === 1 || step === 2
+          ? this.turnControlLabel(side, step === 1 ? 'left' : 'right')
+          : this.controlLabel(side, step === 5 ? 'action' : step === 3 || step === 4 ? 'reverse' : 'forward'),
         interactionProgress: this.tutorialStep[id] >= 6 ? 1 : clamp(this.tutorialHold[id] / (step === 3 ? 0.18 : step === 5 ? 0.35 : 0.28), 0, 1),
         inTarget,
         ready: this.tutorialStep[id] >= 6,
@@ -623,17 +652,19 @@ export class TeamExpedition {
     if (this.stationIndex === 0) {
       const sender = this.resonanceSender(Math.min(3, this.beat));
       const role: TeamRole = side === sender ? 'sender' : 'receiver';
-      const waiting = this.pulseTimer < 0;
-      const marker = side === 'left' ? '蓝色圈' : '黄色圈';
+      const waiting = this.pulseTimer < 0 && this.pulseMissTimer <= 0;
+      const marker = side === 'left' ? '蓝席工位' : '黄席工位';
       return {
         role,
         instruction: role === 'sender'
-          ? waiting
-            ? inTarget ? `按住 ${this.controlLabel(side, 'action')} 蓄能发射` : `驶入${marker}并松开油门`
-            : '发射完成 · 等伙伴接收'
+          ? this.pulseMissTimer > 0 ? '核心落水 · 等机构复位'
+            : waiting
+              ? inTarget ? `按住 ${this.controlLabel(side, 'action')} 抬锤蓄力` : `靠近${marker}的冲击锤`
+              : '冲击完成 · 看核心飞向伙伴'
           : this.receiverCharge >= 1
-            ? waiting ? '接收器已锁定 · 等伙伴发射' : '接收器已锁定 · 脉冲传输中'
-            : inTarget ? `按住 ${this.controlLabel(side, 'action')} 锁定接收器` : `驶入${marker}并松开油门`,
+            ? waiting ? '锚钉已压牢 · 等伙伴锤击' : '锚钉已压牢 · 准备接住核心'
+            : this.pulseMissTimer > 0 ? '锚钉未锁牢 · 核心已落水'
+              : inTarget ? `按住 ${this.controlLabel(side, 'action')} 压下锚钉` : `靠近${marker}的锚钉机`,
         actionLabel: this.controlLabel(side, 'action'),
         interactionProgress: role === 'sender' ? waiting ? this.beatProgress : 1 : this.receiverCharge,
         inTarget,
@@ -651,7 +682,7 @@ export class TeamExpedition {
         role,
         instruction: role === 'anchor'
           ? inTarget ? '按住能力键并稳住船位' : '驶入供能区'
-          : this.beatProgress >= 0.74 ? '水闸已升起 · 立即穿过目标圈' : '等待伙伴把水闸升起',
+          : this.beatProgress >= 0.74 ? '水闸已升起 · 向前穿过实体闸门' : '停在闸前 · 等伙伴把水闸升起',
         actionLabel: role === 'anchor' ? this.controlLabel(side, 'action') : this.controlLabel(side, 'forward'),
         interactionProgress: this.beatProgress,
         inTarget,
@@ -693,12 +724,13 @@ export class TeamExpedition {
       return slowest >= 6 ? '校准完成' : TUTORIAL_LABELS[slowest];
     }
     if (this.stationIndex === 0) {
+      if (this.pulseMissTimer > 0) return '锚钉未锁牢 · 核心落水后原位重试';
       if (this.pulseTimer >= 0) return this.receiverCharge >= 1
-        ? '接收已锁定 · 脉冲自动传输中'
-        : '脉冲传输中 · 接收手现在按住能力键';
-      if (this.receiverCharge >= 1) return '接收已锁定 · 投递手按住能力键';
-      if (this.beatProgress > 0.08) return '投递正在蓄能 · 接收手也要按住能力键';
-      return `${this.beat === 2 ? '职责已交换 · ' : ''}两人各进自己颜色圈 · 同时按住能力键`;
+        ? '核心飞行中 · 锚钉会把它导入轨道'
+        : '核心飞行中 · 立刻压下锚钉';
+      if (this.receiverCharge >= 1) return '锚钉已锁 · 冲击锤手按住能力键';
+      if (this.beatProgress > 0.08) return '冲击锤正在抬起 · 锚钉手也要按住能力键';
+      return `${this.beat === 2 ? '工具交换 · ' : ''}锚钉稳住轨道 · 冲击锤发射核心`;
     }
     if (this.stationIndex === 1) return this.beat < 2 ? '一人稳住水闸 · 一人穿门' : '双人同时接通终端';
     if (!this.flightCleared) return this.gatePowered ? '门控手对准 · 飞行员穿门' : '门控手先接通飞行门';
@@ -713,14 +745,18 @@ export class TeamExpedition {
         : this.stationIndex === 0 ? 'resonance' : this.stationIndex === 1 ? 'locks' : 'sky',
       left: this.visualTarget('left'),
       right: this.visualTarget('right'),
-      pulseActive: this.stationIndex === 0 && this.pulseTimer >= 0,
-      pulseProgress: this.pulseTimer < 0 ? 0 : this.pulseTimer / this.pulseDuration,
+      pulseActive: this.stationIndex === 0 && (this.pulseTimer >= 0 || this.pulseMissTimer > 0),
+      pulseProgress: this.pulseMissTimer > 0 ? 1 : this.pulseTimer < 0 ? 0 : this.pulseTimer / this.pulseDuration,
+      pulseMissProgress: this.pulseMissTimer <= 0 ? 0 : 1 - this.pulseMissTimer / this.pulseMissDuration,
+      sourcePower: this.beatProgress,
+      receiverPower: this.receiverCharge,
       pulseFromU: sourceU,
       pulseFromLateral: sideLateral(sender),
       pulseToU: sourceU + 0.0045,
       pulseToLateral: sideLateral(opposite(sender)),
-      lockU: this.stationIndex === 1 && this.beat < 2 ? LOCK_RUNNER_US[this.beat] - 0.002 : LOCK_DOCK_U,
+      lockU: this.stationIndex === 1 && this.beat < 2 ? LOCK_RUNNER_US[this.beat] : LOCK_DOCK_U,
       lockPower: this.stationIndex === 1 ? this.beatProgress : 0,
+      dockPower: this.stationIndex >= 1 && this.beat >= 2 ? this.beatProgress : 0,
       skyRouteIndex: FLIGHT_ROUTE_INDEX,
       skyGateOffset: this.gateOffset,
       skyPowered: this.gatePowered,
@@ -738,19 +774,33 @@ export class TeamExpedition {
   }
 
   private tutorialInstruction(side: SeatSide, step: number): string {
-    const label = this.controlLabel(side, step === 5 ? 'action' : step === 3 || step === 4 ? 'reverse' : step === 0 ? 'forward' : 'steer');
+    const label = step === 1 || step === 2
+      ? this.turnControlLabel(side, step === 1 ? 'left' : 'right')
+      : this.controlLabel(side, step === 5 ? 'action' : step === 3 || step === 4 ? 'reverse' : 'forward');
     return step === 0 ? `按住 ${label} 前进离港`
-      : step === 1 ? `按住 ${label} 向左转`
-      : step === 2 ? `按住 ${label} 向右转`
+      : step === 1 ? `按住 ${label} 前进并左转`
+      : step === 2 ? `按住 ${label} 前进并右转`
       : step === 3 ? `按住 ${label} 刹停`
       : step === 4 ? `继续按住 ${label} 倒车`
       : `按住 ${label} 校准能力`;
   }
 
+  private turnControlLabel(side: SeatSide, direction: 'left' | 'right'): string {
+    const device = this.seatDevices[side];
+    if (device.startsWith('gamepad:')) return direction === 'left'
+      ? '左摇杆 ↖ / 十字键 ↑+←'
+      : '左摇杆 ↗ / 十字键 ↑+→';
+    if (side === 'left') return direction === 'left' ? 'W + A' : 'W + D';
+    return direction === 'left' ? '↑ + ←' : '↑ + →';
+  }
+
   private controlLabel(side: SeatSide, control: 'forward' | 'reverse' | 'steer' | 'action' | 'flight'): string {
     const device = this.seatDevices[side];
     if (device.startsWith('gamepad:')) {
-      return control === 'forward' ? 'RT' : control === 'reverse' ? 'LT' : control === 'steer' ? '左摇杆' : control === 'action' ? 'X' : 'A';
+      return control === 'forward' ? '左摇杆 ↑ / RT'
+        : control === 'reverse' ? '左摇杆 ↓ / LT'
+        : control === 'steer' ? '左摇杆 / 十字键'
+        : control === 'action' ? 'X' : 'A';
     }
     if (side === 'left') return control === 'forward' ? 'W' : control === 'reverse' ? 'S' : control === 'steer' ? 'A / D' : control === 'action' ? '左 SHIFT' : 'SPACE';
     return control === 'forward' ? '↑' : control === 'reverse' ? '↓' : control === 'steer' ? '← / →' : control === 'action' ? '右 SHIFT / K' : 'NUM ENTER / I';
