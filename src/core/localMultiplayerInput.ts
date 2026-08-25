@@ -21,7 +21,13 @@ export interface LocalMenuEdges {
 
 interface PadSnapshot {
   buttons: boolean[];
+  values: number[];
   axes: number[];
+}
+
+export interface LocalBoatInputContext {
+  flightActive: boolean;
+  manualThrottle: boolean;
 }
 
 interface PadState {
@@ -45,13 +51,13 @@ const PAD_DEAD_ZONE = 0.18;
 const PAD_NAV_THRESHOLD = 0.62;
 const KEYBOARD_LEFT: LocalDeviceInfo = {
   id: 'keyboard-left',
-  label: '键盘 · A / D',
+  label: '键盘 · W A S D',
   kind: 'keyboard',
   connected: true,
 };
 const KEYBOARD_RIGHT: LocalDeviceInfo = {
   id: 'keyboard-right',
-  label: '键盘 · 方向键 / J L',
+  label: '键盘 · 方向键',
   kind: 'keyboard',
   connected: true,
 };
@@ -195,7 +201,7 @@ export class LocalMultiplayerInput {
     return state ? padButtonEdge(state, 1) : false;
   }
 
-  readBoat(id: LocalDeviceId, dt: number, flightActive: boolean): BoatInput {
+  readBoat(id: LocalDeviceId, dt: number, context: LocalBoatInputContext): BoatInput {
     let output = this.boatOutputs.get(id);
     if (!output) {
       output = neutralBoatInput();
@@ -206,17 +212,24 @@ export class LocalMultiplayerInput {
     let drift = false;
     let flightTrigger = false;
     let rawSteer = 0;
+    let throttle = context.manualThrottle ? 0 : 1;
 
     if (id === 'keyboard-left') {
       left = this.keys.has('KeyA');
       right = this.keys.has('KeyD');
       drift = this.keys.has('ShiftLeft');
       flightTrigger = this.consumeAny(['Space']);
+      if (context.manualThrottle) {
+        throttle = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
+      }
     } else if (id === 'keyboard-right') {
       left = this.keys.has('ArrowLeft') || this.keys.has('KeyJ');
       right = this.keys.has('ArrowRight') || this.keys.has('KeyL');
       drift = this.keys.has('Numpad0') || this.keys.has('KeyK');
       flightTrigger = this.consumeAny(['NumpadEnter', 'KeyI']);
+      if (context.manualThrottle) {
+        throttle = (this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('ArrowDown') ? 1 : 0);
+      }
     } else {
       const state = this.pads.get(gamepadIndex(id));
       if (!state) {
@@ -230,8 +243,13 @@ export class LocalMultiplayerInput {
       const axis = deadZone(state.current.axes[0] ?? 0);
       const digital = (state.current.buttons[15] ? 1 : 0) - (state.current.buttons[14] ? 1 : 0);
       rawSteer = Math.abs(axis) >= Math.abs(digital) ? axis : digital;
-      drift = Boolean(state.current.buttons[2] || state.current.buttons[4] || state.current.buttons[5]);
+      drift = Boolean(state.current.buttons[2]);
       flightTrigger = padButtonEdge(state, 0);
+      if (context.manualThrottle) {
+        const forward = Math.max(state.current.values[7] ?? 0, state.current.buttons[7] ? 1 : 0);
+        const reverse = Math.max(state.current.values[6] ?? 0, state.current.buttons[6] ? 1 : 0);
+        throttle = clamp01(forward) - clamp01(reverse);
+      }
     }
 
     const target = rawSteer || (left ? -1 : right ? 1 : 0);
@@ -243,11 +261,11 @@ export class LocalMultiplayerInput {
       const pad = this.pads.get(padIndex);
       if (pad) pad.steer = steer;
     }
-    output.throttle = 1;
+    output.throttle = throttle;
     output.steer = steer;
-    output.drift = drift && !flightActive;
+    output.drift = drift && !context.flightActive;
     output.flightTrigger = flightTrigger;
-    output.airBrake = drift && flightActive;
+    output.airBrake = drift && context.flightActive;
     return output;
   }
 
@@ -314,23 +332,31 @@ interface HapticActuatorLike {
 }
 
 function emptyPadSnapshot(pad: Gamepad): PadSnapshot {
-  return { buttons: new Array(pad.buttons.length).fill(false), axes: new Array(pad.axes.length).fill(0) };
+  return {
+    buttons: new Array(pad.buttons.length).fill(false),
+    values: new Array(pad.buttons.length).fill(0),
+    axes: new Array(pad.axes.length).fill(0),
+  };
 }
 
 function fillSnapshot(target: PadSnapshot, pad: Gamepad): void {
   target.buttons.length = pad.buttons.length;
+  target.values.length = pad.buttons.length;
   target.axes.length = pad.axes.length;
   for (let i = 0; i < pad.buttons.length; i++) {
     const button = pad.buttons[i];
     target.buttons[i] = button.pressed || button.value > 0.6;
+    target.values[i] = button.value;
   }
   for (let i = 0; i < pad.axes.length; i++) target.axes[i] = pad.axes[i];
 }
 
 function copySnapshot(target: PadSnapshot, source: PadSnapshot): void {
   target.buttons.length = source.buttons.length;
+  target.values.length = source.values.length;
   target.axes.length = source.axes.length;
   for (let i = 0; i < source.buttons.length; i++) target.buttons[i] = source.buttons[i];
+  for (let i = 0; i < source.values.length; i++) target.values[i] = source.values[i];
   for (let i = 0; i < source.axes.length; i++) target.axes[i] = source.axes[i];
 }
 
@@ -369,8 +395,8 @@ function compactPadLabel(id: string, index: number): string {
 
 function isOwnedKey(code: string): boolean {
   return [
-    'KeyA', 'KeyD', 'ShiftLeft', 'Space', 'KeyQ',
-    'ArrowLeft', 'ArrowRight', 'Numpad0', 'NumpadEnter', 'NumpadDecimal',
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space', 'KeyQ',
+    'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'Numpad0', 'NumpadEnter', 'NumpadDecimal',
     'KeyJ', 'KeyL', 'KeyK', 'KeyI', 'KeyU', 'Escape',
   ].includes(code);
 }

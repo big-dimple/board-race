@@ -59,7 +59,7 @@ import { Race } from './game/race';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
 import { BoatCollisionSystem, type CollisionHit } from './game/collision';
-import { TeamExpedition, type TeamExpeditionEvent } from './game/teamExpedition';
+import { TeamExpedition, type TeamExpeditionEvent, type TeamRole } from './game/teamExpedition';
 import type { BalloonPop, BuoyHit } from './game/course';
 import { CameraRig, type CameraImpactLevel } from './game/chaseCamera';
 import { HUD } from './hud/hud';
@@ -175,8 +175,9 @@ const collisions = new BoatCollisionSystem();
 const cameraRig = new CameraRig(stage.camera);
 const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 const teamRightCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
-const teamLeftCameraRig = new CameraRig(teamLeftCamera);
-const teamRightCameraRig = new CameraRig(teamRightCamera);
+const TEAM_CAMERA_TUNING = { chaseBack: 12, chaseUp: 4.4, chaseMinDistance: 8.5, lookAhead: 6 } as const;
+const teamLeftCameraRig = new CameraRig(teamLeftCamera, TEAM_CAMERA_TUNING);
+const teamRightCameraRig = new CameraRig(teamRightCamera, TEAM_CAMERA_TUNING);
 const audio = new GameAudio();
 window.addEventListener('keydown', () => {
   audio.resume();
@@ -304,13 +305,14 @@ stage.scene.add(teamExpedition.visuals.object);
 const teamExperience = new TeamExperience(hudLayer, {
   onIndependent: enterIndependentCompetition,
   onTeamStart: startTeamExpedition,
+  onReplayTeam: replayTeamWithSwappedRoles,
   onExitTeam: enterFrontDoor,
   onAudioIntent: () => {
     audio.resume();
     audio.startReadyMusic();
   },
 });
-teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
 teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
 
 // -------------------------------------------------------------- race events
@@ -526,7 +528,7 @@ function enterFrontDoor(): void {
   mixer.setVisible(false);
   mobileInput.setOverlayHidden(true);
   teamSave = loadTeamSave();
-  teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+  teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
   teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
   teamExperience.showMode();
   audio.setScene('ready');
@@ -537,13 +539,14 @@ function startTeamExpedition(selection: TeamSelection): void {
   appMode = 'team-play';
   teamSave = {
     ...teamSave,
-    stage: selection.resumeStage === 0 ? 1 : Math.max(1, teamSave.stage),
-    completed: selection.resumeStage === 0 ? false : teamSave.completed,
+    version: 2,
+    stage: selection.playTutorial ? 0 : selection.resumeStation === 0 ? 1 : Math.max(1, teamSave.stage),
+    completed: teamSave.completed,
     leftDriverId: selection.left.profile.id,
     rightDriverId: selection.right.profile.id,
   };
   saveTeamProgress(teamSave);
-  teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+  teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
   resetRace();
   const profiles = [selection.left.profile, selection.right.profile] as const;
   for (let id = 0; id < 2; id++) {
@@ -563,20 +566,32 @@ function startTeamExpedition(selection: TeamSelection): void {
   teamLeftCameraRig.mode = 'chase';
   teamRightCameraRig.mode = 'chase';
   teamExpedition.start({
-    resumeStage: selection.resumeStage,
+    resumeStation: selection.resumeStation,
+    playTutorial: selection.playTutorial,
+    swapRoles: selection.swapRoles,
     leftDeviceId: selection.left.deviceId,
     rightDeviceId: selection.right.deviceId,
   });
   teamExperience.showGameplay();
   const snapshot = teamExpedition.snapshot();
   teamExperience.showTransition(
-    'TEAM EXPEDITION',
-    `协作站 ${snapshot.stage}`,
-    `${snapshot.leaderSide === 'left' ? '左侧' : '右侧'}领航 · 另一侧翼手`,
+    snapshot.tutorialActive ? 'CONTROL CALIBRATION' : 'TEAM CO-OP',
+    snapshot.stationName,
+    snapshot.tutorialActive ? '两侧独立校准 · 完成后进入三站协作' : '互补能力 · 看见伙伴造成的结果',
     3.2,
   );
   audio.startRaceScore(true);
   audio.setScene('countdown');
+}
+
+function replayTeamWithSwappedRoles(): void {
+  if (!activeTeamSelection) return;
+  startTeamExpedition({
+    ...activeTeamSelection,
+    resumeStation: 0,
+    playTutorial: false,
+    swapRoles: !activeTeamSelection.swapRoles,
+  });
 }
 
 function handleTeamEvent(event: TeamExpeditionEvent): void {
@@ -589,23 +604,23 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
     teamExperience.hideTransition();
     audio.setScene('racing');
     if (audio.startSignal() !== 'played') audio.countdownBeep(true);
-  } else if (event.type === 'anchor') {
-    audio.driftReleaseReady();
-    if (event.side) audio.teamSpatialCue(event.side, 'anchor');
-    if (device) localInput.rumble(device, 0.18, 0.45, 48);
-  } else if (event.type === 'link-ready') {
+  } else if (event.type === 'tutorial') {
+    teamSave.tutorialCompleted = true;
+    saveTeamProgress(teamSave);
+    teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
+    teamExperience.showTransition('CALIBRATION COMPLETE', '驾驶已校准', '前进、刹车、倒车和能力键都已就绪', 1.05);
+  } else if (event.type === 'send') {
     audio.flightReady(1);
     if (event.side) audio.teamSpatialCue(event.side, 'ready');
-    teamLeftPipeline.pulse('ready', 0.72);
-    teamRightPipeline.pulse('ready', 0.72);
-    if (device) localInput.rumble(device, 0.35, 0.82, 70);
-  } else if (event.type === 'relay') {
-    audio.routeClear(Math.min(3, ((event.stage - 1) % 3) + 1));
-    if (event.side) audio.teamSpatialCue(event.side, 'relay');
-    teamLeftPipeline.pulse('gate', 0.45);
-    teamRightPipeline.pulse('gate', 0.45);
+    if (device) localInput.rumble(device, 0.2, 0.58, 54);
+  } else if (event.type === 'catch' || event.type === 'lock') {
+    audio.routeClear(Math.min(3, event.value ?? 1));
+    if (event.side) audio.teamSpatialCue(event.side, event.type === 'catch' ? 'anchor' : 'relay');
+    teamLeftPipeline.pulse('ready', 0.42);
+    teamRightPipeline.pulse('ready', 0.42);
+    if (device) localInput.rumble(device, 0.32, 0.68, 64);
   } else if (event.type === 'gate') {
-    audio.flightGate(Math.min(3, ((event.stage - 1) % 3) + 1));
+    audio.flightGate(3);
     if (event.side) audio.teamSpatialCue(event.side, 'gate');
     teamLeftPipeline.pulse('gate', 0.72);
     teamRightPipeline.pulse('gate', 0.72);
@@ -616,40 +631,40 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
     if (event.shared || event.side === 'right') teamRightPipeline.pulse('lost', event.shared ? 0.72 : 0.42);
     if (event.side) audio.teamSpatialCue(event.side, 'impact');
     if (event.shared) {
-      teamExperience.showTransition('TEAM RESET', '共同检查点', '两名队员同时失误，回到本协作站起点', 1.15);
+      teamExperience.showTransition('QUICK RETRY', '回到起飞前', '飞行门和两艘艇已一起复位', 1.05);
     } else if (device) localInput.rumble(device, 0.65, 0.24, 72);
-  } else if (event.type === 'stage') {
+  } else if (event.type === 'station') {
     teamSave = {
       ...teamSave,
-      stage: Math.max(teamSave.stage, event.value ?? event.stage),
-      completed: false,
+      stage: Math.max(teamSave.stage, event.value ?? event.station),
       leftDriverId: activeTeamSelection.left.profile.id,
       rightDriverId: activeTeamSelection.right.profile.id,
     };
     saveTeamProgress(teamSave);
-    teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
-    teamExperience.showTransition(
-      `STAGE ${event.stage} CLEAR`,
-      '职责交换',
-      '左右画面保持不变 · 领航员与翼手互换',
-      1.45,
+    teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
+    if (event.station < 3) teamExperience.showTransition(
+      `STATION ${event.station} CLEAR`,
+      event.station === 1 ? '接力完成' : '水闸贯通',
+      event.station === 1 ? '下一站轮流稳门与穿门' : '下一站一人飞行、一人控制真实飞行门',
+      1.35,
     );
   } else if (event.type === 'finish') {
     const elapsed = event.value ?? teamExpedition.snapshot().elapsed;
     const elapsedMs = Math.round(elapsed * 1000);
     const fullRun = teamExpedition.snapshot().fullRun;
     if (fullRun && (teamSave.bestMs === null || elapsedMs < teamSave.bestMs)) teamSave.bestMs = elapsedMs;
-    teamSave.stage = 7;
+    teamSave.stage = 3;
     teamSave.completed = true;
     teamSave.leftDriverId = activeTeamSelection.left.profile.id;
     teamSave.rightDriverId = activeTeamSelection.right.profile.id;
     saveTeamProgress(teamSave);
-    teamExperience.setSavedStage(teamSave.stage, teamSave.completed);
+    teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
     teamExperience.showTransition(
-      'EXPEDITION COMPLETE',
-      '远征完成',
+      'CO-OP COMPLETE',
+      '三站协作完成',
       `${formatTeamTime(elapsed)}${fullRun && teamSave.bestMs === elapsedMs ? ' · NEW BEST' : ''}`,
       0,
+      true,
       true,
     );
     audio.finishSting();
@@ -1082,12 +1097,19 @@ function updateTeamSession(dt: number, t: number): void {
   const leftDevice = teamExpedition.deviceFor('left');
   const rightDevice = teamExpedition.deviceFor('right');
   if (teamExpedition.snapshot().phase === 'finished') {
+    let replay = false;
     let exit = false;
     for (const id of [leftDevice, rightDevice]) {
-      exit ||= localInput.confirmEdge(id) || localInput.cancelEdge(id);
+      replay ||= localInput.confirmEdge(id);
+      exit ||= localInput.cancelEdge(id);
     }
     if (exit) {
       enterFrontDoor();
+      localInput.endFrame();
+      return;
+    }
+    if (replay) {
+      replayTeamWithSwappedRoles();
       localInput.endFrame();
       return;
     }
@@ -1126,7 +1148,7 @@ function updateTeamSession(dt: number, t: number): void {
   for (const id of [leftDevice, rightDevice]) pause ||= localInput.pauseEdge(id);
   if (pause) {
     teamPaused = true;
-    teamExperience.showTransition('TEAM PAUSE', '远征暂停', '按任一设备确认继续 · 返回键退出', 0, true);
+    teamExperience.showTransition('TEAM PAUSE', '协作暂停', '按任一设备确认继续 · 返回键退出', 0, true);
     updateTeamPresentation(0, t);
     localInput.endFrame();
     return;
@@ -1134,8 +1156,14 @@ function updateTeamSession(dt: number, t: number): void {
 
   const leftState = boats[0].state;
   const rightState = boats[1].state;
-  const leftInput = localInput.readBoat(leftDevice, dt, leftState.flightPhase !== 'surface');
-  const rightInput = localInput.readBoat(rightDevice, dt, rightState.flightPhase !== 'surface');
+  const leftInput = localInput.readBoat(leftDevice, dt, {
+    flightActive: leftState.flightPhase !== 'surface',
+    manualThrottle: true,
+  });
+  const rightInput = localInput.readBoat(rightDevice, dt, {
+    flightActive: rightState.flightPhase !== 'surface',
+    manualThrottle: true,
+  });
   const activeBoats = teamExpedition.activeBoats();
   collisions.capture(activeBoats);
   worldTime += dt;
@@ -1167,22 +1195,25 @@ function updateTeamPresentation(dt: number, t: number): void {
   const snapshot = teamExpedition.snapshot();
   if (activeTeamSelection) {
     teamExperience.updateHud({
-      stage: snapshot.stage,
-      totalStages: snapshot.totalStages,
+      station: snapshot.station,
+      totalStations: snapshot.totalStations,
+      stationName: snapshot.stationName,
+      beat: snapshot.beat,
+      beatTotal: snapshot.beatTotal,
       elapsed: snapshot.elapsed,
       objective: snapshot.objective,
+      progress: snapshot.progress,
+      hintLevel: snapshot.hintLevel,
       left: teamHudSeat(
         activeTeamSelection.left.profile,
         boats[0],
-        teamExpedition.roleFor('left'),
-        snapshot,
+        snapshot.left,
         !localInput.connected(teamExpedition.deviceFor('left')),
       ),
       right: teamHudSeat(
         activeTeamSelection.right.profile,
         boats[1],
-        teamExpedition.roleFor('right'),
-        snapshot,
+        snapshot.right,
         !localInput.connected(teamExpedition.deviceFor('right')),
       ),
     });
@@ -1190,7 +1221,7 @@ function updateTeamPresentation(dt: number, t: number): void {
   const left = boats[0].state;
   const right = boats[1].state;
   const averageSpeed = (Math.abs(left.speed) + Math.abs(right.speed)) * 0.5;
-  const activeState = snapshot.wingSide === 'left' ? left : right;
+  const activeState = left.flightPhase !== 'surface' ? left : right;
   audio.setScene(snapshot.phase === 'countdown' ? 'countdown' : snapshot.phase === 'finished' ? 'medal' : 'racing');
   audio.setEngine(Math.max(left.rpm, right.rpm), Math.max(left.throttle, right.throttle), left.boosting || right.boosting);
   audio.setWaterRush(Math.min(1, averageSpeed / 34));
@@ -1202,7 +1233,7 @@ function updateTeamPresentation(dt: number, t: number): void {
     Math.max(0, activeState.flightClearance),
     activeState.flightPhase === 'surface' ? 0 : activeState.flightAirBrake,
     activeState.steer,
-    activeState.flightRouteIndex >= 0 ? activeState.flightRouteIndex : snapshot.stage - 1,
+    activeState.flightRouteIndex >= 0 ? activeState.flightRouteIndex : Math.min(2, snapshot.station - 1),
   );
   audio.setDrift(left.drifting || right.drifting ? 0.62 : 0);
   audio.update(dt);
@@ -1213,29 +1244,24 @@ function updateTeamPresentation(dt: number, t: number): void {
 function teamHudSeat(
   profile: ReturnType<typeof driverProfile>,
   boat: Boat,
-  role: 'leader' | 'wing',
-  snapshot: ReturnType<TeamExpedition['snapshot']>,
+  seat: ReturnType<TeamExpedition['snapshot']>['left'],
   disconnected: boolean,
 ): {
   profile: ReturnType<typeof driverProfile>;
-  role: 'leader' | 'wing';
+  role: TeamRole;
   speedKmh: number;
-  link: number;
-  relays: number;
-  relayTotal: number;
   status: string;
+  actionLabel: string;
+  ready: boolean;
   disconnected: boolean;
 } {
   return {
     profile,
-    role,
+    role: seat.role,
     speedKmh: Math.abs(boat.state.speed) * 3.6,
-    link: snapshot.link,
-    relays: snapshot.anchors,
-    relayTotal: snapshot.anchorTotal,
-    status: role === 'leader'
-      ? snapshot.relayOpen ? '中继已开启 · 掩护翼手' : snapshot.objective
-      : snapshot.wingCleared ? '飞行门通过 · 前往会合' : snapshot.objective,
+    status: seat.instruction,
+    actionLabel: seat.actionLabel,
+    ready: seat.ready,
     disconnected,
   };
 }
@@ -1940,7 +1966,7 @@ function handleVisibility(hidden: boolean): void {
     if (hidden) {
       if (teamExpedition.snapshot().phase !== 'finished') {
         teamPaused = true;
-        teamExperience.showTransition('TEAM PAUSE', '远征暂停', '画面与计时已冻结 · 返回后按确认继续', 0, true);
+        teamExperience.showTransition('TEAM PAUSE', '协作暂停', '画面与计时已冻结 · 返回后按确认继续', 0, true);
       }
       if (!HARNESS) loop.stop();
     } else if (!HARNESS) {
@@ -2032,8 +2058,7 @@ interface Harness {
   selectDriver(id: string): void;
   teamFrontDoor(): void;
   teamState(): Record<string, unknown>;
-  teamAdvanceStage(): void;
-  teamDisplace(side: SeatSide): void;
+  teamPlaceAtTarget(side: SeatSide): void;
 }
 
 let harnessUsePlayerInput = false;
@@ -3466,6 +3491,10 @@ if (HARNESS) {
         rightPhase: boats[1].state.flightPhase,
         leftSteer: boats[0].state.steer,
         rightSteer: boats[1].state.steer,
+        leftSpeed: boats[0].state.speed,
+        rightSpeed: boats[1].state.speed,
+        leftThrottle: boats[0].state.throttle,
+        rightThrottle: boats[1].state.throttle,
         leftCharges: boats[0].state.flightCharges,
         rightCharges: boats[1].state.flightCharges,
         leftRouteState: boats[0].state.flightRouteState,
@@ -3475,12 +3504,9 @@ if (HARNESS) {
         guidance: course.guidanceStatus(),
       };
     },
-    teamAdvanceStage: () => teamExpedition.debugAdvanceStage(),
-    teamDisplace: (side) => {
-      if (teamExpedition.snapshot().phase !== 'racing') return;
-      const boat = boats[side === 'left' ? 0 : 1];
-      const state = boat.state;
-      boat.teleport(state.position.x + 180, state.position.z + 180, state.heading);
+    teamPlaceAtTarget: (side) => {
+      if (teamExpedition.snapshot().phase !== 'tutorial' && teamExpedition.snapshot().phase !== 'racing') return;
+      teamExpedition.debugPlaceAtTarget(side);
     },
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

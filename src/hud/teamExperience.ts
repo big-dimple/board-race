@@ -5,6 +5,7 @@ import {
   type LocalDeviceInfo,
   type SeatSide,
 } from '../core/localMultiplayerInput';
+import type { TeamRole } from '../game/teamExpedition';
 import './teamExperience.css';
 
 export type FrontDoorMode = 'independent' | 'team';
@@ -12,25 +13,31 @@ export type FrontDoorMode = 'independent' | 'team';
 export interface TeamSelection {
   left: { deviceId: LocalDeviceId; profile: DriverProfile };
   right: { deviceId: LocalDeviceId; profile: DriverProfile };
-  resumeStage: number;
+  resumeStation: number;
+  playTutorial: boolean;
+  swapRoles: boolean;
 }
 
 export interface TeamHudSeat {
   profile: DriverProfile;
-  role: 'leader' | 'wing';
+  role: TeamRole;
   speedKmh: number;
-  link: number;
-  relays: number;
-  relayTotal: number;
   status: string;
+  actionLabel: string;
+  ready: boolean;
   disconnected: boolean;
 }
 
 export interface TeamHudState {
-  stage: number;
-  totalStages: number;
+  station: number;
+  totalStations: number;
+  stationName: string;
+  beat: number;
+  beatTotal: number;
   elapsed: number;
   objective: string;
+  progress: number;
+  hintLevel: 0 | 1 | 2;
   left: TeamHudSeat;
   right: TeamHudSeat;
 }
@@ -38,6 +45,7 @@ export interface TeamHudState {
 export interface TeamExperienceCallbacks {
   onIndependent: () => void;
   onTeamStart: (selection: TeamSelection) => void;
+  onReplayTeam: () => void;
   onExitTeam: () => void;
   onAudioIntent: () => void;
 }
@@ -53,7 +61,18 @@ interface SeatClaim {
 
 const SIDES: readonly SeatSide[] = ['left', 'right'];
 const SIDE_NAME: Record<SeatSide, string> = { left: '左侧席位', right: '右侧席位' };
-const TEAM_STORAGE_KEY = 'board-race:team-expedition:v1';
+const TEAM_STORAGE_KEY = 'board-race:team-expedition:v2';
+const LEGACY_TEAM_STORAGE_KEY = 'board-race:team-expedition:v1';
+const ROLE_LABEL: Record<TeamRole, string> = {
+  trainee: '驾驶校准',
+  sender: '投递手',
+  receiver: '接收手',
+  anchor: '门锁手',
+  runner: '突进手',
+  pilot: '飞行员',
+  operator: '门控手',
+  dock: '泊位手',
+};
 
 export class TeamExperience {
   readonly root: HTMLDivElement;
@@ -67,8 +86,10 @@ export class TeamExperience {
   private readonly transitionTitle: HTMLElement;
   private readonly transitionCopy: HTMLElement;
   private readonly transitionAction: HTMLButtonElement;
+  private readonly transitionReplay: HTMLButtonElement;
   private readonly continueButton: HTMLButtonElement;
   private readonly newButton: HTMLButtonElement;
+  private readonly tutorialButton: HTMLButtonElement;
   private readonly modeButtons = new Map<FrontDoorMode, HTMLButtonElement>();
   private readonly joinSeats = new Map<SeatSide, HTMLElement>();
   private readonly driverSeats = new Map<SeatSide, HTMLElement>();
@@ -76,10 +97,13 @@ export class TeamExperience {
   private readonly claims: Partial<Record<SeatSide, SeatClaim>> = {};
   private phase: FrontDoorPhase = 'hidden';
   private focusedMode: FrontDoorMode = 'independent';
-  private resumeStage = 0;
+  private resumeStation = 0;
+  private playTutorial = true;
+  private swapRoles = false;
   private savedStage = 0;
   private savedCompleted = false;
-  private saveChoice: 'continue' | 'new' = 'continue';
+  private tutorialCompleted = false;
+  private saveChoice: 'continue' | 'new' | 'tutorial' = 'continue';
   private preferredLeftIndex = 0;
   private preferredRightIndex = 1;
   private settleTimer = 0;
@@ -102,20 +126,30 @@ export class TeamExperience {
     element('p', 'team-mode-copy', modeHead, '同一片海域，不同的胜利关系。');
     const modeGrid = element('div', 'team-mode-grid', this.modePanel);
     this.createModeButton(modeGrid, 'independent', '01', '独立竞技', '个人航线', '争夺名次，独自完成七次飞行挑战。');
-    this.createModeButton(modeGrid, 'team', '02', '队伍协作', '本地同屏', '两名队员分工蓄能、开路与会合。');
+    this.createModeButton(modeGrid, 'team', '02', '队伍协作', '本地同屏', '互补能力、交换职责，完成三站协作。');
     element('div', 'team-mode-foot', this.modePanel, '方向选择 · 确认进入');
 
     this.savePanel = element('section', 'team-front team-save', this.root);
     this.savePanel.setAttribute('aria-label', '队伍协作进度');
     const saveHead = element('header', 'team-save-head', this.savePanel);
-    element('div', 'team-kicker', saveHead, 'TEAM EXPEDITION');
+    element('div', 'team-kicker', saveHead, 'TEAM CO-OP');
     element('h2', 'team-save-title', saveHead, '队伍协作');
-    this.continueButton = button('team-save-action team-save-continue', this.savePanel, '继续远征', () => {
-      this.resumeStage = Math.max(0, this.savedStage - 1);
+    this.continueButton = button('team-save-action team-save-continue', this.savePanel, '继续协作', () => {
+      this.resumeStation = this.savedCompleted ? 0 : Math.max(0, this.savedStage - 1);
+      this.playTutorial = false;
+      this.swapRoles = false;
       this.showJoin();
     });
-    this.newButton = button('team-save-action', this.savePanel, '新的远征', () => {
-      this.resumeStage = 0;
+    this.newButton = button('team-save-action', this.savePanel, '从第一站开始', () => {
+      this.resumeStation = 0;
+      this.playTutorial = !this.tutorialCompleted;
+      this.swapRoles = false;
+      this.showJoin();
+    });
+    this.tutorialButton = button('team-save-action team-save-tutorial', this.savePanel, '重玩驾驶校准', () => {
+      this.resumeStation = 0;
+      this.playTutorial = true;
+      this.swapRoles = false;
       this.showJoin();
     });
     button('team-text-action', this.savePanel, '返回玩法目录', () => this.showMode());
@@ -137,8 +171,8 @@ export class TeamExperience {
       this.joinSeats.set(side, seat);
     }
     const keyLegend = element('div', 'team-key-legend', this.joinPanel);
-    element('span', '', keyLegend, '键盘左区 A / D');
-    element('span', '', keyLegend, '键盘右区 ← / →');
+    element('span', '', keyLegend, '键盘左区 W A S D');
+    element('span', '', keyLegend, '键盘右区方向键');
     element('span', '', keyLegend, '手柄方向键 / 摇杆');
     button('team-text-action team-join-back', this.joinPanel, '返回玩法目录', () => this.showMode());
 
@@ -152,11 +186,12 @@ export class TeamExperience {
     for (const side of SIDES) {
       const seat = element('article', `team-driver-seat team-seat-${side}`, driverGrid);
       seat.dataset.side = side;
+      const portraitFrame = element('div', 'team-driver-portrait-frame', seat);
       const portrait = document.createElement('img');
       portrait.className = 'team-driver-portrait';
       portrait.alt = '';
       portrait.draggable = false;
-      seat.appendChild(portrait);
+      portraitFrame.appendChild(portrait);
       const shade = element('div', 'team-driver-shade', seat);
       element('span', 'team-driver-screen', shade, side === 'left' ? '左侧画面' : '右侧画面');
       element('strong', 'team-driver-name', shade);
@@ -196,7 +231,7 @@ export class TeamExperience {
       element('span', 'team-hud-status', objective);
       const meter = element('div', 'team-link-meter', objective);
       element('i', '', meter);
-      element('span', 'team-hud-relays', objective);
+      element('span', 'team-hud-action', objective);
       element('b', 'team-hud-speed', seat);
       element('div', 'team-device-lost', seat, '设备已断开');
       this.hudSeats.set(side, seat);
@@ -213,7 +248,11 @@ export class TeamExperience {
     this.transitionAction = button('team-transition-action', this.transition, '返回玩法目录', () => {
       this.callbacks.onExitTeam();
     });
+    this.transitionReplay = button('team-transition-action team-transition-replay', this.transition, '交换职责再玩', () => {
+      this.callbacks.onReplayTeam();
+    });
     this.transitionAction.hidden = true;
+    this.transitionReplay.hidden = true;
     this.hideAll();
   }
 
@@ -247,13 +286,15 @@ export class TeamExperience {
     this.transition.classList.remove('on');
   }
 
-  setSavedStage(stage: number, completed = false): void {
-    this.savedStage = Math.max(0, Math.min(7, Math.floor(stage)));
+  setSavedStage(stage: number, completed = false, tutorialCompleted = false): void {
+    this.savedStage = Math.max(0, Math.min(3, Math.floor(stage)));
     this.savedCompleted = completed;
+    this.tutorialCompleted = tutorialCompleted;
     this.continueButton.hidden = this.savedStage <= 0;
-    this.continueButton.textContent = this.savedStage >= 7 && this.savedCompleted
-      ? '重看最终会合'
-      : `继续远征 · 第 ${this.savedStage} 站`;
+    this.continueButton.textContent = this.savedCompleted
+      ? '再玩三站协作'
+      : `继续协作 · 第 ${this.savedStage} 站`;
+    this.tutorialButton.hidden = !this.tutorialCompleted;
   }
 
   setSavedDrivers(leftId: string, rightId: string): void {
@@ -275,7 +316,7 @@ export class TeamExperience {
 
   updateHud(state: TeamHudState): void {
     this.teamHud.querySelector<HTMLElement>('.team-mission-stage')!.textContent =
-      `协作站 ${state.stage} / ${state.totalStages}`;
+      `${state.stationName} · ${state.station} / ${state.totalStations}`;
     this.teamHud.querySelector<HTMLElement>('.team-mission-objective')!.textContent = state.objective;
     this.teamHud.querySelector<HTMLTimeElement>('.team-mission-time')!.textContent = formatTime(state.elapsed);
     for (const side of SIDES) {
@@ -286,23 +327,26 @@ export class TeamExperience {
       portrait.style.objectPosition = data.profile.portraitPosition;
       seat.style.setProperty('--seat-color', hex(data.profile.color));
       seat.dataset.role = data.role;
+      seat.dataset.hint = String(state.hintLevel);
+      seat.classList.toggle('ready', data.ready);
       seat.classList.toggle('lost', data.disconnected);
       seat.querySelector<HTMLElement>('.team-hud-name')!.textContent = data.profile.name;
-      seat.querySelector<HTMLElement>('.team-hud-role')!.textContent = data.role === 'leader' ? '领航员 · 水面开路' : '翼手 · 跟流飞行';
+      seat.querySelector<HTMLElement>('.team-hud-role')!.textContent = ROLE_LABEL[data.role];
       seat.querySelector<HTMLElement>('.team-hud-status')!.textContent = data.status;
-      seat.querySelector<HTMLElement>('.team-hud-relays')!.textContent = `${data.relays} / ${data.relayTotal} 节点`;
+      seat.querySelector<HTMLElement>('.team-hud-action')!.textContent = `${data.actionLabel} · ${state.beat} / ${state.beatTotal}`;
       seat.querySelector<HTMLElement>('.team-hud-speed')!.textContent = `${Math.round(data.speedKmh)} km/h`;
-      seat.querySelector<HTMLElement>('.team-link-meter i')!.style.transform = `scaleX(${clamp01(data.link)})`;
+      seat.querySelector<HTMLElement>('.team-link-meter i')!.style.transform = `scaleX(${clamp01(state.progress)})`;
     }
   }
 
-  showTransition(kicker: string, title: string, copy: string, seconds: number, hold = false): void {
+  showTransition(kicker: string, title: string, copy: string, seconds: number, hold = false, replay = false): void {
     this.transitionKicker.textContent = kicker;
     this.transitionTitle.textContent = title;
     this.transitionCopy.textContent = copy;
     this.transitionTimer = Math.max(0, seconds);
     this.transitionHold = hold;
     this.transitionAction.hidden = !hold || title === '设备已断开';
+    this.transitionReplay.hidden = !replay;
     this.transition.classList.add('on');
   }
 
@@ -316,6 +360,7 @@ export class TeamExperience {
     this.transitionHold = false;
     this.transitionTimer = 0;
     this.transition.classList.remove('on');
+    this.transitionReplay.hidden = true;
   }
 
   private createModeButton(
@@ -361,11 +406,21 @@ export class TeamExperience {
         return;
       }
       if (edges.left || edges.right) {
-        this.saveChoice = this.saveChoice === 'continue' ? 'new' : 'continue';
+        const choices: Array<'continue' | 'new' | 'tutorial'> = [
+          ...(this.savedStage > 0 ? ['continue' as const] : []),
+          'new',
+          ...(this.tutorialCompleted ? ['tutorial' as const] : []),
+        ];
+        const current = Math.max(0, choices.indexOf(this.saveChoice));
+        this.saveChoice = choices[(current + (edges.right ? 1 : choices.length - 1)) % choices.length];
         this.renderSaveChoice();
       }
       if (edges.confirm) {
-        this.resumeStage = this.saveChoice === 'continue' && this.savedStage > 0 ? this.savedStage - 1 : 0;
+        this.resumeStation = this.saveChoice === 'continue' && this.savedStage > 0 && !this.savedCompleted
+          ? this.savedStage - 1
+          : 0;
+        this.playTutorial = this.saveChoice === 'tutorial' || (this.saveChoice === 'new' && !this.tutorialCompleted);
+        this.swapRoles = false;
         this.showJoin();
         return;
       }
@@ -379,9 +434,9 @@ export class TeamExperience {
       this.callbacks.onIndependent();
       return;
     }
-    this.phase = this.savedStage > 0 ? 'save-choice' : 'join';
+    this.phase = this.savedStage > 0 || this.tutorialCompleted ? 'save-choice' : 'join';
     if (this.phase === 'save-choice') {
-      this.saveChoice = 'continue';
+      this.saveChoice = this.savedStage > 0 ? 'continue' : 'new';
       this.hidePanels();
       this.savePanel.classList.add('on');
       this.renderSaveChoice();
@@ -506,7 +561,9 @@ export class TeamExperience {
     this.callbacks.onTeamStart({
       left: { deviceId: left.deviceId, profile: DRIVER_PROFILES[left.profileIndex] },
       right: { deviceId: right.deviceId, profile: DRIVER_PROFILES[right.profileIndex] },
-      resumeStage: this.resumeStage,
+      resumeStation: this.resumeStation,
+      playTutorial: this.playTutorial,
+      swapRoles: this.swapRoles,
     });
   }
 
@@ -521,6 +578,7 @@ export class TeamExperience {
   private renderSaveChoice(): void {
     this.continueButton.classList.toggle('selected', this.saveChoice === 'continue');
     this.newButton.classList.toggle('selected', this.saveChoice === 'new');
+    this.tutorialButton.classList.toggle('selected', this.saveChoice === 'tutorial');
   }
 
   private renderJoin(): void {
@@ -584,21 +642,41 @@ export class TeamExperience {
 }
 
 export interface TeamSaveData {
+  version: 2;
   stage: number;
   completed: boolean;
+  tutorialCompleted: boolean;
   bestMs: number | null;
   leftDriverId: string;
   rightDriverId: string;
 }
 
 export function loadTeamSave(): TeamSaveData {
-  const fallback: TeamSaveData = { stage: 0, completed: false, bestMs: null, leftDriverId: 'axle', rightDriverId: 'tide' };
+  const fallback: TeamSaveData = {
+    version: 2,
+    stage: 0,
+    completed: false,
+    tutorialCompleted: false,
+    bestMs: null,
+    leftDriverId: 'axle',
+    rightDriverId: 'tide',
+  };
   try {
     const parsed = JSON.parse(localStorage.getItem(TEAM_STORAGE_KEY) ?? 'null') as Partial<TeamSaveData> | null;
-    if (!parsed) return fallback;
+    if (!parsed) {
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_TEAM_STORAGE_KEY) ?? 'null') as Partial<TeamSaveData> | null;
+      if (!legacy) return fallback;
+      return {
+        ...fallback,
+        leftDriverId: DRIVER_PROFILES.some((profile) => profile.id === legacy.leftDriverId) ? legacy.leftDriverId! : 'axle',
+        rightDriverId: DRIVER_PROFILES.some((profile) => profile.id === legacy.rightDriverId) ? legacy.rightDriverId! : 'tide',
+      };
+    }
     return {
-      stage: Math.max(0, Math.min(7, Math.floor(Number(parsed.stage) || 0))),
+      version: 2,
+      stage: Math.max(0, Math.min(3, Math.floor(Number(parsed.stage) || 0))),
       completed: parsed.completed === true,
+      tutorialCompleted: parsed.tutorialCompleted === true,
       bestMs: Number.isFinite(parsed.bestMs) && Number(parsed.bestMs) > 0 ? Number(parsed.bestMs) : null,
       leftDriverId: DRIVER_PROFILES.some((profile) => profile.id === parsed.leftDriverId) ? parsed.leftDriverId! : 'axle',
       rightDriverId: DRIVER_PROFILES.some((profile) => profile.id === parsed.rightDriverId) ? parsed.rightDriverId! : 'tide',
@@ -612,7 +690,7 @@ export function saveTeamProgress(data: TeamSaveData): void {
   try {
     localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(data));
   } catch {
-    // A blocked storage write never interrupts the active expedition.
+    // A blocked storage write never interrupts active play.
   }
 }
 

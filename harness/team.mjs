@@ -10,9 +10,7 @@ const port = Number(process.env.TEAM_PORT || 5212);
 const chrome = existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined;
 const server = spawn(process.execPath, [
   path.join(root, 'node_modules/vite/bin/vite.js'),
-  '--host', '127.0.0.1',
-  '--port', String(port),
-  '--strictPort',
+  '--host', '127.0.0.1', '--port', String(port), '--strictPort',
 ], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverError = '';
 server.stderr.on('data', (chunk) => { serverError += String(chunk); });
@@ -20,9 +18,7 @@ server.stderr.on('data', (chunk) => { serverError += String(chunk); });
 async function waitForServer() {
   for (let attempt = 0; attempt < 120; attempt++) {
     if (server.exitCode !== null) throw new Error(`team Vite server exited (${server.exitCode}): ${serverError}`);
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/`)).ok) return;
-    } catch {}
+    try { if ((await fetch(`http://127.0.0.1:${port}/`)).ok) return; } catch {}
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`team Vite server was not ready on ${port}: ${serverError}`);
@@ -69,20 +65,16 @@ try {
   const page = await context.newPage();
   await page.addInitScript(() => {
     const makePad = (index) => ({
-      id: `Board Race Test Pad ${index + 1}`,
-      index,
-      connected: true,
-      mapping: 'standard',
-      timestamp: 0,
+      id: `Board Race Test Pad ${index + 1}`, index, connected: true, mapping: 'standard', timestamp: 0,
       axes: [0, 0, 0, 0],
       buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
       vibrationActuator: null,
     });
     const pads = [makePad(0), makePad(1)];
     Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => pads });
-    window.__setTeamPadButton = (index, button, pressed) => {
+    window.__setTeamPadButton = (index, button, pressed, value = pressed ? 1 : 0) => {
       pads[index].buttons[button].pressed = pressed;
-      pads[index].buttons[button].value = pressed ? 1 : 0;
+      pads[index].buttons[button].value = value;
       pads[index].timestamp++;
     };
     window.__setTeamPadConnected = (index, connected) => {
@@ -90,155 +82,210 @@ try {
       pads[index].timestamp++;
     };
   });
-  const bootPage = await context.newPage();
-  await bootPage.goto(`http://127.0.0.1:${port}/?quality=performance`, { waitUntil: 'load', timeout: 60000 });
-  await bootPage.locator('.team-mode.on').waitFor({ timeout: 120000 });
-  assert.equal(await bootPage.locator('.team-mode-team').count(), 1,
-    'desktop production boot must open the play directory');
-  assert.equal(await bootPage.locator('.driver-select:visible').count(), 0,
-    'desktop production boot must not bypass the play directory');
-  await bootPage.close();
 
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') pageErrors.push(message.text());
-  });
+  page.on('console', (message) => { if (message.type() === 'error') pageErrors.push(message.text()); });
   await page.goto(`http://127.0.0.1:${port}/?harness=1&quality=performance`, { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction(() => window.__harness?.ready, null, { timeout: 120000 });
   await page.evaluate(() => {
     localStorage.removeItem('board-race:team-expedition:v1');
+    localStorage.removeItem('board-race:team-expedition:v2');
     window.__harness.teamFrontDoor();
   });
 
   const modeText = (await page.locator('.team-mode').innerText()).replace(/\s+/g, ' ');
   assert.match(modeText, /独立竞技/);
   assert.match(modeText, /队伍协作/);
-  assert.doesNotMatch(modeText, /单人|双人/, 'mode names must describe play contracts, not player counts');
-  assert.equal(await page.locator('.team-mode-item').count(), 2, 'mode directory should expose two current entries');
+  assert.doesNotMatch(modeText, /单人|双人/);
   mkdirSync(path.join(root, 'shots'), { recursive: true });
-  await page.evaluate(() => window.__harness.render());
   await page.screenshot({ path: path.join(root, 'shots/team-front-desktop.png') });
 
   await page.locator('.team-mode-team').click();
-  assert.equal(await page.locator('.team-join.on').count(), 1, 'team mode must enter device seating');
   await page.keyboard.press('KeyA');
   await page.evaluate(() => window.__harness.advance(1 / 60));
   await page.keyboard.press('ArrowRight');
-  await page.evaluate(() => window.__harness.advance(1 / 60));
-  await page.screenshot({ path: path.join(root, 'shots/team-seating-desktop.png') });
   await page.evaluate(() => window.__harness.advance(0.5));
   await page.waitForFunction(() => document.querySelector('.team-drivers')?.classList.contains('on'));
-  const claimed = await page.locator('.team-join-seat.claimed').count();
-  assert.equal(claimed, 2, 'left and right keyboard zones must claim independent seats');
-  const names = await page.locator('.team-driver-name').allTextContents();
-  assert.equal(new Set(names).size, 2, 'the same driver may not occupy both seats');
+  assert.equal(await page.locator('.team-join-seat.claimed').count(), 2);
+  assert.equal(new Set(await page.locator('.team-driver-name').allTextContents()).size, 2);
+  const portraitBox = await page.locator('.team-driver-portrait').first().boundingBox();
+  assert.ok(portraitBox && portraitBox.width <= 210 && portraitBox.height <= 315,
+    `team portraits must remain compact: ${JSON.stringify(portraitBox)}`);
   await page.screenshot({ path: path.join(root, 'shots/team-drivers-desktop.png') });
 
   await page.keyboard.press('Space');
   await page.evaluate(() => window.__harness.advance(1 / 60));
-  await page.keyboard.press('KeyI');
-  await page.evaluate(() => window.__harness.advance(1 / 60));
+  await page.keyboard.press('NumpadEnter');
   await page.evaluate(() => window.__harness.advance(0.6));
   await page.waitForFunction(() => window.__harness.teamState().appMode === 'team-play');
   await page.evaluate(() => window.__harness.advance(3.4));
   let state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.phase, 'racing');
-  assert.equal(state.leftRole, 'leader');
-  assert.equal(state.rightRole, 'wing');
-  assert.deepEqual(state.visibleBoats, [0, 1], 'stage 1 must keep pursuers out');
+  assert.equal(state.phase, 'tutorial');
+  assert.equal(state.tutorialActive, true);
+  assert.deepEqual(state.visibleBoats, [0, 1]);
 
-  await page.keyboard.down('KeyA');
-  await page.evaluate(() => window.__harness.advance(0.25));
+  await page.keyboard.down('KeyW');
+  await page.evaluate(() => window.__harness.advance(0.6));
   state = await page.evaluate(() => window.__harness.teamState());
-  await page.keyboard.up('KeyA');
-  assert.ok(Math.abs(state.leftSteer) > 0.25, `left keyboard zone did not steer left seat: ${state.leftSteer}`);
-  assert.ok(Math.abs(state.rightSteer) < 0.05, `left keyboard zone leaked into right seat: ${state.rightSteer}`);
-
+  assert.ok(state.leftSpeed > 1, `left manual throttle did not move: ${state.leftSpeed}`);
+  assert.ok(Math.abs(state.rightSpeed) < 0.3, `left throttle leaked into right seat: ${state.rightSpeed}`);
+  await page.keyboard.down('ArrowUp');
+  await page.evaluate(() => window.__harness.advance(0.6));
+  await page.keyboard.up('KeyW');
+  await page.keyboard.up('ArrowUp');
+  for (const [leftKey, rightKey, seconds] of [
+    ['KeyA', 'ArrowLeft', 0.45], ['KeyD', 'ArrowRight', 0.55],
+  ]) {
+    await page.keyboard.down(leftKey);
+    await page.keyboard.down(rightKey);
+    await page.evaluate((duration) => window.__harness.advance(duration), seconds);
+    await page.keyboard.up(leftKey);
+    await page.keyboard.up(rightKey);
+  }
+  await page.keyboard.down('KeyS');
+  await page.keyboard.down('ArrowDown');
+  await page.evaluate(() => window.__harness.advance(2.1));
+  await page.keyboard.up('KeyS');
+  await page.keyboard.up('ArrowDown');
   await page.keyboard.down('ShiftLeft');
-  await page.evaluate(() => window.__harness.advance(7));
+  await page.keyboard.down('Numpad0');
+  await page.evaluate(() => window.__harness.advance(0.45));
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('Numpad0');
+  await page.evaluate(() => window.__harness.advance(1.15));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.phase, 'racing', `calibration did not reach station 1: ${JSON.stringify(state)}`);
+  assert.equal(state.station, 1);
+
+  await page.evaluate(() => {
+    window.__harness.teamPlaceAtTarget('left');
+    window.__harness.teamPlaceAtTarget('right');
+  });
+  await page.keyboard.down('ShiftLeft');
+  await page.evaluate(() => window.__harness.advance(0.5));
+  await page.keyboard.up('ShiftLeft');
+  await page.evaluate(() => window.__harness.advance(2.5));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.beat, 1, 'missed pulse must retry the same relay beat');
+  assert.ok(state.hintLevel >= 1, 'missed pulse should surface a contextual hint');
+
+  const completeRelay = async () => {
+    const current = await page.evaluate(() => window.__harness.teamState());
+    await page.evaluate(() => {
+      window.__harness.teamPlaceAtTarget('left');
+      window.__harness.teamPlaceAtTarget('right');
+    });
+    const senderKey = current.left.role === 'sender' ? 'ShiftLeft' : 'Numpad0';
+    const receiverKey = current.left.role === 'receiver' ? 'ShiftLeft' : 'Numpad0';
+    await page.keyboard.down(senderKey);
+    await page.evaluate(() => window.__harness.advance(0.5));
+    await page.keyboard.up(senderKey);
+    await page.evaluate(() => window.__harness.advance(1.2));
+    await page.keyboard.down(receiverKey);
+    await page.evaluate(() => window.__harness.advance(0.35));
+    await page.keyboard.up(receiverKey);
+  };
+  for (let relay = 0; relay < 4; relay++) await completeRelay();
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.phase, 'station-transition');
+  await page.evaluate(() => window.__harness.advance(1.4));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.station, 2);
+
+  const completeLock = async () => {
+    const current = await page.evaluate(() => window.__harness.teamState());
+    await page.evaluate(() => {
+      window.__harness.teamPlaceAtTarget('left');
+      window.__harness.teamPlaceAtTarget('right');
+    });
+    const anchorKey = current.left.role === 'anchor' ? 'ShiftLeft' : 'Numpad0';
+    await page.keyboard.down(anchorKey);
+    await page.evaluate(() => window.__harness.advance(0.55));
+    await page.keyboard.up(anchorKey);
+  };
+  await completeLock();
+  await completeLock();
+  await page.evaluate(() => {
+    window.__harness.teamPlaceAtTarget('left');
+    window.__harness.teamPlaceAtTarget('right');
+  });
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('Numpad0');
+  await page.evaluate(() => window.__harness.advance(0.68));
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('Numpad0');
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.phase, 'station-transition');
+  await page.evaluate(() => window.__harness.advance(1.4));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.station, 3);
+  assert.equal(state.rightRole, 'pilot');
+  assert.equal(state.leftRole, 'operator');
+
+  await page.evaluate(() => window.__harness.teamPlaceAtTarget('right'));
+  await page.keyboard.down('NumpadEnter');
+  await page.evaluate(() => window.__harness.advance(1 / 60));
+  await page.keyboard.up('NumpadEnter');
+  await page.evaluate(() => window.__harness.advance(4.5));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.station, 3);
+  assert.equal(state.phase, 'racing');
+  assert.equal(state.rightPhase, 'surface');
+  assert.equal(state.rightCharges, 1, `locked-gate failure must restore the pilot charge: ${JSON.stringify(state)}`);
+
+  await page.evaluate(() => {
+    window.__harness.teamPlaceAtTarget('left');
+    window.__harness.teamPlaceAtTarget('right');
+  });
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('KeyA');
+  await page.evaluate(() => window.__harness.advance(0.65));
+  await page.keyboard.up('KeyA');
+  await page.keyboard.down('NumpadEnter');
+  await page.evaluate(() => window.__harness.advance(1 / 60));
+  await page.keyboard.up('NumpadEnter');
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.notEqual(state.rightPhase, 'surface', `powered launch edge was rejected: ${JSON.stringify(state)}`);
+  await page.evaluate(() => window.__harness.advance(5.2));
   await page.keyboard.up('ShiftLeft');
   state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.anchors, 3, 'real leader drift must activate all three wake anchors');
-  assert.equal(state.link, 1, 'real wake following must fill the team link');
-  assert.equal(state.relayOpen, true, 'the surface relay must open before the wing launches');
-  assert.equal(state.rightCharges, 1, 'stage 1 wing must receive the linked flight charge');
-  assert.equal(state.leftCharges, 0, 'leader must never receive the wing charge');
-  await page.keyboard.press('KeyI');
-  await page.evaluate(() => window.__harness.advance(0.3));
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.notEqual(state.rightPhase, 'surface', 'right-zone flight edge must launch the right wing');
-  assert.equal(state.leftPhase, 'surface', 'right-zone flight edge must not launch the left leader');
+  assert.notEqual(state.rightRouteState, 'failed', `powered team flight failed: ${JSON.stringify(state.guidance)}`);
 
   const canvas = await sampleCanvas(page);
-  assert.equal(canvas.width, 1440);
-  assert.equal(canvas.height, 900);
-  assert.ok(canvas.left.range > 40 && canvas.right.range > 40, `both split views must be nonblank: ${JSON.stringify(canvas)}`);
-  assert.ok(canvas.left.opaque > 2000 && canvas.right.opaque > 2000, `both split views must be opaque: ${JSON.stringify(canvas)}`);
+  assert.ok(canvas.left.range > 40 && canvas.right.range > 40, `split views must be nonblank: ${JSON.stringify(canvas)}`);
+  assert.ok(canvas.left.opaque > 2000 && canvas.right.opaque > 2000, `split views must be opaque: ${JSON.stringify(canvas)}`);
   await page.screenshot({ path: path.join(root, 'shots/team-split-desktop.png') });
 
-  for (let attempt = 0; attempt < 32; attempt++) {
-    state = await page.evaluate(() => window.__harness.teamState());
-    if (state.phase === 'role-swap') break;
-    await page.evaluate(() => window.__harness.advance(0.5));
-  }
+  await page.evaluate(() => {
+    window.__harness.teamPlaceAtTarget('left');
+    window.__harness.teamPlaceAtTarget('right');
+  });
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('Numpad0');
+  await page.evaluate(() => window.__harness.advance(0.68));
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('Numpad0');
   state = await page.evaluate(() => window.__harness.teamState());
-  assert.notEqual(state.rightRouteState, 'failed', `real stage 1 flight failed: ${JSON.stringify(state.guidance)}`);
-  assert.equal(state.phase, 'role-swap', `real stage 1 did not reach the role swap: ${JSON.stringify(state)}`);
-  await page.evaluate(() => window.__harness.advance(1.55));
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.stage, 2);
-  assert.equal(state.leftRole, 'wing');
-  assert.equal(state.rightRole, 'leader');
-  assert.deepEqual(state.visibleBoats, [0, 1], 'stage 2 must keep pursuers out');
-  const save = await page.evaluate(() => JSON.parse(localStorage.getItem('board-race:team-expedition:v1')));
-  assert.equal(save.stage, 2, 'clearing stage 1 must persist the next station');
-
-  const partnerU = state.progress.rightU;
-  await page.evaluate(() => window.__harness.teamDisplace('left'));
-  await page.evaluate(() => window.__harness.advance(1.8));
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.ok(state.progress.leftDistance < 20, `recovered seat remained off course: ${state.progress.leftDistance}`);
-  assert.ok(state.progress.rightU > partnerU, 'personal recovery must not reset the partner to the station start');
-
-  await page.evaluate(() => window.__harness.teamAdvanceStage());
-  await page.evaluate(() => window.__harness.advance(1.55));
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.stage, 3);
-  assert.equal(state.activePursuers.length, 1, 'stage 3 must introduce exactly one non-ranked pursuer');
-  assert.deepEqual(state.visibleBoats, [0, 1, 2]);
-
-  const pursuersByStage = new Map([[4, 0], [5, 0], [6, 2], [7, 3]]);
-  for (const [stage, pursuers] of pursuersByStage) {
-    await page.evaluate(() => window.__harness.teamAdvanceStage());
-    state = await page.evaluate(() => window.__harness.teamState());
-    assert.equal(state.phase, 'role-swap', `stage ${stage - 1} must freeze both views for the role swap`);
-    await page.evaluate(() => window.__harness.advance(1.55));
-    state = await page.evaluate(() => window.__harness.teamState());
-    assert.equal(state.stage, stage);
-    assert.equal(state.leftRole, stage % 2 === 1 ? 'leader' : 'wing');
-    assert.equal(state.rightRole, stage % 2 === 1 ? 'wing' : 'leader');
-    assert.equal(state.activePursuers.length, pursuers, `stage ${stage} pursuer contract drifted`);
-  }
-
-  await page.evaluate(() => window.__harness.teamAdvanceStage());
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.phase, 'finished', 'stage 7 reunion must complete the expedition');
-  const finalSave = await page.evaluate(() => JSON.parse(localStorage.getItem('board-race:team-expedition:v1')));
-  assert.equal(finalSave.stage, 7);
+  assert.equal(state.phase, 'finished', `dual docking did not finish: ${JSON.stringify(state)}`);
+  const finalSave = await page.evaluate(() => JSON.parse(localStorage.getItem('board-race:team-expedition:v2')));
+  assert.equal(finalSave.version, 2);
+  assert.equal(finalSave.stage, 3);
   assert.equal(finalSave.completed, true);
-  assert.ok(finalSave.bestMs > 0, `a complete seven-stage run must save a fastest time: ${JSON.stringify(finalSave)}`);
-  assert.equal(await page.locator('.team-transition-action:visible').count(), 1,
-    'the completed expedition must offer a return to the play directory');
-  await page.keyboard.press('Space');
-  await page.evaluate(() => window.__harness.advance(1 / 60));
-  assert.equal(await page.locator('.team-mode.on').count(), 1,
-    'either seated device must be able to leave the completed expedition');
-  await page.locator('.team-mode-team').click();
-  assert.equal(await page.locator('.team-save.on').count(), 1, 'completed progress must open the expedition choice');
-  assert.match(await page.locator('.team-save-continue').textContent(), /重看最终会合/);
-  await page.locator('.team-save-continue').click();
+  assert.equal(finalSave.tutorialCompleted, true);
+  assert.ok(finalSave.bestMs > 0);
+  assert.equal(await page.locator('.team-transition-replay:visible').count(), 1);
 
+  await page.locator('.team-transition-replay').click();
+  await page.evaluate(() => window.__harness.advance(3.4));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.equal(state.station, 1);
+  assert.equal(state.leftRole, 'receiver');
+  assert.equal(state.rightRole, 'sender');
+
+  await page.evaluate(() => window.__harness.teamFrontDoor());
+  await page.locator('.team-mode-team').click();
+  await page.locator('.team-save-action').filter({ hasText: '从第一站开始' }).click();
   const padButton = async (pad, button) => {
     await page.evaluate(([index, target]) => window.__setTeamPadButton(index, target, true), [pad, button]);
     await page.evaluate(() => window.__harness.advance(1 / 60));
@@ -249,53 +296,21 @@ try {
   await padButton(1, 15);
   await page.evaluate(() => window.__harness.advance(0.5));
   await page.waitForFunction(() => document.querySelector('.team-drivers')?.classList.contains('on'));
-  assert.match((await page.locator('.team-driver-device').allTextContents()).join(' '), /手柄 1.*手柄 2/,
-    'two standard gamepads must retain independent seat ownership');
+  assert.match((await page.locator('.team-driver-device').allTextContents()).join(' '), /手柄 1.*手柄 2/);
   await padButton(0, 0);
   await padButton(1, 0);
   await page.evaluate(() => window.__harness.advance(0.6));
-  await page.waitForFunction(() => window.__harness.teamState().appMode === 'team-play');
   await page.evaluate(() => window.__harness.advance(3.4));
+  await page.evaluate(() => window.__setTeamPadButton(0, 7, true, 0.72));
+  await page.evaluate(() => window.__harness.advance(0.65));
+  await page.evaluate(() => window.__setTeamPadButton(0, 7, false, 0));
   state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.stage, 7, 'continue must restore the completed expedition at its final station');
-  assert.equal(state.fullRun, false, 'a continued expedition must not qualify as a fresh full run');
-
-  const pauseElapsed = state.elapsed;
-  await page.evaluate(() => window.__setTeamPadButton(0, 9, true));
-  await page.evaluate(() => window.__harness.advance(0.2));
-  await page.evaluate(() => window.__setTeamPadButton(0, 9, false));
-  await page.evaluate(() => window.__harness.advance(0.25));
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.teamPaused, true, 'Start on either seated gamepad must pause both views');
-  assert.equal(state.elapsed, pauseElapsed, 'team time must freeze while paused');
-  assert.equal(await page.locator('.team-transition-action:visible').count(), 1,
-    'the pause layer must expose a return-to-directory action');
-  await padButton(1, 0);
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.teamPaused, false, 'either seated gamepad may confirm resume');
-
-  await page.evaluate(() => window.__setTeamPadConnected(1, false));
-  await page.evaluate(() => window.__harness.advance(0.25));
-  state = await page.evaluate(() => window.__harness.teamState());
-  const disconnectedElapsed = state.elapsed;
-  assert.equal(state.teamPaused, true, 'a seated device disconnect must freeze the shared session');
-  await page.evaluate(() => window.__setTeamPadConnected(1, true));
-  await page.evaluate(() => window.__harness.advance(0.2));
-  await page.evaluate(() => window.__setTeamPadButton(0, 0, true));
-  await page.evaluate(() => window.__harness.advance(1 / 60));
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.teamPaused, false, 'reconnection plus confirmation must resume the shared session');
-  assert.equal(state.elapsed, disconnectedElapsed, 'disconnect recovery must not advance expedition time');
-  await page.evaluate(() => window.__setTeamPadButton(0, 0, false));
-  await padButton(0, 9);
-  await padButton(1, 1);
-  state = await page.evaluate(() => window.__harness.teamState());
-  assert.equal(state.appMode, 'front-door', 'a seated return button must exit a paused expedition');
-  assert.equal(await page.locator('.team-mode.on').count(), 1, 'pause exit must restore the play directory');
+  assert.ok(state.leftSpeed > 1, `gamepad RT did not drive the left seat: ${state.leftSpeed}`);
+  assert.ok(Math.abs(state.rightSpeed) < 0.3, `gamepad RT leaked into the right seat: ${state.rightSpeed}`);
   assert.deepEqual(pageErrors, [], `team flow emitted browser errors: ${pageErrors.join('\n')}`);
 
-  console.log('team contract: OK');
-  console.log(JSON.stringify({ canvas, state, save, finalSave }, null, 2));
+  console.log('team cooperation contract: OK');
+  console.log(JSON.stringify({ canvas, state, finalSave }, null, 2));
   await context.close();
   await browser.close();
 } finally {

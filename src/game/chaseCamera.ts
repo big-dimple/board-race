@@ -76,11 +76,22 @@ const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > 
 
 export type CameraImpactLevel = 'standard' | 'weak' | 'off';
 
+export interface CameraRigTuning {
+  chaseBack?: number;
+  chaseUp?: number;
+  chaseMinDistance?: number;
+  lookAhead?: number;
+}
+
 export class CameraRig {
   mode: CameraMode = 'orbit';
 
   private readonly camera: THREE.PerspectiveCamera;
   private readonly reducedMotion: boolean;
+  private readonly chaseBack: number;
+  private readonly chaseUp: number;
+  private readonly chaseMinDistance: number;
+  private readonly lookAhead: number;
   private activeMode: CameraMode = 'orbit';
   private initialized = false;
 
@@ -119,9 +130,13 @@ export class CameraRig {
   private readonly finalPos = new THREE.Vector3();
   private readonly finalLook = new THREE.Vector3();
 
-  constructor(camera: THREE.PerspectiveCamera) {
+  constructor(camera: THREE.PerspectiveCamera, tuning: CameraRigTuning = {}) {
     this.camera = camera;
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.chaseBack = tuning.chaseBack ?? CHASE_BACK;
+    this.chaseUp = tuning.chaseUp ?? CHASE_UP;
+    this.chaseMinDistance = tuning.chaseMinDistance ?? CHASE_MIN_DIST;
+    this.lookAhead = tuning.lookAhead ?? LOOK_AHEAD;
   }
 
   /** Additive 0..1 shake impulse; decays exponentially at ~5/s. */
@@ -340,8 +355,8 @@ export class CameraRig {
       }
       this.boostWasActive = st.boosting;
       const dist = Math.max(
-        CHASE_MIN_DIST,
-        CHASE_BACK + this.accelLag + this.impactBack + st.flightPressure * 0.45 - st.flightAirBrake * 0.65,
+        this.chaseMinDistance,
+        this.chaseBack + this.accelLag + this.impactBack + st.flightPressure * 0.45 - st.flightAirBrake * 0.65,
       );
       const driftSide = st.steer * this.driftBlend * 0.65;
       // Slow heave anchor: the camera rides the long-term water level, not the
@@ -355,15 +370,15 @@ export class CameraRig {
       const camBaseY = this.heaveAnchor + (by - this.heaveAnchor) * heaveKeep;
       target.set(
         bx - fx * dist + fz * driftSide,
-        camBaseY + CHASE_UP - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,
+        camBaseY + this.chaseUp - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,
         bz - fz * dist - fx * driftSide,
       );
       target.x += fz * this.collisionSide;
       target.z -= fx * this.collisionSide;
 
       // look ~4m ahead of the bow, at water height
-      const ax = bx + fx * LOOK_AHEAD;
-      const az = bz + fz * LOOK_AHEAD;
+      const ax = bx + fx * this.lookAhead;
+      const az = bz + fz * this.lookAhead;
       look.set(
         ax,
         waterHeight(ax, az, t) + Math.max(0, st.flightClearance) * this.flightBlend * FLIGHT_LOOK_GAIN,

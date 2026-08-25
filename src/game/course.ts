@@ -1361,6 +1361,7 @@ const BUOY_KNOCK_MAX_VERTICAL = 12.2;
 
 interface FlightGate {
   u: number;
+  baseCenter: THREE.Vector3;
   center: THREE.Vector3;
   normal: THREE.Vector3;
   right: THREE.Vector3;
@@ -1514,6 +1515,7 @@ export class Course implements ICourse {
   private readonly flightDebug: string[] = [];
   private readonly flightTurnWarn: boolean[] = [];
   private readonly externalGateLocks = new Array<boolean>(FLIGHT_ROUTES.length).fill(false);
+  private readonly externalGateOffsets = new Array<number>(FLIGHT_ROUTES.length).fill(0);
   private flightWarn = 0;
   private flightWarnRoute = -1;
   /** Player corridor-storm danger 0..1, smoothed for presentation. */
@@ -1592,6 +1594,14 @@ export class Course implements ICourse {
   setFlightGateLocked(routeIndex: number, locked: boolean): void {
     if (routeIndex < 0 || routeIndex >= this.externalGateLocks.length) return;
     this.externalGateLocks[routeIndex] = locked;
+  }
+
+  /** Team controls one authored portal without splitting visual and scoring truth. */
+  setTeamFlightGateControl(routeIndex: number, locked: boolean, lateralOffset: number): void {
+    if (routeIndex < 0 || routeIndex >= this.externalGateLocks.length) return;
+    this.externalGateLocks[routeIndex] = locked;
+    this.externalGateOffsets[routeIndex] = THREE.MathUtils.clamp(lateralOffset, -6, 6);
+    this.applyExternalGateOffset(routeIndex);
   }
 
   /** Cold-load contract for the START landmark. No browser canvas upload is allowed. */
@@ -1757,6 +1767,10 @@ export class Course implements ICourse {
     this.flightDebug.length = 0;
     this.flightTurnWarn.length = 0;
     this.externalGateLocks.fill(false);
+    this.externalGateOffsets.fill(0);
+    for (let routeIndex = 0; routeIndex < this.flightVisuals.length; routeIndex++) {
+      this.applyExternalGateOffset(routeIndex);
+    }
     this.flightWarn = 0;
     this.flightWarnRoute = -1;
     this.playerCorridorDanger = 0;
@@ -2742,6 +2756,11 @@ export class Course implements ICourse {
       visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + (upcoming ? readyStep * 0.2 : 0);
       for (let i = 0; i < visual.gates.length; i++) {
         const gate = visual.gates[i];
+        const offset = this.externalGateOffsets[routeIndex] ?? 0;
+        gate.center.x = gate.baseCenter.x + gate.right.x * offset;
+        gate.center.z = gate.baseCenter.z + gate.right.z * offset;
+        gate.group.position.x = gate.center.x;
+        gate.group.position.z = gate.center.z;
         const raw = Math.max(0, Math.min(1, (visual.deployTime - i * 0.12) / 0.5));
         gate.deploy = raw * raw * (3 - 2 * raw);
         const surface = waterHeight(gate.center.x, gate.center.z, t);
@@ -3599,6 +3618,7 @@ export class Course implements ICourse {
       routeGroup.add(gateGroup);
       gates.push({
         u,
+        baseCenter: center.clone(),
         center,
         normal,
         right,
@@ -3634,6 +3654,18 @@ export class Course implements ICourse {
       recoveryProgress: flightVisualT(def, def.gateUs[def.gateUs.length - 1]),
       recoverySurfaceBlend: 0,
     };
+  }
+
+  private applyExternalGateOffset(routeIndex: number): void {
+    const visual = this.flightVisuals[routeIndex];
+    if (!visual) return;
+    const offset = this.externalGateOffsets[routeIndex] ?? 0;
+    for (const gate of visual.gates) {
+      gate.center.x = gate.baseCenter.x + gate.right.x * offset;
+      gate.center.z = gate.baseCenter.z + gate.right.z * offset;
+      gate.group.position.x = gate.center.x;
+      gate.group.position.z = gate.center.z;
+    }
   }
 
   // ------------------------------------------------------------- ribbon ----
