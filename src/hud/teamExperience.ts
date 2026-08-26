@@ -94,6 +94,7 @@ export class TeamExperience {
   private readonly joinSeats = new Map<SeatSide, HTMLElement>();
   private readonly driverSeats = new Map<SeatSide, HTMLElement>();
   private readonly hudSeats = new Map<SeatSide, HTMLElement>();
+  private readonly driverSwitchTimers = new Map<SeatSide, number>();
   private readonly claims: Partial<Record<SeatSide, SeatClaim>> = {};
   private phase: FrontDoorPhase = 'hidden';
   private focusedMode: FrontDoorMode = 'independent';
@@ -181,22 +182,33 @@ export class TeamExperience {
     const driverHeader = element('header', 'team-driver-head', this.driverPanel);
     element('div', 'team-kicker', driverHeader, 'TEAM CONTRACT');
     element('h2', 'team-driver-title', driverHeader, '各选一名选手');
-    element('p', 'team-driver-copy', driverHeader, '左右只切换自己的选手，确认后锁定。');
+    element('p', 'team-driver-copy', driverHeader, '左右切换自己的选手 · 确认锁定后等待另一席');
     const driverGrid = element('div', 'team-driver-grid', this.driverPanel);
     for (const side of SIDES) {
       const seat = element('article', `team-driver-seat team-seat-${side}`, driverGrid);
       seat.dataset.side = side;
       const portraitFrame = element('div', 'team-driver-portrait-frame', seat);
+      const rosterIndex = element('div', 'team-driver-roster-index', portraitFrame);
+      rosterIndex.setAttribute('aria-live', 'polite');
+      rosterIndex.setAttribute('aria-atomic', 'true');
       const portrait = document.createElement('img');
       portrait.className = 'team-driver-portrait';
       portrait.alt = '';
       portrait.draggable = false;
       portraitFrame.appendChild(portrait);
+      element('div', 'team-driver-mood', portraitFrame);
       const shade = element('div', 'team-driver-shade', seat);
       element('span', 'team-driver-screen', shade, side === 'left' ? '左侧画面' : '右侧画面');
       element('strong', 'team-driver-name', shade);
       element('span', 'team-driver-callsign', shade);
       element('span', 'team-driver-specialty', shade);
+      const quote = document.createElement('blockquote');
+      quote.className = 'team-driver-quote';
+      quote.setAttribute('aria-live', 'polite');
+      shade.appendChild(quote);
+      const traits = element('div', 'team-driver-traits', shade);
+      element('span', 'team-driver-trait team-driver-trait-strength', traits);
+      element('span', 'team-driver-trait team-driver-trait-weakness', traits);
       element('span', 'team-driver-device', shade);
       const ready = button('team-driver-ready', shade, '确认锁定', () => {
         const claim = this.claims[side];
@@ -205,10 +217,26 @@ export class TeamExperience {
         this.renderDrivers();
       });
       ready.setAttribute('aria-label', `${SIDE_NAME[side]}确认选手`);
-      const previous = button('team-driver-nav team-driver-prev', seat, '←', () => this.moveDriver(side, -1));
+      const roster = element('div', 'team-driver-roster', seat);
+      roster.setAttribute('role', 'group');
+      roster.setAttribute('aria-label', `${SIDE_NAME[side]}候选选手`);
+      for (const [index, profile] of DRIVER_PROFILES.entries()) {
+        const rosterCard = button('team-driver-roster-card', roster, '', () => this.selectDriver(side, index));
+        rosterCard.dataset.index = String(index);
+        rosterCard.setAttribute('aria-label', `${SIDE_NAME[side]}选择${profile.name}`);
+        const rosterPortrait = document.createElement('img');
+        rosterPortrait.src = profile.portraitUrl;
+        rosterPortrait.alt = '';
+        rosterPortrait.draggable = false;
+        rosterPortrait.decoding = 'async';
+        rosterPortrait.style.objectPosition = profile.portraitPosition;
+        rosterCard.appendChild(rosterPortrait);
+        element('span', 'team-driver-roster-copy', rosterCard, profile.name);
+      }
+      const previous = button('team-driver-nav team-driver-prev', seat, '‹', () => this.moveDriver(side, -1));
       previous.title = '上一名选手';
       previous.setAttribute('aria-label', `${SIDE_NAME[side]}上一名选手`);
-      const next = button('team-driver-nav team-driver-next', seat, '→', () => this.moveDriver(side, 1));
+      const next = button('team-driver-nav team-driver-next', seat, '›', () => this.moveDriver(side, 1));
       next.title = '下一名选手';
       next.setAttribute('aria-label', `${SIDE_NAME[side]}下一名选手`);
       this.driverSeats.set(side, seat);
@@ -552,7 +580,37 @@ export class TeamExperience {
       if (!other || claim.profileIndex !== other.profileIndex) break;
     }
     this.callbacks.onAudioIntent();
+    this.animateDriverSwitch(side, direction);
     this.renderDrivers();
+  }
+
+  private selectDriver(side: SeatSide, profileIndex: number): void {
+    const claim = this.claims[side];
+    if (!claim || claim.ready || profileIndex < 0 || profileIndex >= DRIVER_PROFILES.length) return;
+    const other = this.claims[side === 'left' ? 'right' : 'left'];
+    if (other?.profileIndex === profileIndex || claim.profileIndex === profileIndex) return;
+    const direction: -1 | 1 = profileIndex > claim.profileIndex ? 1 : -1;
+    claim.profileIndex = profileIndex;
+    this.callbacks.onAudioIntent();
+    this.animateDriverSwitch(side, direction);
+    this.renderDrivers();
+  }
+
+  private animateDriverSwitch(side: SeatSide, direction: -1 | 1): void {
+    const seat = this.driverSeats.get(side);
+    if (!seat) return;
+    const previousTimer = this.driverSwitchTimers.get(side);
+    if (previousTimer !== undefined) window.clearTimeout(previousTimer);
+    seat.dataset.switchDirection = String(direction);
+    seat.classList.remove('switching');
+    // Force a new animation when a player scrolls quickly through the roster.
+    void seat.offsetWidth;
+    seat.classList.add('switching');
+    const timer = window.setTimeout(() => {
+      seat.classList.remove('switching');
+      this.driverSwitchTimers.delete(side);
+    }, 360);
+    this.driverSwitchTimers.set(side, timer);
   }
 
   private startTeam(): void {
@@ -606,10 +664,21 @@ export class TeamExperience {
       seat.style.setProperty('--seat-color', hex(profile.color));
       seat.classList.toggle('ready', claim.ready);
       seat.querySelector<HTMLElement>('.team-driver-name')!.textContent = profile.name;
-      seat.querySelector<HTMLElement>('.team-driver-callsign')!.textContent = `${profile.callsign} · ${profile.mood}`;
-      seat.querySelector<HTMLElement>('.team-driver-specialty')!.textContent = `${profile.specialty} · ${profile.strength}`;
+      seat.querySelector<HTMLElement>('.team-driver-callsign')!.textContent = `${profile.callsign} // ${profile.age} 岁 // ${profile.pronouns}`;
+      seat.querySelector<HTMLElement>('.team-driver-specialty')!.textContent = profile.specialty;
+      seat.querySelector<HTMLElement>('.team-driver-quote')!.textContent = `“${profile.quote}”`;
+      seat.querySelector<HTMLElement>('.team-driver-trait-strength')!.textContent = `优势 · ${profile.strength}`;
+      seat.querySelector<HTMLElement>('.team-driver-trait-weakness')!.textContent = `短板 · ${profile.weakness}`;
       seat.querySelector<HTMLElement>('.team-driver-device')!.textContent = claim.label;
       seat.querySelector<HTMLElement>('.team-driver-ready')!.textContent = claim.ready ? '已锁定' : '确认锁定';
+      seat.querySelector<HTMLElement>('.team-driver-roster-index')!.textContent = `选手 ${String(claim.profileIndex + 1).padStart(2, '0')} / ${String(DRIVER_PROFILES.length).padStart(2, '0')}`;
+      seat.querySelector<HTMLElement>('.team-driver-mood')!.textContent = `${profile.moodIcon} ${profile.mood}`;
+      for (const card of seat.querySelectorAll<HTMLButtonElement>('.team-driver-roster-card')) {
+        const selected = Number(card.dataset.index) === claim.profileIndex;
+        card.classList.toggle('selected', selected);
+        card.setAttribute('aria-current', selected ? 'true' : 'false');
+        card.disabled = claim.ready || (Number(card.dataset.index) === (this.claims[side === 'left' ? 'right' : 'left']?.profileIndex ?? -1));
+      }
     }
   }
 
@@ -641,6 +710,9 @@ export class TeamExperience {
     this.savePanel.classList.remove('on');
     this.joinPanel.classList.remove('on');
     this.driverPanel.classList.remove('on');
+    for (const timer of this.driverSwitchTimers.values()) window.clearTimeout(timer);
+    this.driverSwitchTimers.clear();
+    for (const seat of this.driverSeats.values()) seat.classList.remove('switching');
   }
 }
 

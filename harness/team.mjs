@@ -113,9 +113,26 @@ try {
   await page.waitForFunction(() => document.querySelector('.team-drivers')?.classList.contains('on'));
   assert.equal(await page.locator('.team-join-seat.claimed').count(), 2);
   assert.equal(new Set(await page.locator('.team-driver-name').allTextContents()).size, 2);
+  await page.waitForFunction(() => [...document.querySelectorAll('.team-driver-portrait, .team-driver-roster-card img')]
+    .every((image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0));
   const portraitBox = await page.locator('.team-driver-portrait').first().boundingBox();
-  assert.ok(portraitBox && portraitBox.width <= 210 && portraitBox.height <= 315,
-    `team portraits must remain compact: ${JSON.stringify(portraitBox)}`);
+  assert.ok(portraitBox && portraitBox.width >= 260 && portraitBox.height >= 390
+    && portraitBox.width <= 340 && portraitBox.height <= 520,
+    `team portraits must use the large selection stage: ${JSON.stringify(portraitBox)}`);
+  const portraitSizes = await page.locator('.team-driver-portrait').evaluateAll((images) => images.map((image) => {
+    const box = image.getBoundingClientRect();
+    return { width: box.width, height: box.height };
+  }));
+  assert.equal(portraitSizes.length, 2);
+  assert.ok(portraitSizes.every(({ width, height }) => width >= 260 && height >= 390),
+    `both team portraits must be large: ${JSON.stringify(portraitSizes)}`);
+  const switchBox = await page.locator('.team-driver-nav').first().boundingBox();
+  assert.ok(switchBox && switchBox.width >= 50 && switchBox.height >= 80,
+    `team switch controls must match the independent selector: ${JSON.stringify(switchBox)}`);
+  const readyBox = await page.locator('.team-driver-ready').first().boundingBox();
+  assert.ok(readyBox && readyBox.width >= 160 && readyBox.height >= 40,
+    `team lock controls must remain legible: ${JSON.stringify(readyBox)}`);
+  assert.equal(await page.locator('.team-driver-roster-card').count(), 12);
   await page.screenshot({ path: path.join(root, 'shots/team-drivers-desktop.png') });
 
   await page.keyboard.press('Space');
