@@ -1551,6 +1551,7 @@ export class Course implements ICourse {
   private playerRecoveryElapsed = 0;
   private playerRecoveryLimit = 0;
   private startGantry: THREE.Group | null = null;
+  private teamPresentation = false;
   private finalStation: THREE.Group | null = null;
   private finalStationBlend = 0;
   private finalCrossingPulse = 0;
@@ -1602,6 +1603,12 @@ export class Course implements ICourse {
     this.externalGateLocks[routeIndex] = locked;
     this.externalGateOffsets[routeIndex] = THREE.MathUtils.clamp(lateralOffset, -6, 6);
     this.applyExternalGateOffset(routeIndex);
+  }
+
+  /** Team stations do not use the independent race's START landmark. */
+  setTeamPresentation(active: boolean): void {
+    this.teamPresentation = active;
+    if (this.startGantry) this.startGantry.visible = !active;
   }
 
   /** Cold-load contract for the START landmark. No browser canvas upload is allowed. */
@@ -1845,6 +1852,7 @@ export class Course implements ICourse {
         floater.balloonFlight = undefined;
       }
     }
+    if (this.startGantry) this.startGantry.visible = !this.teamPresentation;
   }
 
   /** Read-only buoy lifecycle evidence for diagnostics and visual harnesses. */

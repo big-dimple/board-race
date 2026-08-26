@@ -175,7 +175,16 @@ const collisions = new BoatCollisionSystem();
 const cameraRig = new CameraRig(stage.camera);
 const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 const teamRightCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
-const TEAM_CAMERA_TUNING = { chaseBack: 12, chaseUp: 4.4, chaseMinDistance: 8.5, lookAhead: 6 } as const;
+// The 50/50 viewport is substantially narrower than independent play. Keep a
+// dedicated composition profile so both the boat and the next station remain
+// readable without changing the independent chase camera.
+const TEAM_CAMERA_TUNING = {
+  chaseBack: 16,
+  chaseUp: 4.8,
+  chaseMinDistance: 12,
+  lookAhead: 8.5,
+  fovBias: 4,
+} as const;
 const teamLeftCameraRig = new CameraRig(teamLeftCamera, TEAM_CAMERA_TUNING);
 const teamRightCameraRig = new CameraRig(teamRightCamera, TEAM_CAMERA_TUNING);
 const audio = new GameAudio();
@@ -499,6 +508,7 @@ function syncDrivingCoachUi(): void {
 
 function enterIndependentCompetition(): void {
   teamExpedition.stop();
+  course.setTeamPresentation(false);
   localInput.reset();
   collisions.setFriendlyPair(0, 1, false);
   activeTeamSelection = null;
@@ -515,6 +525,7 @@ function enterIndependentCompetition(): void {
 
 function enterFrontDoor(): void {
   teamExpedition.stop();
+  course.setTeamPresentation(false);
   localInput.reset();
   collisions.setFriendlyPair(0, 1, false);
   activeTeamSelection = null;
@@ -548,6 +559,7 @@ function startTeamExpedition(selection: TeamSelection): void {
   saveTeamProgress(teamSave);
   teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
   resetRace();
+  course.setTeamPresentation(true);
   const profiles = [selection.left.profile, selection.right.profile] as const;
   for (let id = 0; id < 2; id++) {
     const profile = profiles[id];

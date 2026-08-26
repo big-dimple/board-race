@@ -81,6 +81,7 @@ export interface CameraRigTuning {
   chaseUp?: number;
   chaseMinDistance?: number;
   lookAhead?: number;
+  fovBias?: number;
 }
 
 export class CameraRig {
@@ -92,6 +93,7 @@ export class CameraRig {
   private readonly chaseUp: number;
   private readonly chaseMinDistance: number;
   private readonly lookAhead: number;
+  private readonly fovBias: number;
   private activeMode: CameraMode = 'orbit';
   private initialized = false;
 
@@ -137,6 +139,7 @@ export class CameraRig {
     this.chaseUp = tuning.chaseUp ?? CHASE_UP;
     this.chaseMinDistance = tuning.chaseMinDistance ?? CHASE_MIN_DIST;
     this.lookAhead = tuning.lookAhead ?? LOOK_AHEAD;
+    this.fovBias = tuning.fovBias ?? 0;
   }
 
   /** Additive 0..1 shake impulse; decays exponentially at ~5/s. */
@@ -394,7 +397,7 @@ export class CameraRig {
       const flightIndex = clamp(st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightsCleared, 0, 2);
       const sustainedFlightFov = FLIGHT_FOV[flightIndex];
       fovTarget = clamp(
-        surfaceFov + (sustainedFlightFov - surfaceFov) * this.flightBlend + this.impactFov,
+        surfaceFov + (sustainedFlightFov - surfaceFov) * this.flightBlend + this.impactFov + this.fovBias,
         BASE_FOV - 8,
         FOV_HARD_MAX,
       );
