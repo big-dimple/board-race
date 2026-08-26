@@ -732,9 +732,9 @@ export class TeamExpedition {
       if (this.beatProgress > 0.08) return '冲击锤正在抬起 · 锚钉手也要按住能力键';
       return `${this.beat === 2 ? '工具交换 · ' : ''}锚钉稳住轨道 · 冲击锤发射核心`;
     }
-    if (this.stationIndex === 1) return this.beat < 2 ? '一人稳住水闸 · 一人穿门' : '双人同时接通终端';
+    if (this.stationIndex === 1) return this.beat < 2 ? '一席稳住水闸 · 一席穿门' : '两席同时接通终端';
     if (!this.flightCleared) return this.gatePowered ? '门控手对准 · 飞行员穿门' : '门控手先接通飞行门';
-    return this.boats[this.pilotId()].state.flightPhase === 'surface' ? '双人泊位会合' : '飞行员安全落水';
+    return this.boats[this.pilotId()].state.flightPhase === 'surface' ? '两席泊位会合' : '飞行员安全落水';
   }
 
   private visualState(): TeamVisualState {
@@ -788,8 +788,8 @@ export class TeamExpedition {
   private turnControlLabel(side: SeatSide, direction: 'left' | 'right'): string {
     const device = this.seatDevices[side];
     if (device.startsWith('gamepad:')) return direction === 'left'
-      ? '左摇杆 ↖ / 十字键 ↑+←'
-      : '左摇杆 ↗ / 十字键 ↑+→';
+      ? '左摇杆 ↖'
+      : '左摇杆 ↗';
     if (side === 'left') return direction === 'left' ? 'W + A' : 'W + D';
     return direction === 'left' ? '↑ + ←' : '↑ + →';
   }
@@ -797,9 +797,9 @@ export class TeamExpedition {
   private controlLabel(side: SeatSide, control: 'forward' | 'reverse' | 'steer' | 'action' | 'flight'): string {
     const device = this.seatDevices[side];
     if (device.startsWith('gamepad:')) {
-      return control === 'forward' ? '左摇杆 ↑ / RT'
-        : control === 'reverse' ? '左摇杆 ↓ / LT'
-        : control === 'steer' ? '左摇杆 / 十字键'
+      return control === 'forward' ? '左摇杆 ↑'
+        : control === 'reverse' ? '左摇杆 ↓'
+        : control === 'steer' ? '左摇杆 ← / →'
         : control === 'action' ? 'X' : 'A';
     }
     if (side === 'left') return control === 'forward' ? 'W' : control === 'reverse' ? 'S' : control === 'steer' ? 'A / D' : control === 'action' ? '左 SHIFT' : 'SPACE';

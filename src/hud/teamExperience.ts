@@ -173,7 +173,7 @@ export class TeamExperience {
     const keyLegend = element('div', 'team-key-legend', this.joinPanel);
     element('span', '', keyLegend, '键盘左区 W A S D');
     element('span', '', keyLegend, '键盘右区方向键');
-    element('span', '', keyLegend, '手柄方向键 / 摇杆');
+    element('span', '', keyLegend, '手柄左摇杆全向');
     button('team-text-action team-join-back', this.joinPanel, '返回玩法目录', () => this.showMode());
 
     this.driverPanel = element('section', 'team-front team-drivers', this.root);
@@ -231,7 +231,9 @@ export class TeamExperience {
       element('span', 'team-hud-status', objective);
       const meter = element('div', 'team-link-meter', objective);
       element('i', '', meter);
-      element('span', 'team-hud-action', objective);
+      const action = element('span', 'team-hud-action', objective);
+      element('i', 'team-hud-input-glyph', action).setAttribute('aria-hidden', 'true');
+      element('span', 'team-hud-action-copy', action);
       element('b', 'team-hud-speed', seat);
       element('div', 'team-device-lost', seat, '设备已断开');
       this.hudSeats.set(side, seat);
@@ -330,10 +332,11 @@ export class TeamExperience {
       seat.dataset.hint = String(state.hintLevel);
       seat.classList.toggle('ready', data.ready);
       seat.classList.toggle('lost', data.disconnected);
+      seat.dataset.input = inputGlyph(data.actionLabel);
       seat.querySelector<HTMLElement>('.team-hud-name')!.textContent = data.profile.name;
       seat.querySelector<HTMLElement>('.team-hud-role')!.textContent = ROLE_LABEL[data.role];
       seat.querySelector<HTMLElement>('.team-hud-status')!.textContent = `${side === 'left' ? '蓝席' : '黄席'}：${data.status}`;
-      seat.querySelector<HTMLElement>('.team-hud-action')!.textContent = `操作键：${data.actionLabel} · 第 ${state.beat} / ${state.beatTotal} 拍`;
+      seat.querySelector<HTMLElement>('.team-hud-action-copy')!.textContent = `操作键：${data.actionLabel} · 第 ${state.beat} / ${state.beatTotal} 拍`;
       seat.querySelector<HTMLElement>('.team-hud-speed')!.textContent = `${Math.round(data.speedKmh)} km/h`;
       seat.querySelector<HTMLElement>('.team-link-meter i')!.style.transform = `scaleX(${clamp01(data.interactionProgress)})`;
     }
@@ -720,6 +723,15 @@ function wrap(value: number, length: number): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function inputGlyph(label: string): 'forward' | 'reverse' | 'diag-left' | 'diag-right' | 'action' | 'flight' {
+  if (label.includes('↖') || label.includes('W + A') || label.includes('↑ + ←')) return 'diag-left';
+  if (label.includes('↗') || label.includes('W + D') || label.includes('↑ + →')) return 'diag-right';
+  if (label.includes('↓') || label === 'S' || label === '倒车') return 'reverse';
+  if (label.includes('↑') || label === 'W') return 'forward';
+  if (label === 'A' || label.includes('SPACE') || label.includes('ENTER')) return 'flight';
+  return 'action';
 }
 
 function formatTime(seconds: number): string {

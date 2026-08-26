@@ -352,7 +352,10 @@ try {
   state = await page.evaluate(() => window.__harness.teamState());
   assert.equal(state.phase, 'tutorial', `gamepad flow must enter calibration: ${JSON.stringify(state)}`);
   const gamepadHud = (await page.locator('.team-game-hud').innerText()).replace(/\s+/g, ' ');
-  assert.match(gamepadHud, /左摇杆 ↑ \/ RT/, 'gamepad calibration must name stick-forward and RT');
+  assert.match(gamepadHud, /左摇杆 ↑/, 'gamepad calibration must name the single-stick forward control');
+  assert.doesNotMatch(gamepadHud, /RT|LT/, 'co-op HUD must not teach trigger movement');
+  assert.equal(await page.locator('.team-hud-seat[data-input="forward"] .team-hud-input-glyph').count(), 2,
+    'both gamepad seats must show a forward stick glyph during calibration');
   await page.evaluate(() => window.__harness.render());
   await page.screenshot({ path: path.join(root, 'shots/team-gamepad-calibration-desktop.png') });
 
@@ -371,6 +374,8 @@ try {
     `calibration target did not settle the released boat: ${JSON.stringify(state)}`);
   assert.match(state.left.instruction, /前进并左转/, 'turn calibration must explain the combined forward-turn input');
   assert.match(state.left.actionLabel, /左摇杆 ↖/, 'gamepad turn calibration must show a diagonal stick direction');
+  assert.equal(await page.locator('.team-hud-seat.team-seat-left[data-input="diag-left"] .team-hud-input-glyph').count(), 1,
+    'gamepad diagonal tutorial must move the HUD stick glyph up-left');
   await page.evaluate(() => window.__setTeamPadButton(1, 12, true));
   await page.evaluate(() => window.__harness.advance(1.2));
   state = await page.evaluate(() => window.__harness.teamState());
@@ -382,6 +387,11 @@ try {
     window.__setTeamPadAxis(0, 0, -1);
     window.__setTeamPadAxis(1, 0, -1);
   });
+  await page.evaluate(() => window.__harness.advance(0.2));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.ok(state.leftThrottle > 0.5 && state.rightThrottle > 0.5 &&
+    state.leftSteer < -0.5 && state.rightSteer < -0.5,
+  `one stick diagonal input must drive and steer together: ${JSON.stringify(state)}`);
   await page.evaluate(() => window.__harness.advance(1.2));
   await page.evaluate(() => {
     window.__setTeamPadAxis(0, 0, 1);
@@ -391,18 +401,28 @@ try {
   await page.evaluate(() => {
     window.__setTeamPadAxis(0, 0, 0);
     window.__setTeamPadAxis(1, 0, 0);
-    window.__setTeamPadAxis(0, 1, 1);
+    window.__setTeamPadAxis(0, 1, 0);
     window.__setTeamPadAxis(1, 1, 0);
+    window.__setTeamPadButton(0, 7, true);
     window.__setTeamPadButton(1, 6, true);
+  });
+  await page.evaluate(() => window.__harness.advance(0.8));
+  state = await page.evaluate(() => window.__harness.teamState());
+  assert.ok(Math.abs(state.leftThrottle) < 0.08 && Math.abs(state.rightThrottle) < 0.08,
+    `RT/LT must not drive co-op movement: ${JSON.stringify(state)}`);
+  await page.evaluate(() => {
+    window.__setTeamPadButton(0, 7, false);
+    window.__setTeamPadButton(1, 6, false);
+    window.__setTeamPadAxis(0, 1, 0.82);
+    window.__setTeamPadAxis(1, 1, 0.82);
   });
   await page.evaluate(() => window.__harness.advance(2.1));
   state = await page.evaluate(() => window.__harness.teamState());
   assert.ok(state.leftThrottle < -0.5 && state.rightThrottle < -0.5,
-    `gamepad stick-down / LT did not brake or reverse both seats: ${JSON.stringify(state)}`);
+    `gamepad stick-down did not brake or reverse both seats: ${JSON.stringify(state)}`);
   await page.evaluate(() => {
     window.__setTeamPadAxis(0, 1, 0);
     window.__setTeamPadAxis(1, 1, 0);
-    window.__setTeamPadButton(1, 6, false);
     window.__setTeamPadButton(0, 2, true);
     window.__setTeamPadButton(1, 2, true);
   });

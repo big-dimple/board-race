@@ -21,7 +21,6 @@ export interface LocalMenuEdges {
 
 interface PadSnapshot {
   buttons: boolean[];
-  values: number[];
   axes: number[];
 }
 
@@ -35,7 +34,6 @@ interface PadState {
   pad: Gamepad;
   current: PadSnapshot;
   previous: PadSnapshot;
-  steer: number;
   seenAt: number;
 }
 
@@ -122,7 +120,6 @@ export class LocalMultiplayerInput {
           pad,
           current: emptyPadSnapshot(pad),
           previous: emptyPadSnapshot(pad),
-          steer: this.steerValues.get(`gamepad:${pad.index}`) ?? 0,
           seenAt: serial,
         };
         this.pads.set(pad.index, state);
@@ -248,10 +245,9 @@ export class LocalMultiplayerInput {
       if (context.manualThrottle) {
         const stickThrottle = -deadZone(state.current.axes[1] ?? 0);
         const dpadThrottle = (state.current.buttons[12] ? 1 : 0) - (state.current.buttons[13] ? 1 : 0);
-        const forward = Math.max(state.current.values[7] ?? 0, state.current.buttons[7] ? 1 : 0);
-        const reverse = Math.max(state.current.values[6] ?? 0, state.current.buttons[6] ? 1 : 0);
-        const triggerThrottle = clamp01(forward) - clamp01(reverse);
-        throttle = strongestSigned(stickThrottle, dpadThrottle, triggerThrottle);
+        // Co-op movement is one left-stick vector: X steers, Y drives/reverses.
+        // The D-pad remains a digital fallback for pads without a usable stick.
+        throttle = strongestSigned(stickThrottle, dpadThrottle);
       }
     }
 
@@ -259,11 +255,6 @@ export class LocalMultiplayerInput {
     const previous = this.steerValues.get(id) ?? 0;
     const steer = approach(previous, target, 7 * dt);
     this.steerValues.set(id, steer);
-    const padIndex = id.startsWith('gamepad:') ? gamepadIndex(id) : -1;
-    if (padIndex >= 0) {
-      const pad = this.pads.get(padIndex);
-      if (pad) pad.steer = steer;
-    }
     output.throttle = throttle;
     output.steer = steer;
     output.drift = drift && !context.flightActive;
@@ -279,7 +270,6 @@ export class LocalMultiplayerInput {
     for (const output of this.boatOutputs.values()) Object.assign(output, neutralBoatInput());
     for (const state of this.pads.values()) {
       copySnapshot(state.previous, state.current);
-      state.steer = 0;
       stopPadRumble(state.pad);
     }
   }
@@ -337,29 +327,24 @@ interface HapticActuatorLike {
 function emptyPadSnapshot(pad: Gamepad): PadSnapshot {
   return {
     buttons: new Array(pad.buttons.length).fill(false),
-    values: new Array(pad.buttons.length).fill(0),
     axes: new Array(pad.axes.length).fill(0),
   };
 }
 
 function fillSnapshot(target: PadSnapshot, pad: Gamepad): void {
   target.buttons.length = pad.buttons.length;
-  target.values.length = pad.buttons.length;
   target.axes.length = pad.axes.length;
   for (let i = 0; i < pad.buttons.length; i++) {
     const button = pad.buttons[i];
     target.buttons[i] = button.pressed || button.value > 0.6;
-    target.values[i] = button.value;
   }
   for (let i = 0; i < pad.axes.length; i++) target.axes[i] = pad.axes[i];
 }
 
 function copySnapshot(target: PadSnapshot, source: PadSnapshot): void {
   target.buttons.length = source.buttons.length;
-  target.values.length = source.values.length;
   target.axes.length = source.axes.length;
   for (let i = 0; i < source.buttons.length; i++) target.buttons[i] = source.buttons[i];
-  for (let i = 0; i < source.values.length; i++) target.values[i] = source.values[i];
   for (let i = 0; i < source.axes.length; i++) target.axes[i] = source.axes[i];
 }
 
@@ -414,10 +399,9 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-function strongestSigned(a: number, b: number, c: number): number {
+function strongestSigned(a: number, b: number): number {
   let strongest = a;
   if (Math.abs(b) > Math.abs(strongest)) strongest = b;
-  if (Math.abs(c) > Math.abs(strongest)) strongest = c;
   return Math.max(-1, Math.min(1, strongest));
 }
 

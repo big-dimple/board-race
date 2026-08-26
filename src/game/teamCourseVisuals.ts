@@ -42,6 +42,10 @@ const LIME = 0xc5f33b;
 const CORAL = 0xff536e;
 const PAPER = 0xf3f1df;
 const STEEL = 0x4a6178;
+const RIG_LATERAL_M = 3.9;
+const RIG_FORWARD_M = 7.1;
+const RIG_SCALE = 0.88;
+const CRADLE_LOCAL_X_M = 5.7;
 const UP = new THREE.Vector3(0, 1, 0);
 const _worldTangent = new THREE.Vector3();
 
@@ -52,6 +56,15 @@ interface TargetMarker {
   ring: THREE.MeshBasicMaterial;
   core: THREE.MeshBasicMaterial;
   arrow: THREE.MeshBasicMaterial;
+  guideBeam: THREE.Mesh;
+  guideBeamMaterial: THREE.MeshBasicMaterial;
+  guideNodes: THREE.Mesh[];
+  impactRing: THREE.Mesh;
+  impactMaterial: THREE.MeshBasicMaterial;
+  hammerGaugeNeedle: THREE.Group;
+  anchorSpool: THREE.Group;
+  consoleScreenMaterial: THREE.MeshBasicMaterial;
+  dockBeaconMaterial: THREE.MeshBasicMaterial;
   rig: THREE.Group;
   platform: THREE.Group;
   connector: THREE.Group;
@@ -71,7 +84,11 @@ interface TargetMarker {
   dock: THREE.Group;
   dockArmA: THREE.Group;
   dockArmB: THREE.Group;
+  guidePhase: number;
 }
+
+type WorkRig = Omit<TargetMarker, 'group' | 'energy' | 'arrowMesh' | 'ring' | 'core' | 'arrow' |
+  'guideBeam' | 'guideBeamMaterial' | 'guideNodes' | 'impactRing' | 'impactMaterial' | 'guidePhase'>;
 
 /** Authored machinery driven by the same state that decides each co-op outcome. */
 export class TeamCourseVisuals {
@@ -79,6 +96,8 @@ export class TeamCourseVisuals {
   private readonly left = targetMarker(CYAN);
   private readonly right = targetMarker(LIME);
   private readonly relayRail: THREE.Mesh[] = [];
+  private readonly relayFlowNodes: THREE.Mesh[] = [];
+  private readonly relayFlowMaterials: THREE.MeshBasicMaterial[] = [];
   private readonly railPoints = Array.from({ length: 7 }, () => new THREE.Vector3());
   private readonly pulse: THREE.Group;
   private readonly pulseHalo: THREE.Mesh;
@@ -107,6 +126,17 @@ export class TeamCourseVisuals {
       rail.name = `team-core-rail-${i + 1}`;
       this.relayRail.push(rail);
       this.object.add(rail);
+    }
+    const flowGeometry = new THREE.IcosahedronGeometry(0.32, 1);
+    for (let i = 0; i < 5; i++) {
+      const flowMaterial = energyMaterial(i < 3 ? CYAN : LIME, 0.9);
+      const node = new THREE.Mesh(flowGeometry, flowMaterial);
+      node.name = `team-core-flow-${i + 1}`;
+      node.userData.noInk = true;
+      node.layers.enable(LAYER_ENERGY);
+      this.relayFlowNodes.push(node);
+      this.relayFlowMaterials.push(flowMaterial);
+      this.object.add(node);
     }
 
     this.pulse = coreCapsule();
@@ -185,10 +215,10 @@ export class TeamCourseVisuals {
     const sideSign = phase === 0 ? -1 : 1;
     const mechanical = state.mode !== 'tutorial' && (target.kind !== 'runner' || state.mode === 'sky');
     marker.rig.visible = mechanical;
-    marker.rig.position.set(sideSign * 4.8, 0, 8.5);
-    marker.rig.scale.setScalar(0.72);
-    marker.connector.position.x = -sideSign * 3.3;
-    marker.receiverCradle.position.x = -sideSign * 6.6;
+    marker.rig.position.set(sideSign * RIG_LATERAL_M, 0, RIG_FORWARD_M);
+    marker.rig.scale.setScalar(RIG_SCALE);
+    marker.connector.position.x = -sideSign * 2.7;
+    marker.receiverCradle.position.x = -sideSign * CRADLE_LOCAL_X_M;
     marker.platform.visible = mechanical;
     marker.connector.visible = target.kind === 'source' || target.kind === 'receiver' ||
       target.kind === 'anchor' || target.kind === 'control';
@@ -199,6 +229,65 @@ export class TeamCourseVisuals {
     marker.console.visible = target.kind === 'control';
     marker.launcher.visible = target.kind === 'runner' && state.mode === 'sky';
     marker.dock.visible = target.kind === 'dock';
+
+    // A moving link makes the next machine legible before the player reaches it.
+    const guideActive = mechanical && target.active && !target.complete;
+    const guideX = sideSign * RIG_LATERAL_M;
+    const guideZ = RIG_FORWARD_M;
+    const guideLength = Math.hypot(guideX, guideZ);
+    marker.guideBeam.visible = guideActive;
+    marker.guideBeam.position.set(guideX * 0.5, 1.35, guideZ * 0.5);
+    marker.guideBeam.rotation.y = Math.atan2(guideX, guideZ);
+    marker.guideBeam.scale.set(1, 1, guideLength);
+    const power = target.kind === 'source' ? state.sourcePower
+      : target.kind === 'receiver' ? state.receiverPower
+      : target.kind === 'anchor' ? state.lockPower
+      : target.kind === 'control' ? (state.skyPowered ? 1 : 0)
+      : target.kind === 'dock' ? state.dockPower : state.sourcePower;
+    const guideOpacity = THREE.MathUtils.clamp(0.24 + power * 0.28 + Math.sin(t * 8 + marker.guidePhase) * 0.07, 0.14, 0.68);
+    marker.guideBeamMaterial.opacity = guideActive ? guideOpacity : 0;
+    const towardTool = target.kind === 'source' || target.kind === 'anchor' || target.kind === 'control';
+    for (let i = 0; i < marker.guideNodes.length; i++) {
+      const node = marker.guideNodes[i];
+      const material = node.material as THREE.MeshBasicMaterial;
+      node.visible = guideActive;
+      const flow = (t * 0.58 + marker.guidePhase * 0.17 + i * 0.29) % 1;
+      const p = towardTool ? flow : 1 - flow;
+      node.position.set(guideX * p, 1.35 + Math.sin(t * 9 + i) * 0.12, guideZ * p);
+      node.scale.setScalar(0.72 + Math.sin(t * 10 + i * 1.7) * 0.16);
+      material.opacity = guideActive ? guideOpacity * (0.7 - i * 0.08) : 0;
+    }
+
+    // The same charge values that unlock a station also drive a local shock ring.
+    const anchorPower = THREE.MathUtils.clamp(state.receiverPower, 0, 1);
+    let impact = 0;
+    let missed = false;
+    if (state.mode === 'resonance') {
+      const pulse = THREE.MathUtils.clamp(state.pulseProgress, 0, 1);
+      if (state.pulseMissProgress > 0 && target.kind === 'receiver') {
+        impact = 1 - THREE.MathUtils.clamp(state.pulseMissProgress, 0, 1);
+        missed = true;
+      } else if (state.pulseActive && target.kind === 'source') {
+        impact = 1 - smooth01(pulse / 0.24);
+      } else if (state.pulseActive && target.kind === 'receiver') {
+        impact = smooth01((pulse - 0.7) / 0.3);
+      }
+      impact = Math.max(impact, Math.min(0.32, power * 0.32));
+    }
+    marker.impactRing.visible = impact > 0.01;
+    marker.impactRing.position.y = 0.16 + Math.sin(t * 10 + phase) * 0.035;
+    marker.impactRing.scale.setScalar(1 + impact * 2.25);
+    marker.impactMaterial.opacity = impact * (missed ? 0.68 : 0.54);
+    marker.impactMaterial.color.setHex(missed ? CORAL : phase === 0 ? CYAN : LIME, THREE.NoColorSpace);
+
+    marker.hammerGaugeNeedle.rotation.z = -0.72 + THREE.MathUtils.clamp(state.sourcePower, 0, 1) * 1.44;
+    marker.anchorSpool.rotation.z = t * (0.25 + anchorPower * 2.2);
+    marker.consoleScreenMaterial.opacity = state.skyPowered
+      ? 0.72 + Math.sin(t * 9 + phase) * 0.18
+      : target.kind === 'control' ? 0.26 : 0.08;
+    marker.dockBeaconMaterial.opacity = target.kind === 'dock'
+      ? THREE.MathUtils.clamp(0.48 + THREE.MathUtils.clamp(state.dockPower, 0, 1) * 0.45 + Math.sin(t * 8 + phase) * 0.16, 0, 1)
+      : 0;
 
     const idleAngle = -sideSign * 0.1;
     const chargedAngle = -sideSign * 0.72;
@@ -212,7 +301,6 @@ export class TeamCourseVisuals {
     }
     marker.hammerPivot.rotation.z = hammerAngle;
 
-    const anchorPower = THREE.MathUtils.clamp(state.receiverPower, 0, 1);
     marker.anchorSpike.position.y = 3.35 - anchorPower * 3.05;
     marker.anchorJawA.rotation.z = sideSign * (0.5 - anchorPower * 0.42);
     marker.anchorJawB.rotation.z = -sideSign * (0.5 - anchorPower * 0.42);
@@ -231,12 +319,14 @@ export class TeamCourseVisuals {
   private updateRelayRail(state: TeamVisualState, t: number): void {
     const visible = state.mode === 'resonance';
     for (const rail of this.relayRail) rail.visible = visible;
+    const flowVisible = visible && state.pulseActive && state.pulseMissProgress <= 0;
+    for (const node of this.relayFlowNodes) node.visible = flowVisible;
     if (!visible) return;
-    worldAt(this.course, state.pulseFromU, state.pulseFromLateral, t, this.scratch);
-    worldAt(this.course, state.pulseToU, state.pulseToLateral, t, this.scratchB);
-    this.course.tangentAt((state.pulseFromU + state.pulseToU) * 0.5, this.tangent).setY(0).normalize();
-    this.scratch.addScaledVector(this.tangent, 8.5);
-    this.scratchB.addScaledVector(this.tangent, 8.5);
+    const fromSide = Math.sign(state.pulseFromLateral) || -1;
+    const toSide = Math.sign(state.pulseToLateral) || 1;
+    worldAtRig(this.course, state.pulseFromU, state.pulseFromLateral, fromSide * RIG_LATERAL_M, t, this.scratch);
+    worldAtRig(this.course, state.pulseToU, state.pulseToLateral,
+      toSide * (RIG_LATERAL_M - CRADLE_LOCAL_X_M * RIG_SCALE), t, this.scratchB);
     const slack = (1 - THREE.MathUtils.clamp(state.receiverPower, 0, 1)) * 1.25;
     for (let i = 0; i < this.railPoints.length; i++) {
       const p = i / (this.railPoints.length - 1);
@@ -245,17 +335,28 @@ export class TeamCourseVisuals {
       point.y += 1.45 + Math.sin(p * Math.PI) * 2.35 - Math.max(0, p - 0.68) * slack * 2.2;
       if (i > 0) placeCylinderBetween(this.relayRail[i - 1], this.railPoints[i - 1], point, this.direction, this.quaternion);
     }
+    if (!flowVisible) return;
+    const pulse = THREE.MathUtils.clamp(state.pulseProgress, 0, 1);
+    for (let i = 0; i < this.relayFlowNodes.length; i++) {
+      const trail = i * 0.1;
+      const p = THREE.MathUtils.clamp(pulse * 1.16 - trail, 0, 1);
+      const point = this.relayFlowNodes[i].position;
+      point.lerpVectors(this.scratch, this.scratchB, p);
+      point.y += 1.45 + Math.sin(p * Math.PI) * 2.35;
+      this.relayFlowNodes[i].scale.setScalar(0.68 + Math.sin(t * 12 + i) * 0.14);
+      this.relayFlowMaterials[i].opacity = Math.max(0.08, 0.92 - trail * 2.2);
+    }
   }
 
   private updatePulse(state: TeamVisualState, t: number): void {
     this.pulse.visible = state.mode === 'resonance' && state.pulseActive;
     this.splash.visible = false;
     if (!this.pulse.visible) return;
-    worldAt(this.course, state.pulseFromU, state.pulseFromLateral, t, this.scratch);
-    worldAt(this.course, state.pulseToU, state.pulseToLateral, t, this.scratchB);
-    this.course.tangentAt((state.pulseFromU + state.pulseToU) * 0.5, this.tangent).setY(0).normalize();
-    this.scratch.addScaledVector(this.tangent, 8.5);
-    this.scratchB.addScaledVector(this.tangent, 8.5);
+    const fromSide = Math.sign(state.pulseFromLateral) || -1;
+    const toSide = Math.sign(state.pulseToLateral) || 1;
+    worldAtRig(this.course, state.pulseFromU, state.pulseFromLateral, fromSide * RIG_LATERAL_M, t, this.scratch);
+    worldAtRig(this.course, state.pulseToU, state.pulseToLateral,
+      toSide * (RIG_LATERAL_M - CRADLE_LOCAL_X_M * RIG_SCALE), t, this.scratchB);
     const miss = THREE.MathUtils.clamp(state.pulseMissProgress, 0, 1);
     if (miss > 0) {
       this.pulse.position.copy(this.scratchB);
@@ -293,9 +394,8 @@ export class TeamCourseVisuals {
     this.lockMaterial.opacity = 0.55 + power * 0.4;
     if (!this.lockCable.visible) return;
     const anchor = state.left.kind === 'anchor' ? state.left : state.right;
-    worldAt(this.course, anchor.u, anchor.lateral, t, this.scratch);
-    this.course.tangentAt(anchor.u, this.tangent).setY(0).normalize();
-    this.scratch.addScaledVector(this.tangent, 8.5);
+    const anchorSide = Math.sign(anchor.lateral) || -1;
+    worldAtRig(this.course, anchor.u, anchor.lateral, anchorSide * RIG_LATERAL_M, t, this.scratch);
     worldAt(this.course, state.lockU, 0, t, this.scratchB);
     this.scratch.y += 2.4;
     this.scratchB.y += 1.5 + power * 5.1;
@@ -306,9 +406,8 @@ export class TeamCourseVisuals {
     this.tether.visible = state.mode === 'sky' && state.skyPowered;
     if (!this.tether.visible) return;
     const control = state.left.kind === 'control' ? state.left : state.right;
-    worldAt(this.course, control.u, control.lateral, t, this.scratch);
-    this.course.tangentAt(control.u, this.tangent).setY(0).normalize();
-    this.scratch.addScaledVector(this.tangent, 8.5);
+    const controlSide = Math.sign(control.lateral) || -1;
+    worldAtRig(this.course, control.u, control.lateral, controlSide * RIG_LATERAL_M, t, this.scratch);
     const route = this.course.flightRoutes[state.skyRouteIndex];
     this.course.routePointAt(route.id, route.gateUs[0], this.scratchB);
     this.course.routeTangentAt(route.id, route.gateUs[0], this.tangent).setY(0).normalize();
@@ -339,12 +438,33 @@ function targetMarker(color: number): TargetMarker {
   energy.add(core, ring, arrow);
   energy.traverse((child) => child.layers.enable(LAYER_ENERGY));
 
+  const guideBeamMaterial = energyMaterial(color, 0);
+  const guideBeam = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 1), guideBeamMaterial);
+  guideBeam.name = 'team-tool-guide-beam';
+  guideBeam.userData.noInk = true;
+  guideBeam.layers.enable(LAYER_ENERGY);
+  const guideNodes = Array.from({ length: 3 }, (_, index) => {
+    const node = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), energyMaterial(color, 0));
+    node.name = `team-tool-guide-node-${index + 1}`;
+    node.userData.noInk = true;
+    node.layers.enable(LAYER_ENERGY);
+    return node;
+  });
+  const impactMaterial = energyMaterial(color, 0);
+  const impactRing = new THREE.Mesh(new THREE.RingGeometry(2.1, 2.42, 32), impactMaterial);
+  impactRing.name = 'team-tool-impact-ring';
+  impactRing.rotation.x = -Math.PI / 2;
+  impactRing.userData.noInk = true;
+  impactRing.layers.enable(LAYER_ENERGY);
+
   const work = workRig(color);
-  group.add(energy, work.rig);
-  return { group, energy, arrowMesh: arrow, ring: ringMaterial, core: coreMaterial, arrow: arrowMaterial, ...work };
+  group.add(energy, guideBeam, impactRing, ...guideNodes, work.rig);
+  return { group, energy, arrowMesh: arrow, ring: ringMaterial, core: coreMaterial, arrow: arrowMaterial,
+    guideBeam, guideBeamMaterial, guideNodes, impactRing, impactMaterial,
+    guidePhase: color === CYAN ? 0 : 1, ...work };
 }
 
-function workRig(color: number): Omit<TargetMarker, 'group' | 'energy' | 'arrowMesh' | 'ring' | 'core' | 'arrow'> {
+function workRig(color: number): WorkRig {
   const rig = new THREE.Group();
   rig.name = 'team-work-rig';
   const accent = solidMaterial(color, 0.4, 0.52, color);
@@ -385,6 +505,22 @@ function workRig(color: number): Omit<TargetMarker, 'group' | 'energy' | 'arrowM
   const face = new THREE.Mesh(new THREE.BoxGeometry(3.05, 0.42, 1.78), accent);
   face.position.y = 3.75;
   hammerPivot.add(handle, head, face);
+  const piston = new THREE.Group();
+  const pistonRod = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 2.15, 10), paper);
+  pistonRod.position.set(0, 2.05, -0.72);
+  const pistonSleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.44, 10), accent);
+  pistonSleeve.position.set(0, 1.15, -0.72);
+  piston.add(pistonRod, pistonSleeve);
+  hammer.add(piston);
+  const hammerGauge = new THREE.Group();
+  hammerGauge.position.set(0, 2.12, -1.24);
+  const gaugeFace = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.1, 8, 18), accent);
+  const hammerGaugeNeedle = new THREE.Group();
+  const needle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.42, 0.08), paper);
+  needle.position.y = 0.2;
+  hammerGaugeNeedle.add(needle);
+  hammerGauge.add(gaugeFace, hammerGaugeNeedle);
+  hammer.add(hammerGauge);
   hammer.add(hammerPivot);
   rig.add(hammer);
 
@@ -403,6 +539,16 @@ function workRig(color: number): Omit<TargetMarker, 'group' | 'energy' | 'arrowM
   const anchorJawA = clampJaw(accent, -0.78);
   const anchorJawB = clampJaw(accent, 0.78);
   anchor.add(anchorJawA, anchorJawB);
+  const anchorSpool = new THREE.Group();
+  anchorSpool.position.set(0, 2.3, -1.02);
+  const spoolBody = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, 0.54, 12), steel);
+  spoolBody.rotation.x = Math.PI / 2;
+  const spoolLipA = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.12, 8, 16), accent);
+  const spoolLipB = spoolLipA.clone();
+  spoolLipA.position.z = -0.28;
+  spoolLipB.position.z = 0.28;
+  anchorSpool.add(spoolBody, spoolLipA, spoolLipB);
+  anchor.add(anchorSpool);
   rig.add(anchor);
 
   const receiverCradle = new THREE.Group();
@@ -428,6 +574,14 @@ function workRig(color: number): Omit<TargetMarker, 'group' | 'energy' | 'arrowM
     wheel.position.x = x;
     winchDrum.add(wheel);
   }
+  const ratchet = new THREE.Group();
+  for (let i = 0; i < 10; i++) {
+    const angle = (i / 10) * Math.PI * 2;
+    const tooth = addBox(ratchet, 0.18, 0.38, 0.22, accent,
+      0, Math.sin(angle) * 1.34, Math.cos(angle) * 1.34);
+    tooth.rotation.x = -angle;
+  }
+  winchDrum.add(ratchet);
   winch.add(winchDrum);
   rig.add(winch);
 
@@ -435,11 +589,19 @@ function workRig(color: number): Omit<TargetMarker, 'group' | 'energy' | 'arrowM
   console.name = 'team-flight-console';
   addBox(console, 3.8, 0.58, 3.2, dark, 0, 0.76, 0);
   addBox(console, 2.8, 2.4, 1.6, steel, 0, 2.15, 0);
-  const screen = new THREE.Mesh(new THREE.BoxGeometry(2.15, 1.05, 0.12), energyMaterial(color, 0.88));
+  const screenMaterial = energyMaterial(color, 0.88);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(2.15, 1.05, 0.12), screenMaterial);
   screen.userData.noInk = true;
   screen.position.set(0, 2.45, -0.86);
   screen.layers.enable(LAYER_ENERGY);
   console.add(screen);
+  for (const [width, height, x, y] of [
+    [2.48, 0.12, 0, 3.08], [2.48, 0.12, 0, 1.82],
+    [0.12, 1.36, -1.18, 2.45], [0.12, 1.36, 1.18, 2.45],
+  ] as const) addBox(console, width, height, 0.08, paper, x, y, -0.92);
+  const signalBars = new THREE.Group();
+  for (let i = 0; i < 4; i++) addBox(signalBars, 0.14, 0.14 + i * 0.16, 0.06, accent, -0.72 + i * 0.48, 2.02 + i * 0.08, -0.99);
+  console.add(signalBars);
   const consoleWheel = new THREE.Group();
   consoleWheel.position.set(0, 3.6, -0.42);
   const wheelRing = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.18, 8, 20), accent);
@@ -468,10 +630,17 @@ function workRig(color: number): Omit<TargetMarker, 'group' | 'energy' | 'arrowM
   const dockArmA = dockArm(accent, -1.35);
   const dockArmB = dockArm(accent, 1.35);
   dock.add(dockArmA, dockArmB);
+  const dockBeaconMaterial = energyMaterial(color, 0);
+  const dockBeacon = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), dockBeaconMaterial);
+  dockBeacon.position.set(0, 2.4, -1.55);
+  dockBeacon.userData.noInk = true;
+  dockBeacon.layers.enable(LAYER_ENERGY);
+  dock.add(dockBeacon);
   rig.add(dock);
 
   return { rig, platform, connector, hammer, hammerPivot, anchor, anchorSpike, anchorJawA, anchorJawB,
-    receiverCradle, winch, winchDrum, console, consoleWheel, launcher, launchBed, dock, dockArmA, dockArmB };
+    receiverCradle, winch, winchDrum, console, consoleWheel, launcher, launchBed, dock, dockArmA, dockArmB,
+    hammerGaugeNeedle, anchorSpool, consoleScreenMaterial: screenMaterial, dockBeaconMaterial };
 }
 
 function clampJaw(material: THREE.Material, x: number): THREE.Group {
@@ -569,6 +738,15 @@ function worldAt(course: Course, u: number, lateral: number, t: number, out: THR
   out.x += _worldTangent.z * lateral;
   out.z -= _worldTangent.x * lateral;
   out.y = waterHeight(out.x, out.z, t);
+  return out;
+}
+
+function worldAtRig(course: Course, u: number, lateral: number, rigLateral: number, t: number,
+  out: THREE.Vector3): THREE.Vector3 {
+  worldAt(course, u, lateral, t, out);
+  out.addScaledVector(_worldTangent, RIG_FORWARD_M);
+  out.x += _worldTangent.z * rigLateral;
+  out.z -= _worldTangent.x * rigLateral;
   return out;
 }
 

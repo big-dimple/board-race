@@ -682,7 +682,9 @@ function handleTeamEvent(event: TeamExpeditionEvent): void {
 }
 
 function teamCalibrationIntro(snapshot: ReturnType<TeamExpedition['snapshot']>): string {
-  return `前进：${snapshot.left.actionLabel} / ${snapshot.right.actionLabel} · 光圈内松开输入会自动稳船`;
+  const singleStick = snapshot.left.actionLabel.includes('左摇杆') || snapshot.right.actionLabel.includes('左摇杆');
+  const steering = singleStick ? '同一根左摇杆左右转向，斜向同时生效' : '左右转向与前进可同时按住';
+  return `前进：${snapshot.left.actionLabel} / ${snapshot.right.actionLabel} · ${steering} · 光圈内松开输入会自动稳船`;
 }
 
 function teamStationIntro(snapshot: ReturnType<TeamExpedition['snapshot']>): string {

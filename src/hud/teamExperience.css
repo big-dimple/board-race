@@ -220,7 +220,40 @@
 .team-hud-seat.team-seat-left .team-link-meter i { background: var(--team-cyan); }
 .team-hud-seat.team-seat-right .team-link-meter i { background: var(--team-lime); }
 .team-seat-right .team-link-meter i { transform-origin: right; }
-.team-hud-action { color: var(--team-paper); font: 900 14px/1.2 Arial, sans-serif; }
+.team-hud-action { display: flex; align-items: center; gap: 9px; color: var(--team-paper); font: 900 14px/1.2 Arial, sans-serif; }
+.team-seat-right .team-hud-action { justify-content: flex-end; flex-direction: row-reverse; }
+.team-hud-action-copy { min-width: 0; }
+.team-hud-input-glyph {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--seat-color) 78%, white 22%);
+  border-radius: 50%;
+  box-sizing: border-box;
+  color: var(--seat-color);
+  font: 900 13px/1 Arial, sans-serif;
+  text-shadow: 0 0 8px currentColor;
+}
+.team-hud-input-glyph::before { content: ''; position: absolute; inset: 4px; border: 1px solid currentColor; border-radius: inherit; opacity: .3; }
+.team-hud-input-glyph::after { content: '•'; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: var(--team-paper); font-size: 18px; line-height: 1; transition: transform 120ms ease; }
+.team-hud-seat[data-input="forward"] .team-hud-input-glyph::after { transform: translate(-50%, -92%); }
+.team-hud-seat[data-input="reverse"] .team-hud-input-glyph::after { transform: translate(-50%, -8%); }
+.team-hud-seat[data-input="diag-left"] .team-hud-input-glyph::after { transform: translate(-82%, -82%); }
+.team-hud-seat[data-input="diag-right"] .team-hud-input-glyph::after { transform: translate(-18%, -82%); }
+.team-hud-seat[data-input="action"] .team-hud-input-glyph { border-radius: 4px; }
+.team-hud-seat[data-input="action"] .team-hud-input-glyph::after { content: 'X'; font-size: 11px; }
+.team-hud-seat[data-input="flight"] .team-hud-input-glyph { border-radius: 4px; }
+.team-hud-seat[data-input="flight"] .team-hud-input-glyph::after { content: 'A'; font-size: 11px; }
+.team-hud-seat[data-hint="2"] .team-hud-input-glyph {
+  animation: team-input-ping 760ms ease-in-out infinite alternate;
+}
+@keyframes team-input-ping {
+  to { transform: scale(1.08); box-shadow: 0 0 0 4px color-mix(in srgb, var(--seat-color) 18%, transparent), 0 0 18px var(--seat-color); }
+}
 .team-hud-speed { position: absolute; right: 18px; bottom: max(18px, env(safe-area-inset-bottom)); color: rgba(244, 247, 239, .8); font-size: 12px; }
 .team-seat-right .team-hud-speed { right: auto; left: 18px; }
 .team-mission { position: absolute; z-index: 3; top: max(13px, env(safe-area-inset-top)); left: 50%; display: grid; width: min(430px, 44vw); min-width: 280px; padding: 10px 20px; transform: translateX(-50%); background: rgba(7, 11, 24, .94); text-align: center; box-sizing: border-box; }
@@ -282,6 +315,8 @@
   .team-mode-item,
   .team-driver-portrait,
   .team-seat-arrow,
-  .team-link-meter i { transition: none; }
+  .team-link-meter i,
+  .team-hud-input-glyph::after,
+  .team-hud-input-glyph { transition: none; animation: none; }
   .team-transition.on { animation: none; }
 }
