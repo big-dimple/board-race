@@ -36,6 +36,49 @@ export interface BoatInput {
   airBrake: boolean;
 }
 
+/** Player-facing race variants. Kept as a protocol value for future online rooms. */
+export type RaceMode = 'single' | 'duo';
+
+/** Stable local seat assignment; the same shape can be sent in a server room DTO. */
+export interface PlayerSeat {
+  playerIndex: 0 | 1;
+  racerId: number;
+  side: 'left' | 'right';
+  deviceId: string;
+  driverId: string;
+}
+
+/** One deterministic accolade emitted by the race director. */
+export interface HonorAward {
+  id: string;
+  racerId: number;
+  value: number;
+  at: number;
+}
+
+/** Compact, JSON-safe end-of-run honor payload for local saves and later netcode. */
+export interface HonorSummary {
+  score: number;
+  counts: Record<string, number>;
+  awards: readonly HonorAward[];
+}
+
+/** Versioned result envelope deliberately free of Three.js objects. */
+export interface RaceResultEnvelope {
+  schema: 'board-race-race-result/v1';
+  mode: RaceMode;
+  raceTime: number;
+  racers: readonly {
+    racerId: number;
+    place: number;
+    progress: number;
+    finished: boolean;
+    eliminated: boolean;
+  }[];
+  seats: readonly PlayerSeat[];
+  honors: HonorSummary;
+}
+
 /**
  * A compact water disturbance sampled from another hull's recent wake.
  * Values are meters of local lift at the five hull probes; the signed side

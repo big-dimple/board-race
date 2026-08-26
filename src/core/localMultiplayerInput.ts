@@ -27,6 +27,13 @@ interface PadSnapshot {
 export interface LocalBoatInputContext {
   flightActive: boolean;
   manualThrottle: boolean;
+  /** Keep the arcade auto-forward baseline while allowing stick-down braking. */
+  autoForward?: boolean;
+}
+
+export interface LocalInteractionEdges {
+  support: boolean;
+  prank: boolean;
 }
 
 interface PadState {
@@ -47,6 +54,7 @@ const ZERO_EDGES: LocalMenuEdges = {
 
 const PAD_DEAD_ZONE = 0.18;
 const PAD_NAV_THRESHOLD = 0.62;
+const PAD_DIAGONAL_COMPONENT = 0.32;
 const KEYBOARD_LEFT: LocalDeviceInfo = {
   id: 'keyboard-left',
   label: '键盘 · W A S D',
@@ -178,6 +186,29 @@ export class LocalMultiplayerInput {
     };
   }
 
+  /** Actions available to a player whose boat has been eliminated. */
+  interactionEdges(id: LocalDeviceId): LocalInteractionEdges {
+    if (id === 'keyboard-left') {
+      return {
+        support: this.consumeAny(['KeyQ']),
+        prank: this.consumeAny(['KeyE']),
+      };
+    }
+    if (id === 'keyboard-right') {
+      return {
+        support: this.consumeAny(['KeyU']),
+        prank: this.consumeAny(['KeyO']),
+      };
+    }
+    const state = this.pads.get(gamepadIndex(id));
+    if (!state) return { support: false, prank: false };
+    // Standard mapping: B = support, Y = playful interference.
+    return {
+      support: padButtonEdge(state, 1),
+      prank: padButtonEdge(state, 3),
+    };
+  }
+
   pauseEdge(id: LocalDeviceId): boolean {
     if (id === 'keyboard-left' || id === 'keyboard-right') return this.consumeAny(['Escape']);
     const state = this.pads.get(gamepadIndex(id));
@@ -209,7 +240,7 @@ export class LocalMultiplayerInput {
     let drift = false;
     let flightTrigger = false;
     let rawSteer = 0;
-    let throttle = context.manualThrottle ? 0 : 1;
+    let throttle = context.manualThrottle ? (context.autoForward ? 1 : 0) : 1;
 
     if (id === 'keyboard-left') {
       left = this.keys.has('KeyA');
@@ -217,7 +248,8 @@ export class LocalMultiplayerInput {
       drift = this.keys.has('ShiftLeft');
       flightTrigger = this.consumeAny(['Space']);
       if (context.manualThrottle) {
-        throttle = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
+        const keyboardThrottle = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
+        throttle = context.autoForward && keyboardThrottle === 0 ? 1 : keyboardThrottle;
       }
     } else if (id === 'keyboard-right') {
       left = this.keys.has('ArrowLeft') || this.keys.has('KeyJ');
@@ -225,7 +257,8 @@ export class LocalMultiplayerInput {
       drift = this.keys.has('Numpad0') || this.keys.has('KeyK') || this.keys.has('ShiftRight');
       flightTrigger = this.consumeAny(['NumpadEnter', 'KeyI']);
       if (context.manualThrottle) {
-        throttle = (this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('ArrowDown') ? 1 : 0);
+        const keyboardThrottle = (this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('ArrowDown') ? 1 : 0);
+        throttle = context.autoForward && keyboardThrottle === 0 ? 1 : keyboardThrottle;
       }
     } else {
       const state = this.pads.get(gamepadIndex(id));
@@ -247,7 +280,8 @@ export class LocalMultiplayerInput {
         const dpadThrottle = (state.current.buttons[12] ? 1 : 0) - (state.current.buttons[13] ? 1 : 0);
         // Co-op movement is one left-stick vector: X steers, Y drives/reverses.
         // The D-pad remains a digital fallback for pads without a usable stick.
-        throttle = strongestSigned(stickThrottle, dpadThrottle);
+        const vectorThrottle = strongestSigned(stickThrottle, dpadThrottle);
+        throttle = context.autoForward && Math.abs(vectorThrottle) < 0.05 ? 1 : vectorThrottle;
       }
     }
 
@@ -353,13 +387,27 @@ function padButtonEdge(state: PadState, index: number): boolean {
 }
 
 function padDirectionEdge(state: PadState, direction: -1 | 1): boolean {
-  const currentAxis = state.current.axes[0] ?? 0;
-  const previousAxis = state.previous.axes[0] ?? 0;
-  const button = direction < 0 ? 14 : 15;
-  const axisEdge = direction < 0
-    ? currentAxis <= -PAD_NAV_THRESHOLD && previousAxis > -PAD_NAV_THRESHOLD
-    : currentAxis >= PAD_NAV_THRESHOLD && previousAxis < PAD_NAV_THRESHOLD;
-  return axisEdge || padButtonEdge(state, button);
+  // A diagonal is still a horizontal menu choice. Classify the full vector so
+  // up-left/down-left cannot be lost when the vertical axis moves first.
+  const current = padHorizontalDirection(state.current);
+  const previous = padHorizontalDirection(state.previous);
+  return current === direction && previous !== direction;
+}
+
+function padHorizontalDirection(snapshot: PadSnapshot): -1 | 0 | 1 {
+  const axis = snapshot.axes[0] ?? 0;
+  const vertical = snapshot.axes[1] ?? 0;
+  // A steep diagonal can expose only ~0.5 on X. Once the whole stick vector
+  // is intentionally deflected, keep its horizontal sign for seat selection;
+  // a small accidental nudge still stays neutral.
+  if (Math.hypot(axis, vertical) >= PAD_NAV_THRESHOLD && Math.abs(axis) >= PAD_DIAGONAL_COMPONENT) {
+    return axis < 0 ? -1 : 1;
+  }
+  const left = Boolean(snapshot.buttons[14]);
+  const right = Boolean(snapshot.buttons[15]);
+  if (left && !right) return -1;
+  if (right && !left) return 1;
+  return 0;
 }
 
 function deadZone(value: number): number {
@@ -385,7 +433,7 @@ function isOwnedKey(code: string): boolean {
   return [
     'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'Space', 'KeyQ',
     'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'ShiftRight', 'Numpad0', 'NumpadEnter', 'NumpadDecimal',
-    'KeyJ', 'KeyL', 'KeyK', 'KeyI', 'KeyU', 'Escape',
+    'KeyJ', 'KeyL', 'KeyK', 'KeyI', 'KeyU', 'KeyE', 'KeyO', 'Escape',
   ].includes(code);
 }
 

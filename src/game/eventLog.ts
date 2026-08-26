@@ -7,7 +7,10 @@ export type GameEventName =
   | 'expansion_view_open'
   | 'expansion_page_view'
   | 'expansion_return_game'
-  | 'continue_game';
+  | 'continue_game'
+  | 'duo_interaction'
+  | 'duo_elimination'
+  | 'honor_award';
 
 const STORAGE_KEY = 'board-race:events:v1';
 const MAX_EVENTS = 80;

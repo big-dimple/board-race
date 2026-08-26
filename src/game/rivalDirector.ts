@@ -121,12 +121,23 @@ export class RivalDirector {
     if (candidates.length > 0) this.openingPressureId = candidates[(hash >>> 8) % Math.min(2, candidates.length)].id;
   }
 
-  update(dt: number, racers: readonly RacerState[], playerFlightsCleared = 0): void {
+  update(
+    dt: number,
+    racers: readonly RacerState[],
+    playerFlightsCleared = 0,
+    focusPlayerId?: number,
+  ): void {
     this.formationFlights = playerFlightsCleared;
     this.runTime += dt;
     this.grace = Math.max(0, this.grace - dt);
     this.lock = Math.max(0, this.lock - dt);
-    const player = racers.find((racer) => racer.isPlayer);
+    // Dual play keeps both seats marked as player-owned for battle filtering,
+    // but only the surviving seat should drive the authored chase pressure.
+    // Fall back to the first live human when a caller has no explicit focus.
+    const focused = focusPlayerId === undefined ? undefined : racers[focusPlayerId];
+    const player = focused && focused.isPlayer && !focused.eliminated
+      ? focused
+      : racers.find((racer) => racer.isPlayer && !racer.eliminated);
     if (!player) return;
     for (let id = 0; id < this.biases.length; id++) {
       const racer = racers[id];

@@ -8,15 +8,18 @@ import {
 import type { TeamRole } from '../game/teamExpedition';
 import './teamExperience.css';
 
-export type FrontDoorMode = 'independent' | 'team';
+export type FrontDoorMode = 'single' | 'duo';
 
-export interface TeamSelection {
+export interface DuoSelection {
   left: { deviceId: LocalDeviceId; profile: DriverProfile };
   right: { deviceId: LocalDeviceId; profile: DriverProfile };
   resumeStation: number;
   playTutorial: boolean;
   swapRoles: boolean;
 }
+
+/** @deprecated Kept as a source-compatible alias for archived integrations. */
+export type TeamSelection = DuoSelection;
 
 export interface TeamHudSeat {
   profile: DriverProfile;
@@ -43,10 +46,10 @@ export interface TeamHudState {
 }
 
 export interface TeamExperienceCallbacks {
-  onIndependent: () => void;
-  onTeamStart: (selection: TeamSelection) => void;
-  onReplayTeam: () => void;
-  onExitTeam: () => void;
+  onSingle: () => void;
+  onDuoStart: (selection: DuoSelection) => void;
+  onReplayDuo: () => void;
+  onExitDuo: () => void;
   onAudioIntent: () => void;
 }
 
@@ -97,7 +100,7 @@ export class TeamExperience {
   private readonly driverSwitchTimers = new Map<SeatSide, number>();
   private readonly claims: Partial<Record<SeatSide, SeatClaim>> = {};
   private phase: FrontDoorPhase = 'hidden';
-  private focusedMode: FrontDoorMode = 'independent';
+  private focusedMode: FrontDoorMode = 'single';
   private resumeStation = 0;
   private playTutorial = true;
   private swapRoles = false;
@@ -126,28 +129,28 @@ export class TeamExperience {
     element('h1', 'team-mode-title', modeHead, '选择玩法');
     element('p', 'team-mode-copy', modeHead, '同一片海域，不同的胜利关系。');
     const modeGrid = element('div', 'team-mode-grid', this.modePanel);
-    this.createModeButton(modeGrid, 'independent', '01', '独立竞技', '个人航线', '争夺名次，独自完成七次飞行挑战。');
-    this.createModeButton(modeGrid, 'team', '02', '队伍协作', '本地同屏', '互补能力、交换职责，完成三站协作。');
+    this.createModeButton(modeGrid, 'single', '01', '单人', '自动前进竞速', '一艘艇对抗五名 AI，漂移、起飞并争夺荣誉。');
+    this.createModeButton(modeGrid, 'duo', '02', '双打', '本地竞速', '两名玩家各驾一艇，与四名 AI 同场比拼。');
     element('div', 'team-mode-foot', this.modePanel, '方向选择 · 确认进入');
 
     this.savePanel = element('section', 'team-front team-save', this.root);
-    this.savePanel.setAttribute('aria-label', '队伍协作进度');
+    this.savePanel.setAttribute('aria-label', '双打记录');
     const saveHead = element('header', 'team-save-head', this.savePanel);
-    element('div', 'team-kicker', saveHead, 'TEAM CO-OP');
-    element('h2', 'team-save-title', saveHead, '队伍协作');
-    this.continueButton = button('team-save-action team-save-continue', this.savePanel, '继续协作', () => {
+    element('div', 'team-kicker', saveHead, 'DUO RACE');
+    element('h2', 'team-save-title', saveHead, '双打');
+    this.continueButton = button('team-save-action team-save-continue', this.savePanel, '继续双打', () => {
       this.resumeStation = this.savedCompleted ? 0 : Math.max(0, this.savedStage - 1);
       this.playTutorial = false;
       this.swapRoles = false;
       this.showJoin();
     });
-    this.newButton = button('team-save-action', this.savePanel, '从第一站开始', () => {
+    this.newButton = button('team-save-action', this.savePanel, '新开一局', () => {
       this.resumeStation = 0;
       this.playTutorial = !this.tutorialCompleted;
       this.swapRoles = false;
       this.showJoin();
     });
-    this.tutorialButton = button('team-save-action team-save-tutorial', this.savePanel, '重玩驾驶校准', () => {
+    this.tutorialButton = button('team-save-action team-save-tutorial', this.savePanel, '查看操作教学', () => {
       this.resumeStation = 0;
       this.playTutorial = true;
       this.swapRoles = false;
@@ -178,9 +181,9 @@ export class TeamExperience {
     button('team-text-action team-join-back', this.joinPanel, '返回玩法目录', () => this.showMode());
 
     this.driverPanel = element('section', 'team-front team-drivers', this.root);
-    this.driverPanel.setAttribute('aria-label', '队伍选手签约');
+    this.driverPanel.setAttribute('aria-label', '双打选手选择');
     const driverHeader = element('header', 'team-driver-head', this.driverPanel);
-    element('div', 'team-kicker', driverHeader, 'TEAM CONTRACT');
+    element('div', 'team-kicker', driverHeader, 'DUO LINEUP');
     element('h2', 'team-driver-title', driverHeader, '各选一名选手');
     element('p', 'team-driver-copy', driverHeader, '左右切换自己的选手 · 确认锁定后等待另一席');
     const driverGrid = element('div', 'team-driver-grid', this.driverPanel);
@@ -276,10 +279,10 @@ export class TeamExperience {
     this.transitionTitle = element('strong', 'team-transition-title', this.transition);
     this.transitionCopy = element('span', 'team-transition-copy', this.transition);
     this.transitionAction = button('team-transition-action', this.transition, '返回玩法目录', () => {
-      this.callbacks.onExitTeam();
+      this.callbacks.onExitDuo();
     });
-    this.transitionReplay = button('team-transition-action team-transition-replay', this.transition, '交换职责再玩', () => {
-      this.callbacks.onReplayTeam();
+    this.transitionReplay = button('team-transition-action team-transition-replay', this.transition, '换位再玩', () => {
+      this.callbacks.onReplayDuo();
     });
     this.transitionAction.hidden = true;
     this.transitionReplay.hidden = true;
@@ -289,7 +292,7 @@ export class TeamExperience {
   showMode(): void {
     this.hideTransition();
     this.phase = 'mode';
-    this.focusedMode = 'independent';
+    this.focusedMode = 'single';
     this.claims.left = undefined;
     this.claims.right = undefined;
     this.settleTimer = 0;
@@ -322,8 +325,8 @@ export class TeamExperience {
     this.tutorialCompleted = tutorialCompleted;
     this.continueButton.hidden = this.savedStage <= 0;
     this.continueButton.textContent = this.savedCompleted
-      ? '再玩三站协作'
-      : `继续协作 · 第 ${this.savedStage} 站`;
+      ? '再玩双打'
+      : `继续双打 · 第 ${this.savedStage} 局`;
     this.tutorialButton.hidden = !this.tutorialCompleted;
   }
 
@@ -418,7 +421,7 @@ export class TeamExperience {
       const edges = input.menuEdges(device.id);
       if (edges.left || edges.right) {
         this.callbacks.onAudioIntent();
-        this.focusedMode = edges.right ? 'team' : 'independent';
+        this.focusedMode = edges.right ? 'duo' : 'single';
         this.renderMode();
       }
       if (edges.confirm) {
@@ -460,18 +463,14 @@ export class TeamExperience {
 
   private activateMode(mode: FrontDoorMode): void {
     this.callbacks.onAudioIntent();
-    if (mode === 'independent') {
+    if (mode === 'single') {
       this.hideAll();
-      this.callbacks.onIndependent();
+      this.callbacks.onSingle();
       return;
     }
-    this.phase = this.savedStage > 0 || this.tutorialCompleted ? 'save-choice' : 'join';
-    if (this.phase === 'save-choice') {
-      this.saveChoice = this.savedStage > 0 ? 'continue' : 'new';
-      this.hidePanels();
-      this.savePanel.classList.add('on');
-      this.renderSaveChoice();
-    } else this.showJoin();
+    // A dual race has no station checkpoint or role contract. Go straight to
+    // device seating so the ownership decision is made before character pick.
+    this.showJoin();
   }
 
   private showJoin(): void {
@@ -619,7 +618,7 @@ export class TeamExperience {
     if (!left || !right) return;
     this.phase = 'hidden';
     this.hidePanels();
-    this.callbacks.onTeamStart({
+    this.callbacks.onDuoStart({
       left: { deviceId: left.deviceId, profile: DRIVER_PROFILES[left.profileIndex] },
       right: { deviceId: right.deviceId, profile: DRIVER_PROFILES[right.profileIndex] },
       resumeStation: this.resumeStation,

@@ -55,6 +55,16 @@ const WATER_CLEARANCE = 0.6; // camera never closer than this to the waves (m)
 // heave, so most of the physical wave motion becomes visible relative motion.
 const HEAVE_TAU = 0.9; // s, slow vertical anchor time constant
 const HEAVE_KEEP = 0.3; // fraction of instantaneous heave the camera follows
+// Dual play keeps both human hulls in the same readable frame without turning
+// the camera into a distant spectator view. The spread contribution is capped
+// so a deliberately missed route cannot zoom the whole race into a postage
+// stamp.
+const DUO_FRAME_WEIGHT_MAX = 0.5;
+const DUO_FRAME_SPREAD_M = 20;
+const DUO_BACK_PER_M = 0.28;
+const DUO_BACK_MAX = 7;
+const DUO_FOV_PER_M = 0.08;
+const DUO_FOV_MAX = 4;
 
 // ---- orbit / results tuning ---------------------------------------------------
 const ORBIT_RADIUS = 14;
@@ -131,6 +141,7 @@ export class CameraRig {
   private readonly helm = new THREE.Vector3();
   private readonly finalPos = new THREE.Vector3();
   private readonly finalLook = new THREE.Vector3();
+  private duoSecondary: IBoat | null = null;
 
   constructor(camera: THREE.PerspectiveCamera, tuning: CameraRigTuning = {}) {
     this.camera = camera;
@@ -361,27 +372,43 @@ export class CameraRig {
         this.chaseMinDistance,
         this.chaseBack + this.accelLag + this.impactBack + st.flightPressure * 0.45 - st.flightAirBrake * 0.65,
       );
+      // A dual run still has one authoritative guidance boat, but a modest
+      // midpoint / distance adjustment keeps the other live human visible.
+      // `duoSecondary` is supplied only by updateDuo, so single-player camera
+      // framing remains byte-for-byte on its original path.
+      const secondary = this.duoSecondary;
+      const secondaryState = secondary?.state;
+      const spreadX = secondaryState ? secondaryState.position.x - bx : 0;
+      const spreadZ = secondaryState ? secondaryState.position.z - bz : 0;
+      const spread = secondaryState ? Math.hypot(spreadX, spreadZ) : 0;
+      const frameWeight = secondaryState
+        ? clamp(spread / DUO_FRAME_SPREAD_M, 0, DUO_FRAME_WEIGHT_MAX)
+        : 0;
+      const frameX = bx + spreadX * frameWeight;
+      const frameZ = bz + spreadZ * frameWeight;
+      const frameY = by + (secondaryState ? (secondaryState.position.y - by) * 0.22 : 0);
+      const frameBack = Math.min(DUO_BACK_MAX, spread * DUO_BACK_PER_M);
       const driftSide = st.steer * this.driftBlend * 0.65;
       // Slow heave anchor: the camera rides the long-term water level, not the
       // instantaneous surface, so the hull visibly climbs and drops on swells.
       // Flight keeps the raw boat Y (lift readability) and reduced motion
       // keeps the camera fully coupled.
-      this.heaveAnchor += (by - this.heaveAnchor) * (1 - Math.exp(-dt / HEAVE_TAU));
+      this.heaveAnchor += (frameY - this.heaveAnchor) * (1 - Math.exp(-dt / HEAVE_TAU));
       const heaveKeep = this.reducedMotion
         ? 1
         : HEAVE_KEEP + (1 - HEAVE_KEEP) * this.flightBlend;
-      const camBaseY = this.heaveAnchor + (by - this.heaveAnchor) * heaveKeep;
+      const camBaseY = this.heaveAnchor + (frameY - this.heaveAnchor) * heaveKeep;
       target.set(
-        bx - fx * dist + fz * driftSide,
+        frameX - fx * (dist + frameBack) + fz * driftSide,
         camBaseY + this.chaseUp - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,
-        bz - fz * dist - fx * driftSide,
+        frameZ - fz * (dist + frameBack) - fx * driftSide,
       );
       target.x += fz * this.collisionSide;
       target.z -= fx * this.collisionSide;
 
       // look ~4m ahead of the bow, at water height
-      const ax = bx + fx * this.lookAhead;
-      const az = bz + fz * this.lookAhead;
+      const ax = frameX + fx * this.lookAhead;
+      const az = frameZ + fz * this.lookAhead;
       look.set(
         ax,
         waterHeight(ax, az, t) + Math.max(0, st.flightClearance) * this.flightBlend * FLIGHT_LOOK_GAIN,
@@ -397,7 +424,8 @@ export class CameraRig {
       const flightIndex = clamp(st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightsCleared, 0, 2);
       const sustainedFlightFov = FLIGHT_FOV[flightIndex];
       fovTarget = clamp(
-        surfaceFov + (sustainedFlightFov - surfaceFov) * this.flightBlend + this.impactFov + this.fovBias,
+        surfaceFov + (sustainedFlightFov - surfaceFov) * this.flightBlend + this.impactFov + this.fovBias +
+          Math.min(DUO_FOV_MAX, spread * DUO_FOV_PER_M),
         BASE_FOV - 8,
         FOV_HARD_MAX,
       );
@@ -527,6 +555,13 @@ export class CameraRig {
       cam.fov = fov;
       cam.updateProjectionMatrix();
     }
+  }
+
+  /** Update the shared chase frame while retaining one player's route truth. */
+  updateDuo(dt: number, primary: IBoat, secondary: IBoat, t: number): void {
+    this.duoSecondary = secondary;
+    this.update(dt, primary, t);
+    this.duoSecondary = null;
   }
 }
 

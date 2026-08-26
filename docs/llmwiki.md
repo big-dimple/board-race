@@ -1,6 +1,6 @@
 # Board Race AI 运行手册
 
-状态：`current / schema-v11`
+状态：`current / schema-v12`
 
 本文只记录接手代码必须知道的稳定结构和行为合同。每个任务都要完整读取本文、根目录
 `AGENTS.md` 和 [`development-handoff.md`](development-handoff.md)。当前进度不写在本文；
@@ -9,15 +9,17 @@
 
 ## 一分钟恢复上下文
 
-- Board Race 是横屏 Three.js 街机赛艇游戏。玩法目录当前包含“独立竞技”和桌面本地
-  “队伍协作”；这些是玩法协议名，不用人数命名，未来资料片可注册新条目。
-- 独立竞技自动前进，玩家控制转向、水面漂移 / 空中空刹，以及起飞 / 一次空中续航。
-  队伍协作改为手动前进、制动 / 倒车、转向和每站临时能力。
+- Board Race 是横屏 Three.js 街机赛艇游戏。主分支玩法目录只有“单人”和“双打”两项；
+  未来资料片可以继续注册新条目。旧的固定分屏工位实验保留在
+  `archive/team-expedition-it-takes-two`，不属于当前主分支入口。
+- 单人自动前进，玩家控制转向、水面漂移 / 空中空刹，以及起飞 / 一次空中续航。
+  双打复用同一条六艇竞速规则，由两名玩家各驾一艇、四名 AI 共同排名；双打仍允许用同一根
+  手柄左摇杆同时给出转向和前进 / 制动方向。
 - 核心循环是 `漂移到黄线 -> 松开入库 -> 在白雾入口起飞 -> 穿门 -> 落水回线`。
 - 三飞完成基础资格；第七飞通过并完成 recovery 后，进入可双向穿越的 Final Station。
 - `BoatInput`、60 Hz fixed-step、唯一 flight branch 和统一 boat transform 是最重要的跨模块合同。
-- 队伍协作固定左右 50/50：设备、屏幕侧与船 id 在入座后保持不变，关卡只交换临时职责。
-  每席仍消费完整且独立的 `BoatInput`。
+- 双打在选角前固定左右席位：设备、屏幕侧与船 id 在入座后保持不变；每席消费完整且独立的
+  `BoatInput`，镜头跟随当前仍存活的玩家。玩家淘汰不会自动结束另一席，淘汰席转入独立互动边沿。
 - 本地修改、已推送、Actions 成功和 Pages 已更新是不同状态。常规发布只负责构建、冒烟、
   提交和普通推送，不等待或比对远端 SHA。
 
@@ -29,11 +31,12 @@
 | 跨模块类型和状态 | `src/contracts.ts` |
 | 船与飞行物理 | `src/game/boat.ts` |
 | 路线、门和视觉分支 | `src/game/course.ts` |
-| 比赛生命周期、失败与排名 | `src/game/race.ts` |
-| 队伍协作职责、恢复与站点 | `src/game/teamExpedition.ts` |
-| 本地设备入座 | `src/core/localMultiplayerInput.ts` |
-| 玩法目录、协作选角与 HUD | `src/hud/teamExperience.ts` |
-| 存档和迁移 | `src/game/records.ts` |
+| 比赛生命周期、失败、排名与玩家淘汰 | `src/game/race.ts` |
+| 双打淘汰后的支援 / 浪花互动 | `src/game/duoInteraction.ts` |
+| 荣誉目标、账本与稳定 id | `src/game/honors.ts` |
+| 本地设备入座与双席输入 | `src/core/localMultiplayerInput.ts` |
+| 玩法目录、双打选角与 HUD | `src/hud/teamExperience.ts`、`src/hud/honorHighlights.ts` |
+| 存档、荣誉统计和迁移 | `src/game/records.ts` |
 | 当前任务进度 | `docs/development-handoff.md` |
 | 稳定美术方向 | `docs/art-direction.md` |
 
@@ -73,57 +76,48 @@
   swept Final portal 排名，使用亚帧 crossing time；已完赛车手继续保留实体和碰撞。
 - Final 回港刹车不能触发漂移、BOOST、飞行库存变化、倒车或额外反馈。
 
-### 队伍协作
+### 双打
 
-- `TeamExpedition` 不运行 `Race`，不进入排名、勋章、独立竞技纪录或 Final 结算。当前是驾驶校准加
-  三站纵向试玩：锚锤工坊、双锁水闸、水空协奏；没有追击艇和尾流蓄能。
-- 首次进入必须分别完成前进、前进中左右转向、刹停、倒车和能力键校准；转向步骤显示组合输入，
-  完成后默认跳过，入口可主动重玩。
-  六步共用同一块宽校准区，松开驾驶输入后区域会帮助消散船体惯性；教学不计时，正式三站用时
-  才参与最快纪录。
-- 锚锤工坊两席各自进入同色宽工作区。锚钉手的能力键压钉、收紧轨道和闭合夹爪；冲击锤手完成
-  蓄力后落锤并发射实体核心。两席可同时按住；未锚定的核心会偏落、溅水并只重置当前一拍。
-  `TeamVisualState` 的锤、钉、轨道、核心和失败进度与判定读取同一状态，不维护第二套表现真相。
-  工位到机器之间的流动能量节点、蓄力冲击环、压力表和工具细件也只读取这些状态；它们是交互指向，
-  不是第二套计分或导航真相。
-- 教学区松开输入只衰减真实平面速度；正式工作区接通能力后使用有上限的弹簧阻尼锚泊力回正船体。
-  锚泊不传送、不清空动量，也不让未操作席自动前进。双锁水闸要求供能者留在绞盘区域持续按能力键，
-  同一供能值驱动绞盘、钢索与闸门升降；突进手必须用真实前进输入越过闸门平面，未供能越线会把
-  穿门者恢复到当前门前，两拍后共同接通夹具。
-- 水空协奏只有飞行员进入 `Course.updateFlightRoute()`。门控手在水面区域持续供能并用转向改变
-  `Course.setTeamFlightGateControl()` 的横向偏移；门模型、swept 穿越平面和评分中心共享同一偏移。
-  未供能时起飞边沿被明确拒绝且不消费库存；失败后两艇回到起飞前并恢复一格真实库存。
-- 飞行通过并完整落水后，两席必须进入各自实体泊位、速度不高于 `2.5 m/s`，共同保持能力键
-  `0.6 s` 才完成。越界恢复当前席；关卡目标不会因驶过一次而永久丢失。
-- 队友接触继续使用同一 swept collision solver，但冲量、分离和反馈降为轻推。三站结束可保持
-  设备和屏幕侧不变、交换首次投递者 / 门锁顺序 / 飞行员后立即重玩。
-- 队伍存档 key 为 `board-race:team-expedition:v2`，保存教学、下一站、两名选手与完整三站最快时间。
-  `v1` 只迁移选手选择，旧七站进度不映射到新玩法；中途续玩不覆盖完整三站最快时间。
+- 双打运行同一个 `Race`、`Boat`、`Course` 和 AI 管线：六名实体竞速者中前两名是玩家、后四名是 AI。
+  不另造一套“合作进度”或虚假的分屏排名；所有进度、碰撞、飞行和 Final 结算仍来自同一条 world transform。
+- 选角前先入座。`keyboard-left` / `keyboard-right` 与 `gamepad:index` 是独立设备；一旦声明左 / 右，
+  `PlayerSeat` 的 `side`、`deviceId`、`racerId` 和 `driverId` 在本局保持不变。
+- 每席完整读取 `BoatInput`。双打水面默认自动前进；方向向量中的 X 轴转向、Y 轴前进 / 制动倒车，
+  中立向量回到前进基线。空中仍使用同一席的漂移键空刹和独立起飞 edge。
+- 任一席达到三飞资格时，双打只记录该席资格并继续同一场竞速，不启动单人使用的全局 medal freeze；
+  单人资格仪式保持原有行为，避免一名玩家的进度暂停另一名玩家。
+- 若一名玩家飞行失败，`Race.eliminatePlayer()` 只标记该席并把 guidance、镜头和 Final 责任提升给幸存者。
+  两名玩家都淘汰才进入 `defeated`。淘汰席通过 `DuoInteractionController` 获得三格、带冷却的支援 / 浪花边沿；
+  支援优先补一格飞行库存，库存已满时改为小幅前推，浪花只施加有上限的侧向冲量，不传送、不清速度。
+- 互动、目标命中、超车、飞行通过、逆风回航和清洁航线都写入 `HonorLedger`。赛后
+  `HonorHighlights` 先播放一项 `PLAY OF THE RUN`，再展示最多四张荣誉卡、六人名次与总分；
+  `RaceResultEnvelope` 使用 `board-race-race-result/v1`，可直接作为未来联网结算 DTO。
+- 旧 `TeamExpedition` 工位流程只作为兼容代码留在封存分支 `archive/team-expedition-it-takes-two`，
+  主分支入口、排名和记录不再依赖它。
 
 ## 输入、浏览器与生命周期
 
 ```text
-玩法目录 -> 独立竞技 -> READY -> opening -> countdown -> racing
+玩法目录 -> 单人 -> READY -> opening -> countdown -> racing
        -> medal freeze -> resume countdown -> same run
-       -> defeated -> review -> READY
-       -> Final Station -> frozen finale / dossier
+       -> defeated -> high-light review / retry lesson -> READY
+       -> Final Station -> frozen finale / high-light review
 
-玩法目录 -> 队伍协作 -> 进度选择 -> 按键入座 -> 双席选角
-       -> first-run calibration -> anchor-hammer -> locks -> sky relay
-       -> co-op complete -> swap-role replay / 玩法目录
+玩法目录 -> 双打 -> 按键入座 -> 双席选角 -> opening -> countdown -> racing
+       -> one-seat eliminated -> surviving-seat guidance + interaction edges
+       -> both eliminated / Final -> high-light review -> same lineup retry / 玩法目录
 ```
 
 - 键盘、手柄和移动输入最终合并为一个 `BoatInput`。一次性动作只接受首个 keydown；
   steering/drift 等持续动作允许 repeat 恢复 held state。
-- 队伍协作不合并设备。`keyboard-left`、`keyboard-right` 和每个 `gamepad:index` 都是独立设备；
-  入座时按左 / 右声明屏幕所有权。左区使用 `W/S + A/D + Left Shift + Space + Q`；右区使用
-  `ArrowUp/Down/Left/Right + RightShift + NumpadEnter + NumpadDecimal`，`J/L + K/Numpad0 + I + U` 是能力与菜单备用。
-  手柄左摇杆是协作移动的唯一模拟入口：X 轴负责转向，Y 轴负责前进 / 制动倒车，斜向同时生效；
-  十字键上下只作为数字输入备用，不读取 RT/LT。X、A、B、Start 负责能力、起飞 / 确认、返回和暂停。菜单边沿与物理 hold 分开，
-  repeat 不造飞行边沿；能力是 hold，起飞保持独立 edge。
-- 队伍协作当前只在桌面开放；手机继续进入独立竞技。暂停、页面隐藏或已占座设备断开时，
-  两侧 fixed-step 和计时一起冻结，恢复时清边沿；暂停层确认继续，返回键或按钮退出到玩法目录；
-  结算层保留最终结果，任一席确认会保持设备与屏幕侧并交换职责重玩，返回才退出到玩法目录。
+- 双打不合并设备。`keyboard-left`、`keyboard-right` 和每个 `gamepad:index` 都是独立设备；
+  入座时按左 / 右声明席位。左区使用 `W/S + A/D + Left Shift + Space`，淘汰后 `Q/E`；右区使用
+  `ArrowUp/Down/Left/Right + RightShift + NumpadEnter`，淘汰后 `U/O`。手柄左摇杆 X 轴负责转向、
+  Y 轴负责前进 / 制动倒车，斜向同时生效；十字键上下作为数字输入备用，不读取 RT/LT。A、B、Y、Start
+  分别承担确认 / 起飞、返回 / 支援、浪花互动和暂停。菜单边沿与物理 hold 分开，repeat 不造飞行 edge。
+- 双打与单人共享一台镜头；镜头、路线提示和 HUD 会在一席淘汰后切到幸存者。手机保留单人触控方案，
+  不强迫小屏同时管理两套方向键。暂停、页面隐藏或已占座设备断开时，fixed-step 和计时一起冻结，
+  恢复时清边沿；结算层保留结果，确认重开同一席位配置，返回才退出到玩法目录。
 - 页面隐藏、旋转阻断和系统 UI 冻结模拟。恢复时清边沿，但不能让物理仍按住的 Shift 永久失效。
 - 手机默认触控转向；重力模式只有玩家主动选择后才请求权限。右手漂移和飞行触区不可移动。
 - Safari 缩放抑制只在横屏活跃游戏控制层生效，不加 viewport 锁、全局 touchmove 取消或缩放重置。
@@ -136,20 +130,24 @@
 - 首局 PC 提示只观察成功状态：按住 Shift、达到黄线、松开入库、到入口后 Space。
   移动端不显示这条 PC console。第一次真实失败可邀请完整聚光教学。
 - 教学不能注入输入、改物理、降低难度、增加第二条路线或用提示覆盖危险信息。
-- 当前存档 key 为 `board-race:challenge:v8`。迁移和导入必须清洗坏数据，localStorage
+- 当前存档 key 为 `board-race:challenge:v9`。迁移和导入必须清洗坏数据，localStorage
   写入失败不能阻塞当前比赛。
 - 倒计时为 `3 -> 2 -> 1 -> GO`，GO 使用一次非语音合成信号。未审核的持续水声和空气
   白噪声保持关闭；碰撞、落水和触觉按真实事件、设备所有权与优先级处理。
-- 队伍协作的短事件在所属席位使用固定左右声像；音乐、发动机和其他连续总线保持居中。
+- 双打淘汰、支援和浪花短事件按所属设备提供轻量反馈；音乐、发动机和其他连续总线保持居中。
 - 强敌只能通过真实 `AIController -> BoatInput -> Boat.update` 追赶、漂移和 BOOST；禁止
   传送、假进度、碰撞免疫、玩家减速或脱离状态的循环特效。
-- 正规水面路线上的 8 对 checkpoint 门浮标是唯一的实体锥体：水面船体接触会损失 20% 速度，
+- 正规水面路线上的 8 对 checkpoint 门浮标是基础实体障碍：水面船体接触会损失 20% 速度，
   把浮标撞飞并弹出旋转后爆开的鸭子气球；浮标落水后延迟归位，不判负、不触发碰撞电台/镜头冲击；飞行相位与
   足够高度的浪跳不触发。菱形升空入口和飞行分支 chevron 只作导航，不生成锥体、浮标或碰撞体。
+- 另外八个大型荣誉目标（鸭子、发光环、海铃、星标、王冠、彗星）由 `HonorTargetSystem` 只负责
+  视觉和 fixed-step 接触采样；它们不改变 Boat 的位置、速度或路线真相。每个目标对每名赛车手只记一次，
+  事件进入预分配池，避免在 fixed-step 中无界分配。
 
 ## HUD 与电台
 
-- READY 选角标题固定为 `别懵逼，选最强`。开场身份牌显示中文玩梗名；两位女选手还显示
+- READY 选角标题固定为 `别懵逼，选最强`。模式目录只显示 `单人` 和 `双打`；双打先显示
+  左右入座，再显示两张大幅选手卡。开场身份牌显示中文玩梗名；两位女选手还显示
   `女将` 标签，3D 追拍分别以青色发梢 bob 和高马尾维持与立绘一致的远景辨识。
 - Race radio 是一个 `RadioDirector` 单槽，危险和动作指导优先。高优先级出现时阅读时钟暂停，
   active notice 的 DOM、revision、`.on` 和 CSS 动画位置保持不变，仅隐藏并暂停；解除阻断后
@@ -173,15 +171,13 @@
 - 语义冲击的两侧受光条带由 HUD CSS 所有；横屏粗指针端只使用更细条带，桌面宽度及颜色、数量、
   覆盖、透明度、动画和触发节奏保持不变。后处理 polar wind streak 与 air-brake bands 是独立效果。
 - 同一时刻只允许一个教育提示；碰撞、路线危险、勋章和 Final 表现拥有更高优先级。
+- 赛后 `HonorHighlights` 是独立的冻结层：先播放 `PLAY OF THE RUN` 聚光，再切入最多四张可选荣誉卡、
+  六人名次条和本局总分。它不改 Race 状态；重开回调使用同一双打座位配置，退出回到模式目录。
 
 ## 渲染与美术合同
 
-- 独立竞技继续由一个 `PostPipeline` 直接出屏。队伍协作的左右相机各有独立 `PrePass` 与
-  `PostPipeline`，两张完成后处理的纹理由 `SplitScreenRenderer` 一次合成为严格 50/50 竖分屏；
-  两视口总像素预算等于整屏预算。全屏只用于两侧输入都被冻结的换职、暂停、断连和结算。
-- 队伍协作使用独立的远景追拍构图：在半宽视口内同时保留船体、前方路线和工位道具的可读空间；
-  独立竞技继续使用默认追拍构图，不能通过队伍镜头调参改变它。独立竞技的 START 地标不属于队伍站点，
-  进入队伍时隐藏、离开队伍时恢复，避免校准和工位出生点被大型地标遮挡。
+- 单人和双打都由同一个 `PostPipeline` 出屏；双打不再启用固定分屏，而是在一台远景追拍中保持两艘玩家艇、
+  前方路线和 HUD 控件可读。旧 `SplitScreenRenderer` / `TeamExpedition` 只在封存分支维护，不是主分支的渲染合同。
 - 海面深度纹理、分辨率、天空与海面相机跟随值必须在渲染每一侧前切到该侧相机，不能让
   右侧预通道覆盖左侧已经使用的泡沫 / 深度真相。
 
@@ -236,13 +232,13 @@ npm run verify:smoke
 npm run verify:team
 ```
 
-`verify:smoke` 只检查独立竞技的桌面和横屏手机能启动、画面非空，以及 Gemini、艇边库存、续航提示和
+`verify:smoke` 检查单人桌面和横屏手机能启动、画面非空，以及 Gemini、艇边库存、续航提示和
 撞柱文案的关键布局。截图使用 `npm run shot -- <scenario...>`；可加 `--mobile` 和
 `--out <directory>`。
 
-`verify:team` 用真实键区完成首局驾驶校准、一次核心落水、四次锚锤协作、两次水闸互换、门控飞行和低速双泊位；
-同时检查玩法协议命名、左右入座、角色互斥、手动油门不串席、原拍复位、未供能拒绝起飞、
-双视口非空、`v2` 存档和交换职责重玩。实体双手柄仍需实机复核。
+`verify:team` 现在覆盖主分支单人 / 双打目录：左右入座、角色互斥、六艇（两名玩家加四名 AI）、
+键盘和双标准手柄、左摇杆斜向同时转弯 / 推进、RT/LT 不参与移动、淘汰后的幸存者接管、支援 / 浪花互动、
+荣誉墙和非空渲染。实体双手柄仍需实机复核；旧工位流程只在封存分支验证。
 
 碰撞与音频改动分别按需运行：
 

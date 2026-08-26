@@ -1290,6 +1290,10 @@ interface BuoyBalloonFlight {
   vRotX: number;
   vRotY: number;
   vRotZ: number;
+  spiralPhase: number;
+  spiralOmega: number;
+  spiralRadius: number;
+  spiralGrowth: number;
   timer: number;
   popped: boolean;
 }
@@ -1345,8 +1349,8 @@ export interface BuoyDebugState {
 const BUOY_HIT_RADIUS = 2.2;
 const BUOY_HIT_MIN_SPEED = 5;
 const BUOY_HIT_SPEED_CUT = 0.20; // 20% speed cut on buoy collision for punchy impact
-const BALLOON_POP_TIME = 0.58;
-const BALLOON_LAUNCH_VY = 7.5;
+const BALLOON_POP_TIME = 0.78;
+const BALLOON_LAUNCH_VY = 8.4;
 const BALLOON_GRAVITY = 9.8;
 const BALLOON_DRAG = 0.18;
 const BALLOON_IDLE_Y = 3.55;
@@ -2717,7 +2721,7 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uDistress.value =
         this.playerCorridorDangerRoute === routeIndex ? this.playerCorridorDanger : 0;
       visual.ribbon.uniforms.uReady.value = upcoming && this.playerFlightReady ? 1 : 0;
-      visual.ribbon.uniforms.uTurn.value = upcoming && this.flightTurnWarn[0] ? 1 : 0;
+      visual.ribbon.uniforms.uTurn.value = upcoming && this.flightTurnWarn[this.guidanceBoatId] ? 1 : 0;
       const recovery = this.playerRecoveryRoute === routeIndex ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
       const recoveryOnSurface = this.playerRecoveryRoute === routeIndex
         ? this.playerRecoverySurface
@@ -2811,10 +2815,18 @@ export class Course implements ICourse {
           b.vy -= BALLOON_GRAVITY * dt;
           b.vx *= Math.max(0, 1 - BALLOON_DRAG * dt);
           b.vz *= Math.max(0, 1 - BALLOON_DRAG * dt);
-          const wobble = Math.sin(b.timer * 34.0) * 0.6;
-          b.x += (b.vx + wobble) * dt;
+          // The duck traces a broad, unmistakable corkscrew before popping.
+          // Its launch velocity remains the carrier, so the spiral never
+          // changes the boat's route or collision truth.
+          b.spiralPhase += b.spiralOmega * dt;
+          const envelope = 0.45 + Math.min(1, b.timer / BALLOON_POP_TIME) * b.spiralGrowth;
+          const spiralSpeed = b.spiralRadius * envelope * Math.abs(b.spiralOmega);
+          const spiralX = Math.cos(b.spiralPhase) * spiralSpeed;
+          const spiralZ = Math.sin(b.spiralPhase) * spiralSpeed;
+          const wobble = Math.sin(b.timer * 34.0) * 0.35;
+          b.x += (b.vx + wobble + spiralX) * dt;
           b.y += b.vy * dt;
-          b.z += (b.vz - wobble) * dt;
+          b.z += (b.vz - wobble + spiralZ) * dt;
           b.rotX += b.vRotX * dt;
           b.rotY += b.vRotY * dt;
           b.rotZ += b.vRotZ * dt;
@@ -2979,6 +2991,10 @@ export class Course implements ICourse {
             vRotX: (18.0 + Math.random() * 8.0) * (Math.random() < 0.5 ? -1 : 1),
             vRotY: (26.0 + Math.random() * 10.0) * (Math.random() < 0.5 ? -1 : 1),
             vRotZ: (14.0 + Math.random() * 6.0) * (Math.random() < 0.5 ? -1 : 1),
+            spiralPhase: Math.random() * Math.PI * 2,
+            spiralOmega: (7.8 + Math.random() * 2.2) * (Math.random() < 0.5 ? -1 : 1),
+            spiralRadius: 2.6 + Math.random() * 1.8,
+            spiralGrowth: 0.75 + Math.random() * 0.65,
             timer: 0,
             popped: false,
           };

@@ -1,11 +1,12 @@
-import type { ChallengeResult, FlightFailureSnapshot } from '../contracts';
+import type { ChallengeResult, FlightFailureSnapshot, HonorSummary } from '../contracts';
 import {
   freshCoachProgress,
   sanitizeCoachProgress,
   type DrivingCoachProgress,
 } from './drivingCoach';
 
-const STORAGE_KEY = 'board-race:challenge:v8';
+const STORAGE_KEY = 'board-race:challenge:v9';
+const V8_KEY = 'board-race:challenge:v8';
 const V7_KEY = 'board-race:challenge:v7';
 const V6_KEY = 'board-race:challenge:v6';
 const V5_KEY = 'board-race:challenge:v5';
@@ -15,7 +16,7 @@ const V2_KEY = 'board-race:challenge:v2';
 const LEGACY_MEDAL_KEY = 'board-race:man-medals:v1';
 
 export interface ChallengeRecords {
-  version: 8;
+  version: 9;
   runs: number;
   ordinaryUnlocked: boolean;
   manMedalsTotal: number;
@@ -31,13 +32,19 @@ export interface ChallengeRecords {
   finaleCompletions: number;
   expansionSeenMask: number;
   finaleScreenshotCount: number;
+  /** Cumulative named accolades; keys are stable server-friendly ids. */
+  honors: Record<string, number>;
+  duoRuns: number;
+  duoWins: number;
+  duoAssists: number;
+  duoInterventions: number;
   coach: DrivingCoachProgress;
 }
 
 const defaults = (): ChallengeRecords => {
   const legacyMedals = readLegacyMedals();
   return {
-    version: 8,
+    version: 9,
     runs: 0,
     ordinaryUnlocked: false,
     manMedalsTotal: legacyMedals,
@@ -53,6 +60,11 @@ const defaults = (): ChallengeRecords => {
     finaleCompletions: 0,
     expansionSeenMask: 0,
     finaleScreenshotCount: 0,
+    honors: {},
+    duoRuns: 0,
+    duoWins: 0,
+    duoAssists: 0,
+    duoInterventions: 0,
     coach: freshCoachProgress(legacyMedals > 0 ? 'expert' : 'dormant', legacyMedals === 0),
   };
 };
@@ -133,6 +145,23 @@ export class RecordsStore {
     this.save();
   }
 
+  /** Merge a bounded, JSON-safe honor payload into the local profile. */
+  recordHonors(summary: HonorSummary, mode: 'single' | 'duo' = 'single', won = false): void {
+    for (const [id, raw] of Object.entries(summary.counts)) {
+      if (!/^[a-z0-9._-]{1,48}$/.test(id)) continue;
+      const value = finiteNonNegative(raw, 0);
+      if (value <= 0) continue;
+      this.data.honors[id] = finiteNonNegative(this.data.honors[id], 0) + value;
+    }
+    if (mode === 'duo') {
+      this.data.duoRuns++;
+      if (won) this.data.duoWins++;
+      this.data.duoAssists += Math.max(0, Math.floor(summary.counts['duo.assist'] ?? 0));
+      this.data.duoInterventions += Math.max(0, Math.floor(summary.counts['duo.intervention'] ?? 0));
+    }
+    this.save();
+  }
+
   saveCoach(progress: DrivingCoachProgress): void {
     const sanitized = sanitizeCoachProgress(progress, this.data.bestFlights, this.data.ordinaryUnlocked, true);
     Object.assign(this.data.coach, sanitized);
@@ -148,7 +177,7 @@ export class RecordsStore {
     if (parsed.schema !== 'board-race-save' || !parsed.records || typeof parsed.records !== 'object') {
       throw new Error('存档格式不正确');
     }
-    const incoming = sanitizeV8(parsed.records as Partial<ChallengeRecords>, this.data, 'import');
+    const incoming = sanitizeRecords(parsed.records as Partial<ChallengeRecords>, this.data, 'import');
     // Import is an explicit return path, never a first visit. Preserve
     // mastery/preferences but do not arm the one-time automatic invitation.
     incoming.coach.automaticEligible = false;
@@ -201,33 +230,38 @@ function loadRecords(): ChallengeRecords {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<ChallengeRecords>;
-      if (parsed.version === 8) return sanitizeV8(parsed, fallback, 'v8');
+      const parsed = JSON.parse(raw) as Partial<ChallengeRecords> & { version?: number };
+      if (parsed.version === 9) return sanitizeRecords(parsed, fallback, 'v9');
+    }
+    const v8Raw = localStorage.getItem(V8_KEY);
+    if (v8Raw) {
+      const v8 = JSON.parse(v8Raw) as Record<string, unknown>;
+      if (v8.version === 8) return sanitizeRecords(v8 as Partial<ChallengeRecords>, fallback, 'v8');
     }
     const v7Raw = localStorage.getItem(V7_KEY);
     if (v7Raw) {
       const v7 = JSON.parse(v7Raw) as Record<string, unknown>;
-      if (v7.version === 7) return sanitizeV8(v7 as Partial<ChallengeRecords>, fallback, 'v7');
+      if (v7.version === 7) return sanitizeRecords(v7 as Partial<ChallengeRecords>, fallback, 'v7');
     }
     const v6Raw = localStorage.getItem(V6_KEY);
     if (v6Raw) {
       const v6 = JSON.parse(v6Raw) as Record<string, unknown>;
-      if (v6.version === 6) return sanitizeV8(v6 as Partial<ChallengeRecords>, fallback, 'v6');
+      if (v6.version === 6) return sanitizeRecords(v6 as Partial<ChallengeRecords>, fallback, 'v6');
     }
     const v5Raw = localStorage.getItem(V5_KEY);
     if (v5Raw) {
       const v5 = JSON.parse(v5Raw) as Record<string, unknown>;
-      if (v5.version === 5) return sanitizeV8(v5 as Partial<ChallengeRecords>, fallback, 'legacy');
+      if (v5.version === 5) return sanitizeRecords(v5 as Partial<ChallengeRecords>, fallback, 'legacy');
     }
     const v4Raw = localStorage.getItem(V4_KEY);
     if (v4Raw) {
       const v4 = JSON.parse(v4Raw) as Record<string, unknown>;
-      if (v4.version === 4) return sanitizeV8(v4 as Partial<ChallengeRecords>, fallback, 'legacy');
+      if (v4.version === 4) return sanitizeRecords(v4 as Partial<ChallengeRecords>, fallback, 'legacy');
     }
     const v3Raw = localStorage.getItem(V3_KEY);
     if (v3Raw) {
       const v3 = JSON.parse(v3Raw) as Record<string, unknown>;
-      if (v3.version === 3) return sanitizeV8(v3 as Partial<ChallengeRecords>, fallback, 'legacy');
+      if (v3.version === 3) return sanitizeRecords(v3 as Partial<ChallengeRecords>, fallback, 'legacy');
     }
     const v2Raw = localStorage.getItem(V2_KEY);
     if (!v2Raw) return fallback;
@@ -236,7 +270,7 @@ function loadRecords(): ChallengeRecords {
     const excellentCount = finiteNonNegative(v2.excellentCount, 0);
     const ordinaryUnlocked = v2.ordinaryUnlocked === true;
     return {
-      version: 8,
+      version: 9,
       runs: finiteNonNegative(v2.runs, 0),
       ordinaryUnlocked,
       manMedalsTotal: Math.max(
@@ -257,6 +291,11 @@ function loadRecords(): ChallengeRecords {
       finaleCompletions: 0,
       expansionSeenMask: 0,
       finaleScreenshotCount: 0,
+      honors: {},
+      duoRuns: 0,
+      duoWins: 0,
+      duoAssists: 0,
+      duoInterventions: 0,
       coach: sanitizeCoachProgress(undefined, finiteNonNegative(v2.bestFlightsCleared, 0), ordinaryUnlocked),
     };
   } catch {
@@ -264,9 +303,9 @@ function loadRecords(): ChallengeRecords {
   }
 }
 
-type RecordsSource = 'v8' | 'v7' | 'v6' | 'legacy' | 'import';
+type RecordsSource = 'v9' | 'v8' | 'v7' | 'v6' | 'legacy' | 'import';
 
-function sanitizeV8(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords, source: RecordsSource): ChallengeRecords {
+function sanitizeRecords(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecords, source: RecordsSource): ChallengeRecords {
   const byDriver: Record<string, number> = {};
   if (parsed.bestFlightsByDriver && typeof parsed.bestFlightsByDriver === 'object') {
     for (const [key, value] of Object.entries(parsed.bestFlightsByDriver)) {
@@ -291,9 +330,9 @@ function sanitizeV8(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
   const validV6Coach = Boolean(completeCoachBits);
   // Only a complete current object gets fresh-save defaults. Missing or
   // malformed state can never forge an automatic guide invitation.
-  const coach = sanitizeCoachProgress(parsed.coach, bestFlights, ordinaryUnlocked, source === 'v8' && validModernCoach);
+  const coach = sanitizeCoachProgress(parsed.coach, bestFlights, ordinaryUnlocked, (source === 'v9' || source === 'v8') && validModernCoach);
   const noviceDormant = coach.status === 'dormant' && bestFlights < 3 && !ordinaryUnlocked;
-  if (source === 'v8') {
+  if (source === 'v9' || source === 'v8') {
     if (!validModernCoach) coach.automaticEligible = false;
   } else if (source === 'v7') {
     // v7 accidentally disarmed every migrated novice. Repair that release
@@ -309,7 +348,7 @@ function sanitizeV8(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
   }
   if (source === 'import') coach.automaticEligible = false;
   return {
-    version: 8,
+    version: 9,
     runs: finiteNonNegative(parsed.runs, 0),
     ordinaryUnlocked,
     manMedalsTotal: finiteNonNegative(parsed.manMedalsTotal, fallback.manMedalsTotal),
@@ -325,8 +364,22 @@ function sanitizeV8(parsed: Partial<ChallengeRecords>, fallback: ChallengeRecord
     finaleCompletions: finiteNonNegative(parsed.finaleCompletions, 0),
     expansionSeenMask: Math.min(0x7f, Math.floor(finiteNonNegative(parsed.expansionSeenMask, 0))),
     finaleScreenshotCount: finiteNonNegative(parsed.finaleScreenshotCount, 0),
+    honors: sanitizeHonors(parsed.honors),
+    duoRuns: finiteNonNegative(parsed.duoRuns, 0),
+    duoWins: finiteNonNegative(parsed.duoWins, 0),
+    duoAssists: finiteNonNegative(parsed.duoAssists, 0),
+    duoInterventions: finiteNonNegative(parsed.duoInterventions, 0),
     coach,
   };
+}
+
+function sanitizeHonors(value: unknown): Record<string, number> {
+  const result: Record<string, number> = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const [id, raw] of Object.entries(value)) {
+    if (/^[a-z0-9._-]{1,48}$/.test(id)) result[id] = finiteNonNegative(raw, 0);
+  }
+  return result;
 }
 
 function readLegacyMedals(): number {

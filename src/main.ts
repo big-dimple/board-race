@@ -17,7 +17,7 @@ import { Stage, resolveQualityMode } from './core/stage';
 import { PrePass } from './core/prePass';
 import { Loop, SIM_DT } from './core/loop';
 import { Input } from './core/input';
-import { LocalMultiplayerInput, type SeatSide } from './core/localMultiplayerInput';
+import { LocalMultiplayerInput, type LocalDeviceId, type SeatSide } from './core/localMultiplayerInput';
 import { GamepadInput } from './core/gamepadInput';
 import { Haptics } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
@@ -40,6 +40,7 @@ import { getFaceTextureCacheSize } from './game/riderMesh';
 import { CHECKPOINT_US, Course, GRID_SLOTS, SURFACE_ROUTE_FAIL_DISTANCE_M } from './game/course';
 import {
   buildRaceRoster,
+  buildDuoRoster,
   driverProfile,
   loadSelectedDriver,
   saveSelectedDriver,
@@ -56,6 +57,13 @@ import {
   type PcControlPrimerPresentation,
 } from './game/pcControlPrimer';
 import { Race } from './game/race';
+import { DuoInteractionController, type DuoInteractionEvent } from './game/duoInteraction';
+import {
+  HonorLedger,
+  HonorTargetSystem,
+  HONOR_DEFINITIONS,
+  type HonorHit,
+} from './game/honors';
 import { AIController } from './game/ai';
 import { RivalDirector } from './game/rivalDirector';
 import { BoatCollisionSystem, type CollisionHit } from './game/collision';
@@ -76,10 +84,12 @@ import {
   type CaptureExportOutcome,
 } from './core/capture';
 import { CapturePreview } from './hud/capturePreview';
+import { HonorHighlights } from './hud/honorHighlights';
 import {
   TeamExperience,
   loadTeamSave,
   saveTeamProgress,
+  type DuoSelection,
   type TeamSelection,
 } from './hud/teamExperience';
 import { trackGameEvent } from './game/eventLog';
@@ -93,6 +103,8 @@ import {
   type CourseSample,
   type FlightFailureSnapshot,
   type FlightRouteState,
+  type PlayerSeat,
+  type RaceResultEnvelope,
   type RaceView,
 } from './contracts';
 import { deriveAbilityHudState } from './core/abilityTelemetry';
@@ -101,7 +113,7 @@ const params = new URLSearchParams(location.search);
 const HARNESS = import.meta.env.DEV && params.has('harness');
 const DESKTOP_DRIVER_STAGE = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
 const harnessEndlessMode = HARNESS;
-type AppMode = 'front-door' | 'independent' | 'team-play';
+type AppMode = 'front-door' | 'independent' | 'duo' | 'team-play';
 let appMode: AppMode = 'front-door';
 
 // ------------------------------------------------------------ construction
@@ -137,11 +149,20 @@ stage.scene.add(jetTrail.object);
 
 const course = new Course();
 stage.scene.add(course.object);
+const honorTargets = new HonorTargetSystem(course);
+stage.scene.add(honorTargets.object);
 const records = new RecordsStore();
 const drivingCoach = new DrivingCoach(records.data.coach, (progress) => records.saveCoach(progress));
 const pcControlPrimer = new PcControlPrimer();
 let selectedDriverId = loadSelectedDriver();
 let roster = buildRaceRoster(selectedDriverId);
+let activeDuoSelection: DuoSelection | null = null;
+const duoDevices: [LocalDeviceId, LocalDeviceId] = [
+  'keyboard-left', 'keyboard-right',
+];
+const duoEliminated = [false, false];
+const comebackAwarded = [false, false];
+const previousHumanPlaces = [Infinity, Infinity];
 
 // Boats + riders + wakes. Boat 0 is the player.
 const boats: Boat[] = [];
@@ -171,6 +192,8 @@ const rivalDirector = new RivalDirector();
 rivalDirector.setRoster(roster);
 let ais = buildAiControllers();
 const collisions = new BoatCollisionSystem();
+const duoInteractions = new DuoInteractionController();
+const honors = new HonorLedger(boats.length);
 
 const cameraRig = new CameraRig(stage.camera);
 const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
@@ -255,6 +278,16 @@ const capturePreview = new CapturePreview(
   setCaptureOverlayVisible,
   restoreMobileImmersiveFromCaptureGesture,
 );
+const honorHighlights = new HonorHighlights(
+  hudLayer,
+  () => {
+    dismissHonorReview();
+  },
+  () => {
+    honorHighlights.hide();
+    enterFrontDoor();
+  },
+);
 const expansionGallery = new ExpansionGallery(
   hudLayer,
   (index) => records.markExpansionSeen(index),
@@ -312,10 +345,10 @@ let teamPaused = false;
 const teamExpedition = new TeamExpedition(course, boats, wakes, handleTeamEvent);
 stage.scene.add(teamExpedition.visuals.object);
 const teamExperience = new TeamExperience(hudLayer, {
-  onIndependent: enterIndependentCompetition,
-  onTeamStart: startTeamExpedition,
-  onReplayTeam: replayTeamWithSwappedRoles,
-  onExitTeam: enterFrontDoor,
+  onSingle: enterIndependentCompetition,
+  onDuoStart: startDuoRace,
+  onReplayDuo: replayTeamWithSwappedRoles,
+  onExitDuo: enterFrontDoor,
   onAudioIntent: () => {
     audio.resume();
     audio.startReadyMusic();
@@ -326,6 +359,7 @@ teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
 
 // -------------------------------------------------------------- race events
 let resultsShown = false;
+let honorsSettled = false;
 const DEFEAT_FREEZE_S = 0.35;
 const FAILURE_REVIEW_AUTO_S = 5;
 const MEDAL_CEREMONY_S = 6.5;
@@ -348,6 +382,7 @@ let ordinaryNewThisRun = false;
 let excellentRecordedThisRun = false;
 let previousChallengeTier: ChallengeTier = 'unqualified';
 let currentRun = 0;
+let lastResultEnvelope: RaceResultEnvelope | null = null;
 let worldTime = 0;
 let presentationTime = 0;
 const OPENING_SHOWCASE_S = 3.6;
@@ -357,6 +392,7 @@ let finaleElapsed = 0;
 let finalePresentation = false;
 let finaleCapturePending = false;
 let interruptionActive = false;
+let duoPauseActive = false;
 let pageWasHidden = false;
 let interruptionNeedsCountdown = false;
 const retryReasonCounts = new Map<string, number>();
@@ -372,11 +408,17 @@ let prevTurnWarning = false;
 let prevCorridorStage = 0;
 let harnessCheckpointEvents = 0;
 let harnessCollisionFxBursts = 0;
+const humanCollisionCounts = [0, 0];
 let harnessRoutePilotIndex = -1;
 const harnessRoutePasses = new Array<number>(boats.length).fill(0);
 const harnessRouteFails = new Array<number>(boats.length).fill(0);
 const harnessPrevRouteStates: FlightRouteState[] = boats.map((boat) => boat.state.flightRouteState);
 const routeLifecycleStates: FlightRouteState[] = boats.map((boat) => boat.state.flightRouteState);
+const activeBoatScratch: Boat[] = [];
+const honorHitScratch: HonorHit[] = [];
+const honorFxPoint = new THREE.Vector3();
+const resetGridPoint = new THREE.Vector3();
+const resetGridTangent = new THREE.Vector3();
 
 const race = new Race(course, boats, {
   countdownTick: (n) => {
@@ -397,11 +439,15 @@ const race = new Race(course, boats, {
   },
   finish: (r) => {
     course.pulseFinalStation();
-    if (r.isPlayer) audio.finishSting();
+    if (r.isPlayer) {
+      audio.finishSting();
+      if (isDuoMode() && r.id < 2) localInput.rumble(duoDevices[r.id as 0 | 1], 0.34, 0.52, 58);
+    }
   },
   courseWarning: (r, warning) => {
     if (r.isPlayer && warning !== 'none') {
-      haptics.cue('warning');
+      if (isDuoMode() && r.id < 2) localInput.rumble(duoDevices[r.id as 0 | 1], 0.18, 0.32, 28);
+      else haptics.cue('warning');
     }
   },
   battle: (event) => {
@@ -411,8 +457,18 @@ const race = new Race(course, boats, {
     pipeline.pulse(event.kind, Math.min(1.35, 0.95 + event.opponents.length * 0.12));
     rivalDirector.notifyBattle();
     tower.announceBattle(event);
+    if (event.kind === 'overtake') {
+      const racerId = race.player().id;
+      if (isHumanRacer(racerId)) {
+        honors.award('overtake.artist', racerId, HONOR_DEFINITIONS['overtake.artist'].value, race.raceTime);
+      }
+    }
+  },
+  eliminated: (racer, failure) => {
+    if (isDuoMode() && racer.id < 2) presentDuoElimination(racer.id, failure);
   },
 }, roster);
+race.setPlayerIds([0]);
 
 function buildAiControllers(): AIController[] {
   return roster.map((racer) => new AIController(
@@ -514,13 +570,67 @@ function enterIndependentCompetition(): void {
   activeTeamSelection = null;
   teamPaused = false;
   appMode = 'independent';
+  honorTargets.object.visible = true;
   resetRace();
   applySelectedDriver(selectedDriverId);
+  race.setPlayerIds([0]);
+  for (let i = 0; i < boats.length; i++) boats[i].setPlayerOwned(i === 0);
+  activeDuoSelection = null;
   teamExperience.hideAll();
   hud.setVisible(true);
+  hud.setDuoControls(false);
   tower.setVisible(true);
   mixer.setVisible(!mobileInput.enabled);
   mobileInput.setOverlayHidden(false);
+}
+
+/** Start a competitive local double race on the same six-racer simulation. */
+function startDuoRace(selection: DuoSelection): void {
+  if (race.phase !== 'ready') return;
+  // The archived expedition can leave its station visuals and split renderer
+  // armed after a back-navigation. A dual race owns the normal single-camera
+  // presentation, so clear that state before rebuilding the roster.
+  teamExpedition.stop();
+  course.setTeamPresentation(false);
+  activeTeamSelection = null;
+  teamPaused = false;
+  activeDuoSelection = selection;
+  appMode = 'duo';
+  honorTargets.object.visible = true;
+  duoDevices[0] = selection.left.deviceId;
+  duoDevices[1] = selection.right.deviceId;
+  duoEliminated[0] = false;
+  duoEliminated[1] = false;
+  roster = buildDuoRoster(selection.left.profile.id, selection.right.profile.id);
+  rivalDirector.setRoster(roster);
+  for (const definition of roster) {
+    const profile = driverProfile(definition.profileId);
+    boats[definition.id].setDriver(definition.color, profile.handling);
+    boats[definition.id].setPlayerOwned(definition.isPlayer);
+    riders[definition.id].setColor(definition.color, profile.look);
+    riders[definition.id].update(1 / 60, boats[definition.id].state, presentationTime, false);
+  }
+  // setDefinitions is legal in READY and resets the six racer states while
+  // preserving the authored grid positions; the explicit player list then
+  // promotes seat 2 when seat 1 is eliminated.
+  race.setDefinitions(roster);
+  race.setPlayerIds([0, 1]);
+  tower.setRoster(roster);
+  openingShowcase.setRoster(roster);
+  collisions.setFriendlyPair(0, 1, false);
+  resetRace();
+  driverSelect.hide();
+  teamExperience.hideAll();
+  hud.setVisible(true);
+  hud.setDuoControls(true, selection.left.deviceId, selection.right.deviceId);
+  tower.setVisible(true);
+  mixer.setVisible(false);
+  mobileInput.setOverlayHidden(true);
+  audio.startReadyMusic();
+  // The selection screen has already supplied the confirming gesture. Start
+  // the same authored opening/countdown used by single mode without another
+  // hidden station or role tutorial.
+  startFreshCountdown();
 }
 
 function enterFrontDoor(): void {
@@ -531,10 +641,13 @@ function enterFrontDoor(): void {
   activeTeamSelection = null;
   teamPaused = false;
   appMode = 'front-door';
+  honorTargets.object.visible = false;
   resetRace();
   applySelectedDriver(selectedDriverId);
+  race.setPlayerIds([0]);
   driverSelect.hide();
   hud.setVisible(false);
+  hud.setDuoControls(false);
   tower.setVisible(false);
   mixer.setVisible(false);
   mobileInput.setOverlayHidden(true);
@@ -545,9 +658,10 @@ function enterFrontDoor(): void {
   audio.setScene('ready');
 }
 
-function startTeamExpedition(selection: TeamSelection): void {
+function startTeamExpedition(selection: DuoSelection): void {
   activeTeamSelection = selection;
   appMode = 'team-play';
+  honorTargets.object.visible = false;
   teamSave = {
     ...teamSave,
     version: 2,
@@ -744,14 +858,35 @@ function requestRetry(): void {
     if (retryLessonElapsed >= retryLessonMinRead) resetRace();
     return;
   }
-  if (race.phase === 'finished') resetRace();
+  if (race.phase === 'finished' || race.phase === 'defeated') {
+    if (isDuoMode() && activeDuoSelection) {
+      const selection = activeDuoSelection;
+      resetRace();
+      startDuoRace(selection);
+    } else {
+      resetRace();
+    }
+  }
+}
+
+function dismissHonorReview(): void {
+  const defeated = race.phase === 'defeated';
+  honorHighlights.hide();
+  // Keep the single-player failure lesson in the normal retry path. Dual play
+  // restarts the same two-seat lineup so the second player is never silently
+  // replaced by the single-seat driver picker.
+  if (defeated && !isDuoMode()) startRetryLesson();
+  else requestRetry();
 }
 
 function resumeInterruption(): void {
   if (!interruptionActive || document.hidden) return;
+  const wasDuoPause = duoPauseActive;
+  duoPauseActive = false;
   interruptionActive = false;
   stopInterruptionPadPoll();
   input.reset();
+  localInput.reset();
   gamepadInput.reset();
   haptics.stop();
   mobileInput.reset();
@@ -760,10 +895,41 @@ function resumeInterruption(): void {
     audio.startRaceScore(false);
     audio.setScene('countdown');
   } else {
+    // Visibility interruptions already restore the prior audio scene in
+    // `setVisibility`; only a manually-created dual pause needs an explicit
+    // scene restore here.
+    if (wasDuoPause) audio.setScene(race.phase === 'racing' ? 'racing' : 'ready');
     audio.resume();
   }
   interruptionNeedsCountdown = false;
   if (!HARNESS) loop.start();
+}
+
+function beginDuoPause(): void {
+  if (!isDuoMode() || interruptionActive ||
+      !['racing', 'countdown', 'resume-countdown'].includes(race.phase)) return;
+  duoPauseActive = true;
+  interruptionActive = true;
+  interruptionNeedsCountdown = true;
+  // A pause is a lifecycle boundary: held movement and action edges must be
+  // released before either seat can drive again after the resume countdown.
+  input.reset();
+  localInput.reset();
+  gamepadInput.reset();
+  mobileInput.reset();
+  mobileInput.setControlPhase('inactive');
+  haptics.stop();
+  audio.setScene('hidden');
+  hud.showInterruption(true);
+}
+
+function exitDuoPause(): void {
+  if (!duoPauseActive) return;
+  duoPauseActive = false;
+  interruptionActive = false;
+  interruptionNeedsCountdown = false;
+  stopInterruptionPadPoll();
+  enterFrontDoor();
 }
 
 function startFreshCountdown(): void {
@@ -777,9 +943,9 @@ function startFreshCountdown(): void {
   immersive.setPhase('active');
   const coach = drivingCoach.progress;
   pcControlPrimer.arm(
-    !mobileInput.enabled && activeInputDevice === 'keyboard' && records.data.bestFlights < 1 &&
+    !isDuoMode() && !mobileInput.enabled && activeInputDevice === 'keyboard' && records.data.bestFlights < 1 &&
       !coach.knowledge.bankRule,
-    boats[0].state,
+    primaryBoat().state,
   );
   pcPrimerPresentation = null;
   hud.beginFreshRunGuidance();
@@ -796,7 +962,7 @@ function startFreshCountdown(): void {
   mixer.setVisible(false);
   audio.startRaceScore(true);
   audio.setScene('countdown');
-  drivingCoach.resetRun(boats[0].state);
+  drivingCoach.resetRun(primaryBoat().state);
   coachPresentation = null;
   hud.showCoach(null);
 }
@@ -819,6 +985,20 @@ function startResumeCountdown(): void {
 
 function continueAfterFinale(): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
+  // The final station is now the end of a run. The existing cinematic remains
+  // the first beat; the accolade wall is already prepared underneath it and is
+  // revealed when the player dismisses the cinematic.
+  if (honorHighlights.visible()) {
+    finalePresentation = false;
+    finaleElapsed = 0;
+    finale.hide();
+    input.clearTransient();
+    gamepadInput.clearTransient();
+    mobileInput.reset();
+    mobileInput.setOverlayHidden(true);
+    mobileInput.setControlPhase('inactive');
+    return;
+  }
   if (!race.startFinalContinueCountdown()) return;
   finalePresentation = false;
   finaleElapsed = 0;
@@ -833,7 +1013,7 @@ function continueAfterFinale(): void {
   cameraRig.mode = 'chase';
   audio.startRaceScore(false);
   audio.setScene('countdown');
-  trackGameEvent('continue_game', { run: currentRun, flights: boats[0].state.flightsCleared });
+  trackGameEvent('continue_game', { run: currentRun, flights: primaryBoat().state.flightsCleared });
 }
 
 function openExpansionGallery(): void {
@@ -971,7 +1151,8 @@ function applyHarnessCameraOverride(): void {
 }
 
 function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentation = false): void {
-  const frozen = boats[0].state;
+  const focusBoat = primaryBoat();
+  const frozen = focusBoat.state;
   audio.setEngine(0, 0, false);
   audio.setWaterRush(0);
   audio.setAirborne(false);
@@ -979,7 +1160,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
   audio.setDrift(0);
   if (finalPresentation) {
     if (finaleElapsed >= FINALE_CAMERA_HERO_S && cameraRig.mode !== 'results') cameraRig.mode = 'results';
-    cameraRig.update(dt, boats[0], presentationTime);
+    updateRaceCamera(dt, presentationTime, focusBoat);
     applyHarnessCameraOverride();
     ocean.update(presentationTime, stage.camera.position);
     sky.update(presentationTime, stage.camera.position);
@@ -992,7 +1173,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime, race.racers[i].finished);
   }
   pipeline.update(dt, finalPresentation ? presentationTime : retryLessonFrozenT, frozen, phase);
-  hud.update(dt, race, boats[0], boats);
+  hud.update(dt, race, focusBoat, boats);
   audio.update(dt);
 }
 
@@ -1021,11 +1202,26 @@ function resetRace(): void {
   finaleCapture = null;
   finaleCaptureRecorded = false;
   finaleCapturePending = false;
+  lastResultEnvelope = null;
+  honorsSettled = false;
+  duoPauseActive = false;
+  hud.setDuoControls(false);
+  comebackAwarded[0] = false;
+  comebackAwarded[1] = false;
+  previousHumanPlaces[0] = Infinity;
+  previousHumanPlaces[1] = Infinity;
   course.resetFlightChallenge();
+  honorTargets.reset();
+  honors.reset(boats.length);
+  honorHighlights.hide();
+  duoInteractions.reset();
+  duoEliminated[0] = false;
+  duoEliminated[1] = false;
   collisions.reset();
   spray.clear();
   feathers.clear();
   input.reset();
+  localInput.reset();
   gamepadInput.reset();
   mobileInput.reset();
   mobileInput.setOverlayHidden(false);
@@ -1043,26 +1239,33 @@ function resetRace(): void {
   capturePreview.hide(false);
   immersive.setPhase('ready');
   for (let i = 0; i < boats.length; i++) {
-    const s = GRID_SLOTS[i];
+    const s = appMode === 'duo' ? duoGridSlot(i) : GRID_SLOTS[i];
     boats[i].object.visible = true;
+    boats[i].setPlayerOwned(appMode === 'duo' ? i < 2 : i === 0);
     boats[i].teleport(s.x, s.z, s.heading);
     wakes[i].clear();
   }
   race.reset();
+  course.setGuidanceBoat(race.player().id);
+  previousHumanPlaces[0] = race.racers[0]?.place ?? Infinity;
+  previousHumanPlaces[1] = race.racers[1]?.place ?? Infinity;
   currentRun = records.data.runs + 1;
   tower.resetRun(currentRun);
-  prevFlightCharges = boats[0].state.flightCharges;
-  prevDriftReleaseReady = boats[0].state.driftReleaseReady;
-  prevFlightGateProgress = boats[0].state.flightGateProgress;
-  prevFlightRouteState = boats[0].state.flightRouteState;
-  prevFlightPhase = boats[0].state.flightPhase;
-  prevBoosting = boats[0].state.boosting;
+  const resetFocus = primaryBoat();
+  prevFlightCharges = resetFocus.state.flightCharges;
+  prevDriftReleaseReady = resetFocus.state.driftReleaseReady;
+  prevFlightGateProgress = resetFocus.state.flightGateProgress;
+  prevFlightRouteState = resetFocus.state.flightRouteState;
+  prevFlightPhase = resetFocus.state.flightPhase;
+  prevBoosting = resetFocus.state.boosting;
   prevAirBraking = false;
-  prevDrifting = boats[0].state.drifting;
+  prevDrifting = resetFocus.state.drifting;
   prevTurnWarning = false;
-  drivingCoach.resetRun(boats[0].state);
+  drivingCoach.resetRun(resetFocus.state);
   harnessCheckpointEvents = 0;
   harnessCollisionFxBursts = 0;
+  humanCollisionCounts[0] = 0;
+  humanCollisionCounts[1] = 0;
   harnessRoutePilotIndex = -1;
   for (let i = 0; i < boats.length; i++) {
     harnessRoutePasses[i] = 0;
@@ -1072,9 +1275,9 @@ function resetRace(): void {
     ais[i].reset();
   }
   cameraRig.mode = 'orbit';
-  if (DESKTOP_DRIVER_STAGE.matches) cameraRig.snapOrbit(boats[0], presentationTime);
+  if (DESKTOP_DRIVER_STAGE.matches) cameraRig.snapOrbit(resetFocus, presentationTime);
   hud.hideReady();
-  const showIndependentFrontDoor = appMode === 'independent' || mobileInput.enabled || HARNESS;
+  const showIndependentFrontDoor = appMode === 'independent' || appMode === 'duo' || mobileInput.enabled || HARNESS;
   if (showIndependentFrontDoor) {
     driverSelect.show();
     hud.setVisible(true);
@@ -1089,6 +1292,21 @@ function resetRace(): void {
   mixer.setVisible(showIndependentFrontDoor && !mobileInput.enabled);
   mixer.sync();
   audio.setScene('ready');
+}
+
+/** Resolve the active roster's authored start distances without changing the
+ * single-player GRID_SLOTS contract. */
+function duoGridSlot(id: number): { x: number; z: number; heading: number } {
+  const definition = roster[id];
+  if (!definition) return GRID_SLOTS[id];
+  const u = (((1 - definition.startDistance / course.length) % 1) + 1) % 1;
+  course.pointAt(u, resetGridPoint);
+  course.tangentAt(u, resetGridTangent);
+  return {
+    x: resetGridPoint.x + resetGridTangent.z * definition.startLateral,
+    z: resetGridPoint.z - resetGridTangent.x * definition.startLateral,
+    heading: Math.atan2(resetGridTangent.x, resetGridTangent.z),
+  };
 }
 
 if (HARNESS || mobileInput.enabled) {
@@ -1111,6 +1329,172 @@ let harnessFlightTriggerPulse = false;
 const harnessLastBoatInputs: BoatInput[] = boats.map(() => ({ ...ZERO_INPUT }));
 const harnessBoatInputOverrides: Array<Partial<BoatInput> | null> = boats.map(() => null);
 
+function isDuoMode(): boolean {
+  return appMode === 'duo';
+}
+
+function isHumanRacer(id: number): boolean {
+  return isDuoMode() ? id < 2 : id === 0;
+}
+
+function primaryBoat(): Boat {
+  return boats[race.player().id] ?? boats[0];
+}
+
+/** Keep both live human hulls in one readable chase frame during dual play. */
+function updateRaceCamera(dt: number, t: number, focus = primaryBoat()): void {
+  if (isDuoMode()) {
+    const otherId = focus.id === 0 ? 1 : 0;
+    const other = boats[otherId];
+    if (other && !race.racers[otherId]?.eliminated && other.object.visible) {
+      cameraRig.updateDuo(dt, focus, other, t);
+      return;
+    }
+  }
+  cameraRig.update(dt, focus, t);
+}
+
+function activeRaceBoats(): Boat[] {
+  activeBoatScratch.length = 0;
+  if (!isDuoMode()) {
+    for (const boat of boats) activeBoatScratch.push(boat);
+    return activeBoatScratch;
+  }
+  for (const boat of boats) {
+    if (!race.racers[boat.id].eliminated && boat.object.visible) activeBoatScratch.push(boat);
+  }
+  return activeBoatScratch;
+}
+
+function eliminateDuoSeat(id: number, failure: FlightFailureSnapshot): boolean {
+  if (!isDuoMode() || id < 0 || id > 1) return false;
+  return race.eliminatePlayer(id, failure);
+}
+
+function presentDuoElimination(id: number, failure: FlightFailureSnapshot): void {
+  if (duoEliminated[id]) return;
+  duoEliminated[id] = true;
+  boats[id].object.visible = false;
+  wakes[id].setVisualScale(0);
+  const racer = roster[id];
+  hud.showTransientNotice(`${racer?.name ?? `席位 ${id + 1}`} 暂离赛道 · 可用互动支援另一席`, '席位淘汰');
+  trackGameEvent('duo_elimination', { racer: id, reason: failure.reason, at: race.raceTime });
+}
+
+function handleDuoInteraction(event: DuoInteractionEvent): void {
+  const target = roster[event.targetId];
+  const actor = roster[event.actorId];
+  if (!actor || !target) return;
+  honors.award(
+    event.action === 'support' ? 'duo.assist' : 'duo.intervention',
+    event.actorId,
+    event.action === 'support' ? HONOR_DEFINITIONS['duo.assist'].value : HONOR_DEFINITIONS['duo.intervention'].value,
+    race.raceTime,
+  );
+  if (event.action === 'support') {
+    audio.flightReady(boats[event.targetId].state.flightCharges);
+    pipeline.pulse('ready', 0.72);
+    localInput.rumble(duoDevices[event.actorId], 0.24, 0.72, 62);
+    hud.showTransientNotice(`${actor.name} 送来援手 · ${target.name} 获得飞行电池`);
+    trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
+  } else {
+    audio.splash(0.85);
+    pipeline.pulse('lost', 0.45);
+    localInput.rumble(duoDevices[event.actorId], 0.48, 0.36, 48);
+    hud.showTransientNotice(`${actor.name} 掀起浪花 · ${target.name} 被轻轻推开`);
+    trackGameEvent('duo_interaction', { action: 'prank', actor: actor.id, target: target.id });
+  }
+}
+
+function presentHonorHits(hits: readonly HonorHit[]): void {
+  for (const hit of hits) {
+    honors.addTargetHit(hit);
+    honorFxPoint.set(hit.x, hit.y, hit.z);
+    spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 9, hit.kind === 'duck' ? 7.2 : 5.2);
+    feathers.burst(honorFxPoint, hit.kind === 'duck' ? 36 : 14, hit.kind === 'duck' ? 10.5 : 7.4);
+    if (!isHumanRacer(hit.racerId)) continue;
+    const racer = roster[hit.racerId];
+    const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
+    if (hit.kind === 'duck') audio.balloonPop();
+    else audio.collision(4.2);
+    pipeline.pulse('ready', hit.kind === 'crown' ? 0.9 : 0.58);
+    haptics.impact('collision-light', hit.kind === 'crown' ? 0.72 : 0.42, false);
+    hud.showTransientNotice(
+      `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}`,
+      '荣誉目标命中',
+    );
+    trackGameEvent('honor_award', {
+      id: `target.${hit.kind}`,
+      racer: hit.racerId,
+      value: hit.value,
+      at: hit.at,
+    });
+  }
+}
+
+function showHonorReview(): void {
+  if (honorsSettled) return;
+  const humanIds = isDuoMode() ? [0, 1] : [0];
+  for (const id of humanIds) {
+    if (honors.scoreFor(id) <= 0 && humanCollisionCounts[id] === 0) {
+      honors.award('clean.run', id, HONOR_DEFINITIONS['clean.run'].value, race.raceTime);
+    }
+  }
+  const names = roster.map((racer) => racer.name);
+  const allIds = roster.map((racer) => racer.id);
+  const summary = honors.summaryFor(humanIds);
+  // AI still appears in the six-racer standings, but the accolade wall should
+  // celebrate the people in this local room rather than letting a bot steal
+  // the Play-of-the-Run spotlight.
+  const highlights = honors.highlightCards(humanIds, names, 4);
+  const displayIds = [...allIds]
+    .sort((a, b) => race.racers[a].place - race.racers[b].place || a - b)
+    .slice(0, 6);
+  const racerCards = displayIds.map((id) => ({
+    id,
+    name: roster[id].name,
+    portraitUrl: roster[id].portraitUrl,
+    color: roster[id].color,
+    place: race.racers[id].place,
+    score: honors.scoreFor(id),
+  }));
+  const result = race.challengeResult;
+  const failureReason = result?.failure?.reason;
+  const failureLabel = failureReason === 'off_course' ? '离开赛道' :
+    failureReason === 'wrong_way' ? '逆向航行' :
+      failureReason === 'corridor' ? '飞行走廊失控' :
+        failureReason === 'landing' ? '落水姿态失控' :
+          failureReason === 'no_launch' ? '未能起飞' : '飞行失控';
+  const resultLabel = race.phase === 'finished'
+    ? `第 ${result?.place ?? race.player().place} 名冲线 · ${formatTeamTime(result?.raceTime ?? race.raceTime)}`
+    : `比赛中止 · ${failureLabel}`;
+  const mode = isDuoMode() ? 'duo' : 'single';
+  const envelope: RaceResultEnvelope = {
+    schema: 'board-race-race-result/v1',
+    mode,
+    raceTime: result?.raceTime ?? race.raceTime,
+    racers: race.racers.map((racer) => ({
+      racerId: racer.id,
+      place: racer.place,
+      progress: racer.progress,
+      finished: racer.finished,
+      eliminated: racer.eliminated,
+    })),
+    seats: humanIds.map((racerId, playerIndex) => ({
+      playerIndex: playerIndex as 0 | 1,
+      racerId,
+      side: playerIndex === 0 ? 'left' : 'right',
+      deviceId: isDuoMode() ? duoDevices[playerIndex] : 'keyboard-left',
+      driverId: roster[racerId].profileId,
+    })) as PlayerSeat[],
+    honors: summary,
+  };
+  lastResultEnvelope = envelope;
+  records.recordHonors(summary, mode, race.phase === 'finished' && (result?.place ?? 99) === 1);
+  honorsSettled = true;
+  honorHighlights.show({ mode, racers: racerCards, highlights, summary, resultLabel });
+}
+
 function updateFrontDoor(dt: number, t: number): void {
   presentationTime += dt;
   cameraRig.update(dt, boats[0], presentationTime);
@@ -1122,6 +1506,7 @@ function updateFrontDoor(dt: number, t: number): void {
   for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime, false);
   openingShowcase.update(dt);
   course.update(0, presentationTime);
+  honorTargets.update(dt, presentationTime, [], race.racers, honorHitScratch, false);
   teamExperience.update(dt, localInput);
   pipeline.update(dt, t, boats[0].state, 'ready');
   audio.setEngine(0, 0, false);
@@ -1209,6 +1594,7 @@ function updateTeamSession(dt: number, t: number): void {
     presentTeamCollisions(hits);
     presentBuoyHits(course.applyBuoyHits(activeBoats, buoyHitScratch));
     presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
+    honorTargets.update(dt, worldTime, activeBoats, race.racers, honorHitScratch, false);
   }
   updateTeamPresentation(dt, worldTime);
   localInput.endFrame();
@@ -1318,9 +1704,14 @@ function presentTeamCollisions(hits: readonly CollisionHit[]): void {
 
 function step(dt: number, _t: number): void {
   localInput.poll();
+  // The finale cinematic is the first beat of the result sequence. Keep the
+  // accolade timer paused underneath it so dismissing the cinematic always
+  // reveals the intended spotlight before the cards advance.
+  if (!finalePresentation) honorHighlights.update(dt);
   if (appMode === 'front-door') {
     immersive.update(dt);
     updateFrontDoor(dt, worldTime);
+    localInput.endFrame();
     return;
   }
   if (appMode === 'team-play') {
@@ -1332,8 +1723,34 @@ function step(dt: number, _t: number): void {
   updateActiveInputDevice();
   haptics.update();
   immersive.update(dt);
+  const duoPausePhase = isDuoMode() &&
+    (race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown');
+  // Consume the keyboard edge here, before the generic coach-dismiss path,
+  // so Escape has an unambiguous pause meaning during a dual run.
+  const duoPauseEscape = duoPausePhase ? input.consumePress('Escape') : false;
+  if (duoPausePhase && !interruptionActive) {
+    let pausePressed = duoPauseEscape;
+    for (const id of duoDevices) pausePressed ||= localInput.pauseEdge(id);
+    if (pausePressed) {
+      beginDuoPause();
+      localInput.endFrame();
+      return;
+    }
+  }
   if (interruptionActive) {
-    if (gamepadInput.consumeConfirm()) resumeInterruption();
+    if (duoPauseActive) {
+      let resume = gamepadInput.consumeConfirm();
+      let exit = duoPauseEscape;
+      for (const id of duoDevices) {
+        resume ||= localInput.confirmEdge(id);
+        exit ||= localInput.cancelEdge(id);
+      }
+      if (exit) exitDuoPause();
+      else if (resume) resumeInterruption();
+    } else if (gamepadInput.consumeConfirm()) {
+      resumeInterruption();
+    }
+    localInput.endFrame();
     return;
   }
   if (mobileInput.enabled && !mobileInput.isLandscape) {
@@ -1341,6 +1758,7 @@ function step(dt: number, _t: number): void {
     gamepadInput.reset();
     mobileInput.reset();
     mobileInput.setControlPhase('inactive');
+    localInput.endFrame();
     return;
   }
   const frozenDesktopReady = race.phase === 'ready' && DESKTOP_DRIVER_STAGE.matches && !openingShowcase.active;
@@ -1351,13 +1769,30 @@ function step(dt: number, _t: number): void {
   const retryPressed = input.consumePress('KeyR');
   const spaceConfirmPressed = race.phase === 'racing' ? false : input.consumePress('Space');
   const gamepadConfirm = gamepadInput.consumeConfirm();
-  const coachDismissed = input.consumePress('Escape') || gamepadInput.consumeDismiss();
+  const coachDismissed = duoPauseEscape || input.consumePress('Escape') || gamepadInput.consumeDismiss();
+
+  if (honorHighlights.visible() && !finalePresentation) {
+    if (coachDismissed) {
+      dismissHonorReview();
+      localInput.endFrame();
+      return;
+    }
+    const selectLeft = input.consumePress('ArrowLeft') || input.consumePress('ArrowUp') || gamepadInput.consumeSelectLeft();
+    const selectRight = input.consumePress('ArrowRight') || input.consumePress('ArrowDown') || gamepadInput.consumeSelectRight();
+    if (selectLeft) honorHighlights.move(-1);
+    if (selectRight) honorHighlights.move(1);
+    if (enterPressed || spaceConfirmPressed || retryPressed || gamepadConfirm) honorHighlights.activate();
+    updateFrozenPresentation(dt, race.phase);
+    localInput.endFrame();
+    return;
+  }
 
   if (capturePreview.visible()) {
     if (coachDismissed) capturePreview.hide();
     input.clearTransient();
     gamepadInput.clearTransient();
     mobileInput.consumeAnyPress();
+    localInput.endFrame();
     return;
   }
 
@@ -1373,6 +1808,7 @@ function step(dt: number, _t: number): void {
     if (selectRight) expansionGallery.move(1);
     if (dismiss) expansionGallery.hide();
     updateFrozenPresentation(dt, race.phase === 'medal' ? 'medal' : 'finished', true);
+    localInput.endFrame();
     return;
   }
 
@@ -1385,6 +1821,7 @@ function step(dt: number, _t: number): void {
     hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, canContinue);
     updateFrozenPresentation(dt, 'medal');
     if (!galleryOpen && (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && canContinue))) startResumeCountdown();
+    localInput.endFrame();
     return;
   }
 
@@ -1397,6 +1834,7 @@ function step(dt: number, _t: number): void {
     hud.updateRetryLesson(retryLessonDuration > 0 ? retryLessonElapsed / retryLessonDuration : 1, canContinue);
     updateFrozenPresentation(dt);
     if (retryLessonTimer <= 0 || (lessonPressed && canContinue)) resetRace();
+    localInput.endFrame();
     return;
   }
 
@@ -1405,6 +1843,7 @@ function step(dt: number, _t: number): void {
     defeatFreezeTimer = Math.max(0, defeatFreezeTimer - dt);
     updateFrozenPresentation(dt);
     if (defeatFreezeTimer <= 0) startRetryLesson();
+    localInput.endFrame();
     return;
   }
 
@@ -1421,6 +1860,7 @@ function step(dt: number, _t: number): void {
       if (focusRight) finale.moveFocus(1);
       if (enterPressed || spaceConfirmPressed || gamepadConfirm) finale.activateFocused();
     }
+    localInput.endFrame();
     return;
   }
 
@@ -1436,7 +1876,7 @@ function step(dt: number, _t: number): void {
     mobileInput.setControlPhase('inactive');
     driverSelect.updateControllerStatus(gamepadInput.status());
     driverSelect.setCoachStatus(drivingCoach.progress.status);
-    if (!frozenDesktopReady) cameraRig.update(dt, boats[0], presentationTime);
+    if (!frozenDesktopReady) updateRaceCamera(dt, presentationTime, primaryBoat());
     applyHarnessCameraOverride();
     const readySceneTime = openingShowcase.active ? presentationTime : worldTime;
     ocean.update(readySceneTime, stage.camera.position);
@@ -1446,12 +1886,14 @@ function step(dt: number, _t: number): void {
     for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime, false);
     openingShowcase.update(dt);
     course.update(0, readySceneTime);
+    honorTargets.update(dt, readySceneTime, [], race.racers, honorHitScratch, false);
     tower.update(dt, race);
     hud.update(dt, race, boats[0], boats);
     pipeline.update(dt, worldTime, boats[0].state, 'ready');
     audio.update(dt);
     if (enterPressed || spaceConfirmPressed || mobileGo || gamepadConfirm) queueFreshStart();
     if (freshStartPending && openingShowcase.finished && immersive.goStartReady()) startFreshCountdown();
+    localInput.endFrame();
     return;
   }
 
@@ -1463,7 +1905,7 @@ function step(dt: number, _t: number): void {
     race.update(dt);
     if (!resuming) {
       worldTime += dt;
-      cameraRig.update(dt, boats[0], presentationTime);
+      updateRaceCamera(dt, presentationTime, primaryBoat());
       applyHarnessCameraOverride();
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
@@ -1472,6 +1914,7 @@ function step(dt: number, _t: number): void {
       for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, false);
       course.update(0, worldTime);
     }
+    honorTargets.update(dt, worldTime, [], race.racers, honorHitScratch, false);
     tower.update(dt, race);
     hud.update(dt, race, boats[0], boats);
     if (!resuming) {
@@ -1486,6 +1929,7 @@ function step(dt: number, _t: number): void {
     }
     pipeline.update(dt, worldTime, boats[0].state, race.phase);
     audio.update(dt);
+    localInput.endFrame();
     return;
   }
 
@@ -1494,41 +1938,61 @@ function step(dt: number, _t: number): void {
   mobileInput.setControlPhase(racing && (!HARNESS || params.has('mobile')) ? 'racing' : 'inactive');
 
   // Inputs: player keyboard (or AI autopilot in harness), AI for the rest.
-  const flightActive = boats[0].state.flightPhase !== 'surface';
+  const duoMode = isDuoMode();
+  const focusBoatBeforeInput = primaryBoat();
+  const flightActive = focusBoatBeforeInput.state.flightPhase !== 'surface';
   let playerInput = ZERO_INPUT;
+  const duoPlayerInputs: Array<BoatInput | null> = [null, null];
   if (racing) {
-    const keyboardInput = input.read(dt, flightActive);
-    const padInput = gamepadInput.read(flightActive);
-    if (mobileInput.enabled) {
-      const touchInput = mobileInput.read(dt, flightActive);
-      playerInput = {
-        throttle: 1,
-        steer: input.steeringHeld() ? keyboardInput.steer : gamepadInput.steeringHeld() ? padInput.steer : touchInput.steer,
-        drift: keyboardInput.drift || padInput.drift || touchInput.drift,
-        flightTrigger: keyboardInput.flightTrigger || padInput.flightTrigger || touchInput.flightTrigger,
-        airBrake: keyboardInput.airBrake || padInput.airBrake || touchInput.airBrake,
-      };
+    if (duoMode) {
+      for (let id = 0; id < 2; id++) {
+        if (race.racers[id].eliminated) continue;
+        const state = boats[id].state;
+        duoPlayerInputs[id] = localInput.readBoat(duoDevices[id], dt, {
+          flightActive: state.flightPhase !== 'surface',
+          manualThrottle: true,
+          autoForward: true,
+        });
+      }
+      playerInput = duoPlayerInputs[0] ?? ZERO_INPUT;
     } else {
-      playerInput = {
-        throttle: 1,
-        steer: input.steeringHeld() ? keyboardInput.steer : gamepadInput.steeringHeld() ? padInput.steer : keyboardInput.steer,
-        drift: keyboardInput.drift || padInput.drift,
-        flightTrigger: keyboardInput.flightTrigger || padInput.flightTrigger,
-        airBrake: keyboardInput.airBrake || padInput.airBrake,
-      };
+      const keyboardInput = input.read(dt, flightActive);
+      const padInput = gamepadInput.read(flightActive);
+      if (mobileInput.enabled) {
+        const touchInput = mobileInput.read(dt, flightActive);
+        playerInput = {
+          throttle: 1,
+          steer: input.steeringHeld() ? keyboardInput.steer : gamepadInput.steeringHeld() ? padInput.steer : touchInput.steer,
+          drift: keyboardInput.drift || padInput.drift || touchInput.drift,
+          flightTrigger: keyboardInput.flightTrigger || padInput.flightTrigger || touchInput.flightTrigger,
+          airBrake: keyboardInput.airBrake || padInput.airBrake || touchInput.airBrake,
+        };
+      } else {
+        playerInput = {
+          throttle: 1,
+          steer: input.steeringHeld() ? keyboardInput.steer : gamepadInput.steeringHeld() ? padInput.steer : keyboardInput.steer,
+          drift: keyboardInput.drift || padInput.drift,
+          flightTrigger: keyboardInput.flightTrigger || padInput.flightTrigger,
+          airBrake: keyboardInput.airBrake || padInput.airBrake,
+        };
+      }
     }
   }
   if (!retryLessonActive) mobileInput.consumeAnyPress();
   if (!racing) input.consumePress('Space'); // never buffer a flight press through the countdown
   worldTime += dt;
-  rivalDirector.update(dt, race.racers, boats[0].state.flightsCleared);
-  if (racing) collisions.capture(boats);
+  rivalDirector.update(dt, race.racers, focusBoatBeforeInput.state.flightsCleared, race.player().id);
+  const activeBoats = activeRaceBoats();
+  if (racing) collisions.capture(activeBoats);
   for (let i = 0; i < boats.length && racing; i++) {
-    if (i > 0) boats[i].setOpponentEffectDistance(boats[i].state.position.distanceTo(boats[0].state.position));
+    if (duoMode && race.racers[i].eliminated) continue;
+    if (i > 0) boats[i].setOpponentEffectDistance(boats[i].state.position.distanceTo(focusBoatBeforeInput.state.position));
     const rivalControl = rivalDirector.controlFor(i);
     let inp: BoatInput;
     if (!racing) {
       inp = ZERO_INPUT;
+    } else if (duoMode && i < 2) {
+      inp = duoPlayerInputs[i] ?? ZERO_INPUT;
     } else if (i === 0 && !HARNESS) {
       inp = playerInput;
     } else if (i === 0 && harnessUsePlayerInput) {
@@ -1541,7 +2005,7 @@ function step(dt: number, _t: number): void {
         boats[i],
         boats,
         race.racers[i].progress,
-        race.racers[0].progress,
+        race.player().progress,
         rivalControl,
         rivalDirector.techniqueFor(i),
         rivalDirector.openingFor(i),
@@ -1561,7 +2025,7 @@ function step(dt: number, _t: number): void {
     if (i === 0 && harnessFlightTriggerPulse) inp = { ...inp, flightTrigger: true };
     const harnessOverride = HARNESS ? harnessBoatInputOverrides[i] : null;
     if (harnessOverride) inp = { ...inp, ...harnessOverride };
-    const finalReturnBrake = i === 0 && course.finalStationArmed();
+    const finalReturnBrake = i === race.player().id && course.finalStationArmed();
     if (finalReturnBrake) {
       const returnBrake = inp.drift || inp.airBrake;
       inp = { ...inp, drift: false, airBrake: returnBrake, flightTrigger: false };
@@ -1579,13 +2043,24 @@ function step(dt: number, _t: number): void {
     if (i === 0) harnessFlightTriggerPulse = false;
   }
 
-  if (racing) course.updateFlightRoute(dt, boats);
+  if (racing) {
+    // Route visuals, corridor danger and the shared action cue follow the same
+    // surviving human that owns the camera and HUD.
+    course.setGuidanceBoat(race.player().id);
+    course.updateFlightRoute(dt, boats);
+  }
 
-  let playerPassedFlight = false;
+  const playerPassedFlights: number[] = [];
   if (racing) {
     for (let i = 0; i < boats.length; i++) {
+      if (duoMode && race.racers[i].eliminated) continue;
       const state = boats[i].state;
       const routeState = state.flightRouteState;
+      if (duoMode && i < 2 && routeState === 'failed' && state.flightPhase === 'surface') {
+        if (state.flightFailure) eliminateDuoSeat(i, state.flightFailure);
+        routeLifecycleStates[i] = state.flightRouteState;
+        continue;
+      }
       if ((i > 0 || (HARNESS && harnessKeepFlightMissRunning)) &&
           routeState === 'failed' && state.flightPhase === 'surface') {
         boats[i].recoverFailedFlightRoute();
@@ -1601,34 +2076,52 @@ function step(dt: number, _t: number): void {
       if (routeState === routeLifecycleStates[i]) continue;
       routeLifecycleStates[i] = routeState;
       if (routeState === 'failed') {
-        if (i === 0 && !(HARNESS && harnessKeepFlightMissRunning)) {
+        if (i === 0 && !duoMode && !(HARNESS && harnessKeepFlightMissRunning)) {
           if (state.flightFailure) race.defeatFlight(state.flightFailure);
         }
       } else if (routeState === 'passed') {
-        if (i === 0) playerPassedFlight = true;
+        if (isHumanRacer(i)) {
+          playerPassedFlights.push(i);
+          honors.award('flight.ace', i, HONOR_DEFINITIONS['flight.ace'].value, race.raceTime);
+        }
       }
     }
   }
   if (!waitingForMobile && race.phase === 'racing') race.update(dt);
+  if (racing && race.phase === 'racing' && race.raceTime > 3) {
+    for (let id = 0; id < 2; id++) {
+      if (!isHumanRacer(id)) continue;
+      const racer = race.racers[id];
+      if (!racer || racer.eliminated) continue;
+      if (!comebackAwarded[id] && previousHumanPlaces[id] > 3 && racer.place <= 3) {
+        comebackAwarded[id] = true;
+        honors.award('comeback.sailor', id, HONOR_DEFINITIONS['comeback.sailor'].value, race.raceTime);
+      }
+      previousHumanPlaces[id] = racer.place;
+    }
+  }
   if (racing && race.phase === 'racing') {
-    const hits = collisions.resolve(boats);
+    const hits = collisions.resolve(activeBoats);
     const collisionDebug = collisions.debugState();
     // Preserve route-projection continuity on untouched frames. Re-basing
     // every frame lets a continuous cross-course shortcut become the new
     // legal segment; only an actual contact correction needs absorption.
     if (collisionDebug.maxCorrection > 0) {
-      course.syncFlightTrackingAfterCollisions(boats);
+      course.syncFlightTrackingAfterCollisions(activeBoats);
       race.syncCollisionCorrections();
     }
     presentPlayerCollisions(hits);
-    presentBuoyHits(course.applyBuoyHits(boats, buoyHitScratch));
+    presentBuoyHits(course.applyBuoyHits(activeBoats, buoyHitScratch));
     presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
+    honorTargets.update(dt, worldTime, activeBoats, race.racers, honorHitScratch, true);
+    presentHonorHits(honorHitScratch);
   }
   let enteredMedal = false;
-  if (playerPassedFlight && race.phase === 'racing') {
-    const flights = boats[0].state.flightsCleared;
+  for (const passedId of playerPassedFlights) {
+    if (race.phase !== 'racing') break;
+    const flights = boats[passedId].state.flightsCleared;
     if (flights >= 4) rivalDirector.releaseFormation();
-    const pass = records.recordFlightPass(flights, selectedDriverId);
+    const pass = records.recordFlightPass(flights, roster[passedId]?.profileId ?? selectedDriverId);
     newBestThisRun ||= pass.newBest;
     hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
     tower.announceFlight(flights, pass.bestFlights);
@@ -1640,8 +2133,17 @@ function step(dt: number, _t: number): void {
       medalEarnedThisRun = true;
       ordinaryNewThisRun = qualification.ordinaryNew;
       if (tier !== 'unqualified') {
-        startMedalCeremony(tier, qualification.manMedalsTotal, pass.bestFlights);
-        enteredMedal = true;
+        if (duoMode) {
+          // A shared six-boat race must not freeze the other human just because
+          // one seat reached the three-flight qualification milestone first.
+          hud.showTransientNotice(
+            `${roster[passedId]?.name ?? '选手'} 已获三飞资格 · 双打继续竞速`,
+            '资格已记录',
+          );
+        } else {
+          startMedalCeremony(tier, qualification.manMedalsTotal, pass.bestFlights);
+          enteredMedal = true;
+        }
       }
     } else if (!harnessEndlessMode && flights > 0 && flights % course.flightRoutes.length === 0 && race.armFinale()) {
       course.armFinalStation();
@@ -1651,6 +2153,9 @@ function step(dt: number, _t: number): void {
       trackGameEvent('final_station_armed', { run: currentRun, flights, elapsed: race.raceTime });
     }
   }
+  if (duoMode && race.phase === 'racing') {
+    duoInteractions.update(dt, race.racers, boats, duoDevices, localInput, handleDuoInteraction);
+  }
   if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
     const excellent = records.recordExcellent(race.raceTime);
     excellentRecordedThisRun = true;
@@ -1658,7 +2163,8 @@ function step(dt: number, _t: number): void {
   }
   previousChallengeTier = race.challengeTier;
 
-  const playerState = boats[0].state;
+  const focusBoat = primaryBoat();
+  const playerState = focusBoat.state;
   if (playerState.drifting && !prevDrifting && playerState.speed > 12) haptics.cue('drift-active');
   if (playerState.driftReleaseReady && !prevDriftReleaseReady) {
     audio.driftReleaseReady();
@@ -1713,7 +2219,7 @@ function step(dt: number, _t: number): void {
   prevBoosting = playerState.boosting;
   prevAirBraking = airBraking;
   prevDrifting = playerState.drifting;
-  const turnWarning = course.flightTurnWarning(boats[0].id);
+  const turnWarning = course.flightTurnWarning(focusBoat.id);
   if (turnWarning && !prevTurnWarning) haptics.cue('warning');
   prevTurnWarning = turnWarning;
 
@@ -1758,11 +2264,11 @@ function step(dt: number, _t: number): void {
   // stay reserved for slams.
   for (let i = 0; i < boats.length; i++) {
     const imp = boats[i].state.landImpulse;
-    if (i === 0 && imp > 3) {
+    if (i === focusBoat.id && imp > 3) {
       haptics.impact('landing', Math.max(0.5, Math.min(1, imp / 14)), false);
     }
     if (imp > 7) {
-      if (i === 0) {
+      if (i === focusBoat.id) {
         cameraRig.shake(Math.min(1, imp / 16));
         audio.thud(Math.min(1, imp / 14));
         // Opponent splashes remain visual-only until a spatial environment
@@ -1798,7 +2304,7 @@ function step(dt: number, _t: number): void {
   }
   for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, race.racers[i].finished);
 
-  cameraRig.update(dt, boats[0], worldTime);
+  updateRaceCamera(dt, worldTime, focusBoat);
   applyHarnessCameraOverride();
   ocean.update(worldTime, stage.camera.position);
   sky.update(worldTime, stage.camera.position);
@@ -1809,7 +2315,7 @@ function step(dt: number, _t: number): void {
   feathers.update(dt, worldTime);
   jetTrail.update(dt);
 
-  const ps = boats[0].state;
+  const ps = focusBoat.state;
   tower.update(
     dt,
     race,
@@ -1817,11 +2323,11 @@ function step(dt: number, _t: number): void {
     turnWarning || coachPresentation !== null || pcPrimerPresentation !== null || hud.flightPromptVisible() ||
       hud.coachPresentationBlocked(),
   );
-  hud.update(dt, race, boats[0], boats);
+  hud.update(dt, race, focusBoat, boats);
   const routeGuidance = course.guidanceStatus();
   mobileInput.setActionState(
     deriveAbilityHudState(ps, course.finalStationArmed()),
-    course.flightTurnWarning(boats[0].id),
+    course.flightTurnWarning(focusBoat.id),
     routeGuidance.actionCue,
     routeGuidance.actionDirection,
   );
@@ -1894,6 +2400,7 @@ function step(dt: number, _t: number): void {
       pcControlPrimer.stop();
       pcPrimerPresentation = null;
       hud.showPcControlPrimer(null);
+      showHonorReview();
     } else {
       cameraRig.finishKick();
       pipeline.pulse('finish', 1.35);
@@ -1920,10 +2427,12 @@ function step(dt: number, _t: number): void {
           run: currentRun, flights: race.challengeResult.flightsCleared, elapsed: race.challengeResult.raceTime,
         });
         trackGameEvent('finale_shown', { run: currentRun, place: race.challengeResult.place });
+        showHonorReview();
       }
     }
   }
   audio.update(dt);
+  localInput.endFrame();
 }
 
 const renderDrawingSize = new THREE.Vector2();
@@ -1985,11 +2494,27 @@ function startInterruptionPadPoll(): void {
   const poll = () => {
     interruptionPadRaf = 0;
     if (document.hidden || !interruptionActive) return;
+    localInput.poll();
     gamepadInput.poll();
-    if (gamepadInput.consumeConfirm()) {
-      resumeInterruption();
+    let resume = gamepadInput.consumeConfirm();
+    let exit = false;
+    if (duoPauseActive) {
+      for (const id of duoDevices) {
+        resume ||= localInput.confirmEdge(id);
+        exit ||= localInput.cancelEdge(id);
+      }
+    }
+    if (exit) {
+      exitDuoPause();
+      localInput.endFrame();
       return;
     }
+    if (resume) {
+      resumeInterruption();
+      localInput.endFrame();
+      return;
+    }
+    localInput.endFrame();
     interruptionPadRaf = requestAnimationFrame(poll);
   };
   interruptionPadRaf = requestAnimationFrame(poll);
@@ -2044,6 +2569,17 @@ function handleVisibility(hidden: boolean): void {
 
 document.addEventListener('visibilitychange', () => handleVisibility(document.hidden));
 window.addEventListener('keydown', (event) => {
+  if (interruptionActive && duoPauseActive && ['Escape', 'KeyQ', 'KeyU'].includes(event.code) && !event.repeat) {
+    event.preventDefault();
+    exitDuoPause();
+    return;
+  }
+  if (interruptionActive && duoPauseActive &&
+      ['Enter', 'Space', 'NumpadEnter', 'KeyI'].includes(event.code) && !event.repeat) {
+    event.preventDefault();
+    resumeInterruption();
+    return;
+  }
   if (interruptionActive && (event.code === 'Enter' || event.code === 'Space') && !event.repeat) {
     event.preventDefault();
     resumeInterruption();
@@ -2095,6 +2631,8 @@ interface Harness {
   teamFrontDoor(): void;
   teamState(): Record<string, unknown>;
   teamPlaceAtTarget(side: SeatSide): void;
+  duoState(): Record<string, unknown>;
+  duoEliminate(id: 0 | 1): void;
 }
 
 let harnessUsePlayerInput = false;
@@ -2326,9 +2864,13 @@ function presentBuoyHits(hits: readonly BuoyHit[]): void {
   for (const hit of hits) {
     collisionFxPoint.set(hit.x, hit.y, hit.z);
     spray.burst(collisionFxPoint, 8, 4.2);
-    if (hit.boatId === 0) {
+    if (isHumanRacer(hit.boatId)) {
       audio.collision(3.0);
-      haptics.impact('collision-heavy', 0.5, false);
+      if (isDuoMode()) {
+        localInput.rumble(duoDevices[hit.boatId as 0 | 1], 0.42, 0.68, 58);
+      } else {
+        haptics.impact('collision-heavy', 0.5, false);
+      }
     }
   }
 }
@@ -2337,46 +2879,65 @@ function presentBalloonPops(pops: readonly BalloonPop[]): void {
   for (const pop of pops) {
     balloonPopPoint.set(pop.x, pop.y, pop.z);
     feathers.burst(balloonPopPoint, 48, 9.5, pop.carryX, pop.carryZ);
-    if (pop.boatId === 0) {
+    if (isHumanRacer(pop.boatId)) {
       audio.balloonPop();
-      haptics.impact('collision-light', 0.3, false);
+      if (isDuoMode()) {
+        localInput.rumble(duoDevices[pop.boatId as 0 | 1], 0.22, 0.58, 48);
+      } else {
+        haptics.impact('collision-light', 0.3, false);
+      }
     }
   }
 }
 
 function presentPlayerCollisions(hits: readonly CollisionHit[]): void {
-  const playerHits = hits.filter((hit) => (hit.a === 0 || hit.b === 0) && hit.strength >= 0.8);
-  if (playerHits.length === 0) return;
-  const hit = playerHits.reduce((best, candidate) => candidate.strength > best.strength ? candidate : best);
-  const opponentId = hit.a === 0 ? hit.b : hit.a;
-  const strength = hit.strength;
-  const forceX = hit.a === 0 ? hit.nx : -hit.nx;
-  const forceZ = hit.a === 0 ? hit.nz : -hit.nz;
-  const playerHeading = boats[0].state.heading;
-  const contactX = hit.x - boats[0].state.position.x;
-  const contactZ = hit.z - boats[0].state.position.z;
-  const contactDistance = Math.hypot(contactX, contactZ);
-  // Prefer the actual hull contact point. The collision normal is a fallback
-  // force pushing the player away, so its sign must be inverted. + is port.
-  const rawSide = contactDistance > 0.15
-    ? (contactX * Math.cos(playerHeading) - contactZ * Math.sin(playerHeading)) / contactDistance
-    : -(forceX * Math.cos(playerHeading) - forceZ * Math.sin(playerHeading));
-  const side = Math.max(-1, Math.min(1, rawSide));
-  audio.collision(strength);
-  cameraRig.collisionKick(strength, side);
-  pipeline.pulse('collision', Math.min(1.1, 0.3 + strength / 20));
-  if (boats[0].state.flightPhase === 'surface' && boats[opponentId]?.state.flightPhase === 'surface') {
-    collisionFxPoint.set(hit.x, hit.y + 0.15, hit.z);
-    spray.burst(collisionFxPoint, 4 + Math.min(8, Math.round(strength * 0.3)), 2.5 + Math.min(4, strength * 0.15));
-    if (HARNESS) harnessCollisionFxBursts++;
+  const humanIds = isDuoMode() ? [0, 1] as const : [0] as const;
+  for (const humanId of humanIds) {
+    if (race.racers[humanId]?.eliminated) continue;
+    let hit: CollisionHit | null = null;
+    for (const candidate of hits) {
+      if (candidate.strength < 0.8 || (candidate.a !== humanId && candidate.b !== humanId)) continue;
+      if (!hit || candidate.strength > hit.strength) hit = candidate;
+    }
+    if (!hit) continue;
+    const opponentId = hit.a === humanId ? hit.b : hit.a;
+    const strength = hit.strength;
+    const forceX = hit.a === humanId ? hit.nx : -hit.nx;
+    const forceZ = hit.a === humanId ? hit.nz : -hit.nz;
+    const humanBoat = boats[humanId];
+    humanCollisionCounts[humanId]++;
+    const playerHeading = humanBoat.state.heading;
+    const contactX = hit.x - humanBoat.state.position.x;
+    const contactZ = hit.z - humanBoat.state.position.z;
+    const contactDistance = Math.hypot(contactX, contactZ);
+    // Prefer the actual hull contact point. The collision normal is a fallback
+    // force pushing the player away, so its sign must be inverted. + is port.
+    const rawSide = contactDistance > 0.15
+      ? (contactX * Math.cos(playerHeading) - contactZ * Math.sin(playerHeading)) / contactDistance
+      : -(forceX * Math.cos(playerHeading) - forceZ * Math.sin(playerHeading));
+    const side = Math.max(-1, Math.min(1, rawSide));
+    audio.collision(isDuoMode() ? strength * 0.72 : strength);
+    // Only the camera owner can receive the full framing kick; the other seat
+    // still gets local haptics and a shared pulse without fighting the camera.
+    if (humanId === race.player().id) cameraRig.collisionKick(strength, side);
+    pipeline.pulse('collision', Math.min(1.1, 0.3 + strength / 20));
+    if (humanBoat.state.flightPhase === 'surface' && boats[opponentId]?.state.flightPhase === 'surface') {
+      collisionFxPoint.set(hit.x, hit.y + 0.15, hit.z);
+      spray.burst(collisionFxPoint, 4 + Math.min(8, Math.round(strength * 0.3)), 2.5 + Math.min(4, strength * 0.15));
+      if (HARNESS && humanId === 0) harnessCollisionFxBursts++;
+    }
+    if (isDuoMode()) {
+      localInput.rumble(duoDevices[humanId as 0 | 1], Math.min(1, 0.38 + strength / 20), 0.52, 58);
+    } else {
+      haptics.impact(
+        strength > 10 ? 'collision-heavy' : 'collision-light',
+        Math.min(1, 0.45 + strength / 16),
+        humanBoat.state.drifting || humanBoat.state.flightAirBrake > 0.28,
+      );
+    }
+    if (humanId === race.player().id) rivalDirector.notifyPlayerImpact();
+    if (roster[opponentId]) tower.announceCollision(roster[opponentId], strength, side);
   }
-  haptics.impact(
-    strength > 10 ? 'collision-heavy' : 'collision-light',
-    Math.min(1, 0.45 + strength / 16),
-    boats[0].state.drifting || boats[0].state.flightAirBrake > 0.28,
-  );
-  rivalDirector.notifyPlayerImpact();
-  tower.announceCollision(roster[opponentId], strength, side);
 }
 
 function runCollisionCase(name: string): Record<string, number | string | boolean> {
@@ -3459,6 +4020,25 @@ function runBuoyCase(): Record<string, number | boolean> {
   };
 }
 
+function harnessDuoEliminate(id: 0 | 1): void {
+  if (!isDuoMode() || race.phase !== 'racing') throw new Error('duo elimination requires an active dual race');
+  const boat = boats[id];
+  eliminateDuoSeat(id, {
+    reason: 'corridor',
+    flightNumber: boat.state.flightsCleared + 1,
+    routeSlot: boat.state.flightRouteCursor % Math.max(1, course.flightRoutes.length),
+    flightsCleared: boat.state.flightsCleared,
+    gatesPassed: boat.state.flightGateProgress,
+    gateCount: Math.max(1, course.flightRoutes[boat.state.flightRouteCursor % course.flightRoutes.length]?.gateUs.length ?? 1),
+    targetGate: null,
+    routeU: 0,
+    lateralOffsetM: null,
+    lateralLimitM: null,
+    corridorDistanceM: null,
+    clearanceM: boat.state.flightClearance,
+  });
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -3544,6 +4124,36 @@ if (HARNESS) {
       if (teamExpedition.snapshot().phase !== 'tutorial' && teamExpedition.snapshot().phase !== 'racing') return;
       teamExpedition.debugPlaceAtTarget(side);
     },
+    duoState: () => ({
+      appMode,
+      phase: race.phase,
+      raceTime: race.raceTime,
+      primaryPlayerId: race.player().id,
+      playerIds: race.players().map((racer) => racer.id),
+      racers: race.racers.map((racer) => ({
+        id: racer.id,
+        name: racer.name,
+        place: racer.place,
+        progress: racer.progress,
+        isPlayer: racer.isPlayer,
+        eliminated: racer.eliminated,
+        finished: racer.finished,
+        throttle: boats[racer.id].state.throttle,
+        steer: boats[racer.id].state.steer,
+        speed: boats[racer.id].state.speed,
+        flightPhase: boats[racer.id].state.flightPhase,
+        flightCharges: boats[racer.id].state.flightCharges,
+      })),
+      devices: [...duoDevices],
+      eliminated: [...duoEliminated],
+      honors: honors.debugState(),
+      honorTargets: honorTargets.debugState(),
+      interactions: duoInteractions.snapshot(),
+      controls: document.querySelector<HTMLElement>('.hud-duo-controls')?.textContent?.trim() ?? '',
+      controlsVisible: document.querySelector<HTMLElement>('.hud-duo-controls')?.classList.contains('on') ?? false,
+      result: lastResultEnvelope,
+    }),
+    duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
 } else {

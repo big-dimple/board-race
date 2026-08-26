@@ -69,6 +69,11 @@ interface FeatherParticle {
   vRotZ: number;
   flutterPhase: number;
   flutterFreq: number;
+  /** Large, readable corkscrew motion around the launch point. */
+  spiralPhase: number;
+  spiralOmega: number;
+  spiralRadius: number;
+  spiralGrowth: number;
   scale: number;
   baseScale: number;
   age: number;
@@ -127,6 +132,10 @@ export class FeatherSystem {
         vRotZ: 0,
         flutterPhase: 0,
         flutterFreq: 0,
+        spiralPhase: 0,
+        spiralOmega: 0,
+        spiralRadius: 0,
+        spiralGrowth: 0,
         scale: 0,
         baseScale: 1,
         age: 0,
@@ -174,6 +183,13 @@ export class FeatherSystem {
 
       p.flutterPhase = Math.random() * Math.PI * 2;
       p.flutterFreq = 5.5 + Math.random() * 3.5;
+      // A broad 2.5-3.5 turn corkscrew reads as a deliberate duck flight,
+      // even on the compact mobile viewport. The ordinary velocity still
+      // carries the burst down-course; this is a visual layer only.
+      p.spiralPhase = Math.random() * Math.PI * 2;
+      p.spiralOmega = (5.8 + Math.random() * 2.4) * (Math.random() < 0.5 ? -1 : 1);
+      p.spiralRadius = 1.8 + Math.random() * 2.6;
+      p.spiralGrowth = 0.8 + Math.random() * 0.85;
       p.baseScale = 1.0 + Math.random() * 0.55;
       p.scale = p.baseScale;
       p.age = 0;
@@ -207,10 +223,15 @@ export class FeatherSystem {
       p.flutterPhase += dt * p.flutterFreq;
       const driftX = Math.sin(p.flutterPhase) * 1.1;
       const driftZ = Math.cos(p.flutterPhase * 0.8) * 1.1;
+      p.spiralPhase += p.spiralOmega * dt;
+      const spiralEnvelope = 0.62 + Math.min(1, p.age / p.lifetime) * p.spiralGrowth;
+      const spiralRadius = p.spiralRadius * spiralEnvelope;
+      const spiralX = Math.cos(p.spiralPhase) * spiralRadius * Math.abs(p.spiralOmega);
+      const spiralZ = Math.sin(p.spiralPhase) * spiralRadius * Math.abs(p.spiralOmega);
 
-      p.x += (p.vx + driftX) * dt;
+      p.x += (p.vx + driftX + spiralX) * dt;
       p.y += p.vy * dt;
-      p.z += (p.vz + driftZ) * dt;
+      p.z += (p.vz + driftZ + spiralZ) * dt;
 
       p.rotX += p.vRotX * dt;
       p.rotY += p.vRotY * dt;

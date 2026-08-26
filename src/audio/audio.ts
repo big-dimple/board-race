@@ -469,7 +469,7 @@ export class GameAudio {
     snapOsc.frequency.exponentialRampToValueAtTime(130, t0 + 0.05);
     const snapGain = c.createGain();
     snapGain.gain.setValueAtTime(0, t0);
-    snapGain.gain.linearRampToValueAtTime(0.28, t0 + 0.003);
+    snapGain.gain.linearRampToValueAtTime(0.42, t0 + 0.003);
     snapGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
     snapOsc.connect(snapGain);
     snapGain.connect(this.eventBus);
@@ -485,7 +485,7 @@ export class GameAudio {
       bp.frequency.exponentialRampToValueAtTime(650, t0 + 0.055);
       bp.Q.value = 1.2;
       const burstGain = c.createGain();
-      burstGain.gain.setValueAtTime(0.34, t0);
+      burstGain.gain.setValueAtTime(0.5, t0);
       burstGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.055);
       burstNoise.connect(bp);
       bp.connect(burstGain);
@@ -494,7 +494,7 @@ export class GameAudio {
     }
 
     // 3. Hollow rubber pop chirp
-    this.blip(580, t0 + 0.006, 0.04, 0.15, 'sine');
+    this.blip(580, t0 + 0.006, 0.04, 0.22, 'sine');
   }
 
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */

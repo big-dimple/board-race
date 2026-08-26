@@ -2394,6 +2394,71 @@
   box-shadow: 5px 5px 0 var(--ink);
 }
 
+/* Dual-seat controls stay above the shared power rail. They are a persistent
+   reference, not a blocking tutorial card, so route and collision callouts can
+   still take the center of the screen when needed. */
+.hud-duo-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 82px;
+  z-index: 4;
+  display: none;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  width: min(900px, calc(100% - 34px));
+  transform: translateX(-50%);
+  pointer-events: none;
+  font-style: normal;
+  text-transform: none;
+}
+.hud-duo-controls.on { display: grid; animation: hud-duo-controls-in .24s ease-out both; }
+.hud-duo-seat {
+  min-width: 0;
+  padding: 7px 10px 8px;
+  border-top: 3px solid var(--flight);
+  background: rgba(6, 12, 32, .82);
+  box-shadow: 3px 3px 0 rgba(20, 18, 43, .78);
+}
+.hud-duo-seat-right { border-top-color: var(--sun); text-align: right; }
+.hud-duo-seat strong {
+  display: block;
+  color: var(--text);
+  font: 900 12px/1 system-ui, sans-serif;
+  letter-spacing: .02em;
+}
+.hud-duo-seat-right strong { color: var(--sun); }
+.hud-duo-seat span {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: rgba(244, 254, 255, .78);
+  font: 700 10px/1.28 system-ui, sans-serif;
+}
+@keyframes hud-duo-controls-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-duo-controls {
+    bottom: 69px;
+    width: calc(100% - 20px);
+    gap: 4px;
+  }
+  .hud-duo-seat { padding: 5px 6px 6px; border-top-width: 2px; }
+  .hud-duo-seat strong { font-size: 9px; }
+  .hud-duo-seat span { margin-top: 3px; font-size: 8px; line-height: 1.22; }
+}
+
+@media (max-width: 600px) {
+  .hud-duo-controls { bottom: 72px; }
+  .hud-duo-seat span { font-size: 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-duo-controls.on { animation: none; }
+}
+
 .hud.ready-on > :not(.hud-ready):not(.hud-interruption) { opacity: 0; }
 
 /* ---- background/app-switch pause gate ---------------------------------------------- */

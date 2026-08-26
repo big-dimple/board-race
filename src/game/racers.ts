@@ -137,6 +137,44 @@ export function buildRaceRoster(selectedId: string): readonly RacerDefinition[] 
   }));
 }
 
+/**
+ * Build the six-place competitive grid for 双打: two human racers keep their
+ * chosen profiles and four authored rivals fill the remaining places. The
+ * player ids stay stable (0 = left seat, 1 = right seat) so input ownership,
+ * replay data, and a future network room can refer to them without inference.
+ */
+export function buildDuoRoster(leftId: string, rightId: string): readonly RacerDefinition[] {
+  const left = driverProfile(leftId);
+  const right = driverProfile(rightId).id === left.id
+    ? DRIVER_PROFILES.find((profile) => profile.id !== left.id) ?? DRIVER_PROFILES[1]
+    : driverProfile(rightId);
+  const opponents = DRIVER_PROFILES
+    .filter((profile) => profile.id !== left.id && profile.id !== right.id)
+    .sort((a, b) => b.rivalRank - a.rivalRank);
+  const profiles = [left, right, ...opponents].slice(0, GRID.length);
+  // Put the two human boats in the readable middle lanes while the authored
+  // rivals still establish a meaningful lead and chase pack around them.
+  const duoGrid = [
+    { startPlace: 3, startDistance: 20, startLateral: -3.2, lane: -2 },
+    { startPlace: 4, startDistance: 20, startLateral: 3.2, lane: 2 },
+    GRID[1], GRID[2], GRID[4], GRID[5],
+  ] as const;
+  return profiles.map((profile, id) => ({
+    id,
+    profileId: profile.id,
+    name: profile.name,
+    color: profile.color,
+    portraitUrl: profile.portraitUrl,
+    isPlayer: id < 2,
+    personality: profile.personality,
+    pace: id < 2 ? 1 : profile.pace,
+    lane: duoGrid[id].lane,
+    startPlace: duoGrid[id].startPlace,
+    startDistance: duoGrid[id].startDistance,
+    startLateral: duoGrid[id].startLateral,
+  }));
+}
+
 /** Single source of truth for construction, AI pace, lanes and the six-place grid. */
 export const RACER_DEFS: readonly RacerDefinition[] = buildRaceRoster(DRIVER_PROFILES[0].id);
 

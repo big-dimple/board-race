@@ -312,7 +312,9 @@ export class WakeRibbon implements IWake {
   }
 
   setVisualScale(scale: number): void {
-    this.uniforms.uVisualScale.value = Math.min(1, Math.max(0.75, scale));
+    // Zero is a deliberate lifecycle state for an eliminated duo seat; normal
+    // player/opponent callers still pass their authored 0.3..1 scales.
+    this.uniforms.uVisualScale.value = Math.min(1, Math.max(0, scale));
   }
 
   push(pos: THREE.Vector3, dirX: number, dirZ: number, intensity: number): void {

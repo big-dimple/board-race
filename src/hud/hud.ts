@@ -198,6 +198,9 @@ export class HUD {
   private readonly readyEl: HTMLDivElement;
   private readonly readyTitle: HTMLDivElement;
   private readonly readyAction: HTMLDivElement;
+  private readonly duoControlsEl: HTMLDivElement;
+  private readonly duoControlsLeft: HTMLDivElement;
+  private readonly duoControlsRight: HTMLDivElement;
   private readonly interruptionEl: HTMLDivElement;
   private readonly interruptionCopy: HTMLDivElement;
   private readonly interruptionButton: HTMLButtonElement;
@@ -478,6 +481,14 @@ export class HUD {
     this.readyTitle = h('div', 'hud-ready-title hud-inked', this.readyEl, '是男人就飞三次');
     this.readyAction = h('div', 'hud-ready-action', this.readyEl, 'ENTER 开始');
 
+    // Dual races share one camera, so both owners need a stable, low-noise
+    // legend that remains visible without competing with the route callouts.
+    this.duoControlsEl = h('div', 'hud-duo-controls', this.root);
+    this.duoControlsEl.setAttribute('aria-label', '双打操作提示');
+    this.duoControlsLeft = h('div', 'hud-duo-seat hud-duo-seat-left', this.duoControlsEl);
+    this.duoControlsRight = h('div', 'hud-duo-seat hud-duo-seat-right', this.duoControlsEl);
+    this.setDuoControls(false);
+
     // ---- app-switch interruption gate ------------------------------------------------
     this.interruptionEl = h('div', 'hud-interruption', this.root);
     this.interruptionEl.setAttribute('role', 'dialog');
@@ -614,15 +625,12 @@ export class HUD {
     this.updateFinalTarget(race.phase === 'racing');
     if (this.activeCoach) this.positionCoach(this.activeCoach.focus);
 
-    // player racer state (RaceView exposes no player() accessor)
-    let me: RacerState | undefined;
-    for (let i = 0; i < race.racers.length; i++) {
-      const r = race.racers[i];
-      if (r.isPlayer) {
-        me = r;
-        break;
-      }
-    }
+    // The caller supplies the camera/controls focus. In a dual race this can
+    // change when the first seat is eliminated; selecting the first `isPlayer`
+    // would leave the surviving driver's place, color, and warning stale.
+    const me = race.racers.find((racer) => racer.isPlayer && racer.id === player.id) ??
+      race.racers.find((racer) => racer.isPlayer && !racer.eliminated) ??
+      race.racers.find((racer) => racer.isPlayer);
 
     // ---- speed number + gauge -------------------------------------------------
     const kmh = Math.max(0, Math.round(st.speed * 3.6));
@@ -678,7 +686,7 @@ export class HUD {
       const prev = this.lastSplits[r.id] ?? 0;
       if (r.splitDelta !== prev) {
         this.lastSplits[r.id] = r.splitDelta;
-        if (r.isPlayer && r.splitDelta !== 0) this.spawnToast(r.splitDelta);
+        if (r.isPlayer && r.id === me?.id && r.splitDelta !== 0) this.spawnToast(r.splitDelta);
       }
     }
     for (let i = this.toasts.length - 1; i >= 0; i--) {
@@ -1031,9 +1039,39 @@ export class HUD {
     this.root.classList.add('ready-on');
   }
 
+  /**
+   * Keep both owners' controls in one predictable place during a dual run.
+   * The legend is intentionally compact and descriptive; it can be left on
+   * while racing so a returning/eliminated player still knows their actions.
+   */
+  setDuoControls(visible: boolean, leftDevice = 'keyboard-left', rightDevice = 'keyboard-right'): void {
+    this.duoControlsEl.classList.toggle('on', visible);
+    this.duoControlsEl.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    if (!visible) return;
+    this.renderDuoControlSeat(this.duoControlsLeft, '左席', leftDevice, false);
+    this.renderDuoControlSeat(this.duoControlsRight, '右席', rightDevice, true);
+  }
+
   hideReady(): void {
     this.readyEl.classList.remove('on');
     this.root.classList.remove('ready-on');
+  }
+
+  private renderDuoControlSeat(el: HTMLDivElement, label: string, device: string, right: boolean): void {
+    const gamepad = device.startsWith('gamepad:');
+    el.textContent = '';
+    const heading = document.createElement('strong');
+    const deviceLabel = gamepad
+      ? `手柄 ${Number.parseInt(device.slice('gamepad:'.length), 10) + 1}`
+      : right ? '键盘右区' : '键盘左区';
+    heading.textContent = `${label} · ${deviceLabel}`;
+    const detail = document.createElement('span');
+    detail.textContent = gamepad
+      ? '左摇杆：左右转向 · 上加速 · 下刹车　X 漂移 · A 起飞　B 支援 · Y 浪花'
+      : right
+        ? '← / → 转向 · ↑ / ↓ 加速/刹车　SHIFT / NUM0 漂移 · I / NUM↵ 起飞　U 支援 · O 浪花'
+        : 'A / D 转向 · W / S 加速/刹车　SHIFT 漂移 · SPACE 起飞　Q 支援 · E 浪花';
+    el.append(heading, detail);
   }
 
   showInterruption(resumeCountdown: boolean): void {
@@ -1053,6 +1091,19 @@ export class HUD {
     this.enqueueImpact({
       kind: 'excellent', kicker: 'LEAD TAKEN', title: '优秀已锁定', detail: `优秀完成 × ${total}`,
       color: PALETTE.uiAccent, duration: 1.2, priority: 90,
+    });
+  }
+
+  /** Short race-direction notice used by dual-seat interactions and honors. */
+  showTransientNotice(detail: string, title = '互动已触发'): void {
+    this.enqueueImpact({
+      kind: 'duo-interaction',
+      kicker: 'DUO PLAY',
+      title,
+      detail,
+      color: PALETTE.uiAccent,
+      duration: 1.45,
+      priority: 66,
     });
   }
 

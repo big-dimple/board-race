@@ -44,6 +44,8 @@ export interface RaceEvents {
   finish(r: RacerState): void;
   courseWarning(r: RacerState, warning: CourseWarning): void;
   battle(event: RaceBattleEvent): void;
+  /** A dual run can retire one human without ending the shared race. */
+  eliminated?(r: RacerState, failure: FlightFailureSnapshot): void;
 }
 
 const COUNTDOWN_S = 4.2;
@@ -102,6 +104,9 @@ export class Race implements RaceView {
   private readonly boats: IBoat[];
   private readonly events: RaceEvents;
   private definitions: readonly RacerDefinition[];
+  /** Player ownership is a race concern, independent from the six-racer grid. */
+  private playerIds: number[] = [0];
+  private primaryPlayerId = 0;
 
   private cdTimer = COUNTDOWN_S;
   private tickS = TICK_S;
@@ -160,9 +165,59 @@ export class Race implements RaceView {
     this.reset();
   }
 
-  /** boats[0] is always the player. */
+  /** Current primary human racer; dual play promotes the surviving seat. */
   player(): RacerState {
-    return this.racers[this.boats[0].id];
+    return this.racers[this.primaryPlayerId] ?? this.racers[this.boats[0].id];
+  }
+
+  players(): readonly RacerState[] {
+    return this.playerIds.map((id) => this.racers[id]).filter(Boolean);
+  }
+
+  setPlayerIds(ids: readonly number[]): void {
+    if (this.phase !== 'ready') return;
+    const unique = [...new Set(ids)].filter((id) => id >= 0 && id < this.boats.length);
+    this.playerIds = unique.length > 0 ? unique : [0];
+    this.primaryPlayerId = this.playerIds[0];
+    for (const racer of this.racers) racer.isPlayer = this.playerIds.includes(racer.id);
+  }
+
+  /** Make a surviving human the presentation owner for guidance and Final. */
+  promotePlayer(id: number): boolean {
+    if (!this.playerIds.includes(id)) return false;
+    const racer = this.racers[id];
+    if (!racer || racer.eliminated) return false;
+    this.primaryPlayerId = id;
+    this.finalApproachProgress = racer.progress;
+    return true;
+  }
+
+  /** Mark one human seat out without ending the shared race. */
+  eliminatePlayer(id: number, failure: FlightFailureSnapshot): boolean {
+    if (this.phase !== 'racing' || !this.playerIds.includes(id)) return false;
+    const racer = this.racers[id];
+    if (!racer || racer.eliminated) return false;
+    racer.eliminated = true;
+    racer.finished = false;
+    racer.finishTime = -1;
+    racer.courseWarning = 'none';
+    if (this.primaryPlayerId === id) {
+      const next = this.playerIds.find((playerId) => !this.racers[playerId].eliminated);
+      if (next !== undefined) {
+        this.primaryPlayerId = next;
+        this.finalApproachProgress = this.racers[next].progress;
+      }
+    }
+    const alive = this.playerIds.some((playerId) => !this.racers[playerId].eliminated);
+    // Make the result wall reflect the retirement on the same fixed step; the
+    // next normal update still performs its regular stable sort.
+    this.sortPlaces();
+    this.events.eliminated?.(racer, failure);
+    // Final Station normally retires route-failure defeat, but a dual run
+    // with no surviving human still needs a terminal result instead of
+    // waiting forever for a portal crossing.
+    if (!alive) this.defeatFlight(failure, true);
+    return true;
   }
 
   /** Read-only continuity evidence for deterministic harness contracts. */
@@ -238,6 +293,7 @@ export class Race implements RaceView {
     this.overtakeStreak = 0;
     this.lastOvertakeAt = -Infinity;
     this.totalOvertakes = 0;
+    this.primaryPlayerId = this.playerIds.find((id) => !this.racers[id]?.eliminated) ?? this.playerIds[0] ?? 0;
   }
 
   /** Begin a fresh run. Returns false when the phase cannot accept GO. */
@@ -266,11 +322,22 @@ export class Race implements RaceView {
   /** Arm the authored finish after a complete seven-flight set. */
   armFinale(): boolean {
     const routeCount = Math.max(1, this.course.flightRoutes.length);
-    if (this.phase !== 'racing' || this.finalStationArmed || this.player().finished ||
-        this.player().eliminated || this.boats[0].state.flightsCleared < routeCount ||
-        this.boats[0].state.flightsCleared % routeCount !== 0) return false;
+    if (this.phase !== 'racing' || this.finalStationArmed) return false;
+    // In dual play either seat may reach the seventh route first. Promote that
+    // seat so the shared Final portal follows the actual surviving contender.
+    let candidate: RacerState | null = null;
+    for (const id of this.playerIds) {
+      const racer = this.racers[id];
+      const boat = this.boats[id];
+      if (!racer || racer.finished || racer.eliminated || boat.state.flightsCleared < routeCount ||
+          boat.state.flightsCleared % routeCount !== 0) continue;
+      if (!candidate || racer.progress > candidate.progress) candidate = racer;
+    }
+    if (!candidate) return false;
+    this.primaryPlayerId = candidate.id;
+    const primary = candidate;
     this.finalStationArmed = true;
-    const player = this.player();
+    const player = primary;
     this.finalApproachProgress = player.progress;
     this.wrongT[player.id] = 0;
     this.offCourseT[player.id] = 0;
@@ -307,8 +374,9 @@ export class Race implements RaceView {
   }
 
   /** End the player's run immediately. Idempotent so swept checks cannot double-fire. */
-  defeatFlight(failure: FlightFailureSnapshot): void {
-    if (this.phase !== 'racing' || this.finalStationArmed) return;
+  defeatFlight(failure: FlightFailureSnapshot, force = false): void {
+    if (this.phase !== 'racing' || (this.finalStationArmed && !force)) return;
+    if (force) this.finalStationArmed = false;
     this.phase = 'defeated';
     const player = this.player();
     const leader = this.order[0] ?? player;
@@ -337,9 +405,19 @@ export class Race implements RaceView {
 
   /** End a surface-course abandonment through the same result/records pipeline as a flight miss. */
   defeatSurface(reason: 'off_course' | 'wrong_way', distanceM: number): void {
-    const boat = this.boats[0];
+    const playerId = this.player().id;
+    const failure = this.surfaceFailure(playerId, reason, distanceM);
+    if (this.playerIds.length > 1) {
+      this.eliminatePlayer(playerId, failure);
+      return;
+    }
+    this.defeatFlight(failure);
+  }
+
+  private surfaceFailure(id: number, reason: 'off_course' | 'wrong_way', distanceM: number): FlightFailureSnapshot {
+    const boat = this.boats[id];
     const routeSlot = Math.max(0, boat.state.flightRouteCursor % Math.max(1, this.course.flightRoutes.length));
-    this.defeatFlight({
+    return {
       reason,
       flightNumber: boat.state.flightsCleared + 1,
       routeSlot,
@@ -354,7 +432,7 @@ export class Race implements RaceView {
       lateralLimitM: null,
       corridorDistanceM: reason === 'off_course' ? distanceM : null,
       clearanceM: boat.state.flightClearance,
-    });
+    };
   }
 
   /** The third flight grants the medal but deliberately leaves the run active. */
@@ -450,7 +528,7 @@ export class Race implements RaceView {
       }
       const u = _sample.u;
       let continuousSurfaceFoldConflict = false;
-      if (!resyncOnly && continuousSurfaceStep && id === this.boats[0].id &&
+      if (!resyncOnly && continuousSurfaceStep && id === this.primaryPlayerId &&
           _sample.distance >= OFF_COURSE_WARN_M) {
         this.course.sample(boat.state.position, _globalSurfaceCandidate, 'surface');
         let candidateDelta = _globalSurfaceCandidate.u - u;
@@ -459,7 +537,7 @@ export class Race implements RaceView {
         continuousSurfaceFoldConflict = Math.abs(candidateDelta) > JUMP_U &&
           _globalSurfaceCandidate.distance + SURFACE_PROJECTION_SLACK_M < _sample.distance;
       }
-      const finalCrossing = !resyncOnly && this.finalStationArmed && !r.finished
+      const finalCrossing = !resyncOnly && this.finalStationArmed && !r.finished && !r.eliminated
         ? this.course.crossFinalStation(previousPosition, boat.state.position)
         : -1;
       previousPosition.copy(boat.state.position);
@@ -477,7 +555,7 @@ export class Race implements RaceView {
           boat.state.flightRouteState === 'idle') {
         this.finishAtFinal(r, finalCrossing, dt);
       }
-      if (id === this.boats[0].id && this.finalStationArmed) {
+      if (id === this.primaryPlayerId && this.finalStationArmed) {
         this.prevRoute[id] = _sample.routeId;
         this.prevU[id] = u;
         this.prevContU[id] = this.contU[id];
@@ -555,7 +633,7 @@ export class Race implements RaceView {
           this.offCourseT[id] = outside || continuousSurfaceFoldConflict
             ? this.offCourseT[id] + dt
             : Math.max(0, this.offCourseT[id] - dt * 2.5);
-          if (id === this.boats[0].id && offCourse) this.setCourseWarning(r, 'off_course');
+          if (id === this.primaryPlayerId && offCourse) this.setCourseWarning(r, 'off_course');
           else if (r.courseWarning === 'off_course') this.setCourseWarning(r, 'none');
 
           boat.collisionVelocity(_velocity);
@@ -571,14 +649,26 @@ export class Race implements RaceView {
             if (this.wrongT[id] >= WRONG_WAY_HOLD) this.setCourseWarning(r, 'wrong_way');
           } else {
             this.wrongT[id] = 0;
-            if (!offCourse || id !== this.boats[0].id) this.setCourseWarning(r, 'none');
+            if (!offCourse || id !== this.primaryPlayerId) this.setCourseWarning(r, 'none');
           }
-          if (id === this.boats[0].id && this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
-            this.defeatSurface('off_course', _sample.distance);
+          if (this.playerIds.includes(id) && this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
+            const failure = this.surfaceFailure(id, 'off_course', _sample.distance);
+            if (this.playerIds.length > 1) {
+              this.eliminatePlayer(id, failure);
+              if (this.phase !== 'racing') return;
+              continue;
+            }
+            this.defeatFlight(failure);
             return;
           }
-          if (id === this.boats[0].id && this.wrongT[id] >= WRONG_WAY_FAIL_HOLD_S) {
-            this.defeatSurface('wrong_way', _sample.distance);
+          if (this.playerIds.includes(id) && this.wrongT[id] >= WRONG_WAY_FAIL_HOLD_S) {
+            const failure = this.surfaceFailure(id, 'wrong_way', _sample.distance);
+            if (this.playerIds.length > 1) {
+              this.eliminatePlayer(id, failure);
+              if (this.phase !== 'racing') return;
+              continue;
+            }
+            this.defeatFlight(failure);
             return;
           }
         }
