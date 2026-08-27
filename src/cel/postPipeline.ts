@@ -27,6 +27,13 @@ export interface PostPipeline {
   setSize(w: number, h: number, pr: number): void;
 }
 
+export interface PostPipelineLayers {
+  /** Normal-pass layer for this camera's private flight guidance. */
+  guideLayer?: number;
+  /** Matching private energy layer; shared LAYER_ENERGY stays enabled. */
+  energyLayer?: number;
+}
+
 const vertexShader = /* glsl */ `
 varying vec2 vUv;
 void main() {
@@ -139,7 +146,13 @@ export function createPostPipeline(
   camera: THREE.Camera,
   prePass: PrePass,
   quality: RenderQualityProfile,
+  layers: PostPipelineLayers = {},
 ): PostPipeline {
+  const guideLayer = layers.guideLayer ?? 0;
+  const energyLayer = layers.energyLayer ?? (guideLayer + 2);
+  // Preserve the camera's normal mask (boats, ink, energy, world) and add
+  // exactly one private guide layer for this view.
+  if (guideLayer !== 0) camera.layers.enable(guideLayer);
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const target = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.UnsignedByteType,
@@ -213,6 +226,7 @@ export function createPostPipeline(
       renderer.getClearColor(oldClear);
       const previousAlpha = renderer.getClearAlpha();
       camera.layers.set(LAYER_ENERGY);
+      if (energyLayer !== LAYER_ENERGY) camera.layers.enable(energyLayer);
       scene.background = null;
       renderer.setClearColor(0x000000, 0);
       energyComposer.render();

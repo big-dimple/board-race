@@ -57,6 +57,35 @@ async function sampleCanvas(page) {
   });
 }
 
+async function sampleSplitCanvas(page) {
+  return page.evaluate(() => {
+    window.__harness.render();
+    const source = document.querySelector('#app > canvas');
+    if (!(source instanceof HTMLCanvasElement)) throw new Error('renderer canvas missing');
+    const sample = document.createElement('canvas');
+    sample.width = 48;
+    sample.height = 54;
+    const context = sample.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('canvas sample context missing');
+    const read = (sx) => {
+      context.clearRect(0, 0, sample.width, sample.height);
+      context.drawImage(source, sx, 0, source.width / 2, source.height, 0, 0, sample.width, sample.height);
+      const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
+      let min = 255;
+      let max = 0;
+      let opaque = 0;
+      for (let index = 0; index < pixels.length; index += 4) {
+        const luma = (pixels[index] * 3 + pixels[index + 1] * 6 + pixels[index + 2]) / 10;
+        min = Math.min(min, luma);
+        max = Math.max(max, luma);
+        if (pixels[index + 3] > 240) opaque++;
+      }
+      return { range: max - min, opaque };
+    };
+    return { left: read(0), right: read(source.width / 2) };
+  });
+}
+
 async function openHarness(browser, init = null) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
@@ -168,6 +197,10 @@ async function verifyKeyboardDuo(page) {
   assert.equal(eliminated.primaryPlayerId, 1);
   assert.deepEqual(eliminated.eliminated, [true, false]);
   assert.equal(eliminated.controlsVisible, true);
+  assert.equal(eliminated.guidance.ownerId, 1,
+    `survivor did not own global guidance after left-seat elimination: ${JSON.stringify(eliminated.guidance)}`);
+  assert.equal(eliminated.guidance.guideLayer, 4,
+    `survivor guidance did not move to the right-seat route layer: ${JSON.stringify(eliminated.guidance)}`);
   const survivorPlace = eliminated.racers[1].place;
   assert.equal(await page.locator('.hud-pos-num').textContent(), `${survivorPlace} / 6`);
 
@@ -225,6 +258,10 @@ function installPads() {
     pads[index].axes[axis] = value;
     pads[index].timestamp++;
   };
+  window.__setPadConnected = (index, connected) => {
+    pads[index].connected = connected;
+    pads[index].timestamp++;
+  };
 }
 
 async function padButton(page, index, button) {
@@ -264,6 +301,24 @@ async function verifyGamepadSeating(page) {
   await page.waitForFunction(() => window.__harness.duoState().appMode === 'duo', null, { timeout: 30000 });
   await advance(page, 5.2);
   await page.waitForFunction(() => window.__harness.duoState().phase === 'racing', null, { timeout: 30000 });
+  // Triggers are deliberately not a throttle path. Holding either RT/LT slot
+  // must leave the neutral auto-forward baseline unchanged.
+  await page.evaluate(() => {
+    window.__setPadButton(0, 6, true);
+    window.__setPadButton(0, 7, true);
+    window.__setPadButton(1, 6, true);
+    window.__setPadButton(1, 7, true);
+  });
+  await advance(page, 0.12);
+  const triggerState = await page.evaluate(() => window.__harness.duoState());
+  assert.ok(triggerState.racers[0].throttle > 0.8 && triggerState.racers[1].throttle > 0.8,
+    `RT/LT leaked into duo throttle: ${JSON.stringify(triggerState)}`);
+  await page.evaluate(() => {
+    window.__setPadButton(0, 6, false);
+    window.__setPadButton(0, 7, false);
+    window.__setPadButton(1, 6, false);
+    window.__setPadButton(1, 7, false);
+  });
   await page.evaluate(() => {
     window.__setPadAxis(0, 0, -0.72);
     window.__setPadAxis(0, 1, -0.72);
@@ -275,7 +330,103 @@ async function verifyGamepadSeating(page) {
   assert.equal(state.devices[0], 'gamepad:0');
   assert.equal(state.devices[1], 'gamepad:1');
   assert.equal(state.phase, 'racing');
-  return state;
+  assert.equal(state.deviceStatus[0].mappingSource, 'standard');
+  assert.equal(state.deviceStatus[1].mappingSource, 'standard');
+  assert.ok(state.racers[0].steer < -0.45 && state.racers[0].throttle > 0.45,
+    `left diagonal did not map to steer + forward: ${JSON.stringify(state)}`);
+  assert.ok(state.racers[1].steer > 0.45 && state.racers[1].throttle < -0.45,
+    `right diagonal did not map to steer + brake: ${JSON.stringify(state)}`);
+  assert.ok(Math.abs(state.racers[0].steer) > 0.45 && Math.abs(state.racers[1].steer) > 0.45,
+    `one seat received an inaccurate stick vector: ${JSON.stringify(state)}`);
+  await page.evaluate(() => {
+    window.__setPadAxis(0, 0, 0);
+    window.__setPadAxis(0, 1, 0);
+    window.__setPadAxis(1, 0, 0);
+    window.__setPadAxis(1, 1, 0);
+  });
+  await advance(page, 0.12);
+  const neutralState = await page.evaluate(() => window.__harness.duoState());
+  assert.ok(neutralState.racers[0].throttle > 0.8 && neutralState.racers[1].throttle > 0.8,
+    `neutral stick did not restore auto-forward: ${JSON.stringify(neutralState)}`);
+
+  // Real sticks carry a little Y noise while the player turns. That noise
+  // must not collapse the auto-forward baseline into a near-zero throttle.
+  await page.evaluate(() => {
+    window.__setPadAxis(1, 0, 0.72);
+    window.__setPadAxis(1, 1, 0.08);
+  });
+  await advance(page, 0.18);
+  const noisyTurn = await page.evaluate(() => window.__harness.duoState());
+  assert.ok(noisyTurn.racers[1].steer > 0.5 && noisyTurn.racers[1].throttle > 0.8,
+    `right-seat turn noise became an unintended brake: ${JSON.stringify(noisyTurn)}`);
+  await page.evaluate(() => {
+    window.__setPadAxis(1, 0, 0);
+    window.__setPadAxis(1, 1, 0);
+  });
+  await advance(page, 0.1);
+
+  // A disconnected seated controller freezes the fixed-step immediately.
+  // Reconnecting while Start is held must not manufacture a resume edge;
+  // only a fresh release-and-press from a seated device may continue.
+  await page.evaluate(() => window.__setPadConnected(1, false));
+  await advance(page, 1 / 60);
+  const disconnected = await page.evaluate(() => window.__harness.duoState());
+  assert.equal(disconnected.interruptionActive, true);
+  assert.equal(disconnected.duoPauseActive, true);
+  assert.equal(disconnected.deviceStatus[1].connected, false);
+  assert.equal(await page.locator('.hud-interruption.on').count(), 1);
+  assert.match(await page.locator('.hud-interruption-copy').textContent(), /手柄已断开/);
+  const frozenRaceTime = disconnected.raceTime;
+  await advance(page, 0.55);
+  assert.equal((await page.evaluate(() => window.__harness.duoState().raceTime)), frozenRaceTime,
+    'controller disconnect advanced dual race time');
+  await page.evaluate(() => {
+    window.__setPadButton(1, 9, true);
+    window.__setPadConnected(1, true);
+  });
+  await advance(page, 0.12);
+  const heldReconnect = await page.evaluate(() => window.__harness.duoState());
+  assert.equal(heldReconnect.interruptionActive, true,
+    `held reconnect created a phantom resume edge: ${JSON.stringify(heldReconnect)}`);
+  assert.equal(heldReconnect.deviceStatus[1].connected, true);
+  await page.evaluate(() => window.__setPadButton(1, 9, false));
+  await advance(page, 1 / 60);
+  assert.equal(await page.evaluate(() => window.__harness.duoState().interruptionActive), true);
+  await padButton(page, 1, 9);
+  assert.equal(await page.evaluate(() => window.__harness.duoState().phase), 'resume-countdown');
+  await advance(page, 4.35);
+  assert.equal(await page.evaluate(() => window.__harness.duoState().phase), 'racing');
+
+  // Force both real boats through the first launch. This catches the former
+  // right-seat failure where its mist branch was shared with the left camera
+  // and vanished as soon as the two boats diverged.
+  const guidance = await page.evaluate(() => window.__harness.duoGuidanceCase());
+  assert.deepEqual(guidance.layers, [3, 4], `dual guidance layers collided: ${JSON.stringify(guidance)}`);
+  assert.ok(guidance.phases.every((phase) => phase !== 'surface'),
+    `both seats did not enter controlled flight: ${JSON.stringify(guidance)}`);
+  assert.ok(guidance.routeStates.every((routeState) => routeState === 'active' || routeState === 'passed'),
+    `dual flight route state was lost: ${JSON.stringify(guidance)}`);
+  assert.ok(guidance.visibleRoutes.every((count) => count >= 1),
+    `one split view lost its airborne corridor: ${JSON.stringify(guidance)}`);
+  assert.ok(Array.isArray(guidance.visibilityTimeline) && guidance.visibilityTimeline.length >= 24,
+    `dual guidance timeline was not sampled: ${JSON.stringify(guidance)}`);
+  for (const seat of [0, 1]) {
+    const liveSamples = guidance.visibilityTimeline.filter((sample) =>
+      sample.phases[seat] !== 'surface' && sample.routeStates[seat] !== 'failed');
+    assert.ok(liveSamples.length >= 8,
+      `seat ${seat} did not stay in a controlled-flight window long enough: ${JSON.stringify(guidance)}`);
+    assert.ok(liveSamples.every((sample) => sample.visibleRoutes[seat] >= 1),
+      `seat ${seat} airborne corridor disappeared during the split timeline: ${JSON.stringify(guidance)}`);
+  }
+  const finalFlight = guidance.finalArmedRightFlight;
+  assert.ok(finalFlight && (finalFlight.phase === 'surface' || finalFlight.routeState === 'failed' ||
+    (finalFlight.activeRoute >= 0 && finalFlight.visibleRoutes >= 1)),
+  `right airborne corridor was hidden when the other seat armed Final: ${JSON.stringify(guidance)}`);
+  const split = await sampleSplitCanvas(page);
+  assert.ok(split.left.range > 24 && split.right.range > 24 && split.left.opaque > 800 && split.right.opaque > 800,
+    `one split half rendered blank during dual flight: ${JSON.stringify(split)}`);
+  const finalState = await page.evaluate(() => window.__harness.duoState());
+  return { ...finalState, guidance, split };
 }
 
 let browser;

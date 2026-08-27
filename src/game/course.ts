@@ -32,6 +32,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   markInk,
   LAYER_ENERGY,
+  LAYER_GUIDE_LEFT,
+  LAYER_GUIDE_RIGHT,
   LAYER_INK,
   type CourseRouteId,
   type CourseGuidanceStatus,
@@ -40,6 +42,7 @@ import {
   type FlightPhase,
   type FlightRouteDefinition,
   type FlightRouteFailReason,
+  type FlightRouteState,
   type IBoat,
   type ICourse,
 } from '../contracts';
@@ -1421,6 +1424,89 @@ interface LaunchGateVisual {
   deploy: number;
 }
 
+interface GuidancePresentationState {
+  previousFlightPhase: FlightPhase;
+  launchCommittedRoute: number;
+  launchCommittedU: number;
+  corridorDanger: number;
+  corridorDangerTarget: number;
+  corridorDangerRoute: number;
+  flightReady: boolean;
+  flightIndex: number;
+  flightPressure: number;
+  gateProgress: number;
+  flightActive: boolean;
+  routeState: FlightRouteState;
+  flowTime: number;
+  surfaceU: number;
+  position: THREE.Vector3;
+  targetGateDistance: number;
+  targetAnchorScale: number;
+  actionCue: CourseGuidanceStatus['actionCue'];
+  actionRouteIndex: number;
+  actionDirection: CourseGuidanceStatus['actionDirection'];
+  actionTargetU: number;
+  actionMarkerCount: number;
+  launchGateState: CourseGuidanceStatus['launchGateState'];
+  launchGateRouteIndex: number;
+  launchGateDistanceM: number;
+  launchGateDiamondCount: number;
+  activeGuideRoute: number;
+  recoveryRoute: number;
+  recoverySurface: boolean;
+  recoveryElapsed: number;
+  recoveryLimit: number;
+  warn: number;
+  warnRoute: number;
+}
+
+function makeGuidancePresentationState(): GuidancePresentationState {
+  return {
+    previousFlightPhase: 'surface',
+    launchCommittedRoute: -1,
+    launchCommittedU: -1,
+    corridorDanger: 0,
+    corridorDangerTarget: 0,
+    corridorDangerRoute: -1,
+    flightReady: false,
+    flightIndex: 0,
+    flightPressure: 0,
+    gateProgress: 0,
+    flightActive: false,
+    routeState: 'idle',
+    flowTime: 0,
+    surfaceU: 0,
+    position: new THREE.Vector3(),
+    targetGateDistance: -1,
+    targetAnchorScale: 1,
+    actionCue: 'none',
+    actionRouteIndex: -1,
+    actionDirection: 'none',
+    actionTargetU: -1,
+    actionMarkerCount: 0,
+    launchGateState: 'hidden',
+    launchGateRouteIndex: -1,
+    launchGateDistanceM: -1,
+    launchGateDiamondCount: 0,
+    activeGuideRoute: -1,
+    recoveryRoute: -1,
+    recoverySurface: false,
+    recoveryElapsed: 0,
+    recoveryLimit: 0,
+    warn: 0,
+    warnRoute: -1,
+  };
+}
+
+function assignPresentationLayers(root: THREE.Object3D, guideLayer: number): void {
+  const energyLayer = guideLayer + 2;
+  root.traverse((object) => {
+    const isEnergy = object.layers.isEnabled(LAYER_ENERGY);
+    object.layers.set(guideLayer);
+    if (isEnergy) object.layers.enable(energyLayer);
+  });
+}
+
 function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
   const points = [
     -1.12, depth, 0.82, -0.86, depth, 1.08, 0.34, depth, 0.13,
@@ -1503,7 +1589,9 @@ export class Course implements ICourse {
   private readonly surfaceGuideArrowCount: number;
   private readonly stripMat: THREE.ShaderMaterial;
   private readonly flightVisuals: FlightRouteVisual[];
+  private readonly flightVisualsRight: FlightRouteVisual[];
   private readonly launchGateVisuals: LaunchGateVisual[];
+  private readonly launchGateVisualsRight: LaunchGateVisual[];
   private readonly floaters: Floater[] = [];
   private readonly balloonPops: BalloonPop[] = Array.from(
     { length: CHECKPOINT_US.length * 2 },
@@ -1565,6 +1653,12 @@ export class Course implements ICourse {
   private readonly finalPortalCenter = new THREE.Vector3();
   private readonly finalPortalForward = new THREE.Vector3();
   private readonly finalPortalRight = new THREE.Vector3();
+  /** Presentation ownership is per human seat; physics remains per boat. */
+  private guidanceOwners: number[] = [0];
+  private readonly secondaryGuidance = makeGuidancePresentationState();
+  private readonly capturedGuidance = makeGuidancePresentationState();
+  private presentationTime = 0;
+  private guidanceStatusOwnerId = 0;
 
   constructor() {
     this.object = new THREE.Group();
@@ -1578,21 +1672,151 @@ export class Course implements ICourse {
     this.surfaceGuideArrowPhases = surfaceGuide.arrowPhases;
     this.surfaceGuideArrowCount = surfaceGuide.arrowCount;
     this.stripMat = this.buildStartStrip();
-    this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime));
+    this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime, LAYER_GUIDE_LEFT));
     this.buildGates();
-    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildLaunchGateVisual(runtime));
+    this.launchGateVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildLaunchGateVisual(runtime, LAYER_GUIDE_LEFT));
+    // The right split view gets its own material/uniform state. Geometry is
+    // authored from the same runtime tables, so collision and progress never
+    // acquire a second route truth.
+    this.flightVisualsRight = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime, LAYER_GUIDE_RIGHT));
+    this.launchGateVisualsRight = FLIGHT_RUNTIME.map((runtime) => this.buildLaunchGateVisual(runtime, LAYER_GUIDE_RIGHT));
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
   }
 
-  /** Selects which local player owns the shared flight-route guidance visuals. */
+  /** Compatibility setter for independent mode. */
   setGuidanceBoat(id: number): void {
-    if (this.guidanceBoatId === id) return;
-    this.guidanceBoatId = id;
-    this.playerPreviousFlightPhase = 'surface';
-    this.playerLaunchCommittedRoute = -1;
-    this.playerLaunchCommittedU = -1;
+    this.setGuidanceOwners([id], id);
+  }
+
+  /** Bind one independent presentation state to each live human seat. */
+  setGuidanceOwners(ids: readonly number[], primaryId = ids[0] ?? 0): void {
+    let first = -1;
+    let second = -1;
+    for (const id of ids) {
+      if (!Number.isInteger(id) || id < 0 || id === first) continue;
+      if (first < 0) first = id;
+      else if (second < 0) second = id;
+      if (second >= 0) break;
+    }
+    if (first < 0) first = Number.isInteger(primaryId) && primaryId >= 0 ? primaryId : 0;
+    const previousSecondary = this.guidanceOwners[1];
+    this.guidanceOwners.length = second >= 0 ? 2 : 1;
+    this.guidanceOwners[0] = first;
+    if (second >= 0) this.guidanceOwners[1] = second;
+    // Physics presentation has a stable canonical owner (the first seat) so
+    // promoting a survivor cannot reset either private route layer. Only the
+    // global HUD/audio owner follows the surviving human.
+    this.guidanceBoatId = first;
+    this.guidanceStatusOwnerId = primaryId === first || primaryId === second ? primaryId : first;
+    if (second !== previousSecondary) this.resetGuidanceState(this.secondaryGuidance);
+  }
+
+  guidanceLayerFor(ownerId: number): number {
+    return ownerId === 1 ? LAYER_GUIDE_RIGHT : LAYER_GUIDE_LEFT;
+  }
+
+  /** Apply the selected seat's shared surface guide immediately before render. */
+  activateGuidanceView(ownerId: number, time = this.presentationTime): void {
+    if (ownerId === 1 && this.guidanceOwners.length > 1) {
+      const state = this.secondaryGuidance;
+      const saved = this.captureCurrentGuidanceFields(this.capturedGuidance);
+      this.applyGuidanceFields(state);
+      this.applySurfaceGuidance(time);
+      this.restoreGuidanceFields(saved);
+      return;
+    }
+    this.applySurfaceGuidance(time);
+  }
+
+  private captureCurrentGuidanceFields(state: GuidancePresentationState): GuidancePresentationState {
+    state.previousFlightPhase = this.playerPreviousFlightPhase;
+    state.launchCommittedRoute = this.playerLaunchCommittedRoute;
+    state.launchCommittedU = this.playerLaunchCommittedU;
+    state.corridorDanger = this.playerCorridorDanger;
+    state.corridorDangerTarget = this.playerCorridorDangerTarget;
+    state.corridorDangerRoute = this.playerCorridorDangerRoute;
+    state.flightReady = this.playerFlightReady;
+    state.flightIndex = this.playerFlightIndex;
+    state.flightPressure = this.playerFlightPressure;
+    state.flowTime = this.flightFlowTime;
+    state.surfaceU = this.playerSurfaceU;
+    state.position.copy(this.playerPosition);
+    state.targetGateDistance = this.playerTargetGateDistance;
+    state.targetAnchorScale = this.playerTargetAnchorScale;
+    state.actionCue = this.playerActionCue;
+    state.actionRouteIndex = this.playerActionRouteIndex;
+    state.actionDirection = this.playerActionDirection;
+    state.actionTargetU = this.playerActionTargetU;
+    state.actionMarkerCount = this.playerActionMarkerCount;
+    state.launchGateState = this.playerLaunchGateState;
+    state.launchGateRouteIndex = this.playerLaunchGateRouteIndex;
+    state.launchGateDistanceM = this.playerLaunchGateDistanceM;
+    state.launchGateDiamondCount = this.playerLaunchGateDiamondCount;
+    state.activeGuideRoute = this.activeGuideRoute;
+    state.recoveryRoute = this.playerRecoveryRoute;
+    state.recoverySurface = this.playerRecoverySurface;
+    state.recoveryElapsed = this.playerRecoveryElapsed;
+    state.recoveryLimit = this.playerRecoveryLimit;
+    state.warn = this.flightWarn;
+    state.warnRoute = this.flightWarnRoute;
+    return state;
+  }
+
+  private applyGuidanceFields(state: GuidancePresentationState): void {
+    this.playerPreviousFlightPhase = state.previousFlightPhase;
+    this.playerLaunchCommittedRoute = state.launchCommittedRoute;
+    this.playerLaunchCommittedU = state.launchCommittedU;
+    this.playerCorridorDanger = state.corridorDanger;
+    this.playerCorridorDangerTarget = state.corridorDangerTarget;
+    this.playerCorridorDangerRoute = state.corridorDangerRoute;
+    this.playerFlightReady = state.flightReady;
+    this.playerFlightIndex = state.flightIndex;
+    this.playerFlightPressure = state.flightPressure;
+    this.flightFlowTime = state.flowTime;
+    this.playerSurfaceU = state.surfaceU;
+    this.playerPosition.copy(state.position);
+    this.playerTargetGateDistance = state.targetGateDistance;
+    this.playerTargetAnchorScale = state.targetAnchorScale;
+    this.playerActionCue = state.actionCue;
+    this.playerActionRouteIndex = state.actionRouteIndex;
+    this.playerActionDirection = state.actionDirection;
+    this.playerActionTargetU = state.actionTargetU;
+    this.playerActionMarkerCount = state.actionMarkerCount;
+    this.playerLaunchGateState = state.launchGateState;
+    this.playerLaunchGateRouteIndex = state.launchGateRouteIndex;
+    this.playerLaunchGateDistanceM = state.launchGateDistanceM;
+    this.playerLaunchGateDiamondCount = state.launchGateDiamondCount;
+    this.activeGuideRoute = state.activeGuideRoute;
+    this.playerRecoveryRoute = state.recoveryRoute;
+    this.playerRecoverySurface = state.recoverySurface;
+    this.playerRecoveryElapsed = state.recoveryElapsed;
+    this.playerRecoveryLimit = state.recoveryLimit;
+    this.flightWarn = state.warn;
+    this.flightWarnRoute = state.warnRoute;
+  }
+
+  private restoreGuidanceFields(state: GuidancePresentationState): void {
+    this.applyGuidanceFields(state);
+  }
+
+  private applySurfaceGuidance(time: number): void {
+    const active = this.activeGuideRoute >= 0 ? FLIGHT_ROUTES[this.activeGuideRoute] : undefined;
+    this.ribbonMat.uniforms.uGuideActive.value = active ? 1 : 0;
+    this.ribbonMat.uniforms.uMaskStart.value = active ? flightLaunchCueU(active) * LAP_LENGTH : 0;
+    this.ribbonMat.uniforms.uMaskEnd.value = active
+      ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (this.playerRecoveryRoute >= 0 ? -16 : 8))
+      : 0;
+    const launchActive = this.playerLaunchGateState === 'armed' || this.playerLaunchGateState === 'unarmed';
+    const launchRoute = launchActive ? this.playerLaunchGateRouteIndex : -1;
+    this.ribbonMat.uniforms.uLaunchGateActive.value = launchActive ? 1 : 0;
+    this.ribbonMat.uniforms.uLaunchGateS.value = launchRoute >= 0
+      ? flightLaunchCueU(FLIGHT_ROUTES[launchRoute]) * LAP_LENGTH : 0;
+    this.ribbonMat.uniforms.uLaunchGateEndS.value = launchRoute >= 0
+      ? Math.min(LAP_LENGTH, FLIGHT_ROUTES[launchRoute].exitU * LAP_LENGTH + 8) : 0;
+    this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
+    this.updateSurfaceGuideArrowFlow(time);
   }
 
   /** Team mode may lock one portal until its surface relay is activated. */
@@ -1613,6 +1837,10 @@ export class Course implements ICourse {
   setTeamPresentation(active: boolean): void {
     this.teamPresentation = active;
     if (this.startGantry) this.startGantry.visible = !active;
+    if (active) {
+      this.guidanceOwners = [];
+      this.hideGuidanceVisuals(this.flightVisualsRight, this.launchGateVisualsRight);
+    }
   }
 
   /** Cold-load contract for the START landmark. No browser canvas upload is allowed. */
@@ -1767,6 +1995,79 @@ export class Course implements ICourse {
     return this.flightTurnWarn[id] ?? false;
   }
 
+  private resetGuidanceState(state: GuidancePresentationState): void {
+    state.previousFlightPhase = 'surface';
+    state.launchCommittedRoute = -1;
+    state.launchCommittedU = -1;
+    state.corridorDanger = 0;
+    state.corridorDangerTarget = 0;
+    state.corridorDangerRoute = -1;
+    state.flightReady = false;
+    state.flightIndex = 0;
+    state.flightPressure = 0;
+    state.gateProgress = 0;
+    state.flightActive = false;
+    state.routeState = 'idle';
+    state.flowTime = 0;
+    state.surfaceU = 0;
+    state.position.set(0, 0, 0);
+    state.targetGateDistance = -1;
+    state.targetAnchorScale = 1;
+    state.actionCue = 'none';
+    state.actionRouteIndex = -1;
+    state.actionDirection = 'none';
+    state.actionTargetU = -1;
+    state.actionMarkerCount = 0;
+    state.launchGateState = 'hidden';
+    state.launchGateRouteIndex = -1;
+    state.launchGateDistanceM = -1;
+    state.launchGateDiamondCount = 0;
+    state.activeGuideRoute = -1;
+    state.recoveryRoute = -1;
+    state.recoverySurface = false;
+    state.recoveryElapsed = 0;
+    state.recoveryLimit = 0;
+    state.warn = 0;
+    state.warnRoute = -1;
+  }
+
+  private hideGuidanceVisuals(
+    visuals: readonly FlightRouteVisual[],
+    launchVisuals: readonly LaunchGateVisual[],
+  ): void {
+    for (const visual of visuals) {
+      visual.group.visible = false;
+      visual.deployActive = false;
+      visual.deployTime = 0;
+      visual.recoveryFade = 0;
+      visual.recoverySurfaceBlend = 0;
+    }
+    for (const visual of launchVisuals) {
+      visual.group.visible = false;
+      visual.deploy = 0;
+    }
+  }
+
+  private resetGuidanceVisuals(
+    visuals: readonly FlightRouteVisual[],
+    launchVisuals: readonly LaunchGateVisual[],
+  ): void {
+    this.hideGuidanceVisuals(visuals, launchVisuals);
+    for (const visual of visuals) {
+      visual.recoveryProgress = flightVisualT(
+        visual.runtime.def,
+        visual.runtime.def.gateUs[visual.runtime.def.gateUs.length - 1],
+      );
+      for (const gate of visual.gates) {
+        gate.deploy = 0;
+        gate.pulse = 0;
+        gate.cleared = false;
+        gate.group.visible = true;
+        gate.anchor.visible = true;
+      }
+    }
+  }
+
   resetFlightChallenge(): void {
     this.balloonPopCount = 0;
     this.flightPrev.length = 0;
@@ -1811,6 +2112,7 @@ export class Course implements ICourse {
     this.playerRecoverySurface = false;
     this.playerRecoveryElapsed = 0;
     this.playerRecoveryLimit = 0;
+    this.resetGuidanceState(this.secondaryGuidance);
     this.finalArmed = false;
     this.finalCelebrating = false;
     this.finalCelebrationTime = 0;
@@ -1819,28 +2121,8 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uGuideActive.value = 0;
     this.ribbonMat.uniforms.uFinalApproach.value = 0;
     this.ribbonMat.uniforms.uLaunchGateActive.value = 0;
-    for (const visual of this.launchGateVisuals) {
-      visual.group.visible = false;
-      visual.deploy = 0;
-    }
-    for (const visual of this.flightVisuals) {
-      visual.group.visible = false;
-      visual.deployActive = false;
-      visual.deployTime = 0;
-      visual.recoveryFade = 0;
-      visual.recoveryProgress = flightVisualT(
-        visual.runtime.def,
-        visual.runtime.def.gateUs[visual.runtime.def.gateUs.length - 1],
-      );
-      visual.recoverySurfaceBlend = 0;
-      for (const gate of visual.gates) {
-        gate.deploy = 0;
-        gate.pulse = 0;
-        gate.cleared = false;
-        gate.group.visible = true;
-        gate.anchor.visible = true;
-      }
-    }
+    this.resetGuidanceVisuals(this.flightVisuals, this.launchGateVisuals);
+    this.resetGuidanceVisuals(this.flightVisualsRight, this.launchGateVisualsRight);
     for (const floater of this.floaters) {
       if (floater.obj.parent !== floater.homeParent) floater.homeParent.attach(floater.obj);
       floater.obj.visible = true;
@@ -1942,10 +2224,28 @@ export class Course implements ICourse {
     if (this.finalStation) this.finalStation.visible = false;
   }
 
-  /** Deterministic harness diagnostic for the single-guide contract. */
+  /** Deterministic harness diagnostic for the primary/single guide contract. */
   guidanceStatus(): CourseGuidanceStatus {
+    return this.guidanceStatusFor(this.guidanceStatusOwnerId);
+  }
+
+  corridorDangerFor(ownerId: number): number {
+    return ownerId === 1 && this.guidanceOwners.length > 1
+      ? this.secondaryGuidance.corridorDanger
+      : this.playerCorridorDanger;
+  }
+
+  /** Read the independent route presentation assigned to a local seat. */
+  guidanceStatusFor(ownerId: number): CourseGuidanceStatus {
+    // Seat 1 only has a private presentation in the live dual race.  Keeping
+    // the single-player query on the primary state prevents a stale right-seat
+    // snapshot from leaking into mobile/single HUD diagnostics after leaving a
+    // dual run.
+    if (ownerId === 1 && this.guidanceOwners.length > 1) return this.secondaryGuidanceStatus();
     const recoveryVisual = this.playerRecoveryRoute >= 0 ? this.flightVisuals[this.playerRecoveryRoute] : undefined;
     return {
+      ownerId: 0,
+      guideLayer: LAYER_GUIDE_LEFT,
       activeRouteIndex: this.activeGuideRoute,
       visibleRouteCount: this.flightVisuals.reduce((sum, visual) => sum + (visual.group.visible ? 1 : 0), 0),
       surfaceMaskRouteIndex: this.activeGuideRoute,
@@ -2008,6 +2308,52 @@ export class Course implements ICourse {
         ? Math.max(0, this.ribbonMat.uniforms.uMaskStart.value -
           flightLaunchCueU(FLIGHT_ROUTES[this.activeGuideRoute]) * LAP_LENGTH)
         : 0,
+    };
+  }
+
+  private secondaryGuidanceStatus(): CourseGuidanceStatus {
+    const state = this.secondaryGuidance;
+    const recoveryVisual = state.recoveryRoute >= 0 ? this.flightVisualsRight[state.recoveryRoute] : undefined;
+    const base = this.guidanceStatusFor(0);
+    const active = state.activeGuideRoute >= 0;
+    return {
+      ...base,
+      ownerId: 1,
+      guideLayer: LAYER_GUIDE_RIGHT,
+      activeRouteIndex: state.activeGuideRoute,
+      visibleRouteCount: this.flightVisualsRight.reduce((sum, visual) => sum + (visual.group.visible ? 1 : 0), 0),
+      surfaceMaskRouteIndex: state.activeGuideRoute,
+      recoveryRouteIndex: state.recoveryRoute,
+      recoveryActive: state.recoveryRoute >= 0 ? 1 : 0,
+      recoveryElapsed: state.recoveryElapsed,
+      recoveryLimit: state.recoveryLimit,
+      recoveryArrowCount: recoveryVisual
+        ? recoveryVisual.recoveryArrowFractions.filter((f) => f >= recoveryVisual.recoveryProgress - 0.018).length
+        : 0,
+      recoveryGuideOpacity: recoveryVisual ? 1 : 0,
+      playerSurfaceU: state.surfaceU,
+      targetGateDistance: state.targetGateDistance,
+      targetAnchorScale: state.targetAnchorScale,
+      finalDistance: Math.hypot(
+        state.position.x - this.finalPortalCenter.x,
+        state.position.z - this.finalPortalCenter.z,
+      ),
+      actionCue: state.actionCue,
+      actionRouteIndex: state.actionRouteIndex,
+      actionDirection: state.actionDirection,
+      actionTargetU: state.actionTargetU,
+      actionMarkerCount: state.actionMarkerCount,
+      launchGateState: state.launchGateState,
+      launchGateRouteIndex: state.launchGateRouteIndex,
+      launchGateDistanceM: state.launchGateDistanceM,
+      launchGateDiamondCount: state.launchGateDiamondCount,
+      launchCommitRouteIndex: state.launchCommittedRoute,
+      launchCommitU: state.launchCommittedU,
+      surfaceGuideMaskStartU: active ? flightLaunchCueU(FLIGHT_ROUTES[state.activeGuideRoute]) : -1,
+      surfaceGuideMaskEndU: active ? FLIGHT_ROUTES[state.activeGuideRoute].exitU : -1,
+      // Surface guide geometry is shared and remains intentionally visible;
+      // the private airborne layer owns the seat-specific handoff.
+      surfaceGuideAfterLaunchMeters: 0,
     };
   }
 
@@ -2421,6 +2767,9 @@ export class Course implements ICourse {
       this.flightPrevClearance[id] = st.flightClearance;
     }
     this.updatePlayerGuidance(guidanceBoat);
+    const secondaryId = this.guidanceOwners[1];
+    const secondaryBoat = secondaryId === undefined ? undefined : boats.find((boat) => boat.id === secondaryId);
+    this.updateSecondaryGuidance(secondaryBoat, dt);
   }
 
   /** Contact separation changes the next frame's baseline, never the just-checked flight path. */
@@ -2517,6 +2866,302 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uMaskEnd.value = active
       ? Math.min(LAP_LENGTH, active.exitU * LAP_LENGTH + (recovering ? -16 : 8))
       : 0;
+  }
+
+  /**
+   * Rebuild only the right-seat presentation from its own boat state. The
+   * route detector above remains the sole physics/scoring owner; this method
+   * never calls a boat mutator and therefore cannot create a second route.
+   */
+  private updateSecondaryGuidance(boat: IBoat | undefined, dt: number): void {
+    const state = this.secondaryGuidance;
+    const previousRouteState = state.routeState;
+    const previousRecoveryRoute = state.recoveryRoute;
+    if (!boat || this.teamPresentation || this.guidanceOwners[1] !== boat.id) {
+      this.resetGuidanceState(state);
+      this.hideGuidanceVisuals(this.flightVisualsRight, this.launchGateVisualsRight);
+      return;
+    }
+    const st = boat.state;
+    state.routeState = st.flightRouteState;
+    state.flightActive = st.flightPhase !== 'surface';
+    this.sample(st.position, _routeSample, 'surface');
+    state.surfaceU = _routeSample.u;
+    state.position.copy(st.position);
+    state.flightReady = st.flightCharges > 0;
+    state.flightPressure = st.flightPressure;
+    state.gateProgress = st.flightGateProgress;
+    state.actionCue = 'none';
+    state.actionRouteIndex = -1;
+    state.actionDirection = 'none';
+    state.actionTargetU = -1;
+    state.actionMarkerCount = 0;
+    state.launchGateState = 'hidden';
+    state.launchGateRouteIndex = -1;
+    state.launchGateDistanceM = -1;
+    state.launchGateDiamondCount = 0;
+    state.corridorDangerTarget = 0;
+    state.corridorDangerRoute = -1;
+    state.warn = Math.max(0, state.warn - dt);
+    state.warnRoute = -1;
+
+    const routeIndex = st.flightRouteIndex >= 0
+      ? st.flightRouteIndex
+      : st.flightRouteCursor % FLIGHT_ROUTES.length;
+    const visual = this.flightVisualsRight[routeIndex];
+    const def = visual?.runtime.def;
+    const flightActive = state.flightActive;
+
+    if (visual && st.flightRouteState === 'passed') {
+      state.recoveryRoute = routeIndex;
+      state.recoverySurface = !flightActive;
+      state.recoveryElapsed += dt;
+      state.recoveryLimit = state.recoveryLimit > 0
+        ? state.recoveryLimit
+        : def?.navigation?.postGateRecovery?.maxDurationS ?? 3.2;
+      nearestOnFlight(visual.runtime, st.position.x, st.position.z);
+      visual.recoveryProgress = flightVisualT(visual.runtime.def, visual.runtime.near.u);
+    } else if (previousRouteState === 'passed' && previousRecoveryRoute >= 0) {
+      // Mirror the primary recovery handoff.  Boat.settleFlightRoute() clears
+      // the physics route state on the first water-contact frame, but the
+      // right-seat corridor must remain visible long enough for the player to
+      // read the return to the surface line.
+      const recovered = this.flightVisualsRight[previousRecoveryRoute];
+      if (recovered) {
+        recovered.recoveryFade = Math.max(recovered.recoveryFade, 0.3);
+        recovered.recoverySurfaceBlend = 0;
+        recovered.recoveryProgress = flightVisualT(
+          recovered.runtime.def,
+          recovered.runtime.def.exitU,
+        );
+        state.recoveryRoute = previousRecoveryRoute;
+        state.recoverySurface = true;
+        state.recoveryElapsed += dt;
+        state.recoveryLimit = state.recoveryLimit || 3.2;
+      }
+    } else if (st.flightRouteState === 'idle') {
+      // A just-settled route may still be fading. Keep it as the active visual
+      // slot until the fade expires; a new launch below will explicitly retire
+      // it before committing the next branch.
+      const fadeRoute = this.flightVisualsRight.findIndex((entry) => entry.recoveryFade > 0);
+      if (fadeRoute >= 0) {
+        state.recoveryRoute = fadeRoute;
+        state.recoverySurface = true;
+        state.recoveryElapsed += dt;
+      } else {
+        state.recoveryRoute = -1;
+        state.recoverySurface = false;
+        state.recoveryElapsed = 0;
+        state.recoveryLimit = 0;
+      }
+    } else {
+      state.recoveryRoute = -1;
+      state.recoverySurface = false;
+      state.recoveryElapsed = 0;
+      state.recoveryLimit = 0;
+    }
+
+    // Earning the last flight mark does not retire an already active route:
+    // the player still needs to see the authored post-gate recovery and its
+    // handoff to the water. In dual play the other seat may arm Final first;
+    // hiding this branch while the second boat is airborne makes its corridor
+    // vanish in the middle of a legitimate flight.
+    const committedSlot = state.launchCommittedRoute >= 0 && flightActive
+      ? state.launchCommittedRoute
+      : flightActive && st.flightRouteIndex >= 0
+        ? st.flightRouteIndex
+        : -1;
+    const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
+      state.recoveryRoute < 0 && committedSlot < 0 && !flightActive;
+
+    if (!finalApproach && flightActive) {
+      // A new branch owns the right-seat layer atomically. Do not leave a
+      // previous route's recovery ribbon competing with the new corridor.
+      for (const entry of this.flightVisualsRight) {
+        entry.recoveryFade = 0;
+        entry.recoverySurfaceBlend = 0;
+      }
+      state.recoveryRoute = -1;
+      state.recoverySurface = false;
+      state.launchCommittedRoute = routeIndex;
+      state.launchCommittedU = state.surfaceU;
+      state.launchGateState = 'committed';
+      state.launchGateRouteIndex = routeIndex;
+      state.launchGateDistanceM = 0;
+    } else if (!flightActive && (st.flightRouteState === 'idle' || st.flightRouteState === 'passed')) {
+      state.launchCommittedRoute = -1;
+      state.launchCommittedU = -1;
+      const launchRouteIndex = st.flightRouteCursor % FLIGHT_ROUTES.length;
+      const launchRoute = FLIGHT_ROUTES[launchRouteIndex];
+      const launchCueU = flightLaunchCueU(launchRoute);
+      const launchDistance = (launchCueU * LAP_LENGTH - state.surfaceU * LAP_LENGTH + LAP_LENGTH) % LAP_LENGTH;
+      if (!finalApproach && launchDistance <= LAUNCH_GATE_PREVIEW_M) {
+        const armed = st.flightCharges > 0;
+        state.launchGateState = armed ? 'armed' : 'unarmed';
+        state.launchGateRouteIndex = launchRouteIndex;
+        state.launchGateDistanceM = launchDistance;
+        state.launchGateDiamondCount = 3;
+        state.actionCue = armed ? 'launch' : 'bank';
+        state.actionRouteIndex = launchRouteIndex;
+        state.actionDirection = launchRoute.navigation?.turn?.direction ?? 'none';
+        state.actionTargetU = launchCueU;
+        state.actionMarkerCount = 3;
+      }
+    }
+
+    if (visual && flightActive && st.flightRouteState === 'active') {
+      nearestOnFlight(visual.runtime, st.position.x, st.position.z);
+      const near = visual.runtime.near;
+      const primaryTurn = def?.navigation?.turn;
+      const counterTurn = def?.navigation?.counterTurn;
+      const activeTurn = counterTurn && near.u >= counterTurn.fromU && near.u <= counterTurn.toU
+        ? counterTurn
+        : primaryTurn && near.u >= primaryTurn.fromU && near.u <= primaryTurn.toU
+          ? primaryTurn
+          : null;
+      if (!finalApproach && activeTurn) {
+        state.actionCue = 'turn';
+        state.actionRouteIndex = routeIndex;
+        state.actionDirection = activeTurn.direction;
+        state.actionTargetU = Math.min(activeTurn.toU, near.u + 0.008);
+        state.actionMarkerCount = activeTurn === counterTurn ? 2 : 3;
+      }
+      const overshoot = near.distance - def!.corridorHalfWidth;
+      const offT = this.flightOffCorridorT[boat.id] ?? 0;
+      const danger = overshoot > 0
+        ? Math.max(overshoot / FLIGHT_CORRIDOR_HARD_OUT_M, offT / FLIGHT_CORRIDOR_TIME_LIMIT_S)
+        : Math.min(1, offT / FLIGHT_CORRIDOR_TIME_LIMIT_S);
+      state.corridorDangerTarget = Math.min(1, Math.max(0, danger));
+      state.corridorDangerRoute = routeIndex;
+    }
+
+    const recoverySlot = state.recoveryRoute >= 0 ? state.recoveryRoute : -1;
+    const slot = committedSlot >= 0
+      ? committedSlot
+      : recoverySlot >= 0
+        ? recoverySlot
+        : finalApproach ? -1 : routeIndex;
+    const showRoute = !finalApproach && Boolean(def) && (
+      committedSlot >= 0 || recoverySlot >= 0 || st.flightRouteState !== 'idle' || flightActive ||
+      (state.surfaceU >= flightGuideFromU(def!) && state.surfaceU <= def!.exitU + 0.01)
+    );
+    state.activeGuideRoute = showRoute ? slot : -1;
+    state.targetGateDistance = -1;
+    state.targetAnchorScale = 1;
+    if (state.activeGuideRoute >= 0) {
+      const target = this.flightVisualsRight[state.activeGuideRoute]?.gates[st.flightGateProgress];
+      if (target) {
+        state.targetGateDistance = target.center.distanceTo(st.position);
+        const far = THREE.MathUtils.clamp((state.targetGateDistance - 70) / 150, 0, 1);
+        state.targetAnchorScale = 1 + far * far * (3 - 2 * far) * 0.75;
+      }
+    }
+  }
+
+  private updateSecondaryPresentation(dt: number, t: number): void {
+    const state = this.secondaryGuidance;
+    const visuals = this.flightVisualsRight;
+    if (this.teamPresentation || this.guidanceOwners.length < 2) {
+      this.hideGuidanceVisuals(visuals, this.launchGateVisualsRight);
+      return;
+    }
+    for (const visual of visuals) visual.recoveryFade = Math.max(0, visual.recoveryFade - dt);
+    const next = state.activeGuideRoute;
+    state.corridorDanger += (state.corridorDangerTarget - state.corridorDanger) *
+      Math.min(1, dt * (state.corridorDangerTarget > state.corridorDanger ? 9 : 2.4));
+    state.flowTime += dt * (1 + state.flightPressure * 1.4);
+    const readyStep = state.flightReady && Math.floor(t * 4) % 2 === 0 ? 1 : 0;
+    for (let routeIndex = 0; routeIndex < visuals.length; routeIndex++) {
+      const visual = visuals[routeIndex];
+      const upcoming = routeIndex === next;
+      if (!upcoming) {
+        visual.group.visible = false;
+        visual.deployActive = false;
+        visual.deployTime = 0;
+        visual.recoverySurfaceBlend = 0;
+        continue;
+      }
+      visual.group.visible = true;
+      visual.deployActive = true;
+      visual.deployTime = Math.min(2, visual.deployTime + dt);
+      const warn = state.warnRoute === routeIndex ? Math.min(1, state.warn * 4) : 0;
+      visual.ribbon.uniforms.uTime.value = state.flowTime;
+      visual.curtain.uniforms.uTime.value = state.flowTime;
+      visual.ribbon.uniforms.uWarn.value = warn;
+      visual.ribbon.uniforms.uDistress.value = state.corridorDangerRoute === routeIndex ? state.corridorDanger : 0;
+      visual.ribbon.uniforms.uReady.value = state.flightReady ? 1 : 0;
+      visual.ribbon.uniforms.uTurn.value = state.actionCue === 'turn' && state.actionRouteIndex === routeIndex ? 1 : 0;
+      const liveRecovery = state.recoveryRoute === routeIndex && state.routeState === 'passed';
+      const recovery = liveRecovery ? 1 : visual.recoveryFade > 0 ? visual.recoveryFade / 0.3 : 0;
+      const recoverySurface = liveRecovery ? state.recoverySurface : visual.recoveryFade > 0;
+      visual.ribbon.uniforms.uRecovery.value = recovery;
+      visual.ribbon.uniforms.uRecoverySurface.value = recoverySurface ? 1 : 0;
+      visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
+      visual.ribbonMesh.layers.disable(LAYER_ENERGY);
+      if (recovery <= 0) visual.ribbonMesh.layers.enable(LAYER_GUIDE_RIGHT + 2);
+      else visual.ribbonMesh.layers.disable(LAYER_GUIDE_RIGHT + 2);
+      visual.recoveryArrows.visible = recovery > 0.04;
+      visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0.62 * recovery;
+      visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
+      visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
+      visual.rail.opacity = recovery > 0 ? 0.34 : warn > 0.5 ? 0.72 : 0.34 + readyStep * 0.08;
+      visual.ring.opacity = warn > 0.5 ? 1 : 0.78 + readyStep * 0.2;
+      for (let gateIndex = 0; gateIndex < visual.gates.length; gateIndex++) {
+        const gate = visual.gates[gateIndex];
+        gate.cleared = gateIndex < state.gateProgress;
+        gate.group.visible = !gate.cleared;
+        gate.anchor.visible = !gate.cleared;
+        const offset = this.externalGateOffsets[routeIndex] ?? 0;
+        gate.center.x = gate.baseCenter.x + gate.right.x * offset;
+        gate.center.z = gate.baseCenter.z + gate.right.z * offset;
+        gate.group.position.x = gate.center.x;
+        gate.group.position.z = gate.center.z;
+        const raw = Math.max(0, Math.min(1, (visual.deployTime - gateIndex * 0.12) / 0.5));
+        gate.deploy = raw * raw * (3 - 2 * raw);
+        const surface = waterHeight(gate.center.x, gate.center.z, t);
+        const submerged = surface - gate.halfHeight - 2.8;
+        gate.center.y = submerged + (gate.targetY - submerged) * gate.deploy;
+        gate.group.position.y = gate.center.y;
+        gate.anchor.rotation.z = state.flowTime * 0.18;
+      }
+    }
+    this.updateSecondaryLaunchVisuals(dt, t);
+  }
+
+  private updateSecondaryLaunchVisuals(dt: number, t: number): void {
+    const state = this.secondaryGuidance;
+    const activeState = state.launchGateState === 'armed' || state.launchGateState === 'unarmed';
+    const routeIndex = activeState ? state.launchGateRouteIndex : -1;
+    const armed = state.launchGateState === 'armed';
+    for (let index = 0; index < this.launchGateVisualsRight.length; index++) {
+      const visual = this.launchGateVisualsRight[index];
+      if (index !== routeIndex) {
+        visual.group.visible = false;
+        visual.deploy = 0;
+        continue;
+      }
+      visual.group.visible = true;
+      visual.deploy = Math.min(1, visual.deploy + dt / 0.35);
+      const deploy = visual.deploy * visual.deploy * (3 - 2 * visual.deploy);
+      const focus = 1 - THREE.MathUtils.clamp(state.launchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
+      const farScale = 1 + THREE.MathUtils.clamp(state.launchGateDistanceM / LAUNCH_GATE_PREVIEW_M, 0, 1) * 0.62;
+      const energyColor = armed ? FLIGHT_ROUTE_MARKER_COLOR : PALETTE.sunFlare;
+      for (let diamondIndex = 0; diamondIndex < visual.diamonds.length; diamondIndex++) {
+        const diamond = visual.diamonds[diamondIndex];
+        const wave = waterHeight(diamond.x, diamond.z, t);
+        diamond.root.position.set(diamond.x, diamond.clearance + wave * diamond.waveWeight, diamond.z);
+        const sequence = 0.5 + 0.5 * Math.sin(t * (armed ? 7.4 : 3.8) - diamondIndex * 1.55);
+        diamond.root.scale.setScalar((1.85 + diamondIndex * 0.2) * farScale * deploy *
+          (1 + sequence * (armed ? 0.09 : 0.045) + focus * 0.04));
+        diamond.ink.opacity = 0.82 * deploy;
+        diamond.energy.color.setHex(energyColor, THREE.NoColorSpace);
+        diamond.energy.opacity = (armed ? 0.78 + sequence * 0.18 : 0.58 + sequence * 0.16) * deploy;
+        if (diamond.postureInk) diamond.postureInk.opacity = 0.84 * deploy;
+        if (diamond.postureFill) diamond.postureFill.opacity = (armed ? 0.9 : 0.72 + sequence * 0.12) * deploy;
+      }
+      visual.packetMaterial.color.setHex(armed ? PALETTE.foam : PALETTE.sunFlare, THREE.NoColorSpace);
+      visual.packetMaterial.opacity = (armed ? 0.94 : 0.62) * deploy;
+    }
   }
 
   private updateSurfaceGuideArrowFlow(t: number): void {
@@ -2663,6 +3308,7 @@ export class Course implements ICourse {
   }
 
   update(dt: number, t: number): void {
+    this.presentationTime = t;
     this.ribbonMat.uniforms.uTime.value = t;
     this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
     this.updateSurfaceGuideArrowFlow(t);
@@ -2733,8 +3379,13 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uRecovery.value = recovery;
       visual.ribbon.uniforms.uRecoverySurface.value = visual.recoverySurfaceBlend;
       visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
-      if (recovery > 0) visual.ribbonMesh.layers.disable(LAYER_ENERGY);
-      else visual.ribbonMesh.layers.enable(LAYER_ENERGY);
+      if (recovery > 0) {
+        visual.ribbonMesh.layers.disable(LAYER_ENERGY);
+        visual.ribbonMesh.layers.disable(LAYER_GUIDE_LEFT + 2);
+      } else {
+        visual.ribbonMesh.layers.enable(LAYER_ENERGY);
+        visual.ribbonMesh.layers.enable(LAYER_GUIDE_LEFT + 2);
+      }
       visual.recoveryArrows.visible = recovery > 0.04;
       visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0.62 * recovery;
       if (recovery > 0) {
@@ -2794,6 +3445,7 @@ export class Course implements ICourse {
           0.68 + Math.sin(this.flightFlowTime * 3.4) * 0.12;
       }
     }
+    this.updateSecondaryPresentation(dt, t);
     for (const f of this.floaters) {
       if (f.balloonFlight && !f.balloonFlight.popped && f.balloonObj) {
         const b = f.balloonFlight;
@@ -3008,7 +3660,7 @@ export class Course implements ICourse {
 
   // ------------------------------------------------------- flight route ----
 
-  private buildFlightRoute(runtime: FlightRouteRuntime): FlightRouteVisual {
+  private buildFlightRoute(runtime: FlightRouteRuntime, guideLayer = LAYER_GUIDE_LEFT): FlightRouteVisual {
     const def = runtime.def;
     const routeGroup = new THREE.Group();
     routeGroup.name = `${def.id}-guide`;
@@ -3657,6 +4309,7 @@ export class Course implements ICourse {
       });
     }
 
+    assignPresentationLayers(routeGroup, guideLayer);
     return {
       runtime,
       group: routeGroup,
@@ -3681,20 +4334,22 @@ export class Course implements ICourse {
   }
 
   private applyExternalGateOffset(routeIndex: number): void {
-    const visual = this.flightVisuals[routeIndex];
-    if (!visual) return;
     const offset = this.externalGateOffsets[routeIndex] ?? 0;
-    for (const gate of visual.gates) {
-      gate.center.x = gate.baseCenter.x + gate.right.x * offset;
-      gate.center.z = gate.baseCenter.z + gate.right.z * offset;
-      gate.group.position.x = gate.center.x;
-      gate.group.position.z = gate.center.z;
+    for (const visuals of [this.flightVisuals, this.flightVisualsRight]) {
+      const visual = visuals[routeIndex];
+      if (!visual) continue;
+      for (const gate of visual.gates) {
+        gate.center.x = gate.baseCenter.x + gate.right.x * offset;
+        gate.center.z = gate.baseCenter.z + gate.right.z * offset;
+        gate.group.position.x = gate.center.x;
+        gate.group.position.z = gate.center.z;
+      }
     }
   }
 
   // ------------------------------------------------------------- ribbon ----
 
-  private buildLaunchGateVisual(runtime: FlightRouteRuntime): LaunchGateVisual {
+  private buildLaunchGateVisual(runtime: FlightRouteRuntime, guideLayer = LAYER_GUIDE_LEFT): LaunchGateVisual {
     const def = runtime.def;
     const group = new THREE.Group();
     group.name = `${def.id}-launch-gate`;
@@ -3865,6 +4520,7 @@ export class Course implements ICourse {
       group.add(packet);
       packets.push(packet);
     }
+    assignPresentationLayers(group, guideLayer);
     return { group, diamonds, packets, packetMaterial, deploy: 0 };
   }
 

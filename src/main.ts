@@ -96,6 +96,8 @@ import {
 import { trackGameEvent } from './game/eventLog';
 import {
   LAYER_ENERGY,
+  LAYER_GUIDE_LEFT,
+  LAYER_GUIDE_RIGHT,
   LAYER_INK,
   MAX_FLIGHT_CHARGES,
   type BoatInput,
@@ -323,14 +325,19 @@ mixer.attachCameraImpact(
   () => cameraRig.getCollisionImpactLevel(),
   (level) => cameraRig.setCollisionImpactLevel(level),
 );
-const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
+const pipeline = createPostPipeline(
+  stage.renderer, stage.scene, stage.camera, prePass, stage.quality,
+  { guideLayer: LAYER_GUIDE_LEFT, energyLayer: LAYER_GUIDE_LEFT + 2 },
+);
 const teamLeftPrePass = new PrePass(4, 4);
 const teamRightPrePass = new PrePass(4, 4);
 const teamLeftPipeline = createPostPipeline(
   stage.renderer, stage.scene, teamLeftCamera, teamLeftPrePass, stage.quality,
+  { guideLayer: LAYER_GUIDE_LEFT, energyLayer: LAYER_GUIDE_LEFT + 2 },
 );
 const teamRightPipeline = createPostPipeline(
   stage.renderer, stage.scene, teamRightCamera, teamRightPrePass, stage.quality,
+  { guideLayer: LAYER_GUIDE_RIGHT, energyLayer: LAYER_GUIDE_RIGHT + 2 },
 );
 const splitScreen = new SplitScreenRenderer(stage.renderer);
 stage.onResize((w, h, pr) => {
@@ -404,7 +411,6 @@ let finalePresentation = false;
 // Keep the result beats separate: the honor wall is opened only after the
 // Final Station cinematic has been dismissed.
 let honorReviewPending = false;
-let techniqueHintShown = false;
 let finaleCapturePending = false;
 let interruptionActive = false;
 let duoPauseActive = false;
@@ -922,7 +928,7 @@ function resumeInterruption(): void {
   if (!HARNESS) loop.start();
 }
 
-function beginDuoPause(): void {
+function beginDuoPause(reason = ''): void {
   if (!isDuoMode() || interruptionActive ||
       !['racing', 'countdown', 'resume-countdown'].includes(race.phase)) return;
   duoPauseActive = true;
@@ -937,7 +943,7 @@ function beginDuoPause(): void {
   mobileInput.setControlPhase('inactive');
   haptics.stop();
   audio.setScene('hidden');
-  hud.showInterruption(true);
+  hud.showInterruption(true, reason);
 }
 
 function exitDuoPause(): void {
@@ -1007,7 +1013,6 @@ function startNextRaceRound(): void {
   // while the next round gets a fresh local ledger and target inventory.
   honors.reset(boats.length);
   honorTargets.reset();
-  techniqueHintShown = false;
   duoInteractions.reset();
   humanCollisionCounts[0] = 0;
   humanCollisionCounts[1] = 0;
@@ -1283,7 +1288,6 @@ function resetRace(): void {
   // previous run's Final Station glowing in the READY/front-door scene.
   course.resetFinalStation();
   honorTargets.reset();
-  techniqueHintShown = false;
   honors.reset(boats.length);
   honorHighlights.hide();
   duoInteractions.reset();
@@ -1318,7 +1322,8 @@ function resetRace(): void {
     wakes[i].clear();
   }
   race.reset();
-  course.setGuidanceBoat(race.player().id);
+  if (appMode === 'duo') course.setGuidanceOwners([0, 1], 0);
+  else course.setGuidanceBoat(race.player().id);
   previousHumanPlaces[0] = race.racers[0]?.place ?? Infinity;
   previousHumanPlaces[1] = race.racers[1]?.place ?? Infinity;
   currentRun = records.data.runs + 1;
@@ -1412,6 +1417,10 @@ function isDuoSplitPhase(): boolean {
   );
 }
 
+function duoDevicesConnected(): boolean {
+  return duoDevices.every((device) => localInput.connected(device));
+}
+
 function isHumanRacer(id: number): boolean {
   return isDuoMode() ? id < 2 : id === 0;
 }
@@ -1435,6 +1444,7 @@ function updateDuoViewportHud(): void {
       ? `手柄 ${Number.parseInt(duoDevices[id].slice('gamepad:'.length), 10) + 1}`
       : id === 0 ? '键盘 W/A/S/D' : '方向键',
     interaction: interactionStatuses[id],
+    guidance: course.guidanceStatusFor(id),
   });
   duoViewportHud.update([makeSeat(0), makeSeat(1)], isDuoSplitPhase());
 }
@@ -1528,21 +1538,6 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
 function presentHonorHits(hits: readonly HonorHit[]): void {
   for (const hit of hits) {
     honors.addTargetHit(hit);
-    const techniqueBoat = boats[hit.racerId];
-    const precise = hit.precision === 'center' && techniqueBoat !== undefined;
-    let techniqueReward = '';
-    if (precise) {
-      // A center-line pass is the target's actual game loop: recover a flight
-      // cell, or convert the over-cap pickup into a short surface boost.
-      if (techniqueBoat.grantFlightCharge()) {
-        honors.award('target.center', hit.racerId, HONOR_DEFINITIONS['target.center'].value, hit.at);
-        techniqueReward = ' · 飞行电池 +1';
-      } else {
-        techniqueBoat.activateTechniqueBoost();
-        honors.award('target.center', hit.racerId, HONOR_DEFINITIONS['target.center'].value, hit.at);
-        techniqueReward = ' · BOOST +0.85 秒';
-      }
-    }
     honorFxPoint.set(hit.x, hit.y, hit.z);
     spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 9, hit.kind === 'duck' ? 7.2 : 5.2);
     feathers.burst(honorFxPoint, hit.kind === 'duck' ? 36 : 14, hit.kind === 'duck' ? 10.5 : 7.4);
@@ -1551,10 +1546,6 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
     if (hit.kind === 'duck') audio.balloonPop();
     else audio.collision(4.2);
-    if (precise) {
-      if (techniqueReward.includes('BOOST')) audio.boostIgnition();
-      else audio.flightReady(techniqueBoat.state.flightCharges);
-    }
     const targetPipeline = isDuoMode() && hit.racerId < 2
       ? hit.racerId === 0 ? teamLeftPipeline : teamRightPipeline
       : pipeline;
@@ -1569,16 +1560,14 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
       haptics.impact('collision-light', rumbleStrength, false);
     }
     hud.showTransientNotice(
-      `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}${techniqueReward}`,
-      precise ? '舵轮精准命中' : '荣誉目标命中',
+      `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}`,
+      hit.precision === 'center' ? '正面撞击' : '擦身撞击',
     );
-    if (precise) hud.showTechniqueReward(techniqueReward.includes('BOOST') ? 'boost' : 'flight-cell');
     trackGameEvent('honor_award', {
       id: `target.${hit.kind}`,
       racer: hit.racerId,
       value: hit.value,
       precision: hit.precision,
-      techniqueReward,
       at: hit.at,
     });
   }
@@ -1927,6 +1916,17 @@ function step(dt: number, _t: number): void {
   immersive.update(dt);
   const duoPausePhase = isDuoMode() &&
     (race.phase === 'racing' || race.phase === 'countdown' || race.phase === 'resume-countdown');
+  // A local dual race must never keep simulating one seat with a missing
+  // controller.  Without this boundary a transient Gamepad API disconnect
+  // silently feeds zero input to that boat, which can carry it out of the
+  // authored corridor and make the other split view appear to lose its route.
+  // Freeze immediately; the existing interruption flow waits for both devices
+  // and resumes through the normal countdown after an explicit confirmation.
+  if (duoPausePhase && !interruptionActive && !duoDevicesConnected()) {
+    beginDuoPause('一只手柄已断开');
+    localInput.endFrame();
+    return;
+  }
   // Consume the keyboard edge here, before the generic coach-dismiss path,
   // so Escape has an unambiguous pause meaning during a dual run.
   const duoPauseEscape = duoPausePhase ? input.consumePress('Escape') : false;
@@ -1941,7 +1941,10 @@ function step(dt: number, _t: number): void {
   }
   if (interruptionActive) {
     if (duoPauseActive) {
-      let resume = gamepadInput.consumeConfirm();
+      // Only the two seated devices may resume a dual race. The generic
+      // single-player adapter can select an unseated third controller and is
+      // intentionally excluded from this ownership boundary.
+      let resume = false;
       let exit = duoPauseEscape;
       for (const id of duoDevices) {
         resume ||= localInput.confirmEdge(id);
@@ -2246,9 +2249,10 @@ function step(dt: number, _t: number): void {
   }
 
   if (racing) {
-    // Route visuals, corridor danger and the shared action cue follow the same
-    // surviving human that owns the camera and HUD.
-    course.setGuidanceBoat(race.player().id);
+    // Each screen keeps its fixed seat layer while global coach/audio feedback
+    // follows the surviving human promoted by Race.
+    if (isDuoMode()) course.setGuidanceOwners([0, 1], race.player().id);
+    else course.setGuidanceBoat(race.player().id);
     course.updateFlightRoute(dt, boats);
   }
 
@@ -2317,14 +2321,6 @@ function step(dt: number, _t: number): void {
     presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
     honorTargets.update(dt, worldTime, activeBoats, race.racers, honorHitScratch, true);
     presentHonorHits(honorHitScratch);
-    if (!techniqueHintShown && boats[0].state.flightCharges < MAX_FLIGHT_CHARGES &&
-        honorTargets.hasNearbyUnclaimedTarget(boats[0])) {
-      techniqueHintShown = true;
-      hud.showTransientNotice(
-        '偏向发光环的中心穿过 · 回收 1 格飞行电池；满格会转成 BOOST',
-        '新玩法：技巧舵轮',
-      );
-    }
   }
   let enteredMedal = false;
   for (const passedId of playerPassedFlights) {
@@ -2566,7 +2562,7 @@ function step(dt: number, _t: number): void {
   // wind-shear cue, the HUD banner and haptics. Band entries are real events
   // — camera jolt + full-motor slam — so the shift into 失控 is felt, not
   // just numerically closer to the fail.
-  const corridorDanger = race.phase === 'racing' ? course.playerCorridorDanger : 0;
+  const corridorDanger = race.phase === 'racing' ? course.corridorDangerFor(focusBoat.id) : 0;
   const corridorStage = corridorDanger >= 0.45 ? 2 : corridorDanger > 0.01 ? 1 : 0;
   cameraRig.setDistress(corridorDanger);
   audio.setCorridorDanger(corridorDanger);
@@ -2644,7 +2640,17 @@ function renderTeamSplit(): void {
   const drawing = stage.renderer.getDrawingBufferSize(renderDrawingSize);
   const halfWidth = Math.max(1, Math.floor(drawing.x / 2));
 
+  // A dead seat becomes a spectator window for the surviving racer. Keep the
+  // camera and its private route layer pointed at the same boat; otherwise a
+  // swapped camera would show an empty ocean while the survivor's mist route
+  // remained on the other layer.
+  const leftGuideOwner = isDuoMode() && race.racers[0]?.eliminated ? 1 : 0;
+  const rightGuideOwner = isDuoMode() && race.racers[1]?.eliminated ? 0 : 1;
+  setDuoGuidanceCameraLayers(teamLeftCamera, leftGuideOwner);
+  setDuoGuidanceCameraLayers(teamRightCamera, rightGuideOwner);
+
   ocean.uniforms.uDepthTex.value = teamLeftPrePass.depthTexture;
+  course.activateGuidanceView(leftGuideOwner, worldTime);
   ocean.setResolution(halfWidth, drawing.y, teamLeftCamera.fov);
   ocean.update(worldTime, teamLeftCamera.position);
   sky.update(worldTime, teamLeftCamera.position);
@@ -2652,6 +2658,7 @@ function renderTeamSplit(): void {
   const left = teamLeftPipeline.renderToTexture();
 
   ocean.uniforms.uDepthTex.value = teamRightPrePass.depthTexture;
+  course.activateGuidanceView(rightGuideOwner, worldTime);
   ocean.setResolution(halfWidth, drawing.y, teamRightCamera.fov);
   ocean.update(worldTime, teamRightCamera.position);
   sky.update(worldTime, teamRightCamera.position);
@@ -2659,7 +2666,20 @@ function renderTeamSplit(): void {
   const right = teamRightPipeline.renderToTexture();
 
   splitScreen.render(left, right);
+  course.activateGuidanceView(leftGuideOwner, worldTime);
   ocean.uniforms.uDepthTex.value = prePass.depthTexture;
+}
+
+function setDuoGuidanceCameraLayers(camera: THREE.Camera, ownerId: number): void {
+  const right = ownerId === 1;
+  const activeGuide = right ? LAYER_GUIDE_RIGHT : LAYER_GUIDE_LEFT;
+  const inactiveGuide = right ? LAYER_GUIDE_LEFT : LAYER_GUIDE_RIGHT;
+  const activeEnergy = activeGuide + 2;
+  const inactiveEnergy = inactiveGuide + 2;
+  camera.layers.enable(activeGuide);
+  camera.layers.disable(inactiveGuide);
+  camera.layers.enable(activeEnergy);
+  camera.layers.disable(inactiveEnergy);
 }
 
 function processCaptureQueue(): void {
@@ -2684,7 +2704,7 @@ function startInterruptionPadPoll(): void {
     if (document.hidden || !interruptionActive) return;
     localInput.poll();
     gamepadInput.poll();
-    let resume = gamepadInput.consumeConfirm();
+    let resume = duoPauseActive ? false : gamepadInput.consumeConfirm();
     let exit = false;
     if (duoPauseActive) {
       for (const id of duoDevices) {
@@ -2824,6 +2844,7 @@ interface Harness {
   teamState(): Record<string, unknown>;
   teamPlaceAtTarget(side: SeatSide): void;
   duoState(): Record<string, unknown>;
+  duoGuidanceCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
 }
 
@@ -4534,14 +4555,19 @@ function runHonorTargetCase(): Record<string, number | string | boolean> {
   previousHumanPlaces[0] = 1;
   const target = honorTargets.debugTargets()[0];
   if (!target) throw new Error('honor target diagnostic has no target');
-  boats[0].state.flightCharges = 0;
+  // A target is a surface honor prop, never a hidden flight-energy station.
+  // Reset the boat's authored checkpoint before each probe so a pre-existing
+  // drift payout cannot make the diagnostic look like target behavior.
+  boats[0].restoreFlightCheckpoint(0, 0);
+  const chargesBeforeFirst = boats[0].state.flightCharges;
   const startX = target.x - target.forwardX * 16;
   const startZ = target.z - target.forwardZ * 16;
   boats[0].teleport(startX, startZ, Math.atan2(target.forwardX, target.forwardZ));
   setHarnessInput({ throttle: 1 });
   advanceUntil(() => honorTargets.debugState().hits > 0, 5, 1 / 60);
   setHarnessInput(null);
-  const scoreAfterCell = honors.scoreFor(0);
+  const scoreAfterFirst = honors.scoreFor(0);
+  const chargesAfterFirst = boats[0].state.flightCharges;
   const second = honorTargets.debugTargets()[1];
   if (!second) throw new Error('honor target diagnostic has no second target');
   boats[0].teleport(
@@ -4549,15 +4575,14 @@ function runHonorTargetCase(): Record<string, number | string | boolean> {
     second.z - second.forwardZ * 16,
     Math.atan2(second.forwardX, second.forwardZ),
   );
-  boats[0].state.flightCharges = MAX_FLIGHT_CHARGES;
+  boats[0].restoreFlightCheckpoint(0, MAX_FLIGHT_CHARGES);
+  const chargesBeforeSecond = boats[0].state.flightCharges;
   setHarnessInput({ throttle: 1 });
   advanceUntil(() => honorTargets.debugState().hits >= 2, 5, 1 / 60);
-  loop.advance(1 / 60);
   setHarnessInput(null);
-  const afterBoost = honorTargets.debugState();
-  const boostCharges = boats[0].state.flightCharges;
-  const boostActive = boats[0].state.boosting;
-  const scoreAfterBoost = honors.scoreFor(0);
+  const chargesAfterSecond = boats[0].state.flightCharges;
+  const boostingAfterSecond = boats[0].state.boosting;
+  const scoreAfterSecond = honors.scoreFor(0);
   const third = honorTargets.debugTargets()[2];
   if (!third) throw new Error('honor target diagnostic has no edge target');
   const rightX = third.forwardZ;
@@ -4567,23 +4592,31 @@ function runHonorTargetCase(): Record<string, number | string | boolean> {
     third.z - third.forwardZ * 16 + rightZ * 3.45,
     Math.atan2(third.forwardX, third.forwardZ),
   );
-  boats[0].state.flightCharges = 0;
+  boats[0].restoreFlightCheckpoint(0, 0);
   setHarnessInput({ throttle: 1 });
   advanceUntil(() => honorTargets.debugState().hits >= 3, 5, 1 / 60);
   loop.advance(1 / 60);
   setHarnessInput(null);
   const afterEdge = honorTargets.debugState();
+  const targetStates = honorTargets.debugTargets();
   return {
     kind: target.kind,
     targetY: target.y,
+    maxTargetY: Math.max(...targetStates.map((state) => state.y)),
+    minTargetLateral: Math.min(...targetStates.map((state) => Math.abs(state.lateral))),
+    targetKinds: targetStates.map((state) => state.kind).join(','),
     hits: afterEdge.hits,
     centerHits: afterEdge.centerHits,
     edgeHits: afterEdge.edgeHits,
+    chargesBeforeFirst,
+    chargesAfterFirst,
+    chargesBeforeSecond,
+    chargesAfterSecond,
     flightCharges: boats[0].state.flightCharges,
-    boostCharges,
+    boostingAfterSecond,
     honorScore: honors.scoreFor(0),
-    boostHonorDelta: scoreAfterBoost - scoreAfterCell,
-    boostActive,
+    firstHonorDelta: scoreAfterFirst,
+    secondHonorDelta: scoreAfterSecond - scoreAfterFirst,
     surfaceLayoutValid: afterEdge.surfaceLayoutValid,
   };
 }
@@ -4605,6 +4638,95 @@ function harnessDuoEliminate(id: 0 | 1): void {
     corridorDistanceM: null,
     clearanceM: boat.state.flightClearance,
   });
+}
+
+/**
+ * Harness-only P0 regression: put the two human boats on different authored
+ * launches and verify that each split view owns a live, independent corridor.
+ * The route detector and Boat remain the production path; only the two input
+ * edges are injected here so this cannot mask a missing flight transition.
+ */
+function runDuoGuidanceCase(): Record<string, unknown> {
+  if (!isDuoMode() || race.phase !== 'racing') {
+    throw new Error('duo guidance diagnostic requires an active dual race');
+  }
+  const routes = [course.flightRoutes[0], course.flightRoutes[1]] as const;
+  if (!routes[0] || !routes[1]) throw new Error('duo guidance diagnostic needs two authored routes');
+  course.resetFlightChallenge();
+  course.setGuidanceOwners([0, 1], 0);
+  // Divergent route slots are the failure case: a shared material/visible flag
+  // can look correct while both players overlap, then erase the right corridor
+  // as soon as their progress separates.
+  for (let id = 0; id < 2; id++) {
+    const route = routes[id as 0 | 1]!;
+    placeHarnessBoat(id, route.entryU + 0.001, id === 0 ? -1.4 : 1.4);
+    boats[id].restoreFlightCheckpoint(id, 1);
+  }
+  harnessBoatInputOverrides[0] = { throttle: 1, steer: 0, flightTrigger: true };
+  harnessBoatInputOverrides[1] = { throttle: 1, steer: 0, flightTrigger: true };
+  loop.advance(1 / 60);
+  const afterTrigger = boats.slice(0, 2).map((boat) => ({
+    phase: boat.state.flightPhase,
+    routeState: boat.state.flightRouteState,
+    routeIndex: boat.state.flightRouteIndex,
+    u: course.sample(boat.state.position, harnessPilotSample, 'surface').u,
+  }));
+  harnessBoatInputOverrides[0] = { throttle: 1, steer: 0, flightTrigger: false };
+  harnessBoatInputOverrides[1] = { throttle: 1, steer: 0, flightTrigger: false };
+  // Let spool/ascend settle while keeping both boats on the authored center.
+  // Sample every fixed step after rendering both split views.  A final
+  // visible-route assertion alone misses the intermittent right-seat failure
+  // where a shared visibility/material write erases the corridor for a frame.
+  const visibilityTimeline: Array<{
+    phases: string[];
+    routeStates: string[];
+    activeRoutes: number[];
+    visibleRoutes: number[];
+  }> = [];
+  const timelineSteps = Math.round(0.62 * 60);
+  for (let stepIndex = 0; stepIndex < timelineSteps; stepIndex++) {
+    loop.advance(1 / 60);
+    render(16.7);
+    const sample = [course.guidanceStatusFor(0), course.guidanceStatusFor(1)];
+    visibilityTimeline.push({
+      phases: boats.slice(0, 2).map((boat) => boat.state.flightPhase),
+      routeStates: boats.slice(0, 2).map((boat) => boat.state.flightRouteState),
+      activeRoutes: sample.map((entry) => entry.activeRouteIndex),
+      visibleRoutes: sample.map((entry) => entry.visibleRouteCount),
+    });
+  }
+  // Cross-seat Final regression: one player can arm the shared Final portal
+  // while the other is still airborne on the last authored route. The latter
+  // must keep its private corridor until its own recovery completes.
+  for (let id = 0; id < 2; id++) boats[id].state.flightsCleared = course.flightRoutes.length;
+  course.armFinalStation();
+  loop.advance(1 / 60);
+  render(16.7);
+  const finalArmedRight = course.guidanceStatusFor(1);
+  const finalArmedRightFlight = {
+    phase: boats[1].state.flightPhase,
+    routeState: boats[1].state.flightRouteState,
+    activeRoute: finalArmedRight.activeRouteIndex,
+    visibleRoutes: finalArmedRight.visibleRouteCount,
+  };
+  if (finalArmedRightFlight.phase !== 'surface' && finalArmedRightFlight.routeState !== 'failed' &&
+      (finalArmedRightFlight.activeRoute < 0 || finalArmedRightFlight.visibleRoutes < 1)) {
+    throw new Error(`right airborne route hidden after Final armed: ${JSON.stringify(finalArmedRightFlight)}`);
+  }
+  harnessBoatInputOverrides[0] = null;
+  harnessBoatInputOverrides[1] = null;
+  render(16.7);
+  const status = [course.guidanceStatusFor(0), course.guidanceStatusFor(1)];
+  return {
+    afterTrigger,
+    phases: boats.slice(0, 2).map((boat) => boat.state.flightPhase),
+    routeStates: boats.slice(0, 2).map((boat) => boat.state.flightRouteState),
+    statuses: status,
+    layers: status.map((entry) => entry.guideLayer),
+    visibleRoutes: status.map((entry) => entry.visibleRouteCount),
+    visibilityTimeline,
+    finalArmedRightFlight,
+  };
 }
 
 if (HARNESS) {
@@ -4700,6 +4822,8 @@ if (HARNESS) {
       appMode,
       phase: race.phase,
       raceTime: race.raceTime,
+      interruptionActive,
+      duoPauseActive,
       primaryPlayerId: race.player().id,
       playerIds: race.players().map((racer) => racer.id),
       racers: race.racers.map((racer) => ({
@@ -4721,6 +4845,9 @@ if (HARNESS) {
       honors: honors.debugState(),
       honorTargets: honorTargets.debugState(),
       interactions: duoInteractions.snapshot(),
+      guidanceBySeat: [course.guidanceStatusFor(0), course.guidanceStatusFor(1)],
+      guidance: course.guidanceStatus(),
+      deviceStatus: duoDevices.map((device) => localInput.deviceStatus(device)),
       controls: document.querySelector<HTMLElement>('.hud-duo-controls')?.textContent?.trim() ?? '',
       controlsVisible: document.querySelector<HTMLElement>('.hud-duo-controls')?.classList.contains('on') ?? false,
       splitScreen: isDuoSplitPhase(),
@@ -4736,6 +4863,7 @@ if (HARNESS) {
       },
       result: lastResultEnvelope,
     }),
+    duoGuidanceCase: runDuoGuidanceCase,
     duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

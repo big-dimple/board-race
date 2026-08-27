@@ -1078,8 +1078,10 @@ export class HUD {
     el.append(heading, detail);
   }
 
-  showInterruption(resumeCountdown: boolean): void {
-    this.interruptionCopy.textContent = resumeCountdown ? '比赛与声音已冻结 · 原地恢复' : '当前画面与计时已冻结';
+  showInterruption(resumeCountdown: boolean, reason = ''): void {
+    this.interruptionCopy.textContent = resumeCountdown
+      ? reason ? `${reason} · 比赛与声音已冻结 · 原地恢复` : '比赛与声音已冻结 · 原地恢复'
+      : reason ? `${reason} · 当前画面与计时已冻结` : '当前画面与计时已冻结';
     this.interruptionFoot.textContent = resumeCountdown ? '继续后 3 · 2 · 1 · GO' : '继续后保留当前奖励 / 攻略进度';
     this.interruptionButton.textContent = resumeCountdown ? 'GO · 继续比赛' : 'GO · 继续';
     this.interruptionEl.classList.add('on');
@@ -1108,20 +1110,6 @@ export class HUD {
       color: PALETTE.uiAccent,
       duration: 1.45,
       priority: 66,
-    });
-  }
-
-  /** A precision target changes the actual inventory, so it earns a distinct beat. */
-  showTechniqueReward(reward: 'flight-cell' | 'boost'): void {
-    const boost = reward === 'boost';
-    this.enqueueImpact({
-      kind: 'technique',
-      kicker: 'HELM PERFECT',
-      title: boost ? 'BOOST +0.85 秒' : '飞行电池 +1',
-      detail: boost ? '库存已满 · 多余能量立刻推入推进器' : '对准舵轮中心 · 已回收一格飞行能量',
-      color: boost ? PALETTE.boost : PALETTE.flight,
-      duration: 1.0,
-      priority: 72,
     });
   }
 

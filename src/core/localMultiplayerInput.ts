@@ -24,6 +24,32 @@ interface PadSnapshot {
   axes: number[];
 }
 
+interface PadBindingProfile {
+  /** Kept per physical pad so one seat can never inherit the other's mapping. */
+  steerAxis: number | null;
+  throttleAxis: number | null;
+  steerScale: -1 | 1;
+  throttleScale: -1 | 1;
+  steerLeftButton: number | null;
+  steerRightButton: number | null;
+  driftButton: number;
+  flightButton: number;
+  supportButton: number;
+  prankButton: number;
+  source: 'standard' | 'custom' | 'fallback';
+}
+
+export interface LocalDeviceStatus {
+  id: LocalDeviceId;
+  connected: boolean;
+  kind: 'keyboard' | 'gamepad';
+  mappingSource: 'keyboard' | PadBindingProfile['source'];
+  steerAxis: number;
+  throttleAxis: number;
+  stickX: number;
+  stickY: number;
+}
+
 export interface LocalBoatInputContext {
   flightActive: boolean;
   manualThrottle: boolean;
@@ -41,6 +67,9 @@ interface PadState {
   pad: Gamepad;
   current: PadSnapshot;
   previous: PadSnapshot;
+  binding: PadBindingProfile;
+  /** Browser Gamepad objects can change shape after connection. */
+  bindingSignature: string;
   seenAt: number;
 }
 
@@ -53,8 +82,17 @@ const ZERO_EDGES: LocalMenuEdges = {
 };
 
 const PAD_DEAD_ZONE = 0.18;
+/**
+ * A hand resting on a stick rarely returns with a mathematically perfect
+ * zero on the Y axis.  Below this intent threshold we keep the arcade
+ * auto-forward baseline; a deliberate brake still has the full range above
+ * it.  This is applied after the radial dead-zone, so diagonal steering keeps
+ * its two-dimensional authority.
+ */
+const PAD_THROTTLE_NEUTRAL_ZONE = 0.12;
 const PAD_NAV_THRESHOLD = 0.62;
 const PAD_DIAGONAL_COMPONENT = 0.32;
+const GAMEPAD_STORAGE_KEY = 'board-race.gamepad.v1';
 const KEYBOARD_LEFT: LocalDeviceInfo = {
   id: 'keyboard-left',
   label: '键盘 · W A S D',
@@ -116,8 +154,11 @@ export class LocalMultiplayerInput {
     for (const pad of gamepads) {
       if (!pad?.connected) continue;
       let state = this.pads.get(pad.index);
+      let bindingChanged = false;
       if (!state || state.pad.id !== pad.id) {
         if (state) stopPadRumble(state.pad);
+        const current = emptyPadSnapshot(pad);
+        fillSnapshot(current, pad);
         state = {
           info: {
             id: `gamepad:${pad.index}`,
@@ -126,17 +167,38 @@ export class LocalMultiplayerInput {
             connected: true,
           },
           pad,
-          current: emptyPadSnapshot(pad),
-          previous: emptyPadSnapshot(pad),
+          current,
+          // A controller can be connected while a face button is held.  That
+          // is a hold, not a newly-created flight/support edge; require a
+          // release and press after the device is observed by this adapter.
+          // Axes keep a neutral baseline so the same first left/right gesture
+          // can still seat a controller when the browser exposes it late.
+          previous: initialPreviousSnapshot(current),
+          binding: resolvePadBinding(pad),
+          bindingSignature: deviceSignature(pad),
           seenAt: serial,
         };
         this.pads.set(pad.index, state);
       } else {
         copySnapshot(state.previous, state.current);
         state.pad = pad;
+        // A browser can update mapping, axes, or button counts after
+        // connection. Re-resolve only that pad; never let the other seat
+        // inherit a stale profile. Keep the currently held buttons as holds,
+        // rather than manufacturing a flight/action edge during remapping.
+        const nextBindingSignature = deviceSignature(pad);
+        if (state.bindingSignature !== nextBindingSignature) {
+          state.binding = resolvePadBinding(pad);
+          state.bindingSignature = nextBindingSignature;
+          bindingChanged = true;
+        }
         state.seenAt = serial;
       }
       fillSnapshot(state.current, pad);
+      // A remapped pad may already report a pressed button. Sync the edge
+      // baseline so a browser metadata update cannot fire flight/support on
+      // its own; the next physical press still produces a normal edge.
+      if (bindingChanged) copySnapshot(state.previous, state.current);
     }
     for (const [index, state] of this.pads) {
       if (state.seenAt === serial) continue;
@@ -154,6 +216,33 @@ export class LocalMultiplayerInput {
   connected(id: LocalDeviceId): boolean {
     if (id === 'keyboard-left' || id === 'keyboard-right') return true;
     return this.pads.has(gamepadIndex(id));
+  }
+
+  deviceStatus(id: LocalDeviceId): LocalDeviceStatus {
+    if (id === 'keyboard-left' || id === 'keyboard-right') {
+      return {
+        id,
+        connected: true,
+        kind: 'keyboard',
+        mappingSource: 'keyboard',
+        steerAxis: -1,
+        throttleAxis: -1,
+        stickX: 0,
+        stickY: 0,
+      };
+    }
+    const state = this.pads.get(gamepadIndex(id));
+    const stick = state ? readStick(state) : { x: 0, y: 0 };
+    return {
+      id,
+      connected: Boolean(state),
+      kind: 'gamepad',
+      mappingSource: state?.binding.source ?? 'fallback',
+      steerAxis: state?.binding.steerAxis ?? -1,
+      throttleAxis: state?.binding.throttleAxis ?? -1,
+      stickX: stick.x,
+      stickY: stick.y,
+    };
   }
 
   menuEdges(id: LocalDeviceId): LocalMenuEdges {
@@ -180,8 +269,8 @@ export class LocalMultiplayerInput {
     return {
       left: padDirectionEdge(state, -1),
       right: padDirectionEdge(state, 1),
-      confirm: padButtonEdge(state, 0),
-      cancel: padButtonEdge(state, 1),
+      confirm: padButtonEdge(state, state.binding.flightButton),
+      cancel: padButtonEdge(state, state.binding.supportButton),
       pause: padButtonEdge(state, 9),
     };
   }
@@ -202,10 +291,12 @@ export class LocalMultiplayerInput {
     }
     const state = this.pads.get(gamepadIndex(id));
     if (!state) return { support: false, prank: false };
-    // Standard mapping: B = support, Y = playful interference.
+    // Standard mapping: B = support, Y = playful interference. A calibrated
+    // non-standard pad keeps its own action buttons instead of borrowing the
+    // last pad's edges.
     return {
-      support: padButtonEdge(state, 1),
-      prank: padButtonEdge(state, 3),
+      support: padButtonEdge(state, state.binding.supportButton),
+      prank: padButtonEdge(state, state.binding.prankButton),
     };
   }
 
@@ -219,14 +310,16 @@ export class LocalMultiplayerInput {
     if (id === 'keyboard-left') return this.consumeAny(['Space']);
     if (id === 'keyboard-right') return this.consumeAny(['NumpadEnter', 'KeyI']);
     const state = this.pads.get(gamepadIndex(id));
-    return state ? padButtonEdge(state, 0) : false;
+    return state
+      ? padButtonEdge(state, state.binding.flightButton) || padButtonEdge(state, 9)
+      : false;
   }
 
   cancelEdge(id: LocalDeviceId): boolean {
     if (id === 'keyboard-left') return this.consumeAny(['KeyQ']);
     if (id === 'keyboard-right') return this.consumeAny(['NumpadDecimal', 'KeyU']);
     const state = this.pads.get(gamepadIndex(id));
-    return state ? padButtonEdge(state, 1) : false;
+    return state ? padButtonEdge(state, state.binding.supportButton) : false;
   }
 
   readBoat(id: LocalDeviceId, dt: number, context: LocalBoatInputContext): BoatInput {
@@ -270,24 +363,34 @@ export class LocalMultiplayerInput {
         output.airBrake = false;
         return output;
       }
-      const axis = deadZone(state.current.axes[0] ?? 0);
-      const digital = (state.current.buttons[15] ? 1 : 0) - (state.current.buttons[14] ? 1 : 0);
-      rawSteer = Math.abs(axis) >= Math.abs(digital) ? axis : digital;
-      drift = Boolean(state.current.buttons[2]);
-      flightTrigger = padButtonEdge(state, 0);
+      const stick = readStick(state);
+      const digital = (buttonPressed(state.current, state.binding.steerRightButton) ? 1 : 0) -
+        (buttonPressed(state.current, state.binding.steerLeftButton) ? 1 : 0);
+      rawSteer = Math.abs(stick.x) >= Math.abs(digital) ? stick.x : digital;
+      drift = Boolean(state.current.buttons[state.binding.driftButton]) ||
+        ((state.binding.source === 'standard' || state.binding.source === 'fallback') &&
+          (Boolean(state.current.buttons[4]) || Boolean(state.current.buttons[5])));
+      flightTrigger = padButtonEdge(state, state.binding.flightButton);
       if (context.manualThrottle) {
-        const stickThrottle = -deadZone(state.current.axes[1] ?? 0);
+        const stickThrottle = stick.y;
         const dpadThrottle = (state.current.buttons[12] ? 1 : 0) - (state.current.buttons[13] ? 1 : 0);
         // Co-op movement is one left-stick vector: X steers, Y drives/reverses.
         // The D-pad remains a digital fallback for pads without a usable stick.
-        const vectorThrottle = strongestSigned(stickThrottle, dpadThrottle);
-        throttle = context.autoForward && Math.abs(vectorThrottle) < 0.05 ? 1 : vectorThrottle;
+        const vectorThrottle = Math.abs(stickThrottle) >= Math.abs(dpadThrottle) ? stickThrottle : dpadThrottle;
+        // Neutral is the arcade auto-forward baseline. Any deliberate
+        // downward vector takes precedence and brakes/reverses continuously.
+        throttle = context.autoForward && Math.abs(vectorThrottle) < PAD_THROTTLE_NEUTRAL_ZONE ? 1 : vectorThrottle;
       }
     }
 
     const target = rawSteer || (left ? -1 : right ? 1 : 0);
     const previous = this.steerValues.get(id) ?? 0;
-    const steer = approach(previous, target, 7 * dt);
+    // Analog input is already filtered by the radial dead-zone. Applying the
+    // keyboard-oriented seven-unit ramp here made the right seat feel late
+    // and caused a diagonal to undershoot. Keep a tiny bounded slew only for
+    // digital keys; gamepads follow the stick immediately.
+    const isGamepad = id.startsWith('gamepad:');
+    const steer = isGamepad ? target : approach(previous, target, 7 * dt);
     this.steerValues.set(id, steer);
     output.throttle = throttle;
     output.steer = steer;
@@ -370,9 +473,10 @@ function fillSnapshot(target: PadSnapshot, pad: Gamepad): void {
   target.axes.length = pad.axes.length;
   for (let i = 0; i < pad.buttons.length; i++) {
     const button = pad.buttons[i];
-    target.buttons[i] = button.pressed || button.value > 0.6;
+    const value = Number(button?.value);
+    target.buttons[i] = Boolean(button?.pressed) || (Number.isFinite(value) && value > 0.6);
   }
-  for (let i = 0; i < pad.axes.length; i++) target.axes[i] = pad.axes[i];
+  for (let i = 0; i < pad.axes.length; i++) target.axes[i] = clampSigned(Number(pad.axes[i]));
 }
 
 function copySnapshot(target: PadSnapshot, source: PadSnapshot): void {
@@ -382,38 +486,161 @@ function copySnapshot(target: PadSnapshot, source: PadSnapshot): void {
   for (let i = 0; i < source.axes.length; i++) target.axes[i] = source.axes[i];
 }
 
-function padButtonEdge(state: PadState, index: number): boolean {
-  return Boolean(state.current.buttons[index] && !state.previous.buttons[index]);
+function initialPreviousSnapshot(source: PadSnapshot): PadSnapshot {
+  return { buttons: source.buttons.slice(), axes: new Array(source.axes.length).fill(0) };
+}
+
+function padButtonEdge(state: PadState, index: number | null): boolean {
+  return buttonPressed(state.current, index) && !buttonPressed(state.previous, index);
 }
 
 function padDirectionEdge(state: PadState, direction: -1 | 1): boolean {
   // A diagonal is still a horizontal menu choice. Classify the full vector so
   // up-left/down-left cannot be lost when the vertical axis moves first.
-  const current = padHorizontalDirection(state.current);
-  const previous = padHorizontalDirection(state.previous);
+  const current = padHorizontalDirection(state.current, state.binding);
+  const previous = padHorizontalDirection(state.previous, state.binding);
   return current === direction && previous !== direction;
 }
 
-function padHorizontalDirection(snapshot: PadSnapshot): -1 | 0 | 1 {
-  const axis = snapshot.axes[0] ?? 0;
-  const vertical = snapshot.axes[1] ?? 0;
+function padHorizontalDirection(snapshot: PadSnapshot, binding: PadBindingProfile): -1 | 0 | 1 {
+  const axis = (binding.steerAxis === null ? 0 : snapshot.axes[binding.steerAxis] ?? 0) * binding.steerScale;
+  const vertical = (binding.throttleAxis === null ? 0 : snapshot.axes[binding.throttleAxis] ?? 0) * binding.throttleScale;
   // A steep diagonal can expose only ~0.5 on X. Once the whole stick vector
   // is intentionally deflected, keep its horizontal sign for seat selection;
   // a small accidental nudge still stays neutral.
   if (Math.hypot(axis, vertical) >= PAD_NAV_THRESHOLD && Math.abs(axis) >= PAD_DIAGONAL_COMPONENT) {
     return axis < 0 ? -1 : 1;
   }
-  const left = Boolean(snapshot.buttons[14]);
-  const right = Boolean(snapshot.buttons[15]);
+  const left = buttonPressed(snapshot, binding.steerLeftButton);
+  const right = buttonPressed(snapshot, binding.steerRightButton);
   if (left && !right) return -1;
   if (right && !left) return 1;
   return 0;
 }
 
-function deadZone(value: number): number {
-  const magnitude = Math.abs(value);
-  if (magnitude <= PAD_DEAD_ZONE) return 0;
-  return Math.sign(value) * Math.min(1, (magnitude - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE));
+function clampSigned(value: number): number {
+  return Math.max(-1, Math.min(1, Number.isFinite(value) ? value : 0));
+}
+
+function resolvePadBinding(pad: Gamepad): PadBindingProfile {
+  if (pad.mapping !== 'standard') {
+    const stored = loadStoredBindings(deviceSignature(pad));
+    if (stored) {
+      // Older single-player calibration records may contain only the action
+      // buttons. Missing axis fields must keep the normal two-axis fallback;
+      // an explicit null still means a deliberate d-pad-only calibration.
+      const steerAxis = stored.steerAxis === undefined
+        ? defaultSteerAxis(pad.axes.length)
+        : validAxis(stored.steerAxis, pad.axes.length);
+      const throttleAxis = stored.throttleAxis === undefined
+        ? (steerAxis === null ? defaultThrottleAxis(pad.axes.length) : pairedThrottleAxis(steerAxis, pad.axes.length))
+        : stored.throttleAxis === null
+          ? null
+          : validAxis(stored.throttleAxis, pad.axes.length) ??
+            (steerAxis === null ? defaultThrottleAxis(pad.axes.length) : pairedThrottleAxis(steerAxis, pad.axes.length));
+      return {
+        steerAxis,
+        throttleAxis,
+        steerScale: stored.steerScale === -1 ? -1 : 1,
+        throttleScale: stored.throttleScale === 1 ? 1 : -1,
+        steerLeftButton: validButton(stored.steerLeftButton, pad.buttons.length) ?? 14,
+        steerRightButton: validButton(stored.steerRightButton, pad.buttons.length) ?? 15,
+        driftButton: validButton(stored.driftButton, pad.buttons.length) ?? 2,
+        flightButton: validButton(stored.flightButton, pad.buttons.length) ?? 0,
+        supportButton: validButton(stored.supportButton, pad.buttons.length) ?? 1,
+        prankButton: validButton(stored.prankButton, pad.buttons.length) ?? 3,
+        source: 'custom',
+      };
+    }
+  }
+  // Unknown mappings get an isolated conservative fallback and are surfaced
+  // in diagnostics rather than silently borrowing another seat's state.
+  return {
+    steerAxis: 0,
+    throttleAxis: 1,
+    steerScale: 1,
+    throttleScale: -1,
+    steerLeftButton: 14,
+    steerRightButton: 15,
+    driftButton: 2,
+    flightButton: 0,
+    supportButton: 1,
+    prankButton: 3,
+    source: pad.mapping === 'standard' ? 'standard' : 'fallback',
+  };
+}
+
+interface StoredPadBindings {
+  steerAxis?: number | null;
+  throttleAxis?: number | null;
+  steerScale?: -1 | 1;
+  throttleScale?: -1 | 1;
+  steerLeftButton?: number | null;
+  steerRightButton?: number | null;
+  driftButton?: number;
+  flightButton?: number;
+  supportButton?: number;
+  prankButton?: number;
+}
+
+function deviceSignature(pad: Gamepad): string {
+  return `${pad.id}|${pad.mapping}|a${pad.axes.length}|b${pad.buttons.length}`;
+}
+
+function loadStoredBindings(signature: string): StoredPadBindings | null {
+  try {
+    const raw = localStorage.getItem(GAMEPAD_STORAGE_KEY);
+    if (!raw) return null;
+    const stored = (JSON.parse(raw) as Record<string, StoredPadBindings>)[signature];
+    if (!stored || typeof stored !== 'object') return null;
+    // Older single-player calibrations only stored the drift/flight pair.
+    // Missing fields intentionally fall back to this pad's standard layout.
+    if (stored.driftButton !== undefined && !Number.isFinite(stored.driftButton)) return null;
+    if (stored.flightButton !== undefined && !Number.isFinite(stored.flightButton)) return null;
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+function pairedThrottleAxis(steerAxis: number, axisCount: number): number | null {
+  const candidate = steerAxis % 2 === 0 ? steerAxis + 1 : steerAxis - 1;
+  return candidate >= 0 && candidate < axisCount ? candidate : defaultThrottleAxis(axisCount);
+}
+
+function readStick(state: PadState): { x: number; y: number } {
+  const binding = state.binding;
+  const rawX = clampSigned((binding.steerAxis === null ? 0 : state.current.axes[binding.steerAxis] ?? 0) * binding.steerScale);
+  const rawY = clampSigned((binding.throttleAxis === null ? 0 : state.current.axes[binding.throttleAxis] ?? 0) * binding.throttleScale);
+  // Apply one radial dead-zone to the complete vector. Per-axis dead-zones
+  // distort diagonals and were the main source of inaccurate right-seat turns.
+  const magnitude = Math.hypot(rawX, rawY);
+  if (magnitude <= PAD_DEAD_ZONE) return { x: 0, y: 0 };
+  const normalized = Math.min(1, (magnitude - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE));
+  const scale = normalized / Math.max(magnitude, 1e-6);
+  return { x: clampSigned(rawX * scale), y: clampSigned(rawY * scale) };
+}
+
+function buttonPressed(snapshot: PadSnapshot, index: number | null): boolean {
+  return index !== null && index >= 0 && Boolean(snapshot.buttons[index]);
+}
+
+function validAxis(value: number | null | undefined, count: number): number | null {
+  if (value === null) return null;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < count ? value : null;
+}
+
+function validButton(value: number | null | undefined, count: number): number | null {
+  if (value === null) return null;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < count ? value : null;
+}
+
+function defaultThrottleAxis(axisCount: number): number | null {
+  return axisCount > 1 ? 1 : null;
+}
+
+function defaultSteerAxis(axisCount: number): number | null {
+  return axisCount > 0 ? 0 : null;
 }
 
 function neutralBoatInput(): BoatInput {
@@ -445,12 +672,6 @@ function approach(current: number, target: number, maxDelta: number): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
-}
-
-function strongestSigned(a: number, b: number): number {
-  let strongest = a;
-  if (Math.abs(b) > Math.abs(strongest)) strongest = b;
-  return Math.max(-1, Math.min(1, strongest));
 }
 
 function padActuator(pad: Gamepad): HapticActuatorLike | null {

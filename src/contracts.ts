@@ -445,12 +445,19 @@ export interface ICourse {
   finaleCelebrating(): boolean;
   resetFinalStation(): void;
   guidanceStatus(): CourseGuidanceStatus;
+  guidanceStatusFor(ownerId: number): CourseGuidanceStatus;
+  /** Smoothed corridor danger for the requested local seat. */
+  corridorDangerFor(ownerId: number): number;
   resetFlightChallenge(): void;
   updateFlightRoute(dt: number, boats: readonly IBoat[]): void;
   update(dt: number, t: number): void;
 }
 
 export interface CourseGuidanceStatus {
+  /** Human seat/boat currently owning this presentation view. */
+  readonly ownerId?: number;
+  /** Three.js layer carrying this view's route and launch markers. */
+  readonly guideLayer?: number;
   activeRouteIndex: number;
   visibleRouteCount: number;
   surfaceMaskRouteIndex: number;
@@ -651,6 +658,9 @@ export type CameraMode = 'orbit' | 'chase' | 'results' | 'defeat';
 export const LAYER_INK = 1;
 /** Selective energy/glow layer. Never contributes to the ink prepass. */
 export const LAYER_ENERGY = 2;
+/** Per-seat flight guidance layers. They are included by only their camera. */
+export const LAYER_GUIDE_LEFT = 3;
+export const LAYER_GUIDE_RIGHT = 4;
 
 /** Recursively enable the ink layer on an object subtree (call after building a mesh tree). */
 export function markInk(root: THREE.Object3D): void {

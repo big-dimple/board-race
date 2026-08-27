@@ -514,24 +514,34 @@ async function verifyMode(browser, mobile) {
   assert.equal(fullInventory, 3, `${label}: runtime inventory cap is not three`);
 
   const honorTarget = await page.evaluate(() => window.__harness.honorTargetCase());
-  assert.ok(honorTarget.targetY < 3,
-    `${label}: honor target still reads as an airborne object: ${JSON.stringify(honorTarget)}`);
+  assert.ok(honorTarget.targetY < 2.5 && honorTarget.maxTargetY < 3,
+    `${label}: honor targets still read as airborne objects: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.surfaceLayoutValid, true,
     `${label}: honor targets overlap an authored flight span: ${JSON.stringify(honorTarget)}`);
+  assert.ok(honorTarget.minTargetLateral >= 4.5,
+    `${label}: honor targets drifted back onto the flight line: ${JSON.stringify(honorTarget)}`);
+  assert.match(honorTarget.targetKinds, /duck.*bell.*star.*crown.*comet/,
+    `${label}: authored honor props are missing a readable variety: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.centerHits, 2,
-    `${label}: steering-wheel target did not detect a center-line pass: ${JSON.stringify(honorTarget)}`);
-  assert.equal(honorTarget.boostCharges, 3,
-    `${label}: precise steering-wheel pass did not preserve the full inventory on the fallback branch: ${JSON.stringify(honorTarget)}`);
-  assert.equal(honorTarget.boostActive, true,
-    `${label}: full steering-wheel inventory did not convert the pickup into a real BOOST: ${JSON.stringify(honorTarget)}`);
-  assert.equal(honorTarget.boostHonorDelta, 280,
-    `${label}: BOOST fallback did not settle the second target's base + precision honors: ${JSON.stringify(honorTarget)}`);
+    `${label}: straight target contact was not classified as center telemetry: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.chargesBeforeFirst, 0,
+    `${label}: honor target diagnostic did not start empty: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.chargesAfterFirst, 0,
+    `${label}: target contact secretly granted a flight charge: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.chargesBeforeSecond, 3,
+    `${label}: full inventory setup failed: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.chargesAfterSecond, 3,
+    `${label}: target contact changed a full flight inventory: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.boostingAfterSecond, false,
+    `${label}: target contact secretly activated BOOST: ${JSON.stringify(honorTarget)}`);
+  assert.ok(honorTarget.firstHonorDelta > 0 && honorTarget.secondHonorDelta > 0,
+    `${label}: physical target contacts did not award honors: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.edgeHits, 1,
-    `${label}: a grazing steering-wheel line was not classified as edge-only: ${JSON.stringify(honorTarget)}`);
+    `${label}: a grazing target line was not classified as edge-only: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.flightCharges, 0,
-    `${label}: a grazing steering-wheel line incorrectly recovered a flight cell: ${JSON.stringify(honorTarget)}`);
-  console.log(`${label} steering-wheel target: center=${honorTarget.centerHits} ` +
-    `boostCell=${honorTarget.boostCharges} edge=${honorTarget.edgeHits} score=${honorTarget.honorScore}`);
+    `${label}: a grazing target line incorrectly changed the flight inventory: ${JSON.stringify(honorTarget)}`);
+  console.log(`${label} surface honor props: center=${honorTarget.centerHits} ` +
+    `edge=${honorTarget.edgeHits} charges=${honorTarget.chargesAfterSecond} score=${honorTarget.honorScore}`);
 
   await stage(page, 'flight-extension-spool', 280, false);
   const courseBuoys = await page.evaluate(() => window.__harness.buoyState());
