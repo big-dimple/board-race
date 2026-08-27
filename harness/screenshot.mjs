@@ -218,6 +218,38 @@ async function verifyMode(browser, mobile) {
     console.log(`desktop off-course: distance=${offCourse.distanceM.toFixed(2)}m ` +
       `at14.9=${offCourse.at14_9.phase}/${offCourse.at14_9.warning} ` +
       `failedAt=${offCourse.failureAfterS.toFixed(3)}s reason=${offCourse.reason}`);
+
+    const finalEligibility = await page.evaluate(() => window.__harness.finalEligibilityCase());
+    assert.deepEqual(finalEligibility.unqualifiedFinishedIds, [],
+      `${label}: an under-qualified rival crossed Final and changed the ranking: ${JSON.stringify(finalEligibility)}`);
+    assert.deepEqual(finalEligibility.qualifiedFinishedIds, [0, 1],
+      `${label}: a qualified rival lost its legitimate Final crossing: ${JSON.stringify(finalEligibility)}`);
+    assert.deepEqual(finalEligibility.finishOrder, [1, 0],
+      `${label}: Final crossing order did not use the qualified photo finish: ${JSON.stringify(finalEligibility)}`);
+    assert.equal(finalEligibility.phase, 'finished', `${label}: qualified player did not finish Final`);
+    assert.equal(finalEligibility.playerPlace, 2,
+      `${label}: player place no longer reflects the qualified rival's earlier crossing: ${JSON.stringify(finalEligibility)}`);
+    assert.equal(finalEligibility.resultPlace, 2,
+      `${label}: result DTO place drifted from the Final crossing order: ${JSON.stringify(finalEligibility)}`);
+    console.log(`desktop final eligibility: qualified=${finalEligibility.qualifiedFinishedIds.join(',')} ` +
+      `underqualified=${finalEligibility.unqualifiedFinishedIds.length} order=${finalEligibility.finishOrder.join(',')}`);
+
+    const singleHonors = await page.evaluate(() => window.__harness.singleHonorCase());
+    assert.equal(singleHonors.mode, 'single', `${label}: single result envelope was not marked single`);
+    assert.equal(singleHonors.seatCount, 1, `${label}: single result envelope gained a phantom seat`);
+    assert.equal(singleHonors.wallVisible, true, `${label}: single-player honor wall did not open`);
+    assert.equal(singleHonors.standingCount, 6, `${label}: single honor wall lost the six-racer standings`);
+    assert.equal(singleHonors.resultPlace, 6,
+      `${label}: failure result used a stale pre-failure place: ${JSON.stringify(singleHonors)}`);
+    assert.ok(singleHonors.cardCount >= 2,
+      `${label}: single-player honors did not retain the earned cards: ${JSON.stringify(singleHonors)}`);
+    assert.equal(singleHonors.spotlight, '鸭鸭爆点',
+      `${label}: single-player Play of the Run did not select the highest earned card`);
+    assert.equal(singleHonors.score, 210, `${label}: single honor score did not settle through the result DTO`);
+    assert.deepEqual(singleHonors.counts, { 'target.duck': 1, 'flight.ace': 1 },
+      `${label}: single honor counts drifted: ${JSON.stringify(singleHonors)}`);
+    assert.equal(singleHonors.awardCount, 2, `${label}: single honor awards were duplicated or dropped`);
+    console.log(`desktop single honors: score=${singleHonors.score} cards=${singleHonors.cardCount}`);
   }
 
   await stage(page, 'lighthouse-inspection');

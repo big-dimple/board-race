@@ -72,8 +72,10 @@
   深度越过硬边界立即判负；判定、物理和表现共用这一条危险曲线。
 - 水面越过主线硬边后立即显示 `off_course` 警告，只有持续 15 秒未回线才判负；回线衰减、
   Final Station 解除和 `wrong_way` 的独立警告 / 判负时钟保持原语义。
-- 第七飞计分后路线失败永久退休，但该飞 recovery 仍完整播放。所有实体选手通过同一个
-  swept Final portal 排名，使用亚帧 crossing time；已完赛车手继续保留实体和碰撞。
+- 第七飞计分后路线失败永久退休，但该飞 recovery 仍完整播放。只有完成全部
+  `flightRoutes`、`flightsCleared % routeCount === 0` 且当前 route 已回到 `idle` 的实体选手，
+  才能通过同一个 swept Final portal 完成冲线；物理门线本身不授予未合格船终局资格。合格选手
+  仍使用亚帧 crossing time 排名，已完赛车手继续保留实体和碰撞。
 - Final 回港刹车不能触发漂移、BOOST、飞行库存变化、倒车或额外反馈。
 
 ### 双打

@@ -321,16 +321,13 @@ export class Race implements RaceView {
 
   /** Arm the authored finish after a complete seven-flight set. */
   armFinale(): boolean {
-    const routeCount = Math.max(1, this.course.flightRoutes.length);
     if (this.phase !== 'racing' || this.finalStationArmed) return false;
     // In dual play either seat may reach the seventh route first. Promote that
     // seat so the shared Final portal follows the actual surviving contender.
     let candidate: RacerState | null = null;
     for (const id of this.playerIds) {
       const racer = this.racers[id];
-      const boat = this.boats[id];
-      if (!racer || racer.finished || racer.eliminated || boat.state.flightsCleared < routeCount ||
-          boat.state.flightsCleared % routeCount !== 0) continue;
+      if (!racer || racer.finished || racer.eliminated || !this.hasFinalQualification(id)) continue;
       if (!candidate || racer.progress > candidate.progress) candidate = racer;
     }
     if (!candidate) return false;
@@ -378,6 +375,10 @@ export class Race implements RaceView {
     if (this.phase !== 'racing' || (this.finalStationArmed && !force)) return;
     if (force) this.finalStationArmed = false;
     this.phase = 'defeated';
+    // A flight or surface failure can be raised from inside `track()` before
+    // the normal end-of-step sort. Build the result and honor wall from the
+    // same-frame order instead of exposing the previous frame's place values.
+    this.sortPlaces();
     const player = this.player();
     const leader = this.order[0] ?? player;
     const gapM = Math.max(0, leader.progress - player.progress);
@@ -537,7 +538,13 @@ export class Race implements RaceView {
         continuousSurfaceFoldConflict = Math.abs(candidateDelta) > JUMP_U &&
           _globalSurfaceCandidate.distance + SURFACE_PROJECTION_SLACK_M < _sample.distance;
       }
-      const finalCrossing = !resyncOnly && this.finalStationArmed && !r.finished && !r.eliminated
+      // The visible portal is a physical crossing test, but it is not itself
+      // the qualification contract. A boat can lap the pack and pass the same
+      // world-space line before it has cleared the authored flight set. Such a
+      // crossing must stay a normal race movement; otherwise an unfinished
+      // rival is promoted ahead of a player who is correctly approaching Final.
+      const finalCrossing = !resyncOnly && this.finalStationArmed && this.hasFinalQualification(id) &&
+        !r.finished && !r.eliminated
         ? this.course.crossFinalStation(previousPosition, boat.state.position)
         : -1;
       previousPosition.copy(boat.state.position);
@@ -735,6 +742,12 @@ export class Race implements RaceView {
   }
 
   /** Lock an exact, sub-frame finish before place sorting. */
+  private hasFinalQualification(id: number): boolean {
+    const routeCount = Math.max(1, this.course.flightRoutes.length);
+    const cleared = this.boats[id].state.flightsCleared;
+    return Number.isInteger(cleared) && cleared >= routeCount && cleared % routeCount === 0;
+  }
+
   private finishAtFinal(racer: RacerState, crossingFraction: number, dt: number): void {
     if (racer.finished) return;
     racer.finished = true;

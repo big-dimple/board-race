@@ -1211,6 +1211,9 @@ function resetRace(): void {
   previousHumanPlaces[0] = Infinity;
   previousHumanPlaces[1] = Infinity;
   course.resetFlightChallenge();
+  // A retry, mode switch, or return from the accolade wall must not leave the
+  // previous run's Final Station glowing in the READY/front-door scene.
+  course.resetFinalStation();
   honorTargets.reset();
   honors.reset(boats.length);
   honorHighlights.hide();
@@ -1418,7 +1421,15 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     if (hit.kind === 'duck') audio.balloonPop();
     else audio.collision(4.2);
     pipeline.pulse('ready', hit.kind === 'crown' ? 0.9 : 0.58);
-    haptics.impact('collision-light', hit.kind === 'crown' ? 0.72 : 0.42, false);
+    const rumbleStrength = hit.kind === 'crown' ? 0.72 : 0.42;
+    // A target belongs to the boat that touched it. In dual play route the
+    // pulse to that seat's device instead of whichever controller was last
+    // active globally; single play keeps the normal haptics lane.
+    if (isDuoMode() && hit.racerId < 2) {
+      localInput.rumble(duoDevices[hit.racerId as 0 | 1], rumbleStrength, 0.42, 48);
+    } else {
+      haptics.impact('collision-light', rumbleStrength, false);
+    }
     hud.showTransientNotice(
       `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}`,
       '荣誉目标命中',
@@ -2616,6 +2627,8 @@ interface Harness {
   cameraImpactCase(): Record<string, unknown>;
   radioTechniqueCase(): Record<string, unknown>;
   offCourseRecoveryCase(): Record<string, unknown>;
+  finalEligibilityCase(): Record<string, unknown>;
+  singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
   buoyCase(): Record<string, number | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
@@ -3304,6 +3317,141 @@ function runOffCourseRecoveryCase(): Record<string, unknown> {
     phase: race.phase,
     reason: race.challengeResult?.reason ?? 'none',
   };
+}
+
+/**
+ * Keep the physical Final portal honest when a rival reaches it before the
+ * authored seven-flight qualification. The qualified rival still finishes in
+ * crossing-time order; only the lapped / under-qualified boats are ignored.
+ */
+function runFinalEligibilityCase(): Record<string, unknown> {
+  resetRace();
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  const dt = 1 / 60;
+  const routeCount = Math.max(1, course.flightRoutes.length);
+  const center = course.pointAt(0, new THREE.Vector3());
+  const forward = course.tangentAt(0, new THREE.Vector3()).normalize();
+  const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+  const laterals = [0, -4.5, -2.25, 0, 2.25, 4.5];
+  const setPlane = (id: number, plane: number): void => {
+    const point = center.clone().addScaledVector(forward, plane).addScaledVector(right, laterals[id]);
+    boats[id].setCollisionTestMotion(
+      point.x,
+      point.z,
+      Math.atan2(forward.x, forward.z),
+      forward.x * 24,
+      forward.z * 24,
+    );
+  };
+
+  try {
+    for (let id = 0; id < boats.length; id++) {
+      const state = boats[id].state;
+      state.flightPhase = 'surface';
+      state.airborne = false;
+      state.flightRouteState = 'idle';
+      state.flightRouteIndex = -1;
+      state.flightRouteCursor = id < 2 ? routeCount : 0;
+      state.flightsCleared = id < 2 ? routeCount : 0;
+      state.flightGateProgress = 0;
+      state.flightRouteFailReason = 'none';
+      state.flightFailure = null;
+      setPlane(id, -0.8);
+    }
+    // Rebase both route trackers after staging; this is the same contact
+    // correction path used by gameplay and keeps the portal sweep sub-frame.
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    // Both player seats are qualified, but the left seat owns this single-run
+    // harness. Give it the larger pre-arm progress so armFinale selects it.
+    race.racers[0].progress = course.length;
+    race.racers[1].progress = course.length - 1;
+    for (let id = 2; id < race.racers.length; id++) race.racers[id].progress = 0;
+    if (!race.armFinale()) throw new Error('unable to arm Final eligibility case');
+    course.armFinalStation();
+
+    // A fully qualified rival remains a legitimate photo-finish contender.
+    setPlane(1, 0.8);
+    race.update(dt);
+    // These boats cross the same visible line after the qualified rival, but
+    // have not completed a single authored flight route.
+    for (const id of [2, 3, 4, 5]) {
+      setPlane(id, 0.8);
+      race.update(dt);
+    }
+    const unqualifiedFinishedIds = race.racers
+      .slice(2)
+      .filter((racer) => racer.finished)
+      .map((racer) => racer.id);
+
+    setPlane(0, 0.8);
+    race.update(dt);
+    const order = [...race.racers].sort((a, b) => a.place - b.place || a.id - b.id);
+    return {
+      phase: race.phase,
+      qualifiedFinishedIds: race.racers.slice(0, 2).filter((racer) => racer.finished).map((racer) => racer.id),
+      unqualifiedFinishedIds,
+      finishOrder: order.filter((racer) => racer.finished).map((racer) => racer.id),
+      playerPlace: race.racers[0].place,
+      resultPlace: race.challengeResult?.place ?? -1,
+    };
+  } finally {
+    // Leave the browser harness in a clean READY state for the next scenario.
+    resetRace();
+  }
+}
+
+/** Exercise the same accolade wall used by a real single-player result. */
+function runSingleHonorCase(): Record<string, unknown> {
+  const previousMode = appMode;
+  try {
+    appMode = 'independent';
+    resetRace();
+    race.setPlayerIds([0]);
+    for (let id = 0; id < boats.length; id++) boats[id].setPlayerOwned(id === 0);
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    // Deliberately make the player the last racer by progress while leaving
+    // the cached places untouched. A real mid-step failure must report this
+    // current order on the result wall.
+    for (let id = 0; id < race.racers.length; id++) race.racers[id].progress = id === 0 ? 10 : 100 + id;
+    honors.award('target.duck', 0, HONOR_DEFINITIONS['target.duck'].value, race.raceTime);
+    honors.award('flight.ace', 0, HONOR_DEFINITIONS['flight.ace'].value, race.raceTime + 0.1);
+    race.defeatFlight({
+      reason: 'gate_left',
+      flightNumber: 1,
+      routeSlot: 0,
+      flightsCleared: 0,
+      gatesPassed: 0,
+      gateCount: 1,
+      targetGate: 1,
+      routeU: 0.5,
+      lateralOffsetM: -6.4,
+      lateralLimitM: 5,
+      corridorDistanceM: null,
+      clearanceM: 4.2,
+    });
+    showHonorReview();
+    const summary = lastResultEnvelope?.honors;
+    return {
+      mode: lastResultEnvelope?.mode ?? '',
+      seatCount: lastResultEnvelope?.seats.length ?? 0,
+      wallVisible: honorHighlights.visible(),
+      standingCount: document.querySelectorAll('.honor-review-standing').length,
+      cardCount: document.querySelectorAll('.honor-review-card').length,
+      spotlight: document.querySelector('.honor-review-spotlight-title')?.textContent?.trim() ?? '',
+      score: summary?.score ?? 0,
+      counts: summary?.counts ?? {},
+      awardCount: summary?.awards.length ?? 0,
+      resultPlace: lastResultEnvelope?.racers.find((racer) => racer.racerId === 0)?.place ?? -1,
+    };
+  } finally {
+    honorHighlights.hide();
+    appMode = previousMode;
+    resetRace();
+    race.setPlayerIds(previousMode === 'duo' ? [0, 1] : [0]);
+  }
 }
 
 function stageRadioTechniqueBroadcast(): void {
@@ -4064,6 +4212,8 @@ if (HARNESS) {
     cameraImpactCase: runCameraImpactCase,
     radioTechniqueCase: runRadioTechniqueCase,
     offCourseRecoveryCase: runOffCourseRecoveryCase,
+    finalEligibilityCase: runFinalEligibilityCase,
+    singleHonorCase: runSingleHonorCase,
     buoyState: () => course.buoyDebugStates(),
     buoyCase: runBuoyCase,
     riderPoseState: () => riders[0].poseDebug(),
