@@ -900,6 +900,15 @@ export class Race implements RaceView {
       return a.finishTime !== b.finishTime ? a.finishTime < b.finishTime : a.id < b.id;
     }
     if (a.finished !== b.finished) return a.finished;
+    // Once Final is armed, a qualified racer is in the finish queue even while
+    // approaching the portal. An under-qualified rival may have physically
+    // lapped the circuit, but cannot finish this run and must not rank ahead of
+    // a racer who has completed the authored flight set.
+    if (this.finalStationArmed && !a.finished && !b.finished) {
+      const aQualified = this.hasFinalQualification(a.id);
+      const bQualified = this.hasFinalQualification(b.id);
+      if (aQualified !== bQualified) return aQualified;
+    }
     if (a.progress !== b.progress) return a.progress > b.progress;
     return a.id < b.id;
   }

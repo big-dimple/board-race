@@ -74,8 +74,9 @@
   Final Station 解除和 `wrong_way` 的独立警告 / 判负时钟保持原语义。
 - 第七飞计分后路线失败永久退休，但该飞 recovery 仍完整播放。只有完成全部
   `flightRoutes`、`flightsCleared % routeCount === 0` 且当前 route 已回到 `idle` 的实体选手，
-  才能通过同一个 swept Final portal 完成冲线；物理门线本身不授予未合格船终局资格。合格选手
-  仍使用亚帧 crossing time 排名，已完赛车手继续保留实体和碰撞。
+  才能通过同一个 swept Final portal 完成冲线；物理门线本身不授予未合格船终局资格。Final 激活后，
+  尚未冲线的合格选手优先于未合格但已多跑圈的对手，避免等待 Final 时名次被错误挤掉。合格选手仍使用
+  亚帧 crossing time 排名，已完赛车手继续保留实体和碰撞。
 - Final 回港刹车不能触发漂移、BOOST、飞行库存变化、倒车或额外反馈。
 
 ### 双打

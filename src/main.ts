@@ -3553,9 +3553,15 @@ function runFinalEligibilityCase(): Record<string, unknown> {
     // A fully qualified rival remains a legitimate photo-finish contender.
     setPlane(1, 0.8);
     race.update(dt);
-    // These boats cross the same visible line after the qualified rival, but
-    // have not completed a single authored flight route.
-    for (const id of [2, 3, 4, 5]) {
+    // One under-qualified boat laps deep into the current circuit before the
+    // qualified player reaches Final. This reproduces the real regression:
+    // raw lap progress must not outrank a qualified racer waiting for Final.
+    placeHarnessBoat(2, 0.9);
+    race.update(dt);
+
+    // The remaining boats cross the same visible line after the qualified
+    // rival, but have not completed a single authored flight route.
+    for (const id of [3, 4, 5]) {
       setPlane(id, 0.8);
       race.update(dt);
     }
