@@ -2,8 +2,8 @@
   --honor-progress: 0;
   position: fixed;
   inset: 0;
-  /* FinaleOverlay (70) gets the first beat; this wall is revealed directly
-     underneath it when the player presses its continue control. */
+  /* FinaleOverlay (70) owns the preceding beat. This wall is mounted only
+     after the player confirms that cinematic. */
   z-index: 69;
   display: none;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
@@ -13,7 +13,7 @@
   padding: clamp(18px, 4vw, 48px);
   overflow: hidden;
   color: #f4feff;
-  background: rgba(4, 7, 24, .9);
+  background: #040718;
   font-family: system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   letter-spacing: 0;
   pointer-events: auto;

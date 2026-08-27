@@ -72,13 +72,14 @@ export class FinaleOverlay {
     });
   }
 
-  show(result: ChallengeResult): void {
+  show(result: ChallengeResult, continueLabel = '继续游戏'): void {
     this.place.textContent = result.place === 1 ? '第一名冲线' : `第 ${result.place} / ${result.totalRacers} 名冲线`;
     this.time.textContent = `本局 ${result.flightsCleared} 飞 · ${formatTime(result.raceTime)}`;
     this.actions.classList.remove('on');
     this.actionsReady = false;
     this.saveButton.disabled = true;
     this.saveButton.textContent = '截图生成中';
+    this.continueButton.textContent = continueLabel;
     this.root.style.setProperty('--finale-progress', '0');
     this.root.classList.remove('impact', 'crown', 'hero', 'settled');
     this.celebration.reset();
@@ -113,11 +114,17 @@ export class FinaleOverlay {
     this.root.classList.remove('on', 'impact', 'crown', 'hero', 'settled', 'reveal');
     this.actions.classList.remove('on');
     this.actionsReady = false;
+    this.continueButton.textContent = '继续游戏';
     this.celebration.reset();
   }
 
   focusPrimary(): void {
     if (this.actionsReady) this.galleryButton.focus({ preventScroll: true });
+  }
+
+  /** Focus the next-step action after returning from an optional gallery. */
+  focusContinue(): void {
+    if (this.actionsReady && !this.continueButton.disabled) this.continueButton.focus({ preventScroll: true });
   }
 
   moveFocus(direction: -1 | 1): void {

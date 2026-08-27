@@ -372,18 +372,46 @@
   left: max(54px, calc(env(safe-area-inset-left) + 44px));
   bottom: max(26px, calc(env(safe-area-inset-bottom) + 18px));
   width: 150px;
-  height: 34px;
+  height: 42px;
   border-bottom: 2px solid rgba(244, 254, 255, 0.3);
   border-radius: 0 0 75px 75px;
   background: linear-gradient(90deg, transparent 49%, rgba(244,254,255,.42) 49% 51%, transparent 51%);
   opacity: 0;
+  color: rgba(244,254,255,.8);
+  font: 800 9px/1 system-ui, sans-serif;
+  font-style: normal;
+  letter-spacing: 0;
+  text-align: center;
 }
 
 .mobile-controls.controls-visible:not(.touch-steer) .mobile-tilt-meter { opacity: 0.72; }
+.mobile-tilt-meter-title {
+  position: absolute;
+  left: 50%;
+  top: -21px;
+  padding: 3px 7px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(85,231,255,.5);
+  color: var(--mobile-flight);
+  background: rgba(8,13,42,.82);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.mobile-tilt-meter-left,
+.mobile-tilt-meter-center,
+.mobile-tilt-meter-right {
+  position: absolute;
+  top: 26px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.mobile-tilt-meter-left { left: 14px; color: #55e7ff; }
+.mobile-tilt-meter-center { left: 50%; color: rgba(244,254,255,.58); font-size: 8px; }
+.mobile-tilt-meter-right { left: calc(100% - 14px); color: #55e7ff; }
 .mobile-tilt-meter i {
   position: absolute;
   left: 71px;
-  top: 17px;
+  top: 20px;
   width: 9px;
   height: 13px;
   background: var(--mobile-flight);

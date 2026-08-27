@@ -295,7 +295,10 @@ const expansionGallery = new ExpansionGallery(
     // Returning from the dossier restores the frozen presentation, not gameplay.
     // Keep touch controls out of the result composition until a new run begins.
     mobileInput.setOverlayHidden(true);
-    if (race.phase !== 'medal') finale.focusPrimary();
+    if (race.phase !== 'medal') {
+      if (honorReviewPending) finale.focusContinue();
+      else finale.focusPrimary();
+    }
   },
 );
 
@@ -390,6 +393,9 @@ let freshStartPending = false;
 let medalElapsed = 0;
 let finaleElapsed = 0;
 let finalePresentation = false;
+// Keep the result beats separate: the honor wall is opened only after the
+// Final Station cinematic has been dismissed.
+let honorReviewPending = false;
 let finaleCapturePending = false;
 let interruptionActive = false;
 let duoPauseActive = false;
@@ -872,6 +878,8 @@ function requestRetry(): void {
 function dismissHonorReview(): void {
   const defeated = race.phase === 'defeated';
   honorHighlights.hide();
+  hud.setVisible(true);
+  tower.setVisible(true);
   // Keep the single-player failure lesson in the normal retry path. Dual play
   // restarts the same two-seat lineup so the second player is never silently
   // replaced by the single-seat driver picker.
@@ -985,10 +993,12 @@ function startResumeCountdown(): void {
 
 function continueAfterFinale(): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
-  // The final station is now the end of a run. The existing cinematic remains
-  // the first beat; the accolade wall is already prepared underneath it and is
-  // revealed when the player dismisses the cinematic.
-  if (honorHighlights.visible()) {
+  // The Final Station is the first reading beat. Only after it is dismissed do
+  // we construct/show the accolade wall; no result layer can peek through the
+  // cinematic or consume time while the player is reading it.
+  if (honorReviewPending || honorHighlights.visible()) {
+    const shouldShowHonors = honorReviewPending && !honorHighlights.visible();
+    honorReviewPending = false;
     finalePresentation = false;
     finaleElapsed = 0;
     finale.hide();
@@ -997,11 +1007,16 @@ function continueAfterFinale(): void {
     mobileInput.reset();
     mobileInput.setOverlayHidden(true);
     mobileInput.setControlPhase('inactive');
+    hud.setVisible(false);
+    tower.setVisible(false);
+    mixer.setVisible(false);
+    if (shouldShowHonors) showHonorReview();
     return;
   }
   if (!race.startFinalContinueCountdown()) return;
   finalePresentation = false;
   finaleElapsed = 0;
+  honorReviewPending = false;
   resultsShown = false;
   course.resetFinalStation();
   finale.hide();
@@ -1010,6 +1025,8 @@ function continueAfterFinale(): void {
   mobileInput.reset();
   mobileInput.setOverlayHidden(false);
   mobileInput.setControlPhase('preparing');
+  hud.setVisible(true);
+  tower.setVisible(true);
   cameraRig.mode = 'chase';
   audio.startRaceScore(false);
   audio.setScene('countdown');
@@ -1199,6 +1216,7 @@ function resetRace(): void {
   previousChallengeTier = 'unqualified';
   finalePresentation = false;
   finaleElapsed = 0;
+  honorReviewPending = false;
   finaleCapture = null;
   finaleCaptureRecorded = false;
   finaleCapturePending = false;
@@ -1445,6 +1463,9 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
 
 function showHonorReview(): void {
   if (honorsSettled) return;
+  hud.setVisible(false);
+  tower.setVisible(false);
+  mixer.setVisible(false);
   const humanIds = isDuoMode() ? [0, 1] : [0];
   for (const id of humanIds) {
     if (honors.scoreFor(id) <= 0 && humanCollisionCounts[id] === 0) {
@@ -1504,6 +1525,40 @@ function showHonorReview(): void {
   records.recordHonors(summary, mode, race.phase === 'finished' && (result?.place ?? 99) === 1);
   honorsSettled = true;
   honorHighlights.show({ mode, racers: racerCards, highlights, summary, resultLabel });
+}
+
+/** Start the first, self-contained beat of a successful Final crossing. */
+function beginFinalePresentation(): void {
+  const result = race.challengeResult;
+  if (!result) return;
+  cameraRig.finishKick();
+  pipeline.pulse('finish', 1.35);
+  result.ordinaryNew = ordinaryNewThisRun;
+  records.decorateResult(result, newBestThisRun, medalEarnedThisRun);
+  records.recordFinale();
+  course.triggerFinaleCelebration();
+  finale.show(result, '查看高光');
+  finaleElapsed = 0;
+  finalePresentation = true;
+  finaleCapture = null;
+  finaleCaptureRecorded = false;
+  finaleCapturePending = true;
+  honorReviewPending = true;
+  retryLessonFrozenT = worldTime;
+  input.reset();
+  gamepadInput.reset();
+  mobileInput.reset();
+  mobileInput.setOverlayHidden(true);
+  mobileInput.setControlPhase('inactive');
+  hud.setVisible(false);
+  tower.setVisible(false);
+  mixer.setVisible(false);
+  audio.setScene('medal');
+  haptics.cue('medal');
+  trackGameEvent('final_station_crossed', {
+    run: currentRun, flights: result.flightsCleared, elapsed: result.raceTime,
+  });
+  trackGameEvent('finale_shown', { run: currentRun, place: result.place });
 }
 
 function updateFrontDoor(dt: number, t: number): void {
@@ -1715,9 +1770,9 @@ function presentTeamCollisions(hits: readonly CollisionHit[]): void {
 
 function step(dt: number, _t: number): void {
   localInput.poll();
-  // The finale cinematic is the first beat of the result sequence. Keep the
-  // accolade timer paused underneath it so dismissing the cinematic always
-  // reveals the intended spotlight before the cards advance.
+  // The finale cinematic is the first beat of the result sequence. The honor
+  // wall is not mounted yet, so its spotlight timer starts at zero only after
+  // the player explicitly confirms this beat.
   if (!finalePresentation) honorHighlights.update(dt);
   if (appMode === 'front-door') {
     immersive.update(dt);
@@ -2413,33 +2468,7 @@ function step(dt: number, _t: number): void {
       hud.showPcControlPrimer(null);
       showHonorReview();
     } else {
-      cameraRig.finishKick();
-      pipeline.pulse('finish', 1.35);
-      if (race.challengeResult) {
-        race.challengeResult.ordinaryNew = ordinaryNewThisRun;
-        records.decorateResult(race.challengeResult, newBestThisRun, medalEarnedThisRun);
-        records.recordFinale();
-        course.triggerFinaleCelebration();
-        finale.show(race.challengeResult);
-        finaleElapsed = 0;
-        finalePresentation = true;
-        finaleCapture = null;
-        finaleCaptureRecorded = false;
-        finaleCapturePending = true;
-        retryLessonFrozenT = worldTime;
-        input.reset();
-        gamepadInput.reset();
-        mobileInput.reset();
-        mobileInput.setOverlayHidden(true);
-        mobileInput.setControlPhase('inactive');
-        audio.setScene('medal');
-        haptics.cue('medal');
-        trackGameEvent('final_station_crossed', {
-          run: currentRun, flights: race.challengeResult.flightsCleared, elapsed: race.challengeResult.raceTime,
-        });
-        trackGameEvent('finale_shown', { run: currentRun, place: race.challengeResult.place });
-        showHonorReview();
-      }
+      beginFinalePresentation();
     }
   }
   audio.update(dt);
@@ -2628,6 +2657,7 @@ interface Harness {
   radioTechniqueCase(): Record<string, unknown>;
   offCourseRecoveryCase(): Record<string, unknown>;
   finalEligibilityCase(): Record<string, unknown>;
+  finaleHonorSequenceCase(leaveVisible?: boolean): Record<string, unknown>;
   singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
   buoyCase(): Record<string, number | boolean>;
@@ -3402,6 +3432,79 @@ function runFinalEligibilityCase(): Record<string, unknown> {
   }
 }
 
+/** Verify the successful-result beats never overlap in the live presentation. */
+function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknown> {
+  const previousMode = appMode;
+  try {
+    appMode = 'independent';
+    resetRace();
+    race.setPlayerIds([0]);
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    for (let id = 0; id < race.racers.length; id++) {
+      race.racers[id].place = id + 1;
+      race.racers[id].progress = id === 0 ? course.length : Math.max(0, course.length - id);
+      race.racers[id].finished = false;
+      race.racers[id].eliminated = false;
+    }
+    race.challengeResult = {
+      outcome: 'excellent',
+      reason: 'none',
+      gate: 0,
+      place: 1,
+      totalRacers: race.racers.length,
+      raceTime: 42.25,
+      flightsCleared: Math.max(7, course.flightRoutes.length),
+      leaderGapSeconds: 0,
+      leaderGapMeters: 0,
+      overtakes: 3,
+      excellentTotal: 1,
+      ordinaryNew: false,
+      manMedalEarned: true,
+      manMedalsTotal: 1,
+      bestFlights: Math.max(7, course.flightRoutes.length),
+      newBest: false,
+      failure: null,
+    };
+    race.phase = 'finished';
+    race.finaleCompleted = true;
+    resultsShown = true;
+    beginFinalePresentation();
+    const mobileControlsHidden = !mobileInput.enabled || mobileInput.status().overlayHidden;
+    const afterFinaleShow = {
+      finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      honorsVisible: honorHighlights.visible(),
+      honorsDomVisible: document.querySelector('.honor-review')?.classList.contains('on') ?? false,
+      pending: honorReviewPending,
+      continueLabel: document.querySelector<HTMLElement>('[data-action="continue"]')?.textContent?.trim() ?? '',
+      mobileControlsHidden,
+      hudHidden: getComputedStyle(document.querySelector<HTMLElement>('.hud')!).visibility === 'hidden',
+      towerHidden: getComputedStyle(document.querySelector<HTMLElement>('.race-tower')!).display === 'none',
+    };
+    loop.advance(FINALE_MIN_READ_S + 0.05);
+    continueAfterFinale();
+    const afterContinue = {
+      finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      honorsVisible: honorHighlights.visible(),
+      honorsDomVisible: document.querySelector('.honor-review')?.classList.contains('on') ?? false,
+      pending: honorReviewPending,
+      mobileControlsHidden: !mobileInput.enabled || mobileInput.status().overlayHidden,
+      hudHidden: getComputedStyle(document.querySelector<HTMLElement>('.hud')!).visibility === 'hidden',
+      towerHidden: getComputedStyle(document.querySelector<HTMLElement>('.race-tower')!).display === 'none',
+      honorBackground: getComputedStyle(document.querySelector<HTMLElement>('.honor-review')!).backgroundColor,
+    };
+    return { afterFinaleShow, afterContinue };
+  } finally {
+    if (!leaveVisible) {
+      honorHighlights.hide();
+      appMode = previousMode;
+      resetRace();
+      race.setPlayerIds(previousMode === 'duo' ? [0, 1] : [0]);
+      harnessPlayerInput = null;
+    }
+  }
+}
+
 /** Exercise the same accolade wall used by a real single-player result. */
 function runSingleHonorCase(): Record<string, unknown> {
   const previousMode = appMode;
@@ -3992,6 +4095,12 @@ function scenario(name: string): void {
       startMedalCeremony("ordinary", 3, 3);
       loop.advance(2);
       break;
+    case "finale-honors":
+      // Capture-only scenario: leave the honor wall settled on screen so
+      // desktop and 844x390 visual review can inspect the second result beat.
+      runFinaleHonorSequenceCase(true);
+      loop.advance(5.1);
+      break;
     case "radio-technique":
       stageRadioTechniqueBroadcast();
       break;
@@ -4213,6 +4322,7 @@ if (HARNESS) {
     radioTechniqueCase: runRadioTechniqueCase,
     offCourseRecoveryCase: runOffCourseRecoveryCase,
     finalEligibilityCase: runFinalEligibilityCase,
+    finaleHonorSequenceCase: runFinaleHonorSequenceCase,
     singleHonorCase: runSingleHonorCase,
     buoyState: () => course.buoyDebugStates(),
     buoyCase: runBuoyCase,

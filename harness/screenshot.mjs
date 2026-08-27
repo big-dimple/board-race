@@ -162,6 +162,10 @@ async function verifyMode(browser, mobile) {
     `${label}: driver callsigns drifted`);
   assert.equal(await page.locator('.driver-select-title').textContent(), '别懵逼，选最强',
     `${label}: driver-select joke title drifted`);
+  assert.equal(await page.locator('.driver-radar-title').textContent(), '选手能力对比',
+    `${label}: driver radar title is ambiguous`);
+  assert.equal(await page.locator('.driver-radar-note').textContent(), '影响本局手感 · 不是操作控件',
+    `${label}: driver radar did not explain its role`);
   assert.equal(await page.locator('.opening-driver-echo.female').count(), 2,
     `${label}: opening showcase lost its two female competitors`);
   assert.deepEqual(await page.locator('.opening-driver-echo.female .opening-driver-echo-badge').allTextContents(),
@@ -204,6 +208,67 @@ async function verifyMode(browser, mobile) {
   assert.equal(radioOnce.secondVisible, false, `${label}: Gemini broadcast repeated in one page session`);
   assert.equal(radioOnce.secondQueued, 0, `${label}: Gemini broadcast requeued for a new run in one page session`);
   assert.equal(radioOnce.secondActiveKey, '', `${label}: Gemini broadcast restarted in a new run`);
+
+  const finaleSequence = await page.evaluate(() => window.__harness.finaleHonorSequenceCase());
+  assert.equal(finaleSequence.afterFinaleShow.finaleVisible, true,
+    `${label}: Final Station cinematic did not open`);
+  assert.equal(finaleSequence.afterFinaleShow.honorsVisible, false,
+    `${label}: honor wall mounted underneath the Final Station cinematic`);
+  assert.equal(finaleSequence.afterFinaleShow.honorsDomVisible, false,
+    `${label}: honor wall DOM remained visible during the cinematic`);
+  assert.equal(finaleSequence.afterFinaleShow.pending, true,
+    `${label}: successful result did not queue its honor review`);
+  assert.equal(finaleSequence.afterFinaleShow.continueLabel, '查看高光',
+    `${label}: Final Station action does not explain the next result beat`);
+  assert.equal(finaleSequence.afterFinaleShow.mobileControlsHidden, true,
+    `${label}: mobile controls leaked into the Final Station presentation`);
+  assert.equal(finaleSequence.afterFinaleShow.hudHidden, true,
+    `${label}: race HUD leaked into the Final Station presentation`);
+  assert.equal(finaleSequence.afterFinaleShow.towerHidden, true,
+    `${label}: race tower leaked into the Final Station presentation`);
+  assert.equal(finaleSequence.afterContinue.finaleVisible, false,
+    `${label}: Final Station remained visible after opening honors`);
+  assert.equal(finaleSequence.afterContinue.honorsVisible, true,
+    `${label}: honor wall did not open after Final Station confirmation`);
+  assert.equal(finaleSequence.afterContinue.honorsDomVisible, true,
+    `${label}: honor wall DOM did not become visible after confirmation`);
+  assert.equal(finaleSequence.afterContinue.pending, false,
+    `${label}: honor review stayed pending after opening`);
+  assert.equal(finaleSequence.afterContinue.mobileControlsHidden, true,
+    `${label}: mobile controls leaked into the honor review`);
+  assert.equal(finaleSequence.afterContinue.hudHidden, true,
+    `${label}: race HUD leaked into the honor review`);
+  assert.equal(finaleSequence.afterContinue.towerHidden, true,
+    `${label}: race tower leaked into the honor review`);
+  assert.equal(finaleSequence.afterContinue.honorBackground, 'rgb(4, 7, 24)',
+    `${label}: honor review backdrop allowed the race scene to show through`);
+  console.log(`${label} finale sequence: cinematic-only -> honor-wall-only`);
+
+  if (mobile) {
+    const modeButton = page.locator('.mobile-mode');
+    await modeButton.click();
+    for (let sample = 0; sample < 8; sample++) {
+      await page.evaluate(() => {
+        const event = new Event('deviceorientation');
+        Object.defineProperties(event, { beta: { value: 0.6 }, gamma: { value: 0.4 } });
+        window.dispatchEvent(event);
+      });
+      await page.waitForTimeout(45);
+    }
+    await page.waitForFunction(() => window.__harness.mobileStatus().mode === 'tilt' &&
+      window.__harness.mobileStatus().activation === 'ready');
+    assert.equal(await modeButton.textContent(), '转向 · 体感',
+      `${label}: tilt mode still uses the opaque gravity label`);
+    assert.equal(await page.locator('.mobile-tilt-meter-title').textContent(), '体感转向',
+      `${label}: tilt meter has no semantic title`);
+    assert.equal(await page.locator('.mobile-tilt-meter').getAttribute('aria-label'),
+      '体感转向：向左或向右倾斜手机，标记回中时船直行',
+      `${label}: tilt meter lost its interaction description`);
+    assert.deepEqual(await page.locator('.mobile-tilt-meter-left, .mobile-tilt-meter-center, .mobile-tilt-meter-right').allTextContents(),
+      ['左', '回中', '右'], `${label}: tilt meter direction labels drifted`);
+    await modeButton.click();
+    await page.waitForFunction(() => window.__harness.mobileStatus().mode === 'touch');
+  }
 
   if (!mobile) {
     const offCourse = await page.evaluate(() => window.__harness.offCourseRecoveryCase());

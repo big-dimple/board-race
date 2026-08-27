@@ -131,7 +131,8 @@ export class DriverSelect {
     this.weakness = element('div', 'driver-con driver-trait', this.identity);
 
     this.radarWrap = element('div', 'driver-radar-wrap', featured);
-    element('div', 'driver-radar-title', this.radarWrap, '实机性能修正 · 基准 0% · 单项最高 ±6%');
+    element('div', 'driver-radar-title', this.radarWrap, '选手能力对比');
+    element('div', 'driver-radar-note', this.radarWrap, '影响本局手感 · 不是操作控件');
     this.radar = document.createElement('canvas');
     this.radar.className = 'driver-radar';
     this.radar.width = 320;

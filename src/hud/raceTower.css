@@ -1,5 +1,6 @@
 .race-tower { position:fixed; z-index:12; left:max(18px,env(safe-area-inset-left)); top:max(146px,calc(env(safe-area-inset-top) + 136px)); display:none; width:214px; color:#f4feff; font-family:system-ui,sans-serif; pointer-events:none; }
 .race-tower.on { display:block; }
+.race-tower[hidden] { display:none; }
 .race-tower-head { padding:5px 8px; border-left:4px solid #55e7ff; background:rgba(4,7,20,.86); color:#55e7ff; font:900 10px/1 system-ui,sans-serif; }
 .race-tower-list { display:flex; flex-direction:column; gap:2px; margin-top:3px; }
 .race-tower-row { --racer-color:#55e7ff; display:grid; grid-template-columns:25px 32px minmax(0,1fr) 50px; align-items:center; min-height:34px; border-left:4px solid var(--racer-color); background:rgba(4,7,20,.76); }

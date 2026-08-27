@@ -110,8 +110,14 @@ export class MobileControls {
         <span>本游戏仅支持横屏</span>
       </div>
       <button class="mobile-start" type="button">开始游戏</button>
-      <button class="mobile-mode" type="button" aria-label="当前触控转向，点击切换重力">转向 · 触控</button>
-      <div class="mobile-tilt-meter" aria-hidden="true"><i></i></div>
+      <button class="mobile-mode" type="button" aria-label="当前触控转向，点击切换体感转向">转向 · 触控</button>
+      <div class="mobile-tilt-meter" role="img" aria-label="体感转向：向左或向右倾斜手机，标记回中时船直行">
+        <span class="mobile-tilt-meter-title">体感转向</span>
+        <span class="mobile-tilt-meter-left">左</span>
+        <span class="mobile-tilt-meter-center">回中</span>
+        <span class="mobile-tilt-meter-right">右</span>
+        <i></i>
+      </div>
       <div class="mobile-steer-zones" aria-label="触控转向">
         <button type="button" data-mobile-action="left" aria-label="左转"><span><b>‹</b><small>LEFT</small></span></button>
         <button type="button" data-mobile-action="right" aria-label="右转"><span><b>›</b><small>RIGHT</small></span></button>
@@ -478,8 +484,8 @@ export class MobileControls {
       this.root.classList.toggle('activated', state === 'ready');
     }
     if (this.modeButton) {
-      this.modeButton.textContent = this.mode === 'tilt' ? '转向 · 重力' : '转向 · 触控';
-      this.modeButton.setAttribute('aria-label', this.mode === 'tilt' ? '当前重力转向，点击切换触控' : '当前触控转向，点击切换重力');
+      this.modeButton.textContent = this.mode === 'tilt' ? '转向 · 体感' : '转向 · 触控';
+      this.modeButton.setAttribute('aria-label', this.mode === 'tilt' ? '当前体感转向，点击切换触控' : '当前触控转向，点击切换体感转向');
     }
     this.syncStartButton();
   }
