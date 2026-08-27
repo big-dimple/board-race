@@ -1,4 +1,5 @@
 import type { IBoat, RacerState } from '../contracts';
+import type { DuoInteractionStatus } from '../game/duoInteraction';
 import './duoViewportHud.css';
 
 export interface DuoViewportSeat {
@@ -7,6 +8,7 @@ export interface DuoViewportSeat {
   racer: RacerState;
   boat: IBoat;
   device: string;
+  interaction?: DuoInteractionStatus;
 }
 
 const cssColor = (value: number): string => `#${value.toString(16).padStart(6, '0')}`;
@@ -67,8 +69,9 @@ export class DuoViewportHud {
       const state = seat.boat.state;
       this.stats[index].textContent = `${Math.max(0, Math.round(Math.abs(state.speed) * 3.6))} KM/H  ·  ${state.flightsCleared} 飞  ·  电池 ${state.flightCharges}`;
       const flightReady = !seat.racer.eliminated && state.flightPhase === 'surface' && state.flightCharges > 0;
+      const interactionKeys = seat.device.startsWith('手柄') ? 'B 支援 · Y 浪花' : index === 0 ? 'Q 支援 · E 浪花' : 'U 支援 · O 浪花';
       this.status[index].textContent = seat.racer.eliminated
-        ? '席位已淘汰 · Q/E 或 U/O 互动'
+        ? `观战幸存者 · ${interactionKeys} · ${seat.interaction?.charges ?? 0} 次`
         : `${seat.device} · ${state.flightPhase === 'surface' ? '水面' : '飞行中'}${flightReady ? ' · 起飞就绪' : ''}`;
       side.classList.toggle('eliminated', seat.racer.eliminated);
     }

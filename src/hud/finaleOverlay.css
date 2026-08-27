@@ -45,7 +45,7 @@
 .finale-actions button:focus-visible { outline: 3px solid #f4feff; outline-offset: 3px; }
 @media (max-height: 520px) {
   .finale-overlay { padding: 12px; }
-  .finale-copy { width: min(900px, calc(100vw - 22px)); margin-top: min(19vh, 68px); padding: 10px; }
+  .finale-copy { width: min(900px, calc(100vw - 22px)); margin-top: min(15vh, 52px); padding: 10px 10px 68px; }
   .finale-kicker { font-size: 10px; }
   .finale-title { margin-top: 3px; font-size: clamp(44px, 15vh, 72px); }
   .finale-place { margin-top: 7px; font-size: 20px; }
@@ -55,9 +55,12 @@
   .finale-actions { margin-top: 9px; }
   .finale-primary { width:min(330px,calc(100vw - 42px)); min-height:64px !important; padding:7px 24px 8px; }
   .finale-primary strong { font-size:21px; }
-  .finale-utilities { right:max(10px,env(safe-area-inset-right)); bottom:max(9px,env(safe-area-inset-bottom)); gap:6px; }
-  .finale-utilities button { min-width:62px; min-height:44px; padding:6px 9px; font-size:12px; }
-  .finale-utilities [data-action='continue'] { min-width:88px; }
+  /* Keep the next beat in the reading column on short touch screens. A
+     fixed corner utility was too easy to miss or clip behind browser chrome. */
+  .finale-utilities { position: static; display:grid; grid-template-columns:minmax(0,1fr) minmax(154px,auto); width:min(390px,calc(100vw - 42px)); margin:8px auto 0; gap:6px; }
+  .finale-utilities button { min-width:0; min-height:46px; padding:6px 9px; font-size:12px; }
+  .finale-utilities [data-action='continue'] { order:-1; min-width:154px; color:#14122b; border-color:#ffcf4a; background:#ffcf4a; box-shadow:3px 3px 0 rgba(12,12,37,.54); }
+  .finale-utilities [data-action='continue']:focus-visible { outline-color:#fff3ae; }
 }
 @media (prefers-reduced-motion: reduce) {
   .finale-overlay * { animation: none !important; transition: none !important; }

@@ -194,6 +194,7 @@ rivalDirector.setRoster(roster);
 let ais = buildAiControllers();
 const collisions = new BoatCollisionSystem();
 const duoInteractions = new DuoInteractionController();
+stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
 const cameraRig = new CameraRig(stage.camera);
@@ -1424,6 +1425,7 @@ function updateDuoViewportHud(): void {
     duoViewportHud.setVisible(false);
     return;
   }
+  const interactionStatuses = duoInteractions.snapshot().statuses;
   const makeSeat = (id: 0 | 1): DuoViewportSeat => ({
     name: roster[id]?.name ?? `席位 ${id + 1}`,
     color: roster[id]?.color ?? (id === 0 ? 0x55e7ff : 0xffd23f),
@@ -1432,6 +1434,7 @@ function updateDuoViewportHud(): void {
     device: duoDevices[id].startsWith('gamepad:')
       ? `手柄 ${Number.parseInt(duoDevices[id].slice('gamepad:'.length), 10) + 1}`
       : id === 0 ? '键盘 W/A/S/D' : '方向键',
+    interaction: interactionStatuses[id],
   });
   duoViewportHud.update([makeSeat(0), makeSeat(1)], isDuoSplitPhase());
 }
@@ -1441,8 +1444,13 @@ function updateDuoViewportHud(): void {
 function updateRaceCamera(dt: number, t: number, focus = primaryBoat()): void {
   if (isDuoMode()) {
     cameraRig.update(dt, focus, t);
-    teamLeftCameraRig.update(dt, boats[0], t);
-    teamRightCameraRig.update(dt, boats[1], t);
+    // An eliminated seat becomes a spectator window instead of freezing on
+    // its last wake. It follows the surviving human, so the player can read
+    // every support hand-off and dodgeable duck launch they caused.
+    const leftFocus = race.racers[0]?.eliminated ? boats[1] : boats[0];
+    const rightFocus = race.racers[1]?.eliminated ? boats[0] : boats[1];
+    teamLeftCameraRig.update(dt, leftFocus, t);
+    teamRightCameraRig.update(dt, rightFocus, t);
     return;
   }
   cameraRig.update(dt, focus, t);
@@ -1479,24 +1487,41 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
   const target = roster[event.targetId];
   const actor = roster[event.actorId];
   if (!actor || !target) return;
-  honors.award(
-    event.action === 'support' ? 'duo.assist' : 'duo.intervention',
-    event.actorId,
-    event.action === 'support' ? HONOR_DEFINITIONS['duo.assist'].value : HONOR_DEFINITIONS['duo.intervention'].value,
-    race.raceTime,
-  );
-  if (event.action === 'support') {
+  const targetPipeline = event.targetId === 0 ? teamLeftPipeline : teamRightPipeline;
+  const targetSide: 'left' | 'right' = event.targetId === 0 ? 'left' : 'right';
+  if (!event.accepted) {
+    const detail = event.reason === 'full-bank' ? '队友电池已满' : '当前不在安全援助窗口';
+    hud.showTransientNotice(`${actor.name} 的互动暂缓 · ${detail}`, '互动提示');
+    return;
+  }
+  if (event.phase === 'support' || event.phase === 'prank-launch') {
+    honors.award(
+      event.action === 'support' ? 'duo.assist' : 'duo.intervention',
+      event.actorId,
+      event.action === 'support' ? HONOR_DEFINITIONS['duo.assist'].value : HONOR_DEFINITIONS['duo.intervention'].value,
+      race.raceTime,
+    );
+  }
+  if (event.phase === 'support') {
     audio.flightReady(boats[event.targetId].state.flightCharges);
-    pipeline.pulse('ready', 0.72);
+    targetPipeline.pulse('ready', 0.72);
+    audio.teamSpatialCue(targetSide, 'ready');
     localInput.rumble(duoDevices[event.actorId], 0.24, 0.72, 62);
-    hud.showTransientNotice(`${actor.name} 送来援手 · ${target.name} 获得飞行电池`);
+    localInput.rumble(duoDevices[event.targetId], 0.16, 0.4, 42);
+    hud.showTransientNotice(`${actor.name} 送来援手 · ${target.name} 获得飞行电池`, '互动支援');
     trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
-  } else {
+  } else if (event.phase === 'prank-launch') {
+    audio.teamSpatialCue(targetSide, 'relay');
+    localInput.rumble(duoDevices[event.actorId], 0.24, 0.44, 34);
+    hud.showTransientNotice(`${actor.name} 发射追踪鸭 · ${target.name} 注意浪花`, '互动预警');
+    trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
+  } else if (event.phase === 'prank-impact') {
     audio.splash(0.85);
-    pipeline.pulse('lost', 0.45);
-    localInput.rumble(duoDevices[event.actorId], 0.48, 0.36, 48);
-    hud.showTransientNotice(`${actor.name} 掀起浪花 · ${target.name} 被轻轻推开`);
-    trackGameEvent('duo_interaction', { action: 'prank', actor: actor.id, target: target.id });
+    targetPipeline.pulse('lost', 0.45);
+    audio.teamSpatialCue(targetSide, 'impact');
+    localInput.rumble(duoDevices[event.targetId], 0.48, 0.36, 48);
+    hud.showTransientNotice(`${actor.name} 掀起浪花 · ${target.name} 被轻轻推开`, '互动命中');
+    trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   }
 }
 
@@ -1530,7 +1555,10 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
       if (techniqueReward.includes('BOOST')) audio.boostIgnition();
       else audio.flightReady(techniqueBoat.state.flightCharges);
     }
-    pipeline.pulse('ready', hit.kind === 'crown' ? 0.9 : 0.58);
+    const targetPipeline = isDuoMode() && hit.racerId < 2
+      ? hit.racerId === 0 ? teamLeftPipeline : teamRightPipeline
+      : pipeline;
+    targetPipeline.pulse('ready', hit.kind === 'crown' ? 0.9 : 0.58);
     const rumbleStrength = hit.kind === 'crown' ? 0.72 : 0.42;
     // A target belongs to the boat that touched it. In dual play route the
     // pulse to that seat's device instead of whichever controller was last
@@ -3606,6 +3634,19 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
       towerHidden: getComputedStyle(document.querySelector<HTMLElement>('.race-tower')!).display === 'none',
     };
     loop.advance(FINALE_MIN_READ_S + 0.05);
+    const finaleContinue = (() => {
+      const button = document.querySelector<HTMLButtonElement>('[data-action="continue"]');
+      const rect = button?.getBoundingClientRect();
+      return {
+        visible: !!button && getComputedStyle(button).visibility !== 'hidden' &&
+          getComputedStyle(button).display !== 'none',
+        enabled: button ? !button.disabled : false,
+        width: rect?.width ?? 0,
+        height: rect?.height ?? 0,
+        inViewport: !!rect && rect.left >= -1 && rect.right <= innerWidth + 1 &&
+          rect.top >= -1 && rect.bottom <= innerHeight + 1,
+      };
+    })();
     continueAfterFinale();
     const afterContinue = {
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
@@ -3642,7 +3683,7 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
       flightsCleared: primaryBoat().state.flightsCleared,
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
     };
-    return { afterFinaleShow, afterContinue, settledBeforeContinue, afterHonorContinue };
+    return { afterFinaleShow, finaleContinue, afterContinue, settledBeforeContinue, afterHonorContinue };
   } finally {
     if (!leaveVisible) {
       honorHighlights.hide();
@@ -4462,6 +4503,10 @@ function runBuoyCase(): Record<string, number | boolean> {
 
 function runHonorTargetCase(): Record<string, number | string | boolean> {
   scenario('honor-target');
+  // Isolate the target probe from AI traffic. The diagnostic is measuring the
+  // player's center/edge precision, so a bot grazing the same prop must not
+  // consume the target slot or make the aggregate precision count vary.
+  for (let id = 1; id < race.racers.length; id++) race.racers[id].eliminated = true;
   comebackAwarded[0] = true;
   previousHumanPlaces[0] = 1;
   const target = honorTargets.debugTargets()[0];
@@ -4516,6 +4561,7 @@ function runHonorTargetCase(): Record<string, number | string | boolean> {
     honorScore: honors.scoreFor(0),
     boostHonorDelta: scoreAfterBoost - scoreAfterCell,
     boostActive,
+    surfaceLayoutValid: afterEdge.surfaceLayoutValid,
   };
 }
 

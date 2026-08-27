@@ -176,10 +176,15 @@ async function verifyKeyboardDuo(page) {
   const supported = await page.evaluate(() => window.__harness.duoState());
   assert.equal(supported.interactions.support, 1);
   await advance(page, 4.25);
+  const speedBeforePrank = (await page.evaluate(() => window.__harness.duoState())).racers[1].speed;
   await page.keyboard.press('KeyE');
   await advance(page, 1 / 60);
   const pranked = await page.evaluate(() => window.__harness.duoState());
   assert.equal(pranked.interactions.prank, 1);
+  assert.equal(pranked.interactions.activeProjectiles, 1,
+    `prank did not leave a dodgeable duck in flight: ${JSON.stringify(pranked)}`);
+  assert.ok(Math.abs(pranked.racers[1].speed - speedBeforePrank) < 6,
+    `prank applied an unsafe instant speed change: ${JSON.stringify({ before: speedBeforePrank, after: pranked.racers[1].speed })}`);
   assert.ok(pranked.honors.awardCount >= 2, `interaction honors missing: ${JSON.stringify(pranked)}`);
   const canvas = await sampleCanvas(page);
   assert.ok(canvas.range > 35 && canvas.opaque > 1200, `duo render is blank: ${JSON.stringify(canvas)}`);

@@ -226,6 +226,14 @@ async function verifyMode(browser, mobile) {
     `${label}: race HUD leaked into the Final Station presentation`);
   assert.equal(finaleSequence.afterFinaleShow.towerHidden, true,
     `${label}: race tower leaked into the Final Station presentation`);
+  assert.equal(finaleSequence.finaleContinue.visible, true,
+    `${label}: Final Station did not expose its next-step action`);
+  assert.equal(finaleSequence.finaleContinue.enabled, true,
+    `${label}: Final Station next-step action stayed disabled after its read time`);
+  assert.equal(finaleSequence.finaleContinue.inViewport, true,
+    `${label}: Final Station next-step action fell outside the ${label} viewport`);
+  assert.ok(finaleSequence.finaleContinue.width >= (mobile ? 140 : 72),
+    `${label}: Final Station next-step action is too small to discover or tap`);
   assert.equal(finaleSequence.afterContinue.finaleVisible, false,
     `${label}: Final Station remained visible after opening honors`);
   assert.equal(finaleSequence.afterContinue.honorsVisible, true,
@@ -461,7 +469,13 @@ async function verifyMode(browser, mobile) {
     `${label}: renderer does not fill the viewport: ${JSON.stringify(render)}`);
   assert.ok(render.lumaRange > 12 && render.opaque > 1800,
     `${label}: renderer appears blank: ${JSON.stringify(render)}`);
-  if (!mobile) await page.locator('.hud-pc-primer.on .hud-pc-primer-close:not([hidden])').click();
+  if (!mobile) {
+    // The primer is profile-gated. Earlier deterministic stages can teach the
+    // bank rule before this visual sample, so close it only when this run
+    // actually presents the dismissible card.
+    const primerClose = page.locator('.hud-pc-primer.on .hud-pc-primer-close:not([hidden])');
+    if (await primerClose.count()) await primerClose.click();
+  }
   if (!mobile) await page.evaluate(() => { window.__harness.advance(1 / 60); window.__harness.render(); });
 
   await stage(page, 'flight-ready');
@@ -484,6 +498,8 @@ async function verifyMode(browser, mobile) {
   const honorTarget = await page.evaluate(() => window.__harness.honorTargetCase());
   assert.ok(honorTarget.targetY < 3,
     `${label}: honor target still reads as an airborne object: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.surfaceLayoutValid, true,
+    `${label}: honor targets overlap an authored flight span: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.centerHits, 2,
     `${label}: steering-wheel target did not detect a center-line pass: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.boostCharges, 3,

@@ -11,6 +11,7 @@ import { waterHeight } from '../water/waves';
 import { createToonMaterial } from '../cel/toonMaterial';
 import { addOutline } from '../cel/outline';
 import { markInk } from '../contracts';
+import { FLIGHT_ROUTES } from './course';
 
 export type HonorTargetKind = 'duck' | 'ring' | 'bell' | 'star' | 'crown' | 'comet';
 
@@ -67,25 +68,27 @@ const TARGET_LAYOUT: readonly {
   kind: HonorTargetKind;
   phase: number;
 }[] = [
-  // Keep every optional skill marker on the authored racing line. The old
-  // +/- 4-5m offsets sent players away from the flight approach.
-  { u: 0.075, lateral: 0, kind: 'duck', phase: 0.1 },
+  // Skill markers live in authored surface sectors. The previous positions
+  // sat inside seven flight spans, so the ring appeared below an aerial route
+  // even though its lateral offset was zero.
+  { u: 0.045, lateral: 0, kind: 'duck', phase: 0.1 },
   { u: 0.185, lateral: 0, kind: 'ring', phase: 1.4 },
-  { u: 0.305, lateral: 0, kind: 'bell', phase: 2.7 },
-  { u: 0.435, lateral: 0, kind: 'star', phase: 3.8 },
-  { u: 0.575, lateral: 0, kind: 'crown', phase: 4.9 },
-  { u: 0.695, lateral: 0, kind: 'comet', phase: 6.0 },
-  { u: 0.815, lateral: 0, kind: 'duck', phase: 7.1 },
-  { u: 0.925, lateral: 0, kind: 'ring', phase: 8.3 },
+  { u: 0.33, lateral: 0, kind: 'bell', phase: 2.7 },
+  { u: 0.49, lateral: 0, kind: 'star', phase: 3.8 },
+  { u: 0.607, lateral: 0, kind: 'crown', phase: 4.9 },
+  { u: 0.748, lateral: 0, kind: 'comet', phase: 6.0 },
+  { u: 0.882, lateral: 0, kind: 'duck', phase: 7.1 },
+  { u: 0.99, lateral: 0, kind: 'ring', phase: 8.3 },
 ];
 
-const TARGET_RADIUS = 4.25;
-// The pass-through opening is 2.5m clear; stay inside it to earn resources.
-const TARGET_CENTER_RADIUS = 2.35;
+const TARGET_RADIUS = 4.65;
+// The pass-through opening is deliberately wide enough for a boat body; the
+// center band is still narrower so a straight, intentional line is rewarded.
+const TARGET_CENTER_RADIUS = 2.8;
 const TARGET_MIN_FORWARD_ALIGN = 0.7;
 // Targets are water props, not airborne gates. The lower arc meets the
 // surface and the support float remains visible below the ring.
-const TARGET_BASE_Y = 1.9;
+const TARGET_BASE_Y = 1.55;
 const MAX_HIT_EVENTS = TARGET_LAYOUT.length * 6;
 const MAX_TARGET_RACERS = 8;
 
@@ -93,6 +96,8 @@ interface HonorTargetVisual {
   group: THREE.Group;
   ring: THREE.Mesh;
   core: THREE.Object3D;
+  float: THREE.Mesh;
+  floatFoam: THREE.Mesh;
   orbit: THREE.Group;
   x: number;
   z: number;
@@ -172,10 +177,16 @@ export class HonorTargetSystem {
       const target = this.targets[targetIndex];
       target.phase += dt * (1.2 + targetIndex * 0.035);
       target.pulse = Math.max(0, target.pulse - dt * 2.4);
-      const bob = Math.sin(target.phase * 1.7) * 0.22;
+      const bob = Math.sin(target.phase * 1.7) * 0.3;
       target.y = waterHeight(target.x, target.z, time) + TARGET_BASE_Y + bob;
       target.group.position.y = target.y;
+      target.group.rotation.x = Math.sin(target.phase * 0.83) * 0.055;
+      target.group.rotation.z = Math.cos(target.phase * 0.71) * 0.075;
       target.ring.rotation.z += dt * (target.kind === 'comet' ? -0.45 : 0.24);
+      target.ring.rotation.x = Math.sin(target.phase * 1.3) * 0.06;
+      target.float.rotation.z = Math.sin(target.phase * 0.92) * 0.14;
+      target.floatFoam.rotation.z = Math.cos(target.phase * 0.86) * 0.12;
+      target.floatFoam.position.y = -1.33 + Math.sin(target.phase * 1.7) * 0.08;
       target.core.rotation.y += dt * (target.kind === 'bell' ? 2.4 : 0.8);
       target.orbit.rotation.y -= dt * 1.6;
       const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
@@ -244,7 +255,7 @@ export class HonorTargetSystem {
     }
   }
 
-  debugState(): { targets: number; hits: number; centerHits: number; edgeHits: number; visible: number } {
+  debugState(): { targets: number; hits: number; centerHits: number; edgeHits: number; visible: number; surfaceLayoutValid: boolean } {
     let visible = 0;
     for (const target of this.targets) if (target.group.visible) visible++;
     return {
@@ -253,11 +264,13 @@ export class HonorTargetSystem {
       centerHits: this.centerHitCount,
       edgeHits: this.edgeHitCount,
       visible,
+      surfaceLayoutValid: TARGET_LAYOUT.every((spec) => !FLIGHT_ROUTES.some((route) => spec.u >= route.entryU && spec.u <= route.exitU)),
     };
   }
 
   debugTargets(): ReadonlyArray<{
     index: number;
+    u: number;
     kind: HonorTargetKind;
     x: number;
     y: number;
@@ -267,6 +280,7 @@ export class HonorTargetSystem {
   }> {
     return this.targets.map((target, index) => ({
       index,
+      u: TARGET_LAYOUT[index].u,
       kind: target.kind,
       x: target.x,
       y: target.y,
@@ -291,13 +305,18 @@ export class HonorTargetSystem {
   }
 
   private buildTargets(): void {
-    const ringGeometry = new THREE.TorusGeometry(2.4, 0.24, 8, 32);
+    for (const spec of TARGET_LAYOUT) {
+      if (FLIGHT_ROUTES.some((route) => spec.u >= route.entryU && spec.u <= route.exitU)) {
+        throw new Error(`honor target ${spec.kind} is inside a flight span at u=${spec.u}`);
+      }
+    }
+    const ringGeometry = new THREE.TorusGeometry(3.2, 0.34, 10, 40);
     const coreGeometry = new THREE.SphereGeometry(0.72, 12, 10);
     const gripGeometry = new THREE.BoxGeometry(0.25, 0.52, 0.2);
     const starGeometry = new THREE.OctahedronGeometry(0.95, 0);
-    const stemGeometry = new THREE.CylinderGeometry(0.08, 0.14, 3.2, 8);
-    const floatGeometry = new THREE.CylinderGeometry(0.78, 0.96, 0.72, 12);
-    const floatFoamGeometry = new THREE.TorusGeometry(0.88, 0.1, 6, 20);
+    const stemGeometry = new THREE.CylinderGeometry(0.1, 0.18, 2.55, 8);
+    const floatGeometry = new THREE.CylinderGeometry(1.06, 1.28, 0.86, 12);
+    const floatFoamGeometry = new THREE.TorusGeometry(1.2, 0.13, 7, 24);
     const orbitGeometry = new THREE.SphereGeometry(0.14, 8, 6);
     const materials = new Map<HonorTargetKind, THREE.ShaderMaterial>();
     const materialFor = (kind: HonorTargetKind): THREE.ShaderMaterial => {
@@ -374,7 +393,7 @@ export class HonorTargetSystem {
       // Keep the collectible's identity on the rim instead of filling the
       // gate's pass-through opening. A player can now read the line before
       // committing to a detour.
-      core.position.set(2.9, 0.46, 0);
+      core.position.set(3.55, 0.55, 0);
       core.scale.multiplyScalar(0.72);
       group.add(core);
 
@@ -384,7 +403,7 @@ export class HonorTargetSystem {
         for (const angle of [0.48, Math.PI - 0.48, Math.PI + 0.48, -0.48]) {
           const grip = new THREE.Mesh(gripGeometry, beamMaterial);
           grip.name = 'technique-helm-grip';
-          grip.position.set(Math.sin(angle) * 2.6, Math.cos(angle) * 2.6, 0);
+          grip.position.set(Math.sin(angle) * 3.15, Math.cos(angle) * 3.15, 0);
           grip.rotation.z = angle;
           grip.userData.noOutline = true;
           group.add(grip);
@@ -396,21 +415,21 @@ export class HonorTargetSystem {
       // into an empty water surface.
       const float = new THREE.Mesh(floatGeometry, floatMaterial);
       float.name = 'honor-float';
-      float.position.y = -1.55;
+      float.position.y = -1.25;
       group.add(float);
       const floatFoam = new THREE.Mesh(floatFoamGeometry, beamMaterial);
       floatFoam.name = 'honor-float-foam';
       floatFoam.rotation.x = Math.PI / 2;
-      floatFoam.position.y = -1.16;
+      floatFoam.position.y = -1.2;
       group.add(floatFoam);
 
       const stem = new THREE.Mesh(stemGeometry, inkMaterial);
       stem.name = 'honor-stem';
-      stem.position.y = -1.45;
+      stem.position.y = -2.0;
       group.add(stem);
       const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.08, 2.8, 6), beamMaterial);
       beam.name = 'honor-beam';
-      beam.position.y = -1.52;
+      beam.position.y = -2.14;
       beam.userData.noOutline = true;
       group.add(beam);
 
@@ -431,6 +450,8 @@ export class HonorTargetSystem {
         group,
         ring,
         core,
+        float,
+        floatFoam,
         orbit,
         x,
         z,
