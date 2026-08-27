@@ -422,6 +422,13 @@ async function verifyGamepadSeating(page) {
   assert.ok(finalFlight && (finalFlight.phase === 'surface' || finalFlight.routeState === 'failed' ||
     (finalFlight.activeRoute >= 0 && finalFlight.visibleRoutes >= 1)),
   `right airborne corridor was hidden when the other seat armed Final: ${JSON.stringify(guidance)}`);
+  const qualifiedIdle = guidance.qualifiedIdleGuard;
+  assert.deepEqual(qualifiedIdle, {
+    phase: 'surface',
+    routeState: 'idle',
+    routeIndex: -1,
+    failure: 'none',
+  }, `qualified right seat re-entered a phantom route after Final armed: ${JSON.stringify(guidance)}`);
   const split = await sampleSplitCanvas(page);
   assert.ok(split.left.range > 24 && split.right.range > 24 && split.left.opaque > 800 && split.right.opaque > 800,
     `one split half rendered blank during dual flight: ${JSON.stringify(split)}`);

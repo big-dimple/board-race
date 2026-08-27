@@ -2504,9 +2504,15 @@ export class Course implements ICourse {
           }
         }
       }
-      if (id === this.guidanceBoatId && this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
-          st.flightRouteState === 'idle') {
-        // The seventh pass owns the approach until Race certifies the line.
+      const finalQualifiedIdle = this.finalArmed && this.guidanceOwners.includes(id) &&
+        st.flightPhase === 'surface' && st.flightRouteState === 'idle' &&
+        st.flightsCleared >= FLIGHT_ROUTES.length &&
+        st.flightsCleared % FLIGHT_ROUTES.length === 0;
+      if (finalQualifiedIdle) {
+        // Every qualified human owns the Final approach until Race certifies
+        // the line. In duo, the non-primary seat can finish its recovery after
+        // the other seat arms Final; without this guard it would be mistaken
+        // for an eighth flight and enter a spurious no-launch failure.
         prev.copy(pos);
         this.flightPrevClearance[id] = st.flightClearance;
         continue;

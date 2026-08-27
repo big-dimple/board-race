@@ -4713,19 +4713,50 @@ function runDuoGuidanceCase(): Record<string, unknown> {
       (finalArmedRightFlight.activeRoute < 0 || finalArmedRightFlight.visibleRoutes < 1)) {
     throw new Error(`right airborne route hidden after Final armed: ${JSON.stringify(finalArmedRightFlight)}`);
   }
+  const flightPhases = boats.slice(0, 2).map((boat) => boat.state.flightPhase);
+  const flightRouteStates = boats.slice(0, 2).map((boat) => boat.state.flightRouteState);
+  const flightStatus = [course.guidanceStatusFor(0), course.guidanceStatusFor(1)];
+  // A non-primary human may finish the seventh recovery after the other seat
+  // has already armed Final. Once back on the surface, the qualified boat must
+  // stay idle near the launch span instead of being re-entered into an eighth
+  // route and falsely eliminated for having no charge.
+  const rightQualified = boats[1];
+  const finalRouteCount = course.flightRoutes.length;
+  const finalRoute = course.flightRoutes[0];
+  placeHarnessBoat(1, finalRoute.gateUs[0] + 0.001, 0);
+  rightQualified.state.flightPhase = 'surface';
+  rightQualified.state.airborne = false;
+  rightQualified.state.flightRouteState = 'idle';
+  rightQualified.state.flightRouteIndex = -1;
+  rightQualified.state.flightRouteCursor = finalRouteCount;
+  rightQualified.state.flightsCleared = finalRouteCount;
+  rightQualified.state.flightCharges = 0;
+  course.resetFlightTrackingForBoat(rightQualified);
+  harnessBoatInputOverrides[1] = { throttle: 1, steer: 0, flightTrigger: false };
+  loop.advance(0.15);
+  const qualifiedIdleGuard = {
+    phase: rightQualified.state.flightPhase,
+    routeState: rightQualified.state.flightRouteState,
+    routeIndex: rightQualified.state.flightRouteIndex,
+    failure: rightQualified.state.flightFailure?.reason ?? 'none',
+  };
+  if (qualifiedIdleGuard.phase !== 'surface' || qualifiedIdleGuard.routeState !== 'idle' ||
+      qualifiedIdleGuard.routeIndex !== -1 || qualifiedIdleGuard.failure !== 'none') {
+    throw new Error(`qualified duo seat re-entered a route after Final armed: ${JSON.stringify(qualifiedIdleGuard)}`);
+  }
   harnessBoatInputOverrides[0] = null;
   harnessBoatInputOverrides[1] = null;
   render(16.7);
-  const status = [course.guidanceStatusFor(0), course.guidanceStatusFor(1)];
   return {
     afterTrigger,
-    phases: boats.slice(0, 2).map((boat) => boat.state.flightPhase),
-    routeStates: boats.slice(0, 2).map((boat) => boat.state.flightRouteState),
-    statuses: status,
-    layers: status.map((entry) => entry.guideLayer),
-    visibleRoutes: status.map((entry) => entry.visibleRouteCount),
+    phases: flightPhases,
+    routeStates: flightRouteStates,
+    statuses: flightStatus,
+    layers: flightStatus.map((entry) => entry.guideLayer),
+    visibleRoutes: flightStatus.map((entry) => entry.visibleRouteCount),
     visibilityTimeline,
     finalArmedRightFlight,
+    qualifiedIdleGuard,
   };
 }
 
