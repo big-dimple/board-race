@@ -242,7 +242,29 @@ async function verifyMode(browser, mobile) {
     `${label}: race tower leaked into the honor review`);
   assert.equal(finaleSequence.afterContinue.honorBackground, 'rgb(4, 7, 24)',
     `${label}: honor review backdrop allowed the race scene to show through`);
-  console.log(`${label} finale sequence: cinematic-only -> honor-wall-only`);
+  assert.equal(finaleSequence.afterContinue.continueVisible, true,
+    `${label}: successful honor wall did not expose the next-round action`);
+  assert.equal(finaleSequence.afterContinue.continueDisabled, true,
+    `${label}: next-round action became active before the high-light sequence settled`);
+  assert.equal(finaleSequence.afterContinue.finalHonorCard, true,
+    `${label}: final crossing honor was missing from the high-light cards`);
+  assert.ok(finaleSequence.afterContinue.historyHonorScore >= 250,
+    `${label}: final crossing honor was not added to historical honor score`);
+  assert.equal(finaleSequence.settledBeforeContinue.continueDisabled, false,
+    `${label}: next-round action stayed disabled after the high-light sequence settled`);
+  assert.match(finaleSequence.settledBeforeContinue.activeAction, /honor-review-continue/,
+    `${label}: settled honor wall did not focus the guided next-round action`);
+  assert.equal(finaleSequence.settledBeforeContinue.layoutFits, true,
+    `${label}: high-light review content overflowed its desktop/mobile frame: ${JSON.stringify(finaleSequence.settledBeforeContinue)}`);
+  assert.equal(finaleSequence.afterHonorContinue.honorVisible, false,
+    `${label}: honor wall remained visible after continuing to the next round`);
+  assert.equal(finaleSequence.afterHonorContinue.finaleVisible, false,
+    `${label}: finale overlay remained visible after continuing to the next round`);
+  assert.equal(finaleSequence.afterHonorContinue.racePhase, 'resume-countdown',
+    `${label}: next-round action did not enter the resume countdown`);
+  assert.equal(finaleSequence.afterHonorContinue.flightsCleared, 7,
+    `${label}: next-round action reset the completed flight progress`);
+  console.log(`${label} finale sequence: cinematic-only -> honor-wall-only -> next-round countdown`);
 
   if (mobile) {
     const modeButton = page.locator('.mobile-mode');
@@ -314,6 +336,16 @@ async function verifyMode(browser, mobile) {
     assert.deepEqual(singleHonors.counts, { 'target.duck': 1, 'flight.ace': 1 },
       `${label}: single honor counts drifted: ${JSON.stringify(singleHonors)}`);
     assert.equal(singleHonors.awardCount, 2, `${label}: single honor awards were duplicated or dropped`);
+    assert.equal(singleHonors.failureLesson.visible, true,
+      `${label}: failed result skipped the focused failure review`);
+    assert.match(singleHonors.failureLesson.reason, /撞柱/,
+      `${label}: failure review lost its concrete failure reason`);
+    assert.match(singleHonors.failureLesson.copy, /空刹|轻调|中点/,
+      `${label}: failure review lost its actionable recommendation`);
+    assert.equal(singleHonors.failureLesson.action, '看高光',
+      `${label}: failure review action did not explain the next result beat`);
+    assert.equal(singleHonors.continueVisible, false,
+      `${label}: failed run incorrectly exposed the next-round action`);
     console.log(`desktop single honors: score=${singleHonors.score} cards=${singleHonors.cardCount}`);
   }
 

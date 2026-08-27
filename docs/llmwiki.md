@@ -102,12 +102,12 @@
 ```text
 玩法目录 -> 单人 -> READY -> opening -> countdown -> racing
        -> medal freeze -> resume countdown -> same run
-       -> defeated -> high-light review / retry lesson -> READY
-       -> Final Station -> frozen finale -> explicit honor review -> retry / 玩法目录
+       -> defeated -> focused failure review -> high-light review -> retry / READY
+       -> Final Station -> frozen finale -> explicit honor review -> next-round countdown / retry / 玩法目录
 
 玩法目录 -> 双打 -> 按键入座 -> 双席选角 -> opening -> countdown -> racing
        -> one-seat eliminated -> surviving-seat guidance + interaction edges
-       -> both eliminated / Final -> high-light review -> same lineup retry / 玩法目录
+       -> both eliminated -> focused failure review -> high-light review -> same lineup retry / 玩法目录
 ```
 
 - 键盘、手柄和移动输入最终合并为一个 `BoatInput`。一次性动作只接受首个 keydown；
@@ -175,11 +175,15 @@
 - 语义冲击的两侧受光条带由 HUD CSS 所有；横屏粗指针端只使用更细条带，桌面宽度及颜色、数量、
   覆盖、透明度、动画和触发节奏保持不变。后处理 polar wind streak 与 air-brake bands 是独立效果。
 - 同一时刻只允许一个教育提示；碰撞、路线危险、勋章和 Final 表现拥有更高优先级。
-- 赛后结果是严格串行的冻结层：成功结果先由 `FinaleOverlay` 播放七飞认证，玩家确认“查看高光”后
-  才挂载 `HonorHighlights`；失败结果可直接进入 `HonorHighlights`。两层不会同时可见，荣誉计时也不会
+- 赛后结果是严格串行的冻结层：失败先由 HUD 失败回顾显示具体原因、米数 / 高度证据和下一次建议，
+  确认“看高光”后才挂载 `HonorHighlights`；成功结果先由 `FinaleOverlay` 播放七飞认证，玩家确认
+  “查看高光”后才挂载 `HonorHighlights`。两层不会同时可见，荣誉计时也不会
   在终点演出期间偷跑。两个结果阶段都隐藏比赛 HUD、名次塔、混音与移动控制；荣誉墙使用不透底舞台，
   不让比赛画面与赛后信息混层。荣誉墙再播放一项 `PLAY OF THE RUN` 聚光，切入最多四张可选荣誉卡、
-  六人名次条和本局总分。它不改 Race 状态；重开回调使用同一双打座位配置，退出回到模式目录。
+  六人名次条、本局总分与累计 `honorScore`。成功结果默认聚焦“继续下一轮”，调用
+  `Race.startFinalContinueCountdown()` 保留已完成飞行进度，再清理本轮荣誉账本和目标库存；“再来一局”
+  才走完整 `resetRace()`，退出回到玩法目录。最终冲线在 `HonorLedger` 写入稳定 id `finale.captain`，
+  并由 `RecordsStore.recordHonors()` 同步到历史 `honors` 与 `honorScore`。
 
 ## 渲染与美术合同
 

@@ -4,6 +4,7 @@ import {
   sanitizeCoachProgress,
   type DrivingCoachProgress,
 } from './drivingCoach';
+import { HONOR_DEFINITIONS } from './honors';
 
 const STORAGE_KEY = 'board-race:challenge:v9';
 const V8_KEY = 'board-race:challenge:v8';
@@ -34,6 +35,8 @@ export interface ChallengeRecords {
   finaleScreenshotCount: number;
   /** Cumulative named accolades; keys are stable server-friendly ids. */
   honors: Record<string, number>;
+  /** Cumulative points from every settled honor wall. */
+  honorScore: number;
   duoRuns: number;
   duoWins: number;
   duoAssists: number;
@@ -61,6 +64,7 @@ const defaults = (): ChallengeRecords => {
     expansionSeenMask: 0,
     finaleScreenshotCount: 0,
     honors: {},
+    honorScore: 0,
     duoRuns: 0,
     duoWins: 0,
     duoAssists: 0,
@@ -153,6 +157,7 @@ export class RecordsStore {
       if (value <= 0) continue;
       this.data.honors[id] = finiteNonNegative(this.data.honors[id], 0) + value;
     }
+    this.data.honorScore += finiteNonNegative(summary.score, 0);
     if (mode === 'duo') {
       this.data.duoRuns++;
       if (won) this.data.duoWins++;
@@ -292,6 +297,7 @@ function loadRecords(): ChallengeRecords {
       expansionSeenMask: 0,
       finaleScreenshotCount: 0,
       honors: {},
+      honorScore: 0,
       duoRuns: 0,
       duoWins: 0,
       duoAssists: 0,
@@ -347,6 +353,8 @@ function sanitizeRecords(parsed: Partial<ChallengeRecords>, fallback: ChallengeR
     coach.automaticEligible = false;
   }
   if (source === 'import') coach.automaticEligible = false;
+  const honors = sanitizeHonors(parsed.honors);
+  const storedHonorScore = finiteNonNegative(parsed.honorScore, -1);
   return {
     version: 9,
     runs: finiteNonNegative(parsed.runs, 0),
@@ -364,7 +372,8 @@ function sanitizeRecords(parsed: Partial<ChallengeRecords>, fallback: ChallengeR
     finaleCompletions: finiteNonNegative(parsed.finaleCompletions, 0),
     expansionSeenMask: Math.min(0x7f, Math.floor(finiteNonNegative(parsed.expansionSeenMask, 0))),
     finaleScreenshotCount: finiteNonNegative(parsed.finaleScreenshotCount, 0),
-    honors: sanitizeHonors(parsed.honors),
+    honors,
+    honorScore: storedHonorScore >= 0 ? storedHonorScore : honorScoreFromCounts(honors),
     duoRuns: finiteNonNegative(parsed.duoRuns, 0),
     duoWins: finiteNonNegative(parsed.duoWins, 0),
     duoAssists: finiteNonNegative(parsed.duoAssists, 0),
@@ -380,6 +389,12 @@ function sanitizeHonors(value: unknown): Record<string, number> {
     if (/^[a-z0-9._-]{1,48}$/.test(id)) result[id] = finiteNonNegative(raw, 0);
   }
   return result;
+}
+
+function honorScoreFromCounts(honors: Record<string, number>): number {
+  let score = 0;
+  for (const [id, count] of Object.entries(honors)) score += count * (HONOR_DEFINITIONS[id]?.value ?? 0);
+  return Number.isFinite(score) ? score : 0;
 }
 
 function readLegacyMedals(): number {

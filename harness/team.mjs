@@ -178,10 +178,15 @@ async function verifyKeyboardDuo(page) {
   assert.ok(pranked.honors.awardCount >= 2, `interaction honors missing: ${JSON.stringify(pranked)}`);
   const canvas = await sampleCanvas(page);
   assert.ok(canvas.range > 35 && canvas.opaque > 1200, `duo render is blank: ${JSON.stringify(canvas)}`);
-  // Both seats out opens the actual post-match wall: spotlight, standings and
-  // at least one selectable accolade must be present before a retry is allowed.
+  // Both seats out first opens the focused failure review. The old harness
+  // assumed a direct wall, which skipped the reason / recommendation screen.
   await page.evaluate(() => window.__harness.duoEliminate(1));
-  await advance(page, 0.2);
+  await advance(page, 0.5);
+  assert.equal((await page.locator('.hud-retry-lesson.on').count()), 1);
+  assert.match(await page.locator('.hud-lesson-title').textContent(), /撞柱|偏离|起飞|飞行/);
+  await advance(page, 1.3);
+  await page.locator('.hud-lesson-continue').click();
+  await advance(page, 1 / 60);
   assert.equal((await page.locator('.honor-review.on').count()), 1);
   assert.equal(await page.locator('.honor-review-standing').count(), 6);
   assert.ok(await page.locator('.honor-review-card').count() >= 1);

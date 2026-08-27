@@ -1172,6 +1172,7 @@ export class HUD {
     device: CoachInputDevice = 'keyboard',
     coachArmed = false,
     mastery?: CoachMastery,
+    continueToHonors = false,
   ): void {
     const failure = result.failure;
     const lesson = this.lessonFor(failure, device, mastery);
@@ -1194,8 +1195,8 @@ export class HUD {
     if (failure) this.lessonEl.dataset.failureReason = failure.reason;
     this.lessonContinue.hidden = false;
     this.lessonDisable.hidden = !coachArmed;
-    this.lessonContinue.textContent = coachArmed ? '带标注再冲' : '再冲一次';
-    this.updateRetryLesson(0, true);
+    this.lessonContinue.textContent = continueToHonors ? '看高光' : coachArmed ? '带标注再冲' : '再冲一次';
+    this.updateRetryLesson(0, !continueToHonors);
     this.root.classList.add('lesson-on');
     this.lessonEl.classList.add('on');
   }

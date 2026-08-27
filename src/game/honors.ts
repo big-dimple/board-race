@@ -55,6 +55,7 @@ export const HONOR_DEFINITIONS: Readonly<Record<string, HonorDefinition>> = {
   'duo.intervention': { title: '浪花导演', detail: '用互动改变了队友的线路', value: 65, color: PALETTE.uiWarn },
   'comeback.sailor': { title: '逆风回航', detail: '落后后重新回到前三', value: 180, color: PALETTE.sunCore },
   'clean.run': { title: '清洁航线', detail: '整局没有撞击其他赛艇', value: 150, color: PALETTE.foam },
+  'finale.captain': { title: '终点船长', detail: '完成七飞并穿过 Final Station', value: 250, color: PALETTE.sunFlare },
 } as const;
 
 const TARGET_LAYOUT: readonly {

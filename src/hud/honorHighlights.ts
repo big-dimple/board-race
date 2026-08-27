@@ -17,6 +17,10 @@ export interface HonorReviewPayload {
   highlights: readonly HonorHighlight[];
   summary: HonorSummary;
   resultLabel: string;
+  /** The next-round action is only available after a successful Final. */
+  canContinue: boolean;
+  /** Persisted total shown beside this result for future server parity. */
+  historyHonorScore: number;
 }
 
 /**
@@ -38,6 +42,7 @@ export class HonorHighlights {
   private readonly cards: HTMLDivElement;
   private readonly score: HTMLDivElement;
   private readonly hint: HTMLSpanElement;
+  private readonly continue: HTMLButtonElement;
   private readonly retry: HTMLButtonElement;
   private readonly exit: HTMLButtonElement;
   private payload: HonorReviewPayload | null = null;
@@ -48,6 +53,7 @@ export class HonorHighlights {
 
   constructor(
     parent: HTMLElement,
+    private readonly onContinue: () => void,
     private readonly onRetry: () => void,
     private readonly onExit: () => void,
   ) {
@@ -76,6 +82,7 @@ export class HonorHighlights {
       <footer class="honor-review-foot">
         <span class="honor-review-score"></span>
         <span class="honor-review-hint"></span>
+        <button class="honor-review-continue" type="button"><span aria-hidden="true">▶</span> 继续下一轮</button>
         <button class="honor-review-retry" type="button"><span aria-hidden="true">↻</span> 再来一局</button>
         <button class="honor-review-exit" type="button"><span aria-hidden="true">←</span> 玩法目录</button>
       </footer>`;
@@ -92,8 +99,10 @@ export class HonorHighlights {
     this.cards = this.root.querySelector('.honor-review-cards')!;
     this.score = this.root.querySelector('.honor-review-score')!;
     this.hint = this.root.querySelector('.honor-review-hint')!;
+    this.continue = this.root.querySelector('.honor-review-continue')!;
     this.retry = this.root.querySelector('.honor-review-retry')!;
     this.exit = this.root.querySelector('.honor-review-exit')!;
+    this.continue.addEventListener('click', () => this.onContinue());
     this.retry.addEventListener('click', () => this.onRetry());
     this.exit.addEventListener('click', () => this.onExit());
     this.root.addEventListener('keydown', (event) => {
@@ -123,11 +132,13 @@ export class HonorHighlights {
     this.kicker.textContent = payload.mode === 'duo' ? 'DUO RACE · POST-MATCH ACCOLADES' : 'RACE · POST-MATCH ACCOLADES';
     this.title.textContent = '高光时刻';
     this.result.textContent = payload.resultLabel;
-    this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次记录`;
+    this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · 历史荣誉 ${Math.round(payload.historyHonorScore)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次记录`;
     this.hint.textContent = '高光播放中';
     this.renderStandings();
     this.renderSpotlight();
     this.renderCards();
+    this.continue.hidden = !payload.canContinue;
+    this.continue.disabled = true;
     this.retry.disabled = true;
     this.exit.disabled = true;
     this.root.setAttribute('aria-hidden', 'false');
@@ -151,6 +162,8 @@ export class HonorHighlights {
     this.payload = null;
     this.root.classList.remove('on', 'spotlight', 'cards', 'settled');
     this.root.setAttribute('aria-hidden', 'true');
+    this.continue.hidden = false;
+    this.continue.disabled = true;
     this.retry.disabled = true;
     this.exit.disabled = true;
   }
@@ -173,11 +186,16 @@ export class HonorHighlights {
     }
     if (this.phase !== 'settled') return;
     if (document.activeElement === this.exit) this.onExit();
+    else if (document.activeElement === this.retry) this.onRetry();
+    else if (this.payload?.canContinue) this.onContinue();
     else this.onRetry();
   }
 
   focusPrimary(): void {
-    if (this.phase === 'settled') this.retry.focus({ preventScroll: true });
+    if (this.phase === 'settled') {
+      if (this.payload?.canContinue) this.continue.focus({ preventScroll: true });
+      else this.retry.focus({ preventScroll: true });
+    }
   }
 
   private renderSpotlight(): void {
@@ -283,10 +301,13 @@ export class HonorHighlights {
     this.timer = Math.max(this.timer, 4.8);
     this.phase = 'settled';
     this.root.classList.add('settled');
-    this.hint.textContent = '← → 选择卡片 · ENTER 确认';
+    this.hint.textContent = this.payload?.canContinue
+      ? '← → 选择卡片 · ENTER 继续下一轮'
+      : '← → 选择卡片 · ENTER 再来一局';
+    this.continue.disabled = !this.payload?.canContinue;
     this.retry.disabled = false;
     this.exit.disabled = false;
-    this.focusSelected();
+    this.focusPrimary();
   }
 }
 

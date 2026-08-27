@@ -281,6 +281,9 @@ const capturePreview = new CapturePreview(
 const honorHighlights = new HonorHighlights(
   hudLayer,
   () => {
+    continueAfterHonorReview();
+  },
+  () => {
     dismissHonorReview();
   },
   () => {
@@ -365,6 +368,7 @@ let resultsShown = false;
 let honorsSettled = false;
 const DEFEAT_FREEZE_S = 0.35;
 const FAILURE_REVIEW_AUTO_S = 5;
+const FAILURE_REVIEW_MIN_READ_S = 1.15;
 const MEDAL_CEREMONY_S = 6.5;
 const MEDAL_MIN_READ_S = 4.5;
 const FINALE_REVEAL_S = 4.8;
@@ -372,6 +376,7 @@ const FINALE_MIN_READ_S = 3.2;
 const FINALE_CAMERA_HERO_S = 0.75;
 const FINALE_CAPTURE_S = 0.78;
 let retryLessonActive = false;
+let retryLessonToHonorReview = false;
 let retryLessonTimer = 0;
 let retryLessonDuration = 0;
 let retryLessonElapsed = 0;
@@ -861,7 +866,7 @@ function requestRetry(): void {
     return;
   }
   if (retryLessonActive) {
-    if (retryLessonElapsed >= retryLessonMinRead) resetRace();
+    if (retryLessonElapsed >= retryLessonMinRead) completeRetryLesson();
     return;
   }
   if (race.phase === 'finished' || race.phase === 'defeated') {
@@ -876,15 +881,10 @@ function requestRetry(): void {
 }
 
 function dismissHonorReview(): void {
-  const defeated = race.phase === 'defeated';
   honorHighlights.hide();
   hud.setVisible(true);
   tower.setVisible(true);
-  // Keep the single-player failure lesson in the normal retry path. Dual play
-  // restarts the same two-seat lineup so the second player is never silently
-  // replaced by the single-seat driver picker.
-  if (defeated && !isDuoMode()) startRetryLesson();
-  else requestRetry();
+  requestRetry();
 }
 
 function resumeInterruption(): void {
@@ -991,6 +991,46 @@ function startResumeCountdown(): void {
   hud.showPcControlPrimer(null);
 }
 
+/** Resume the same run after the accolade wall without resetting flight progress. */
+function startNextRaceRound(): void {
+  if (!race.startFinalContinueCountdown()) return;
+  // The result wall is a round boundary. Persisted records stay cumulative,
+  // while the next round gets a fresh local ledger and target inventory.
+  honors.reset(boats.length);
+  honorTargets.reset();
+  duoInteractions.reset();
+  humanCollisionCounts[0] = 0;
+  humanCollisionCounts[1] = 0;
+  comebackAwarded[0] = false;
+  comebackAwarded[1] = false;
+  previousHumanPlaces[0] = race.racers[0]?.place ?? Infinity;
+  previousHumanPlaces[1] = race.racers[1]?.place ?? Infinity;
+  finalePresentation = false;
+  finaleElapsed = 0;
+  honorReviewPending = false;
+  honorsSettled = false;
+  resultsShown = false;
+  course.resetFinalStation();
+  finale.hide();
+  input.clearTransient();
+  gamepadInput.clearTransient();
+  mobileInput.reset();
+  mobileInput.setOverlayHidden(false);
+  mobileInput.setControlPhase('preparing');
+  hud.setVisible(true);
+  tower.setVisible(true);
+  cameraRig.mode = 'chase';
+  audio.startRaceScore(false);
+  audio.setScene('countdown');
+  trackGameEvent('continue_game', { run: currentRun, flights: primaryBoat().state.flightsCleared });
+}
+
+function continueAfterHonorReview(): void {
+  if (!honorHighlights.visible() || race.phase !== 'finished' || !honorsSettled) return;
+  honorHighlights.hide();
+  startNextRaceRound();
+}
+
 function continueAfterFinale(): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
   // The Final Station is the first reading beat. Only after it is dismissed do
@@ -1013,24 +1053,7 @@ function continueAfterFinale(): void {
     if (shouldShowHonors) showHonorReview();
     return;
   }
-  if (!race.startFinalContinueCountdown()) return;
-  finalePresentation = false;
-  finaleElapsed = 0;
-  honorReviewPending = false;
-  resultsShown = false;
-  course.resetFinalStation();
-  finale.hide();
-  input.clearTransient();
-  gamepadInput.clearTransient();
-  mobileInput.reset();
-  mobileInput.setOverlayHidden(false);
-  mobileInput.setControlPhase('preparing');
-  hud.setVisible(true);
-  tower.setVisible(true);
-  cameraRig.mode = 'chase';
-  audio.startRaceScore(false);
-  audio.setScene('countdown');
-  trackGameEvent('continue_game', { run: currentRun, flights: primaryBoat().state.flightsCleared });
+  startNextRaceRound();
 }
 
 function openExpansionGallery(): void {
@@ -1108,7 +1131,7 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   hud.showPcControlPrimer(null);
 }
 
-function startRetryLesson(): void {
+function startRetryLesson(continueToHonors = false): void {
   const result = race.challengeResult;
   if (!result?.failure) return;
   const failure = result.failure;
@@ -1119,10 +1142,11 @@ function startRetryLesson(): void {
   const coachArmed = drivingCoach.onFailure(result.flightsCleared, failure.reason, result.manMedalEarned) ||
     drivingCoach.progress.status === 'active';
   retryLessonDuration = FAILURE_REVIEW_AUTO_S;
-  retryLessonMinRead = 0;
+  retryLessonMinRead = continueToHonors ? FAILURE_REVIEW_MIN_READ_S : 0;
   retryLessonTimer = retryLessonDuration;
   retryLessonElapsed = 0;
   retryLessonActive = true;
+  retryLessonToHonorReview = continueToHonors;
   retryLessonFrozenT = worldTime;
   input.reset();
   gamepadInput.reset();
@@ -1132,6 +1156,7 @@ function startRetryLesson(): void {
   mixer.setVisible(true);
   hud.showRetryLesson(
     result, currentRun, repeatCount, pendingFailureNewBest, activeInputDevice, coachArmed, drivingCoach.progress.mastery,
+    continueToHonors,
   );
   syncDrivingCoachUi();
   coachPresentation = null;
@@ -1139,6 +1164,17 @@ function startRetryLesson(): void {
   pcControlPrimer.stop();
   pcPrimerPresentation = null;
   hud.showPcControlPrimer(null);
+}
+
+function completeRetryLesson(): void {
+  const showHonors = retryLessonToHonorReview;
+  retryLessonActive = false;
+  retryLessonToHonorReview = false;
+  retryLessonTimer = 0;
+  retryLessonElapsed = 0;
+  hud.hideRetryLesson();
+  if (showHonors) showHonorReview();
+  else resetRace();
 }
 
 type HarnessCameraView = {
@@ -1203,6 +1239,7 @@ function resetRace(): void {
   sky.setOpeningIntensity(0);
   driverSelect.setLaunchPending(false);
   retryLessonActive = false;
+  retryLessonToHonorReview = false;
   retryLessonTimer = 0;
   retryLessonDuration = 0;
   retryLessonElapsed = 0;
@@ -1524,7 +1561,15 @@ function showHonorReview(): void {
   lastResultEnvelope = envelope;
   records.recordHonors(summary, mode, race.phase === 'finished' && (result?.place ?? 99) === 1);
   honorsSettled = true;
-  honorHighlights.show({ mode, racers: racerCards, highlights, summary, resultLabel });
+  honorHighlights.show({
+    mode,
+    racers: racerCards,
+    highlights,
+    summary,
+    resultLabel,
+    canContinue: race.phase === 'finished',
+    historyHonorScore: records.data.honorScore,
+  });
 }
 
 /** Start the first, self-contained beat of a successful Final crossing. */
@@ -1536,6 +1581,11 @@ function beginFinalePresentation(): void {
   result.ordinaryNew = ordinaryNewThisRun;
   records.decorateResult(result, newBestThisRun, medalEarnedThisRun);
   records.recordFinale();
+  const finishers = race.players().filter((racer) => racer.finished).map((racer) => racer.id);
+  const finalHonorRacers = finishers.length > 0 ? finishers : [race.player().id];
+  for (const racerId of finalHonorRacers) {
+    honors.award('finale.captain', racerId, HONOR_DEFINITIONS['finale.captain'].value, race.raceTime);
+  }
   course.triggerFinaleCelebration();
   finale.show(result, '查看高光');
   finaleElapsed = 0;
@@ -1896,10 +1946,10 @@ function step(dt: number, _t: number): void {
     mobileInput.consumeAnyPress();
     retryLessonTimer = Math.max(0, retryLessonTimer - dt);
     retryLessonElapsed += dt;
-    const canContinue = true;
+    const canContinue = retryLessonElapsed >= retryLessonMinRead;
     hud.updateRetryLesson(retryLessonDuration > 0 ? retryLessonElapsed / retryLessonDuration : 1, canContinue);
     updateFrozenPresentation(dt);
-    if (retryLessonTimer <= 0 || (lessonPressed && canContinue)) resetRace();
+    if (retryLessonTimer <= 0 || (lessonPressed && canContinue)) completeRetryLesson();
     localInput.endFrame();
     return;
   }
@@ -1908,7 +1958,7 @@ function step(dt: number, _t: number): void {
     mobileInput.consumeAnyPress();
     defeatFreezeTimer = Math.max(0, defeatFreezeTimer - dt);
     updateFrozenPresentation(dt);
-    if (defeatFreezeTimer <= 0) startRetryLesson();
+    if (defeatFreezeTimer <= 0) startRetryLesson(true);
     localInput.endFrame();
     return;
   }
@@ -2466,7 +2516,6 @@ function step(dt: number, _t: number): void {
       pcControlPrimer.stop();
       pcPrimerPresentation = null;
       hud.showPcControlPrimer(null);
-      showHonorReview();
     } else {
       beginFinalePresentation();
     }
@@ -3466,6 +3515,9 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
       newBest: false,
       failure: null,
     };
+    // Mirror the live seven-flight state so this harness proves that the
+    // continuation countdown does not reset progression when the wall closes.
+    primaryBoat().state.flightsCleared = 7;
     race.phase = 'finished';
     race.finaleCompleted = true;
     resultsShown = true;
@@ -3492,8 +3544,33 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
       hudHidden: getComputedStyle(document.querySelector<HTMLElement>('.hud')!).visibility === 'hidden',
       towerHidden: getComputedStyle(document.querySelector<HTMLElement>('.race-tower')!).display === 'none',
       honorBackground: getComputedStyle(document.querySelector<HTMLElement>('.honor-review')!).backgroundColor,
+      continueVisible: !(document.querySelector<HTMLElement>('.honor-review-continue')?.hidden ?? true),
+      continueDisabled: document.querySelector<HTMLButtonElement>('.honor-review-continue')?.disabled ?? true,
+      retryVisible: !(document.querySelector<HTMLElement>('.honor-review-retry')?.hidden ?? true),
+      historyHonorScore: records.data.honorScore,
+      finalHonorCard: Array.from(document.querySelectorAll<HTMLElement>('.honor-review-card strong'))
+        .some((node) => node.textContent?.trim() === HONOR_DEFINITIONS['finale.captain'].title),
     };
-    return { afterFinaleShow, afterContinue };
+    loop.advance(5.05);
+    const settledBeforeContinue = {
+      continueDisabled: document.querySelector<HTMLButtonElement>('.honor-review-continue')?.disabled ?? true,
+      activeAction: document.activeElement instanceof HTMLElement ? document.activeElement.className : '',
+      layoutFits: Array.from(document.querySelectorAll<HTMLElement>(
+        '.honor-review-title, .honor-review-result, .honor-review-standings, .honor-review-spotlight, .honor-review-cards, .honor-review-foot',
+      )).every((node) => {
+        const rect = node.getBoundingClientRect();
+        return node.scrollWidth <= node.clientWidth + 1 && rect.left >= -1 && rect.right <= innerWidth + 1 &&
+          rect.top >= -1 && rect.bottom <= innerHeight + 1;
+      }),
+    };
+    if (!leaveVisible) document.querySelector<HTMLButtonElement>('.honor-review-continue')?.click();
+    const afterHonorContinue = {
+      honorVisible: honorHighlights.visible(),
+      racePhase: race.phase,
+      flightsCleared: primaryBoat().state.flightsCleared,
+      finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+    };
+    return { afterFinaleShow, afterContinue, settledBeforeContinue, afterHonorContinue };
   } finally {
     if (!leaveVisible) {
       honorHighlights.hide();
@@ -3535,7 +3612,16 @@ function runSingleHonorCase(): Record<string, unknown> {
       corridorDistanceM: null,
       clearanceM: 4.2,
     });
-    showHonorReview();
+    startRetryLesson(true);
+    loop.advance(0.35);
+    const failureLesson = {
+      visible: document.querySelector<HTMLElement>('.hud-retry-lesson')?.classList.contains('on') ?? false,
+      reason: document.querySelector<HTMLElement>('.hud-lesson-title')?.textContent?.trim() ?? '',
+      copy: document.querySelector<HTMLElement>('.hud-lesson-copy')?.textContent?.trim() ?? '',
+      action: document.querySelector<HTMLButtonElement>('.hud-lesson-continue')?.textContent?.trim() ?? '',
+    };
+    loop.advance(1.0);
+    document.querySelector<HTMLButtonElement>('.hud-lesson-continue')?.click();
     const summary = lastResultEnvelope?.honors;
     return {
       mode: lastResultEnvelope?.mode ?? '',
@@ -3548,6 +3634,8 @@ function runSingleHonorCase(): Record<string, unknown> {
       counts: summary?.counts ?? {},
       awardCount: summary?.awards.length ?? 0,
       resultPlace: lastResultEnvelope?.racers.find((racer) => racer.racerId === 0)?.place ?? -1,
+      failureLesson,
+      continueVisible: !(document.querySelector<HTMLElement>('.honor-review-continue')?.hidden ?? true),
     };
   } finally {
     honorHighlights.hide();
