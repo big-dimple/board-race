@@ -481,6 +481,22 @@ async function verifyMode(browser, mobile) {
   const fullInventory = await page.evaluate(() => window.__harness.playerState().flightCharges);
   assert.equal(fullInventory, 3, `${label}: runtime inventory cap is not three`);
 
+  const honorTarget = await page.evaluate(() => window.__harness.honorTargetCase());
+  assert.equal(honorTarget.centerHits, 2,
+    `${label}: steering-wheel target did not detect a center-line pass: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.boostCharges, 3,
+    `${label}: precise steering-wheel pass did not preserve the full inventory on the fallback branch: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.boostActive, true,
+    `${label}: full steering-wheel inventory did not convert the pickup into a real BOOST: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.boostHonorDelta, 280,
+    `${label}: BOOST fallback did not settle the second target's base + precision honors: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.edgeHits, 1,
+    `${label}: a grazing steering-wheel line was not classified as edge-only: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.flightCharges, 0,
+    `${label}: a grazing steering-wheel line incorrectly recovered a flight cell: ${JSON.stringify(honorTarget)}`);
+  console.log(`${label} steering-wheel target: center=${honorTarget.centerHits} ` +
+    `boostCell=${honorTarget.boostCharges} edge=${honorTarget.edgeHits} score=${honorTarget.honorScore}`);
+
   await stage(page, 'flight-extension-spool', 280, false);
   const courseBuoys = await page.evaluate(() => window.__harness.buoyState());
   assert.equal(courseBuoys.length, 16,

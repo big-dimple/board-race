@@ -1025,6 +1025,10 @@
 .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 34px; }
 .hud-impact[data-kind='flight-extend'] .hud-impact-title { font-size: 44px; }
 .hud-impact[data-kind='flight-extend'] .hud-impact-detail { font-size: 18px; }
+.hud-impact[data-kind='technique'] .hud-impact-copy { top: 14%; }
+.hud-impact[data-kind='technique'] .hud-impact-kicker { font-size: 25px; }
+.hud-impact[data-kind='technique'] .hud-impact-title { font-size: 38px; }
+.hud-impact[data-kind='technique'] .hud-impact-detail { margin-top: 5px; font-size: 15px; }
 
 @media (pointer: coarse) and (orientation: landscape) {
   .hud-impact-lines {
@@ -1049,6 +1053,10 @@
   .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 16px; }
   .hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 34px; }
   .hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 13px; }
+  .hud-impact[data-kind='technique'] .hud-impact-copy { top: 12%; }
+  .hud-impact[data-kind='technique'] .hud-impact-kicker { font-size: 16px; }
+  .hud-impact[data-kind='technique'] .hud-impact-title { margin-top: 3px; font-size: 28px; }
+  .hud-impact[data-kind='technique'] .hud-impact-detail { margin-top: 4px; font-size: 12px; }
 }
 
 @keyframes hud-impact-flash {

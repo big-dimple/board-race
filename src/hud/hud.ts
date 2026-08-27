@@ -1107,6 +1107,20 @@ export class HUD {
     });
   }
 
+  /** A precision target changes the actual inventory, so it earns a distinct beat. */
+  showTechniqueReward(reward: 'flight-cell' | 'boost'): void {
+    const boost = reward === 'boost';
+    this.enqueueImpact({
+      kind: 'technique',
+      kicker: 'HELM PERFECT',
+      title: boost ? 'BOOST +0.85 秒' : '飞行电池 +1',
+      detail: boost ? '库存已满 · 多余能量立刻推入推进器' : '对准舵轮中心 · 已回收一格飞行能量',
+      color: boost ? PALETTE.boost : PALETTE.flight,
+      duration: 1.0,
+      priority: 72,
+    });
+  }
+
   showFlightPass(flights: number, best: number, newBest: boolean): void {
     this.setBestFlights(best, flights);
     if (flights <= 3) return;

@@ -23,6 +23,8 @@ export interface HonorHit {
   x: number;
   y: number;
   z: number;
+  /** Center = a deliberate ring-line, edge = a graze that only earns the accolade. */
+  precision: 'center' | 'edge';
 }
 
 export interface HonorHighlight {
@@ -48,6 +50,7 @@ export const HONOR_DEFINITIONS: Readonly<Record<string, HonorDefinition>> = {
   'target.bell': { title: '海铃连响', detail: '把会摇摆的海铃撞到发声', value: 110, color: PALETTE.sunFlare },
   'target.star': { title: '浪尖摘星', detail: '在浪尖上拿到星标', value: 140, color: PALETTE.racingLine },
   'target.crown': { title: '王冠掠过', detail: '从王冠中心高速穿过', value: 160, color: PALETTE.hullPlayer },
+  'target.center': { title: '舵轮掌舵', detail: '精准穿过环心，回收一格飞行能量', value: 180, color: PALETTE.uiAccent },
   'target.comet': { title: '彗尾追击', detail: '追上移动彗星并留下尾焰', value: 135, color: 0x9b7cff },
   'flight.ace': { title: '空中王牌', detail: '完整通过一条飞行路线', value: 90, color: PALETTE.flight },
   'overtake.artist': { title: '超车艺术家', detail: '在关键门前完成一次超车', value: 75, color: PALETTE.uiAccent },
@@ -75,8 +78,12 @@ const TARGET_LAYOUT: readonly {
 ];
 
 const TARGET_RADIUS = 4.25;
-const TARGET_BASE_Y = 2.2;
+// The pass-through opening is 2.5m clear; stay inside it to earn resources.
+const TARGET_CENTER_RADIUS = 2.35;
+const TARGET_MIN_FORWARD_ALIGN = 0.7;
+const TARGET_BASE_Y = 3.45;
 const MAX_HIT_EVENTS = TARGET_LAYOUT.length * 6;
+const MAX_TARGET_RACERS = 8;
 
 interface HonorTargetVisual {
   group: THREE.Group;
@@ -86,15 +93,25 @@ interface HonorTargetVisual {
   x: number;
   z: number;
   y: number;
+  forwardX: number;
+  forwardZ: number;
   kind: HonorTargetKind;
   phase: number;
   pulse: number;
   hitMask: number;
+  activeMask: number;
+  bestDistanceSq: Float32Array;
+  bestForwardAlign: Float32Array;
+  bestX: Float32Array;
+  bestY: Float32Array;
+  bestZ: Float32Array;
+  bestAt: Float32Array;
 }
 
 /**
- * Large, optional collision targets. They are presentation-rich but have no
- * physics authority: the boat remains the sole transform and collision truth.
+ * Large, optional collision targets. They are presentation-rich and emit a
+ * deterministic center/edge result; the boat remains the sole transform and
+ * collision truth while main applies the discrete center-line reward.
  */
 export class HonorTargetSystem {
   readonly object: THREE.Group;
@@ -108,9 +125,12 @@ export class HonorTargetSystem {
     x: 0,
     y: 0,
     z: 0,
+    precision: 'edge',
   }));
   private eventCursor = 0;
   private hitCount = 0;
+  private centerHitCount = 0;
+  private edgeHitCount = 0;
 
   constructor(private readonly course: ICourse) {
     this.object = new THREE.Group();
@@ -120,9 +140,14 @@ export class HonorTargetSystem {
 
   reset(): void {
     this.hitCount = 0;
+    this.centerHitCount = 0;
+    this.edgeHitCount = 0;
     for (const target of this.targets) {
       target.hitMask = 0;
+      target.activeMask = 0;
       target.pulse = 0;
+      target.bestDistanceSq.fill(Infinity);
+      target.bestForwardAlign.fill(-1);
       target.group.visible = true;
       target.group.scale.setScalar(1);
     }
@@ -155,40 +180,107 @@ export class HonorTargetSystem {
 
       for (const boat of boats) {
         const racer = racers[boat.id];
-        if (!racer || racer.eliminated || racer.finished) continue;
-        if ((target.hitMask & (1 << boat.id)) !== 0) continue;
+        const slot = boat.id;
+        if (slot < 0 || slot >= MAX_TARGET_RACERS) continue;
+        const bit = 1 << slot;
+        if (!racer || racer.eliminated || racer.finished) {
+          target.activeMask &= ~bit;
+          continue;
+        }
+        if ((target.hitMask & bit) !== 0) continue;
         const state = boat.state;
-        if (Math.abs(state.speed) < 4 && !state.airborne) continue;
         const dx = state.position.x - target.x;
         const dz = state.position.z - target.z;
-        if (dx * dx + dz * dz > TARGET_RADIUS * TARGET_RADIUS) continue;
-        if (Math.abs(state.position.y - target.y) > 7.2) continue;
-        target.hitMask |= 1 << boat.id;
+        const distanceSq = dx * dx + dz * dz;
+        const valid = (Math.abs(state.speed) >= 4 || state.airborne) &&
+          Math.abs(state.position.y - target.y) <= 7.2;
+        const inChallenge = valid && distanceSq <= TARGET_RADIUS * TARGET_RADIUS;
+        if (inChallenge) {
+          const forwardAlign = Math.sin(state.heading) * target.forwardX + Math.cos(state.heading) * target.forwardZ;
+          if ((target.activeMask & bit) === 0 || distanceSq < target.bestDistanceSq[slot]) {
+            target.activeMask |= bit;
+            target.bestDistanceSq[slot] = distanceSq;
+            target.bestForwardAlign[slot] = forwardAlign;
+            target.bestX[slot] = state.position.x;
+            target.bestY[slot] = state.position.y + 0.4;
+            target.bestZ[slot] = state.position.z;
+            target.bestAt[slot] = time;
+          }
+          target.pulse = Math.max(target.pulse, 0.28);
+          continue;
+        }
+        if ((target.activeMask & bit) === 0) continue;
+
+        // Resolve after the boat exits the outer circle. The old one-frame
+        // trigger rewarded the first edge contact, making a genuine centre
+        // line indistinguishable from a graze.
+        target.activeMask &= ~bit;
+        target.hitMask |= bit;
         target.pulse = 1.25;
         const event = this.eventPool[this.eventCursor++ % this.eventPool.length];
         event.targetId = targetIndex;
         event.kind = target.kind;
         event.racerId = boat.id;
         event.value = HONOR_DEFINITIONS[`target.${target.kind}`]?.value ?? 100;
-        event.at = time;
-        event.x = state.position.x;
-        event.y = state.position.y + 0.4;
-        event.z = state.position.z;
+        event.at = target.bestAt[slot];
+        event.x = target.bestX[slot];
+        event.y = target.bestY[slot];
+        event.z = target.bestZ[slot];
+        event.precision = target.bestDistanceSq[slot] <= TARGET_CENTER_RADIUS * TARGET_CENTER_RADIUS &&
+          target.bestForwardAlign[slot] >= TARGET_MIN_FORWARD_ALIGN
+          ? 'center'
+          : 'edge';
         out.push(event);
         this.hitCount++;
+        if (event.precision === 'center') this.centerHitCount++;
+        else this.edgeHitCount++;
+        target.bestDistanceSq[slot] = Infinity;
+        target.bestForwardAlign[slot] = -1;
       }
     }
   }
 
-  debugState(): { targets: number; hits: number; visible: number } {
+  debugState(): { targets: number; hits: number; centerHits: number; edgeHits: number; visible: number } {
     let visible = 0;
     for (const target of this.targets) if (target.group.visible) visible++;
-    return { targets: this.targets.length, hits: this.hitCount, visible };
+    return {
+      targets: this.targets.length,
+      hits: this.hitCount,
+      centerHits: this.centerHitCount,
+      edgeHits: this.edgeHitCount,
+      visible,
+    };
+  }
+
+  debugTargets(): ReadonlyArray<{ index: number; kind: HonorTargetKind; x: number; z: number; forwardX: number; forwardZ: number }> {
+    return this.targets.map((target, index) => ({
+      index,
+      kind: target.kind,
+      x: target.x,
+      z: target.z,
+      forwardX: target.forwardX,
+      forwardZ: target.forwardZ,
+    }));
+  }
+
+  hasNearbyUnclaimedTarget(boat: IBoat, radius = 38): boolean {
+    const slot = boat.id;
+    if (slot < 0 || slot >= MAX_TARGET_RACERS) return false;
+    const bit = 1 << slot;
+    const limitSq = radius * radius;
+    for (const target of this.targets) {
+      if ((target.hitMask & bit) !== 0) continue;
+      const dx = boat.state.position.x - target.x;
+      const dz = boat.state.position.z - target.z;
+      if (dx * dx + dz * dz <= limitSq) return true;
+    }
+    return false;
   }
 
   private buildTargets(): void {
-    const ringGeometry = new THREE.TorusGeometry(2.15, 0.18, 8, 28);
+    const ringGeometry = new THREE.TorusGeometry(2.72, 0.22, 8, 32);
     const coreGeometry = new THREE.SphereGeometry(0.72, 12, 10);
+    const gripGeometry = new THREE.BoxGeometry(0.25, 0.52, 0.2);
     const starGeometry = new THREE.OctahedronGeometry(0.95, 0);
     const stemGeometry = new THREE.CylinderGeometry(0.08, 0.14, 4.6, 8);
     const orbitGeometry = new THREE.SphereGeometry(0.14, 8, 6);
@@ -230,10 +322,14 @@ export class HonorTargetSystem {
       const group = new THREE.Group();
       group.name = `honor-target-${index + 1}`;
       group.position.set(x, waterHeight(x, z, 0) + TARGET_BASE_Y, z);
+      const heading = Math.atan2(tangent.x, tangent.z);
+      // The target is a vertical, track-facing skill gate. The old horizontal
+      // torus read as an inexplicable rack and made its centre impossible to
+      // understand as a route choice.
+      group.rotation.y = heading;
 
       const ring = new THREE.Mesh(ringGeometry, materialFor(spec.kind));
       ring.name = 'honor-ring';
-      ring.rotation.x = Math.PI / 2;
       group.add(ring);
 
       const core = spec.kind === 'star'
@@ -253,7 +349,25 @@ export class HonorTargetSystem {
       } else if (spec.kind === 'comet') {
         core.scale.set(0.8, 0.8, 1.5);
       }
+      // Keep the collectible's identity on the rim instead of filling the
+      // gate's pass-through opening. A player can now read the line before
+      // committing to a detour.
+      core.position.set(2.9, 0.46, 0);
+      core.scale.multiplyScalar(0.72);
       group.add(core);
+
+      // Four chunky grips make the crown target read as a helm while the centre
+      // remains open for the actual precision pass.
+      if (spec.kind === 'crown') {
+        for (const angle of [0.48, Math.PI - 0.48, Math.PI + 0.48, -0.48]) {
+          const grip = new THREE.Mesh(gripGeometry, beamMaterial);
+          grip.name = 'technique-helm-grip';
+          grip.position.set(Math.sin(angle) * 2.6, Math.cos(angle) * 2.6, 0);
+          grip.rotation.z = angle;
+          grip.userData.noOutline = true;
+          group.add(grip);
+        }
+      }
 
       const stem = new THREE.Mesh(stemGeometry, inkMaterial);
       stem.name = 'honor-stem';
@@ -286,10 +400,19 @@ export class HonorTargetSystem {
         x,
         z,
         y: group.position.y,
+        forwardX: tangent.x,
+        forwardZ: tangent.z,
         kind: spec.kind,
         phase: spec.phase,
         pulse: 0,
         hitMask: 0,
+        activeMask: 0,
+        bestDistanceSq: Float32Array.from({ length: MAX_TARGET_RACERS }, () => Infinity),
+        bestForwardAlign: Float32Array.from({ length: MAX_TARGET_RACERS }, () => -1),
+        bestX: new Float32Array(MAX_TARGET_RACERS),
+        bestY: new Float32Array(MAX_TARGET_RACERS),
+        bestZ: new Float32Array(MAX_TARGET_RACERS),
+        bestAt: new Float32Array(MAX_TARGET_RACERS),
       });
     }
   }

@@ -401,6 +401,7 @@ let finalePresentation = false;
 // Keep the result beats separate: the honor wall is opened only after the
 // Final Station cinematic has been dismissed.
 let honorReviewPending = false;
+let techniqueHintShown = false;
 let finaleCapturePending = false;
 let interruptionActive = false;
 let duoPauseActive = false;
@@ -998,6 +999,7 @@ function startNextRaceRound(): void {
   // while the next round gets a fresh local ledger and target inventory.
   honors.reset(boats.length);
   honorTargets.reset();
+  techniqueHintShown = false;
   duoInteractions.reset();
   humanCollisionCounts[0] = 0;
   humanCollisionCounts[1] = 0;
@@ -1270,6 +1272,7 @@ function resetRace(): void {
   // previous run's Final Station glowing in the READY/front-door scene.
   course.resetFinalStation();
   honorTargets.reset();
+  techniqueHintShown = false;
   honors.reset(boats.length);
   honorHighlights.hide();
   duoInteractions.reset();
@@ -1467,6 +1470,21 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
 function presentHonorHits(hits: readonly HonorHit[]): void {
   for (const hit of hits) {
     honors.addTargetHit(hit);
+    const techniqueBoat = boats[hit.racerId];
+    const precise = hit.precision === 'center' && techniqueBoat !== undefined;
+    let techniqueReward = '';
+    if (precise) {
+      // A center-line pass is the target's actual game loop: recover a flight
+      // cell, or convert the over-cap pickup into a short surface boost.
+      if (techniqueBoat.grantFlightCharge()) {
+        honors.award('target.center', hit.racerId, HONOR_DEFINITIONS['target.center'].value, hit.at);
+        techniqueReward = ' · 飞行电池 +1';
+      } else {
+        techniqueBoat.activateTechniqueBoost();
+        honors.award('target.center', hit.racerId, HONOR_DEFINITIONS['target.center'].value, hit.at);
+        techniqueReward = ' · BOOST +0.85 秒';
+      }
+    }
     honorFxPoint.set(hit.x, hit.y, hit.z);
     spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 9, hit.kind === 'duck' ? 7.2 : 5.2);
     feathers.burst(honorFxPoint, hit.kind === 'duck' ? 36 : 14, hit.kind === 'duck' ? 10.5 : 7.4);
@@ -1475,6 +1493,10 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
     if (hit.kind === 'duck') audio.balloonPop();
     else audio.collision(4.2);
+    if (precise) {
+      if (techniqueReward.includes('BOOST')) audio.boostIgnition();
+      else audio.flightReady(techniqueBoat.state.flightCharges);
+    }
     pipeline.pulse('ready', hit.kind === 'crown' ? 0.9 : 0.58);
     const rumbleStrength = hit.kind === 'crown' ? 0.72 : 0.42;
     // A target belongs to the boat that touched it. In dual play route the
@@ -1486,13 +1508,16 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
       haptics.impact('collision-light', rumbleStrength, false);
     }
     hud.showTransientNotice(
-      `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}`,
-      '荣誉目标命中',
+      `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}${techniqueReward}`,
+      precise ? '舵轮精准命中' : '荣誉目标命中',
     );
+    if (precise) hud.showTechniqueReward(techniqueReward.includes('BOOST') ? 'boost' : 'flight-cell');
     trackGameEvent('honor_award', {
       id: `target.${hit.kind}`,
       racer: hit.racerId,
       value: hit.value,
+      precision: hit.precision,
+      techniqueReward,
       at: hit.at,
     });
   }
@@ -2231,6 +2256,14 @@ function step(dt: number, _t: number): void {
     presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
     honorTargets.update(dt, worldTime, activeBoats, race.racers, honorHitScratch, true);
     presentHonorHits(honorHitScratch);
+    if (!techniqueHintShown && boats[0].state.flightCharges < MAX_FLIGHT_CHARGES &&
+        honorTargets.hasNearbyUnclaimedTarget(boats[0])) {
+      techniqueHintShown = true;
+      hud.showTransientNotice(
+        '偏向发光环的中心穿过 · 回收 1 格飞行电池；满格会转成 BOOST',
+        '新玩法：技巧舵轮',
+      );
+    }
   }
   let enteredMedal = false;
   for (const passedId of playerPassedFlights) {
@@ -2710,6 +2743,7 @@ interface Harness {
   singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
   buoyCase(): Record<string, number | boolean>;
+  honorTargetCase(): Record<string, number | string | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
   riderHairState(): ReturnType<Rider['hairDebug']>;
   flapCase(): Record<string, unknown>;
@@ -4259,6 +4293,29 @@ function scenario(name: string): void {
       loop.advance(0.6);
       break;
     }
+    case "honor-target":
+      // The harness places the player against the first authored target after
+      // the real countdown; leaving the scene untouched keeps this diagnostic
+      // focused on the target's center/edge contract.
+      advanceUntil(() => race.phase === "racing", 8);
+      {
+        const target = honorTargets.debugTargets()[0];
+        if (target) {
+          boats[0].teleport(
+            target.x - target.forwardX * 14,
+            target.z - target.forwardZ * 14,
+            Math.atan2(target.forwardX, target.forwardZ),
+          );
+          setHarnessInput({ throttle: 0 });
+          harnessCameraOverride = {
+            target: boats[0].object,
+            offset: [0, 3.2, -10.4],
+            lookAt: [0, 2.1, 5.5],
+            fov: 54,
+          };
+        }
+      }
+      break;
     case "buoy-tumble-spin": {
       advanceUntil(() => race.phase === "racing", 8);
       loop.advance(1.5);
@@ -4365,6 +4422,64 @@ function runBuoyCase(): Record<string, number | boolean> {
   };
 }
 
+function runHonorTargetCase(): Record<string, number | string | boolean> {
+  scenario('honor-target');
+  comebackAwarded[0] = true;
+  previousHumanPlaces[0] = 1;
+  const target = honorTargets.debugTargets()[0];
+  if (!target) throw new Error('honor target diagnostic has no target');
+  boats[0].state.flightCharges = 0;
+  const startX = target.x - target.forwardX * 16;
+  const startZ = target.z - target.forwardZ * 16;
+  boats[0].teleport(startX, startZ, Math.atan2(target.forwardX, target.forwardZ));
+  setHarnessInput({ throttle: 1 });
+  advanceUntil(() => honorTargets.debugState().hits > 0, 5, 1 / 60);
+  setHarnessInput(null);
+  const scoreAfterCell = honors.scoreFor(0);
+  const second = honorTargets.debugTargets()[1];
+  if (!second) throw new Error('honor target diagnostic has no second target');
+  boats[0].teleport(
+    second.x - second.forwardX * 16,
+    second.z - second.forwardZ * 16,
+    Math.atan2(second.forwardX, second.forwardZ),
+  );
+  boats[0].state.flightCharges = MAX_FLIGHT_CHARGES;
+  setHarnessInput({ throttle: 1 });
+  advanceUntil(() => honorTargets.debugState().hits >= 2, 5, 1 / 60);
+  loop.advance(1 / 60);
+  setHarnessInput(null);
+  const afterBoost = honorTargets.debugState();
+  const boostCharges = boats[0].state.flightCharges;
+  const boostActive = boats[0].state.boosting;
+  const scoreAfterBoost = honors.scoreFor(0);
+  const third = honorTargets.debugTargets()[2];
+  if (!third) throw new Error('honor target diagnostic has no edge target');
+  const rightX = third.forwardZ;
+  const rightZ = -third.forwardX;
+  boats[0].teleport(
+    third.x - third.forwardX * 16 + rightX * 3.45,
+    third.z - third.forwardZ * 16 + rightZ * 3.45,
+    Math.atan2(third.forwardX, third.forwardZ),
+  );
+  boats[0].state.flightCharges = 0;
+  setHarnessInput({ throttle: 1 });
+  advanceUntil(() => honorTargets.debugState().hits >= 3, 5, 1 / 60);
+  loop.advance(1 / 60);
+  setHarnessInput(null);
+  const afterEdge = honorTargets.debugState();
+  return {
+    kind: target.kind,
+    hits: afterEdge.hits,
+    centerHits: afterEdge.centerHits,
+    edgeHits: afterEdge.edgeHits,
+    flightCharges: boats[0].state.flightCharges,
+    boostCharges,
+    honorScore: honors.scoreFor(0),
+    boostHonorDelta: scoreAfterBoost - scoreAfterCell,
+    boostActive,
+  };
+}
+
 function harnessDuoEliminate(id: 0 | 1): void {
   if (!isDuoMode() || race.phase !== 'racing') throw new Error('duo elimination requires an active dual race');
   const boat = boats[id];
@@ -4414,6 +4529,7 @@ if (HARNESS) {
     singleHonorCase: runSingleHonorCase,
     buoyState: () => course.buoyDebugStates(),
     buoyCase: runBuoyCase,
+    honorTargetCase: runHonorTargetCase,
     riderPoseState: () => riders[0].poseDebug(),
     riderHairState: () => riders[0].hairDebug(),
     flapCase: runFlapCase,

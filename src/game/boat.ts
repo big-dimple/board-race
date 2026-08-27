@@ -2310,6 +2310,16 @@ export class Boat implements IBoat {
     return true;
   }
 
+  /** Convert an over-cap technique pickup into a readable, discrete boost. */
+  activateTechniqueBoost(): void {
+    const duration = 0.85;
+    const wasBoosting = this.boostTimer > 0;
+    this.boostTimer = Math.min(2.4, this.boostTimer + duration);
+    this.boostTotal = wasBoosting
+      ? Math.min(2.4, this.boostTotal + duration)
+      : this.boostTimer;
+  }
+
   /** Main-thread visual LOD; has no effect on physics or AI input. */
   setOpponentEffectDistance(distance: number): void {
     this.opponentFxScale = this.playerOwned ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);
