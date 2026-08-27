@@ -232,7 +232,7 @@ async function verifyMode(browser, mobile) {
     `${label}: Final Station next-step action stayed disabled after its read time`);
   assert.equal(finaleSequence.finaleContinue.inViewport, true,
     `${label}: Final Station next-step action fell outside the ${label} viewport`);
-  assert.ok(finaleSequence.finaleContinue.width >= (mobile ? 140 : 72),
+  assert.ok(finaleSequence.finaleContinue.width >= (mobile ? 190 : 160),
     `${label}: Final Station next-step action is too small to discover or tap`);
   assert.equal(finaleSequence.afterContinue.finaleVisible, false,
     `${label}: Final Station remained visible after opening honors`);
@@ -260,6 +260,10 @@ async function verifyMode(browser, mobile) {
     `${label}: final crossing honor was not added to historical honor score`);
   assert.equal(finaleSequence.settledBeforeContinue.continueDisabled, false,
     `${label}: next-round action stayed disabled after the high-light sequence settled`);
+  assert.match(finaleSequence.settledBeforeContinue.continueLabel, /继续下一轮.*5\s*秒/,
+    `${label}: settled honor wall did not expose the five-second auto-continue countdown`);
+  assert.match(finaleSequence.settledBeforeContinue.continueAriaLabel, /5秒后自动继续/,
+    `${label}: auto-continue countdown is missing from the accessible action label`);
   assert.equal(finaleSequence.settledBeforeContinue.spotlightDisplay, 'none',
     `${label}: completed Play-of-the-Run beat still reserved a hidden layout row`);
   assert.ok(finaleSequence.settledBeforeContinue.cardWidth >= (mobile ? 120 : 280),
@@ -279,6 +283,14 @@ async function verifyMode(browser, mobile) {
   assert.equal(finaleSequence.afterHonorContinue.flightsCleared, 7,
     `${label}: next-round action reset the completed flight progress`);
   console.log(`${label} finale sequence: cinematic-only -> honor-wall-only -> next-round countdown`);
+
+  const autoSequence = await page.evaluate(() => window.__harness.finaleHonorSequenceCase(false, true));
+  assert.equal(autoSequence.afterHonorContinue.honorVisible, false,
+    `${label}: honor wall did not auto-dismiss after its five-second countdown`);
+  assert.equal(autoSequence.afterHonorContinue.racePhase, 'resume-countdown',
+    `${label}: honor wall auto-continue did not enter the next-round countdown`);
+  assert.equal(autoSequence.afterHonorContinue.flightsCleared, 7,
+    `${label}: automatic next-round action reset the completed flight progress`);
 
   if (mobile) {
     const modeButton = page.locator('.mobile-mode');

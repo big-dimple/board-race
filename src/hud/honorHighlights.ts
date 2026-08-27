@@ -2,6 +2,8 @@ import type { HonorSummary, RaceMode } from '../contracts';
 import type { HonorHighlight } from '../game/honors';
 import './honorHighlights.css';
 
+const HONOR_AUTO_CONTINUE_S = 5;
+
 export interface HonorRacerCard {
   id: number;
   name: string;
@@ -48,6 +50,9 @@ export class HonorHighlights {
   private payload: HonorReviewPayload | null = null;
   private cardButtons: HTMLButtonElement[] = [];
   private timer = 0;
+  private autoContinueRemaining = 0;
+  private autoContinueTriggered = false;
+  private autoContinueDisplayedSecond = -1;
   private selected = 0;
   private phase: 'hidden' | 'spotlight' | 'cards' | 'settled' = 'hidden';
 
@@ -124,6 +129,9 @@ export class HonorHighlights {
   show(payload: HonorReviewPayload): void {
     this.payload = payload;
     this.timer = 0;
+    this.autoContinueRemaining = 0;
+    this.autoContinueTriggered = false;
+    this.autoContinueDisplayedSecond = -1;
     this.selected = 0;
     this.phase = 'spotlight';
     this.root.dataset.mode = payload.mode;
@@ -139,6 +147,7 @@ export class HonorHighlights {
     this.renderCards();
     this.continue.hidden = !payload.canContinue;
     this.continue.disabled = true;
+    this.resetContinueLabel();
     this.retry.disabled = true;
     this.exit.disabled = true;
     this.root.setAttribute('aria-hidden', 'false');
@@ -149,6 +158,15 @@ export class HonorHighlights {
     this.timer += Math.max(0, dt);
     if (this.phase === 'spotlight' && this.timer >= 2.65) this.revealCards();
     if (this.phase === 'cards' && this.timer >= 4.8) this.settle();
+    if (this.phase === 'settled' && this.payload?.canContinue && !this.autoContinueTriggered) {
+      this.autoContinueRemaining = Math.max(0, this.autoContinueRemaining - Math.max(0, dt));
+      this.updateContinueLabel();
+      if (this.autoContinueRemaining <= 0) {
+        this.autoContinueTriggered = true;
+        this.onContinue();
+        return;
+      }
+    }
     const progress = Math.min(1, this.timer / 4.8);
     this.root.style.setProperty('--honor-progress', String(progress));
   }
@@ -160,10 +178,14 @@ export class HonorHighlights {
   hide(): void {
     this.phase = 'hidden';
     this.payload = null;
+    this.autoContinueRemaining = 0;
+    this.autoContinueTriggered = false;
+    this.autoContinueDisplayedSecond = -1;
     this.root.classList.remove('on', 'spotlight', 'cards', 'settled');
     this.root.setAttribute('aria-hidden', 'true');
     this.continue.hidden = false;
     this.continue.disabled = true;
+    this.resetContinueLabel();
     this.retry.disabled = true;
     this.exit.disabled = true;
   }
@@ -301,13 +323,30 @@ export class HonorHighlights {
     this.timer = Math.max(this.timer, 4.8);
     this.phase = 'settled';
     this.root.classList.add('settled');
+    this.autoContinueRemaining = this.payload?.canContinue ? HONOR_AUTO_CONTINUE_S : 0;
     this.hint.textContent = this.payload?.canContinue
-      ? '← → 选择卡片 · ENTER 继续下一轮'
+      ? '5 秒后自动继续下一轮 · ← → 选择卡片 · ENTER 立即继续'
       : '← → 选择卡片 · ENTER 再来一局';
     this.continue.disabled = !this.payload?.canContinue;
     this.retry.disabled = false;
     this.exit.disabled = false;
+    this.updateContinueLabel();
     this.focusPrimary();
+  }
+
+  private resetContinueLabel(): void {
+    this.autoContinueDisplayedSecond = -1;
+    this.continue.innerHTML = '<span aria-hidden="true">▶</span> 继续下一轮';
+    this.continue.removeAttribute('aria-label');
+  }
+
+  private updateContinueLabel(): void {
+    if (!this.payload?.canContinue || this.phase !== 'settled') return;
+    const seconds = Math.max(1, Math.ceil(this.autoContinueRemaining));
+    if (seconds === this.autoContinueDisplayedSecond) return;
+    this.autoContinueDisplayedSecond = seconds;
+    this.continue.innerHTML = `<span aria-hidden="true">▶</span> 继续下一轮 · ${seconds} 秒`;
+    this.continue.setAttribute('aria-label', `继续下一轮，${seconds}秒后自动继续`);
   }
 }
 

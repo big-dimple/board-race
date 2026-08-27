@@ -185,8 +185,8 @@
   “查看高光”后才挂载 `HonorHighlights`。两层不会同时可见，荣誉计时也不会
   在终点演出期间偷跑。两个结果阶段都隐藏比赛 HUD、名次塔、混音与移动控制；荣誉墙使用不透底舞台，
   不让比赛画面与赛后信息混层。荣誉墙再播放一项 `PLAY OF THE RUN` 聚光，切入最多四张可选荣誉卡、
-  六人名次条、本局总分与累计 `honorScore`。成功结果默认聚焦“继续下一轮”，调用
-  `Race.startFinalContinueCountdown()` 保留已完成飞行进度，再清理本轮荣誉账本和目标库存；“再来一局”
+  六人名次条、本局总分与累计 `honorScore`。成功结果默认聚焦“继续下一轮”，结算后启动 5 秒可见倒计时并
+  自动调用继续回调，玩家也可立即确认；继续动作调用 `Race.startFinalContinueCountdown()` 保留已完成飞行进度，再清理本轮荣誉账本和目标库存；“再来一局”
   才走完整 `resetRace()`，退出回到玩法目录。最终冲线在 `HonorLedger` 写入稳定 id `finale.captain`，
   并由 `RecordsStore.recordHonors()` 同步到历史 `honors` 与 `honorScore`。
 

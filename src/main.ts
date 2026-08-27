@@ -2805,7 +2805,7 @@ interface Harness {
   radioTechniqueCase(): Record<string, unknown>;
   offCourseRecoveryCase(): Record<string, unknown>;
   finalEligibilityCase(): Record<string, unknown>;
-  finaleHonorSequenceCase(leaveVisible?: boolean): Record<string, unknown>;
+  finaleHonorSequenceCase(leaveVisible?: boolean, testAutoContinue?: boolean): Record<string, unknown>;
   singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
   buoyCase(): Record<string, number | boolean>;
@@ -3582,7 +3582,7 @@ function runFinalEligibilityCase(): Record<string, unknown> {
 }
 
 /** Verify the successful-result beats never overlap in the live presentation. */
-function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknown> {
+function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = false): Record<string, unknown> {
   const previousMode = appMode;
   try {
     appMode = 'independent';
@@ -3664,9 +3664,12 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
       finalHonorCard: Array.from(document.querySelectorAll<HTMLElement>('.honor-review-card strong'))
         .some((node) => node.textContent?.trim() === HONOR_DEFINITIONS['finale.captain'].title),
     };
-    loop.advance(5.05);
+    // Settle the cards without consuming the five-second auto-continue window.
+    loop.advance(4.85);
     const settledBeforeContinue = {
       continueDisabled: document.querySelector<HTMLButtonElement>('.honor-review-continue')?.disabled ?? true,
+      continueLabel: document.querySelector<HTMLElement>('.honor-review-continue')?.textContent?.trim() ?? '',
+      continueAriaLabel: document.querySelector<HTMLElement>('.honor-review-continue')?.getAttribute('aria-label') ?? '',
       activeAction: document.activeElement instanceof HTMLElement ? document.activeElement.className : '',
       spotlightDisplay: getComputedStyle(document.querySelector<HTMLElement>('.honor-review-spotlight')!).display,
       cardWidth: document.querySelector<HTMLElement>('.honor-review-card')?.getBoundingClientRect().width ?? 0,
@@ -3679,13 +3682,24 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
           rect.top >= -1 && rect.bottom <= innerHeight + 1;
       }),
     };
-    if (!leaveVisible) document.querySelector<HTMLButtonElement>('.honor-review-continue')?.click();
-    const afterHonorContinue = {
-      honorVisible: honorHighlights.visible(),
-      racePhase: race.phase,
-      flightsCleared: primaryBoat().state.flightsCleared,
-      finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
-    };
+    let afterHonorContinue: Record<string, unknown>;
+    if (testAutoContinue) {
+      loop.advance(5.1);
+      afterHonorContinue = {
+        honorVisible: honorHighlights.visible(),
+        racePhase: race.phase,
+        flightsCleared: primaryBoat().state.flightsCleared,
+        finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      };
+    } else {
+      if (!leaveVisible) document.querySelector<HTMLButtonElement>('.honor-review-continue')?.click();
+      afterHonorContinue = {
+        honorVisible: honorHighlights.visible(),
+        racePhase: race.phase,
+        flightsCleared: primaryBoat().state.flightsCleared,
+        finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      };
+    }
     return { afterFinaleShow, finaleContinue, afterContinue, settledBeforeContinue, afterHonorContinue };
   } finally {
     if (!leaveVisible) {
@@ -4303,7 +4317,7 @@ function scenario(name: string): void {
       // Capture-only scenario: leave the honor wall settled on screen so
       // desktop and 844x390 visual review can inspect the second result beat.
       runFinaleHonorSequenceCase(true);
-      loop.advance(5.1);
+      loop.advance(0.1);
       break;
     case "radio-technique":
       stageRadioTechniqueBroadcast();
