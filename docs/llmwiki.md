@@ -35,7 +35,7 @@
 | 双打淘汰后的支援 / 浪花互动 | `src/game/duoInteraction.ts` |
 | 荣誉目标、账本与稳定 id | `src/game/honors.ts` |
 | 本地设备入座与双席输入 | `src/core/localMultiplayerInput.ts` |
-| 玩法目录、双打选角与 HUD | `src/hud/teamExperience.ts`、`src/hud/honorHighlights.ts` |
+| 玩法目录、双打选角与 HUD | `src/hud/teamExperience.ts`、`src/hud/honorHighlights.ts`、`src/hud/duoViewportHud.ts` |
 | 存档、荣誉统计和迁移 | `src/game/records.ts` |
 | 当前任务进度 | `docs/development-handoff.md` |
 | 稳定美术方向 | `docs/art-direction.md` |
@@ -117,7 +117,8 @@
   `ArrowUp/Down/Left/Right + RightShift + NumpadEnter`，淘汰后 `U/O`。手柄左摇杆 X 轴负责转向、
   Y 轴负责前进 / 制动倒车，斜向同时生效；十字键上下作为数字输入备用，不读取 RT/LT。A、B、Y、Start
   分别承担确认 / 起飞、返回 / 支援、浪花互动和暂停。菜单边沿与物理 hold 分开，repeat 不造飞行 edge。
-- 双打与单人共享一台镜头；镜头、路线提示和 HUD 会在一席淘汰后切到幸存者。手机保留单人触控方案，
+- 双打采用左右 50/50 独立追拍：左屏只跟左席、右屏只跟右席；每侧保留自己的船、路线和状态读数。
+  一席淘汰后该侧保留 OUT / 互动提示，幸存者仍在另一侧继续比赛。手机保留单人触控方案，
   不强迫小屏同时管理两套方向键。暂停、页面隐藏或已占座设备断开时，fixed-step 和计时一起冻结，
   恢复时清边沿；结算层保留结果，确认重开同一席位配置，返回才退出到玩法目录。
 - 页面隐藏、旋转阻断和系统 UI 冻结模拟。恢复时清边沿，但不能让物理仍按住的 Shift 永久失效。
@@ -189,8 +190,9 @@
 
 ## 渲染与美术合同
 
-- 单人和双打都由同一个 `PostPipeline` 出屏；双打不再启用固定分屏，而是在一台远景追拍中保持两艘玩家艇、
-  前方路线和 HUD 控件可读。旧 `SplitScreenRenderer` / `TeamExpedition` 只在封存分支维护，不是主分支的渲染合同。
+- 单人由主 `PostPipeline` 出屏；双打由左右各自的 `PostPipeline` 渲染后，再经
+  `SplitScreenRenderer` 合成 50/50 画面。每侧的深度纹理、分辨率、天空与海面相机值都必须先切到该侧相机。
+  旧 `TeamExpedition` 仍只在封存分支维护，不得重新接回主分支入口。
 - 海面深度纹理、分辨率、天空与海面相机跟随值必须在渲染每一侧前切到该侧相机，不能让
   右侧预通道覆盖左侧已经使用的泡沫 / 深度真相。
 

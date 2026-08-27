@@ -71,6 +71,7 @@ import { TeamExpedition, type TeamExpeditionEvent, type TeamRole } from './game/
 import type { BalloonPop, BuoyHit } from './game/course';
 import { CameraRig, type CameraImpactLevel } from './game/chaseCamera';
 import { HUD } from './hud/hud';
+import { DuoViewportHud, type DuoViewportSeat } from './hud/duoViewportHud';
 import { GameAudio } from './audio/audio';
 import { MixerControls } from './audio/mixerControls';
 import { DriverSelect } from './hud/driverSelect';
@@ -224,6 +225,7 @@ const hudLayer = document.createElement('div');
 hudLayer.id = 'hud-layer';
 hudLayer.style.cssText = 'position:fixed;inset:0;pointer-events:none;overflow:hidden;';
 app.appendChild(hudLayer);
+const duoViewportHud = new DuoViewportHud(hudLayer);
 const capture = new CaptureService(stage.renderer.domElement);
 let finaleCapture: Blob | null = null;
 let finaleCaptureRecorded = false;
@@ -591,6 +593,8 @@ function enterIndependentCompetition(): void {
   teamExperience.hideAll();
   hud.setVisible(true);
   hud.setDuoControls(false);
+  hud.setDuoSplit(false);
+  duoViewportHud.setVisible(false);
   tower.setVisible(true);
   mixer.setVisible(!mobileInput.enabled);
   mobileInput.setOverlayHidden(false);
@@ -599,9 +603,9 @@ function enterIndependentCompetition(): void {
 /** Start a competitive local double race on the same six-racer simulation. */
 function startDuoRace(selection: DuoSelection): void {
   if (race.phase !== 'ready') return;
-  // The archived expedition can leave its station visuals and split renderer
-  // armed after a back-navigation. A dual race owns the normal single-camera
-  // presentation, so clear that state before rebuilding the roster.
+  // The archived expedition can leave its station visuals armed after a
+  // back-navigation. A dual race owns the normal six-racer simulation, then
+  // renders it through the two dedicated left/right cameras below.
   teamExpedition.stop();
   course.setTeamPresentation(false);
   activeTeamSelection = null;
@@ -631,10 +635,13 @@ function startDuoRace(selection: DuoSelection): void {
   openingShowcase.setRoster(roster);
   collisions.setFriendlyPair(0, 1, false);
   resetRace();
+  teamLeftCameraRig.mode = 'chase';
+  teamRightCameraRig.mode = 'chase';
   driverSelect.hide();
   teamExperience.hideAll();
   hud.setVisible(true);
   hud.setDuoControls(true, selection.left.deviceId, selection.right.deviceId);
+  hud.setDuoSplit(true);
   tower.setVisible(true);
   mixer.setVisible(false);
   mobileInput.setOverlayHidden(true);
@@ -1229,6 +1236,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
   }
   pipeline.update(dt, finalPresentation ? presentationTime : retryLessonFrozenT, frozen, phase);
   hud.update(dt, race, focusBoat, boats);
+  updateDuoViewportHud();
   audio.update(dt);
 }
 
@@ -1263,6 +1271,8 @@ function resetRace(): void {
   honorsSettled = false;
   duoPauseActive = false;
   hud.setDuoControls(false);
+  hud.setDuoSplit(false);
+  duoViewportHud.setVisible(false);
   comebackAwarded[0] = false;
   comebackAwarded[1] = false;
   previousHumanPlaces[0] = Infinity;
@@ -1394,6 +1404,13 @@ function isDuoMode(): boolean {
   return appMode === 'duo';
 }
 
+function isDuoSplitPhase(): boolean {
+  return isDuoMode() && (
+    race.phase === 'countdown' || race.phase === 'resume-countdown' ||
+    race.phase === 'racing'
+  );
+}
+
 function isHumanRacer(id: number): boolean {
   return isDuoMode() ? id < 2 : id === 0;
 }
@@ -1402,15 +1419,31 @@ function primaryBoat(): Boat {
   return boats[race.player().id] ?? boats[0];
 }
 
-/** Keep both live human hulls in one readable chase frame during dual play. */
+function updateDuoViewportHud(): void {
+  if (!isDuoMode()) {
+    duoViewportHud.setVisible(false);
+    return;
+  }
+  const makeSeat = (id: 0 | 1): DuoViewportSeat => ({
+    name: roster[id]?.name ?? `席位 ${id + 1}`,
+    color: roster[id]?.color ?? (id === 0 ? 0x55e7ff : 0xffd23f),
+    racer: race.racers[id],
+    boat: boats[id],
+    device: duoDevices[id].startsWith('gamepad:')
+      ? `手柄 ${Number.parseInt(duoDevices[id].slice('gamepad:'.length), 10) + 1}`
+      : id === 0 ? '键盘 W/A/S/D' : '方向键',
+  });
+  duoViewportHud.update([makeSeat(0), makeSeat(1)], isDuoSplitPhase());
+}
+
+/** Keep the authoritative single-player camera for HUD anchoring, while the
+ * two rendered views independently follow their seated human boats. */
 function updateRaceCamera(dt: number, t: number, focus = primaryBoat()): void {
   if (isDuoMode()) {
-    const otherId = focus.id === 0 ? 1 : 0;
-    const other = boats[otherId];
-    if (other && !race.racers[otherId]?.eliminated && other.object.visible) {
-      cameraRig.updateDuo(dt, focus, other, t);
-      return;
-    }
+    cameraRig.update(dt, focus, t);
+    teamLeftCameraRig.update(dt, boats[0], t);
+    teamRightCameraRig.update(dt, boats[1], t);
+    return;
   }
   cameraRig.update(dt, focus, t);
 }
@@ -2473,6 +2506,7 @@ function step(dt: number, _t: number): void {
       hud.coachPresentationBlocked(),
   );
   hud.update(dt, race, focusBoat, boats);
+  updateDuoViewportHud();
   const routeGuidance = course.guidanceStatus();
   mobileInput.setActionState(
     deriveAbilityHudState(ps, course.finalStationArmed()),
@@ -2520,6 +2554,10 @@ function step(dt: number, _t: number): void {
   }
   prevCorridorStage = corridorStage;
   pipeline.update(dt, worldTime, ps, race.phase);
+  if (isDuoMode()) {
+    teamLeftPipeline.update(dt, worldTime, boats[0].state, race.phase);
+    teamRightPipeline.update(dt, worldTime, boats[1].state, race.phase);
+  }
 
   // Failures freeze for one impact beat and then enter the adaptive loading
   // loop directly. The legacy finished branch remains available to scripted modes.
@@ -2561,7 +2599,7 @@ const renderDrawingSize = new THREE.Vector2();
 
 function render(frameMs: number): void {
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
-  if (appMode === 'team-play') {
+  if (appMode === 'team-play' || isDuoSplitPhase()) {
     renderTeamSplit();
   } else {
     applyHarnessCameraOverride();
@@ -4469,6 +4507,7 @@ function runHonorTargetCase(): Record<string, number | string | boolean> {
   const afterEdge = honorTargets.debugState();
   return {
     kind: target.kind,
+    targetY: target.y,
     hits: afterEdge.hits,
     centerHits: afterEdge.centerHits,
     edgeHits: afterEdge.edgeHits,
@@ -4615,6 +4654,17 @@ if (HARNESS) {
       interactions: duoInteractions.snapshot(),
       controls: document.querySelector<HTMLElement>('.hud-duo-controls')?.textContent?.trim() ?? '',
       controlsVisible: document.querySelector<HTMLElement>('.hud-duo-controls')?.classList.contains('on') ?? false,
+      splitScreen: isDuoSplitPhase(),
+      leftCamera: {
+        x: teamLeftCamera.position.x,
+        y: teamLeftCamera.position.y,
+        z: teamLeftCamera.position.z,
+      },
+      rightCamera: {
+        x: teamRightCamera.position.x,
+        y: teamRightCamera.position.y,
+        z: teamRightCamera.position.z,
+      },
       result: lastResultEnvelope,
     }),
     duoEliminate: harnessDuoEliminate,

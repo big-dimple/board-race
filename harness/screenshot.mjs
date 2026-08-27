@@ -482,6 +482,8 @@ async function verifyMode(browser, mobile) {
   assert.equal(fullInventory, 3, `${label}: runtime inventory cap is not three`);
 
   const honorTarget = await page.evaluate(() => window.__harness.honorTargetCase());
+  assert.ok(honorTarget.targetY < 3,
+    `${label}: honor target still reads as an airborne object: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.centerHits, 2,
     `${label}: steering-wheel target did not detect a center-line pass: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.boostCharges, 3,

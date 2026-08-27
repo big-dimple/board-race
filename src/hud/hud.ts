@@ -91,6 +91,10 @@ export class HUD {
     this.root.classList.toggle('team-hidden', !visible);
   }
 
+  setDuoSplit(visible: boolean): void {
+    this.root.classList.toggle('duo-split', visible);
+  }
+
   // speedometer
   private readonly speedNum: HTMLDivElement;
   private readonly gctx: CanvasRenderingContext2D;

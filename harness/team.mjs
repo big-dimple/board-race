@@ -111,6 +111,10 @@ async function verifyKeyboardDuo(page) {
   assert.deepEqual(stateAtStart.playerIds, [0, 1]);
   assert.equal(stateAtStart.racers.length, 6);
   assert.equal(stateAtStart.controlsVisible, true);
+  assert.equal(stateAtStart.splitScreen, true, 'dual race did not activate the left/right compositor');
+  assert.equal(await page.locator('.duo-viewport-hud.on').count(), 1);
+  assert.ok(Number.isFinite(stateAtStart.leftCamera.x) && Number.isFinite(stateAtStart.rightCamera.x),
+    `dual cameras are not initialized: ${JSON.stringify(stateAtStart)}`);
   assert.match(stateAtStart.controls, /W \/ S/);
   assert.match(stateAtStart.controls, /↑ \/ ↓/);
   assert.match(stateAtStart.controls, /起飞/);
@@ -138,6 +142,7 @@ async function verifyKeyboardDuo(page) {
   await page.keyboard.up('KeyA');
   await page.keyboard.up('KeyW');
   const leftDriven = await page.evaluate(() => window.__harness.duoState());
+  assert.equal(leftDriven.splitScreen, true);
   assert.ok(leftDriven.racers[0].steer < -0.08,
     `left A did not steer the left boat: ${JSON.stringify(leftDriven)}`);
   assert.ok(leftDriven.racers[0].throttle > 0.5,

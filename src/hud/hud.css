@@ -2447,6 +2447,15 @@
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+/* The single-player speed / power widgets belong to one camera owner. In a
+   split race the local readouts in duoViewportHud own those values instead of
+   letting one player's numbers straddle the divider. */
+.hud.duo-split .hud-speedo,
+.hud.duo-split .hud-power,
+.hud.duo-split .hud-driver-power,
+.hud.duo-split .hud-flight-prompt,
+.hud.duo-split .hud-pc-primer { visibility: hidden; }
+
 @media (max-width: 900px), (max-height: 520px) {
   .hud-duo-controls {
     bottom: 69px;
