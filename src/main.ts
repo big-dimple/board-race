@@ -3668,6 +3668,9 @@ function runFinaleHonorSequenceCase(leaveVisible = false): Record<string, unknow
     const settledBeforeContinue = {
       continueDisabled: document.querySelector<HTMLButtonElement>('.honor-review-continue')?.disabled ?? true,
       activeAction: document.activeElement instanceof HTMLElement ? document.activeElement.className : '',
+      spotlightDisplay: getComputedStyle(document.querySelector<HTMLElement>('.honor-review-spotlight')!).display,
+      cardWidth: document.querySelector<HTMLElement>('.honor-review-card')?.getBoundingClientRect().width ?? 0,
+      cardTitleFontSize: Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('.honor-review-card-copy strong')!).fontSize),
       layoutFits: Array.from(document.querySelectorAll<HTMLElement>(
         '.honor-review-title, .honor-review-result, .honor-review-standings, .honor-review-spotlight, .honor-review-cards, .honor-review-foot',
       )).every((node) => {

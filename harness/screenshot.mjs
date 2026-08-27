@@ -260,6 +260,12 @@ async function verifyMode(browser, mobile) {
     `${label}: final crossing honor was not added to historical honor score`);
   assert.equal(finaleSequence.settledBeforeContinue.continueDisabled, false,
     `${label}: next-round action stayed disabled after the high-light sequence settled`);
+  assert.equal(finaleSequence.settledBeforeContinue.spotlightDisplay, 'none',
+    `${label}: completed Play-of-the-Run beat still reserved a hidden layout row`);
+  assert.ok(finaleSequence.settledBeforeContinue.cardWidth >= (mobile ? 120 : 280),
+    `${label}: high-light cards are too narrow for the ${label} result wall`);
+  assert.ok(finaleSequence.settledBeforeContinue.cardTitleFontSize >= (mobile ? 9 : 20),
+    `${label}: high-light card titles are undersized: ${finaleSequence.settledBeforeContinue.cardTitleFontSize}px`);
   assert.match(finaleSequence.settledBeforeContinue.activeAction, /honor-review-continue/,
     `${label}: settled honor wall did not focus the guided next-round action`);
   assert.equal(finaleSequence.settledBeforeContinue.layoutFits, true,
