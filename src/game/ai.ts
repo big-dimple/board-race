@@ -53,7 +53,7 @@ interface PersonalityTune {
 }
 
 const PERSONALITIES: Record<Personality, PersonalityTune> = {
-  // Kimi / 杨植麟 - sends it: +12% corner speeds, short lookahead, late braking, hugs
+  // Kimi / KK - sends it: +12% corner speeds, short lookahead, late braking, hugs
   // apexes, drifts to charge boost and boosts out of corners.
   aggressive: {
     cornerMul: 1.12, lookMul: 0.78, steerGain: 2.8, steerRate: 9, brake: 8.0,
@@ -61,7 +61,7 @@ const PERSONALITIES: Record<Personality, PersonalityTune> = {
     wanderAmp: 0, paceJitter: 0,
     mistakeEvery: [42, 65], mistakeDur: [0.35, 0.6], mistakeSteer: 0.4,
   },
-  // Claude / 蓬蓬头 - textbook: full table speeds, longest smoothest lookahead, earliest
+  // Claude / 打你嗷 - textbook: full table speeds, longest smoothest lookahead, earliest
   // braking, tiny apex trim, essentially never drifts, rarest mistakes.
   clean: {
     cornerMul: 1.05, lookMul: 1.0, steerGain: 2.1, steerRate: 5, brake: 6.0,

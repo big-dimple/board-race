@@ -804,7 +804,7 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
   } else {
     // Short hairstyles: custom volume locks, front fringe, and sideburns per driver
     if (look.driverId === 'kai') {
-      // Kai ("蓬蓬头" / Claude) — Voluminous, fluffy layered messy locks and textured fringe
+      // Kai ("打你嗷" / Claude) — Voluminous, fluffy layered messy locks and textured fringe
       appendHairBlade(out, hairRoot, [0, 0.245, 0.02], 0.16, 0.12, 0.08, 0.16, [0.1, 0, 0]);
       appendHairBlade(out, hairRoot, [0.06, 0.235, 0.04], 0.12, 0.09, 0.07, 0.14, [0.08, 0.12, -0.15]);
       appendHairBlade(out, hairRoot, [-0.06, 0.235, 0.04], 0.12, 0.09, 0.07, 0.14, [0.08, -0.12, 0.15]);
@@ -816,7 +816,7 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
       appendCurvedHairLock(out, hairRoot, [-0.11, 0.145, 0.05], [0.022, 0.032, 0.036], 0.14, 0.028, -0.01, [0.06, -0.1, 0.08]);
       appendCurvedHairLock(out, hairRoot, [0, 0.23, -0.09], [0.12, 0.15, 0.14], 0.11, 0.045, -0.02, [0.15, 0, 0]);
     } else if (look.driverId === 'reef') {
-      // Reef (Kimi / "杨植麟") — Forward-swept dynamic athletic crest and sharp athletic fringe
+      // Reef (Kimi / "KK") — Forward-swept dynamic athletic crest and sharp athletic fringe
       appendHairBlade(out, hairRoot, [0, 0.25, 0.03], 0.10, 0.06, 0.09, 0.18, [0.18, 0, 0]);
       appendHairBlade(out, hairRoot, [0, 0.235, -0.04], 0.12, 0.08, 0.08, 0.16, [0.12, 0, 0]);
       appendCurvedHairLock(out, hairRoot, [0.03, 0.218, 0.128], [0.032, 0.044, 0.048], 0.075, 0.026, 0.016, [-0.14, 0.04, -0.18]);
@@ -836,7 +836,7 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
       appendCurvedHairLock(out, hairRoot, [-0.108, 0.138, 0.055], [0.02, 0.028, 0.032], 0.14, 0.025, -0.008, [0.04, -0.09, 0.08]);
       appendCurvedHairLock(out, hairRoot, [0.105, 0.14, 0.052], [0.018, 0.026, 0.03], 0.12, 0.024, -0.008, [0.04, 0.07, -0.06]);
     } else {
-      // Axle (GLM / "唐老杰") & default short — Clean athletic parted hair and structured locks
+      // Axle (GLM / "盛唐俊杰") & default short — Clean athletic parted hair and structured locks
       appendHairBlade(out, hairRoot, [0, 0.24, 0.01], 0.14, 0.10, 0.07, 0.16, [0.08, 0, 0]);
       appendCurvedHairLock(out, hairRoot, [0.035, 0.212, 0.13], [0.032, 0.042, 0.046], 0.075, 0.025, 0.015, [-0.1, 0.05, -0.16]);
       appendCurvedHairLock(out, hairRoot, [-0.032, 0.214, 0.132], [0.03, 0.04, 0.044], 0.07, 0.025, 0.015, [-0.1, -0.04, 0.15]);

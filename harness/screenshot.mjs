@@ -158,7 +158,7 @@ async function verifyMode(browser, mobile) {
 
   const callsigns = (await page.locator('.driver-card small').allTextContents())
     .map((value) => value.split(' · ')[0]);
-  assert.deepEqual(callsigns, ['唐老杰', '奥特曼', '美国豆包', '杨植麟', '蓬蓬头', '梁圣梁子'],
+  assert.deepEqual(callsigns, ['盛唐俊杰', '山姆傲慢', '美国豆包', 'KK', '打你嗷', '梁圣梁子'],
     `${label}: driver callsigns drifted`);
   assert.equal(await page.locator('.driver-select-title').textContent(), '别懵逼，选最强',
     `${label}: driver-select joke title drifted`);

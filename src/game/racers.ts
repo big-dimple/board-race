@@ -48,13 +48,13 @@ const DRIVER_STORAGE_KEY = 'board-race:driver:v1';
 /** Adult drivers. Every player-facing handling modifier stays within +/-6%. */
 export const DRIVER_PROFILES: readonly DriverProfile[] = [
   {
-    id: 'axle', name: 'GLM', callsign: '唐老杰', age: 28, pronouns: '他', portraitUrl: axlePortrait, portraitPosition: '50% 20%',
+    id: 'axle', name: 'GLM', callsign: '盛唐俊杰', age: 28, pronouns: '他', portraitUrl: axlePortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullPlayer, look: { driverId: 'axle', hair: 0x4f3423, skin: 0xf0c19c, hairStyle: 'short' }, personality: 'clean', pace: 0.985, mood: '沉稳', moodIcon: '◆',
     specialty: '平衡型', strength: '入弯稳定，空中修正宽容', weakness: '爆发力不是最高',
     quote: '让线路说话。', handling: { acceleration: 1, steering: 1, driftCharge: 1, airControl: 1.04 }, rivalRank: 2,
   },
   {
-    id: 'tide', name: 'ChatGPT', callsign: '奥特曼', age: 27, pronouns: '她', portraitUrl: tidePortrait, portraitPosition: '50% 20%',
+    id: 'tide', name: 'ChatGPT', callsign: '山姆傲慢', age: 27, pronouns: '她', portraitUrl: tidePortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullNova, look: { driverId: 'tide', hair: 0x1c2a4a, hairAccent: 0x35d7e8, skin: 0xf4cfae, hairStyle: 'bob' }, personality: 'clean', pace: 0.99, mood: '冷酷', moodIcon: '◈',
     specialty: '飞行专家', strength: '空刹精准，姿态恢复最快', weakness: '水面漂移蓄能稍慢',
     quote: '别眨眼，我只给一次机会。', handling: { acceleration: 0.99, steering: 1.01, driftCharge: 0.96, airControl: 1.06 }, rivalRank: 4,
@@ -66,13 +66,13 @@ export const DRIVER_PROFILES: readonly DriverProfile[] = [
     quote: '第一名的位置，镜头最好。', handling: { acceleration: 1.05, steering: 0.97, driftCharge: 1.02, airControl: 0.99 }, rivalRank: 5,
   },
   {
-    id: 'reef', name: 'Kimi', callsign: '杨植麟', age: 31, pronouns: '他', portraitUrl: reefPortrait, portraitPosition: '50% 20%',
+    id: 'reef', name: 'Kimi', callsign: 'KK', age: 31, pronouns: '他', portraitUrl: reefPortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullReef, look: { driverId: 'reef', hair: 0xb03a24, skin: 0xe8b48c, hairStyle: 'short' }, personality: 'aggressive', pace: 1.025, mood: '愤怒', moodIcon: '!',
     specialty: '贴身强攻', strength: '晚刹、卡位、出弯速度极强', weakness: '持续施压时线路偏冒险',
     quote: '你领先，只是因为我还没动手。', handling: { acceleration: 1.04, steering: 1.03, driftCharge: 1.04, airControl: 0.98 }, rivalRank: 6,
   },
   {
-    id: 'kai', name: 'Claude', callsign: '蓬蓬头', age: 30, pronouns: '他', portraitUrl: kaiPortrait, portraitPosition: '50% 20%',
+    id: 'kai', name: 'Claude', callsign: '打你嗷', age: 30, pronouns: '他', portraitUrl: kaiPortrait, portraitPosition: '50% 20%',
     color: PALETTE.hullVolt, look: { driverId: 'kai', hair: 0x17181f, skin: 0xf2c9a8, hairStyle: 'short' }, personality: 'clean', pace: 1.02, mood: '专注', moodIcon: '●',
     specialty: '基准冠军', strength: '线路近乎无误，后程持续追击', weakness: '被迫近身时略保守',
     quote: '误差会累积，我不会。', handling: { acceleration: 1.01, steering: 1.04, driftCharge: 0.99, airControl: 1.04 }, rivalRank: 7,
