@@ -604,21 +604,6 @@ export class Race implements RaceView {
         continue;
       }
 
-      if (id === this.primaryPlayerId && this.finalStationArmed) {
-        // An armed player is lining up the portal, so hazard clocks and gate
-        // credit stay suspended. The tracked distance must not: pinning it to
-        // the arming moment stranded the player on a stale lap while the pack
-        // banked the next one, which turned any lost qualification into a
-        // fall to last place.
-        this.contU[id] += du;
-        this.prevContU[id] = this.contU[id];
-        this.wrongT[id] = 0;
-        this.offCourseT[id] = 0;
-        this.setCourseWarning(r, 'none');
-        if (!resyncOnly) r.progress = this.windowedProgress(id);
-        continue;
-      }
-
       this.contU[id] += du;
       const cu = this.contU[id];
       if (resyncOnly) {
@@ -634,6 +619,16 @@ export class Race implements RaceView {
         if (!validatesSurface) {
           // Airborne and authored merge-recovery motion is legitimate by
           // construction. Neither warning timer may preload before handoff.
+          this.wrongT[id] = 0;
+          this.offCourseT[id] = 0;
+          this.setCourseWarning(r, 'none');
+        } else if (id === this.primaryPlayerId && this.finalStationArmed) {
+          // An armed player is lining up the shared portal, so the hazard
+          // clocks and the failures they arm stay suspended. Gate and lap
+          // bookkeeping below must keep running: skipping it used to close the
+          // lap window with no gates credited, void the lap, and silently drop
+          // a whole lap of banked progress — the player crossed the line first
+          // and still fell to last place after continuing the run.
           this.wrongT[id] = 0;
           this.offCourseT[id] = 0;
           this.setCourseWarning(r, 'none');

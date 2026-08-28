@@ -413,6 +413,19 @@ async function verifyMode(browser, mobile) {
     assert.equal(singleHonors.continueVisible, false,
       `${label}: failed run incorrectly exposed the next-round action`);
     console.log(`desktop single honors: score=${singleHonors.score} cards=${singleHonors.cardCount}`);
+
+    const continueRank = await page.evaluate(() => window.__harness.finalContinueRankCase());
+    assert.equal(continueRank.atFinish.finished, true,
+      `${label}: the qualified player did not take the Final portal: ${JSON.stringify(continueRank)}`);
+    assert.equal(continueRank.atFinish.resultPlace, 1,
+      `${label}: the Final certificate used a stale place: ${JSON.stringify(continueRank)}`);
+    assert.ok(continueRank.afterContinue.progress >= continueRank.atFinish.progress,
+      `${label}: continuing the run discarded banked lap progress: ${JSON.stringify(continueRank)}`);
+    assert.equal(continueRank.afterContinue.place, 1,
+      `${label}: the player lost the place it earned at the portal: ${JSON.stringify(continueRank)}`);
+    console.log(`${label} final continue rank: place ${continueRank.atFinish.place} -> ` +
+      `${continueRank.afterContinue.place} progress ${continueRank.atFinish.progress} -> ` +
+      `${continueRank.afterContinue.progress} (rival ${continueRank.afterContinue.bestRivalProgress})`);
   }
 
   await stage(page, 'lighthouse-inspection');

@@ -2948,6 +2948,7 @@ interface Harness {
   finalEligibilityCase(): Record<string, unknown>;
   postSetRankCase(): Record<string, unknown>;
   finaleHonorSequenceCase(leaveVisible?: boolean, testAutoContinue?: boolean): Record<string, unknown>;
+  finalContinueRankCase(): Record<string, unknown>;
   singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
   buoyCase(): Record<string, number | boolean>;
@@ -3931,6 +3932,89 @@ function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = fal
       race.setPlayerIds(previousMode === 'duo' ? [0, 1] : [0]);
       harnessPlayerInput = null;
     }
+  }
+}
+
+/**
+ * End-to-end Final rank regression: a lone qualified player takes the portal,
+ * sits through the certificate and the accolade wall, continues the run, and
+ * must still hold the place it earned at the crossing.
+ */
+function runFinalContinueRankCase(): Record<string, unknown> {
+  const previousMode = appMode;
+  try {
+    appMode = 'independent';
+    resetRace();
+    race.setPlayerIds([0]);
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    const routeCount = course.flightRoutes.length;
+    const point = new THREE.Vector3();
+    const tangent = new THREE.Vector3();
+    // Glide in small steps so the tracker accumulates real distance and real
+    // checkpoint credit instead of treating every placement as a teleport.
+    // Steps stay under the portal's 4 m sweep limit so crossings register, and
+    // the whole field moves together so the gaps stay real.
+    const glideField = (fromU: number, toU: number): void => {
+      for (let u = fromU; u < toU - 1e-9; u = Math.min(toU, u + 0.001)) {
+        for (let id = 0; id < boats.length; id++) {
+          const wrapped = ((u - id * 0.02) % 1 + 1) % 1;
+          course.pointAt(wrapped, point);
+          course.tangentAt(wrapped, tangent);
+          boats[id].setCollisionTestMotion(
+            point.x, point.z, Math.atan2(tangent.x, tangent.z), tangent.x * 20, tangent.z * 20,
+          );
+        }
+        race.update(1 / 60);
+      }
+    };
+    // The grid sits at u≈0.996, so these targets are continuous U, not wrapped.
+    glideField(0.996, 1.3);
+    const beforeArming = race.racers.map((racer) => Math.round(racer.progress));
+    // Only the player owns a complete set, so no rival can take the portal.
+    // The seventh flight lands early in the lap, so Final arms long before the
+    // boat reaches the portal on the start/finish line.
+    boats[0].state.flightPhase = 'surface';
+    boats[0].state.airborne = false;
+    boats[0].state.flightRouteState = 'idle';
+    boats[0].state.flightRouteIndex = -1;
+    boats[0].restoreFlightCheckpoint(routeCount, 0);
+    if (!race.armFinale()) throw new Error('unable to arm Final for the continue rank case');
+    course.armFinalStation();
+    glideField(1.3, 2.002);
+    const atFinish = {
+      finished: race.racers[0].finished,
+      place: race.racers[0].place,
+      resultPlace: race.challengeResult?.place ?? -1,
+      phase: race.phase,
+      progress: Math.round(race.racers[0].progress),
+    };
+    beginFinalePresentation();
+    loop.advance(FINALE_MIN_READ_S + 0.05);
+    continueAfterFinale();
+    loop.advance(4.85);
+    document.querySelector<HTMLButtonElement>('.honor-review-continue')?.click();
+    advanceUntil(() => race.phase === 'racing', 8);
+    // Drive on: the lap window that was crossed while the portal was armed has
+    // to close with its gates credited, or the player drops a lap of progress.
+    glideField(2.002, 2.2);
+    return {
+      beforeArming,
+      atFinish,
+      afterContinue: {
+        place: race.racers[0].place,
+        finished: race.racers[0].finished,
+        flightsCleared: boats[0].state.flightsCleared,
+        phase: race.phase,
+        progress: Math.round(race.racers[0].progress),
+        bestRivalProgress: Math.round(Math.max(...race.racers.slice(1).map((racer) => racer.progress))),
+      },
+    };
+  } finally {
+    honorHighlights.hide();
+    appMode = previousMode;
+    resetRace();
+    race.setPlayerIds([0]);
   }
 }
 
@@ -5076,6 +5160,7 @@ if (HARNESS) {
     finalEligibilityCase: runFinalEligibilityCase,
     postSetRankCase: runPostSetRankCase,
     finaleHonorSequenceCase: runFinaleHonorSequenceCase,
+    finalContinueRankCase: runFinalContinueRankCase,
     singleHonorCase: runSingleHonorCase,
     buoyState: () => course.buoyDebugStates(),
     buoyCase: runBuoyCase,
