@@ -497,16 +497,71 @@ export class GameAudio {
     this.blip(580, t0 + 0.006, 0.04, 0.22, 'sine');
   }
 
-  /** Bright two-step pickup chime for the solid water-coin target. */
-  coinCollect(): void {
-    const c = this.ctx;
-    if (!c) return;
-    const t = c.currentTime;
-    this.traceEvent('coin-collect', 1);
-    this.blip(1046.5, t, 0.1, 0.14, 'triangle');
-    this.blip(1568, t + 0.055, 0.16, 0.13, 'triangle');
-    this.duckMusic(0.82, 0.09);
+  /**
+ * Struck-metal pickup. Real struck-coin / bell overtones are *inharmonic* —
+ * the partials sit at non-integer multiples of the fundamental, which is the
+ * single cue that makes a synthesis read as metal instead of a synth beep.
+ * The ratios below are a flat brass disc averaged with a small bronze bell;
+ * higher partials decay much faster than the fundamental, which is the
+ * second cue. The bandpass-swept noise burst supplies the initial "clink"
+ * transient.
+ *
+ * `streak` lifts every partial by a major-third per step so a 6-coin combo
+ * walks the pitch up like a classic arcade pickup ramp.
+ */
+coinCollect(streak = 0): void {
+  const c = this.ctx;
+  if (!c || !this.eventBus) return;
+  if (this.activeOneShots + 5 >= this.maxOneShots) return;
+  const t0 = c.currentTime;
+  this.traceEvent('coin-collect', 1 + Math.min(streak, 6) * 0.05);
+
+  // Inharmonic partial stack. Fundamental 880Hz (A5), bell-like ratios.
+  const partials = [
+    { ratio: 1, peak: 0.34, decay: 0.42, type: 'triangle' as OscillatorType },
+    { ratio: 2.76, peak: 0.22, decay: 0.28, type: 'triangle' as OscillatorType },
+    { ratio: 5.4, peak: 0.14, decay: 0.18, type: 'sine' as OscillatorType },
+    { ratio: 8.93, peak: 0.08, decay: 0.10, type: 'sine' as OscillatorType },
+    { ratio: 13.34, peak: 0.05, decay: 0.06, type: 'sine' as OscillatorType },
+  ];
+  // A major-third per streak step walks the pickup up like a Mario ramp.
+  const ladder = Math.pow(2, Math.min(streak, 6) / 6 * 7 / 12);
+  for (const partial of partials) {
+    const o = c.createOscillator();
+    o.type = partial.type;
+    o.frequency.setValueAtTime(880 * partial.ratio * ladder, t0);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(partial.peak, t0 + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + partial.decay);
+    o.connect(g);
+    g.connect(this.eventBus);
+    this.trackOneShot(o, [g], t0, t0 + partial.decay + 0.02);
   }
+
+  // Clink transient: a noise burst through a sweeping high bandpass. The
+  // downward filter sweep sells the way metal brightness dies first.
+  if (this.noiseBuf) {
+    const burstNoise = c.createBufferSource();
+    burstNoise.buffer = this.noiseBuf;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(4200, t0);
+    bp.frequency.exponentialRampToValueAtTime(900, t0 + 0.07);
+    bp.Q.value = 1.4;
+    const burstGain = c.createGain();
+    burstGain.gain.setValueAtTime(0.55, t0);
+    burstGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.075);
+    burstNoise.connect(bp);
+    bp.connect(burstGain);
+    burstGain.connect(this.eventBus);
+    this.trackOneShot(burstNoise, [bp, burstGain], t0, t0 + 0.09);
+  }
+
+  // Body resonance — the low-end thump that sells "mass".
+  this.blip(220, t0, 0.14, 0.12, 'sine');
+  this.duckMusic(0.74, 0.12);
+}
 
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */
   setEngine(rpm: number, throttle: number, boosting: boolean): void {

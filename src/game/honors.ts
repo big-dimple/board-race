@@ -12,6 +12,7 @@ import { createToonMaterial } from '../cel/toonMaterial';
 import { addOutline } from '../cel/outline';
 import { markInk } from '../contracts';
 import { FLIGHT_ROUTES } from './course';
+import { coinTextures, createCoinMaterial, setCoinSpin } from './coinVisual';
 
 export type HonorTargetKind = 'duck' | 'coin';
 
@@ -102,6 +103,17 @@ const TARGET_BOB_AMPLITUDE = 0.12;
 const MAX_TARGET_RACERS = 8;
 const COIN_BURST_POOL_SIZE = 8;
 const COIN_BURST_DURATION = 1.05;
+/** World radius the ring starts at, and how far it travels over its 0.45s. */
+const COIN_BURST_RING_START = 1.0;
+const COIN_BURST_RING_TRAVEL = 2.4;
+/** Local Y of the live water plane: the root sits TARGET_BASE_Y above it. */
+const WATERLINE_Y = -TARGET_BASE_Y;
+/** Radians of waterline tip per metre of height difference across the buoy. */
+const WATERLINE_TILT = 0.38;
+/** rad/s of the coin's mint-axis rotation; drives the milled-edge sweep. */
+const COIN_SPIN_RATE = 0.62;
+/** rad/s of the slow face-presenting turn that shows both minted sides. */
+const COIN_PRESENT_RATE = 0.34;
 // Keep the fixed event pool large enough for every supported racer to leave a
 // target in the same fixed step. The live six-boat race uses fewer slots, but
 // the contract is intentionally future-room safe for local/net replay probes.
@@ -131,6 +143,10 @@ interface HonorTargetVisual {
   emblem: THREE.Object3D;
   float: THREE.Mesh;
   floatFoam: THREE.Mesh;
+  /** Flat foam annulus pinned to the live water plane; the buoy's waterline. */
+  waterline: THREE.Mesh;
+  /** Additive gold bloom that keeps the marker readable at chase distance. */
+  halo: THREE.Sprite;
   orbit: THREE.Group;
   x: number;
   z: number;
@@ -152,14 +168,14 @@ interface HonorTargetVisual {
 
 interface CoinBurstSlot {
   root: THREE.Group;
-  ring: THREE.Mesh;
-  flash: THREE.Mesh;
-  rays: THREE.Mesh[];
-  chips: THREE.Mesh[];
-  ringMaterial: THREE.MeshBasicMaterial;
-  rayMaterial: THREE.MeshBasicMaterial;
-  chipMaterial: THREE.MeshBasicMaterial;
-  flashMaterial: THREE.MeshBasicMaterial;
+  ring: THREE.Sprite;
+  flash: THREE.Sprite;
+  rays: THREE.Sprite[];
+  chips: THREE.Sprite[];
+  ringMaterial: THREE.SpriteMaterial;
+  rayMaterials: THREE.SpriteMaterial[];
+  chipMaterials: THREE.SpriteMaterial[];
+  flashMaterial: THREE.SpriteMaterial;
   life: number;
   baseY: number;
   strength: number;
@@ -191,6 +207,7 @@ export class HonorTargetSystem {
   private edgeHitCount = 0;
   private coinBurstCursor = 0;
   private coinBurstCount = 0;
+  private coinSpin = 0;
 
   constructor(private readonly course: ICourse) {
     this.object = new THREE.Group();
@@ -205,6 +222,7 @@ export class HonorTargetSystem {
     this.edgeHitCount = 0;
     this.coinBurstCursor = 0;
     this.coinBurstCount = 0;
+    this.coinSpin = 0;
     for (const target of this.targets) {
       target.hitMask = 0;
       target.activeMask = 0;
@@ -232,6 +250,10 @@ export class HonorTargetSystem {
     out.length = 0;
     this.eventCursor = 0;
     this.updateCoinBursts(dt);
+    // Every coin shares one milled-edge sweep, so a single uniform write per
+    // frame drives the travelling highlight on the whole set.
+    this.coinSpin = (this.coinSpin + dt * COIN_SPIN_RATE) % (Math.PI * 4);
+    setCoinSpin(this.coinSpin);
     for (let targetIndex = 0; targetIndex < this.targets.length; targetIndex++) {
       const target = this.targets[targetIndex];
       target.phase += dt * (1.2 + targetIndex * 0.035);
@@ -239,16 +261,41 @@ export class HonorTargetSystem {
       const bob = Math.sin(target.phase * 1.7) * TARGET_BOB_AMPLITUDE;
       target.y = waterHeight(target.x, target.z, time) + TARGET_BASE_Y + bob;
       target.group.position.y = target.y;
-      target.group.rotation.x = Math.sin(target.phase * 0.83) * 0.055;
-      target.group.rotation.z = Math.cos(target.phase * 0.71) * 0.075;
-      target.emblem.rotation.z += dt * (target.kind === 'coin' ? 0.78 : 0.24);
-      target.emblem.rotation.x = Math.sin(target.phase * 1.3) * 0.06;
+      const swayX = Math.sin(target.phase * 0.83) * 0.055;
+      const swayZ = Math.cos(target.phase * 0.71) * 0.075;
+      target.group.rotation.x = swayX;
+      target.group.rotation.z = swayZ;
+      if (target.kind === 'coin') {
+        // A struck coin turns on its own mint axis and presents its faces
+        // slowly. The old three-axis wobble read as a dangling souvenir.
+        target.emblem.rotation.z = this.coinSpin;
+        target.emblem.rotation.y += dt * COIN_PRESENT_RATE;
+        target.emblem.rotation.x = 0;
+      } else {
+        target.emblem.rotation.z += dt * 0.24;
+        target.emblem.rotation.x = Math.sin(target.phase * 1.3) * 0.06;
+        target.emblem.rotation.y += dt * 0.8;
+      }
       target.float.rotation.z = Math.sin(target.phase * 0.92) * 0.14;
       target.floatFoam.rotation.z = Math.cos(target.phase * 0.86) * 0.12;
-      target.floatFoam.position.y = -0.3 + Math.sin(target.phase * 1.7) * 0.05;
-      if (target.kind === 'coin') target.emblem.rotation.y = Math.sin(target.phase * 1.15) * 0.32;
-      else target.emblem.rotation.y += dt * 0.8;
+      target.floatFoam.position.y = WATERLINE_Y + 0.06 + Math.sin(target.phase * 1.7) * 0.05;
       target.orbit.rotation.y -= dt * 1.6;
+
+      // The waterline foam must stay welded to the live surface even though
+      // the mast above it sways. Cancel the parent sway, then tip the ring by
+      // the local wave gradient so the buoy sits *in* the water, not on a
+      // flat plate hovering over it.
+      const gx = waterHeight(target.x + 1.3, target.z, time) - waterHeight(target.x - 1.3, target.z, time);
+      const gz = waterHeight(target.x, target.z + 1.3, time) - waterHeight(target.x, target.z - 1.3, time);
+      target.waterline.rotation.x = -swayX - gz * WATERLINE_TILT;
+      target.waterline.rotation.z = -swayZ + gx * WATERLINE_TILT;
+      target.waterline.position.y = WATERLINE_Y - bob;
+
+      // The halo breathes against the idle pulse so the marker never reads as
+      // a static decal at chase distance.
+      const halo = 1 + Math.sin(target.phase * 1.9) * 0.09 + target.pulse * 0.5;
+      target.halo.scale.set(2.9 * halo, 2.9 * halo, 1);
+
       const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
       target.group.scale.setScalar(idlePulse + target.pulse * 0.2);
       if (!detect) continue;
@@ -332,20 +379,23 @@ export class HonorTargetSystem {
     const forwardX = target?.forwardX ?? 0;
     const forwardZ = target?.forwardZ ?? 1;
     slot.root.position.set(hit.x - forwardX * 0.42, slot.baseY, hit.z - forwardZ * 0.42);
-    slot.root.rotation.set(0, target ? Math.atan2(target.forwardX, target.forwardZ) : 0, 0);
+    // No authored rotation: the sprites billboard per camera and the burst
+    // layout is radial, so orienting the root would only spin the chips.
+    slot.root.rotation.set(0, 0, 0);
     slot.root.scale.setScalar(slot.strength);
     this.applyCoinBurst(slot);
     this.coinBurstCount++;
   }
 
+  /**
+   * The burst is built from Sprites rather than meshes. Sprites billboard in
+   * the vertex shader against whichever camera is drawing them, so the dual
+   * split-screen windows each get a correctly facing effect from the same
+   * world object — a manual billboard would have to pick one camera and show
+   * the other a ring seen edge-on.
+   */
   private buildCoinBursts(): void {
-    // TorusGeometry is authored in the XY plane, matching the coin face. Keep
-    // that orientation so the pickup ring frames the minted face; the chips
-    // provide the depth and water-surface motion around it.
-    const ringGeometry = new THREE.TorusGeometry(0.92, 0.055, 6, 28);
-    const flashGeometry = new THREE.RingGeometry(0.16, 0.38, 20);
-    const rayGeometry = new THREE.BoxGeometry(0.07, 0.46, 0.05);
-    const chipGeometry = new THREE.OctahedronGeometry(0.16, 0);
+    const maps = coinTextures();
 
     for (let burstIndex = 0; burstIndex < COIN_BURST_POOL_SIZE; burstIndex++) {
       const root = new THREE.Group();
@@ -353,71 +403,56 @@ export class HonorTargetSystem {
       root.visible = false;
       root.renderOrder = 12;
 
-      const ringMaterial = new THREE.MeshBasicMaterial({
-        color: PALETTE.sunFlare,
-        transparent: true,
-        opacity: 0,
-        // Normal blending keeps the minted gold saturated against a bright
-        // sky; the smaller inner flash below supplies the actual glow.
-        blending: THREE.NormalBlending,
-        depthTest: false,
-        depthWrite: false,
-        toneMapped: false,
-        side: THREE.DoubleSide,
-      });
-      const rayMaterial = new THREE.MeshBasicMaterial({
-        color: PALETTE.sunFlare,
-        transparent: true,
-        opacity: 0,
-        blending: THREE.NormalBlending,
-        depthTest: false,
-        depthWrite: false,
-        toneMapped: false,
-      });
-      const chipMaterial = new THREE.MeshBasicMaterial({
-        color: PALETTE.sunFlare,
-        transparent: true,
-        depthTest: false,
-        opacity: 0,
-        depthWrite: false,
-        toneMapped: false,
-      });
-      const flashMaterial = new THREE.MeshBasicMaterial({
-        color: PALETTE.sparkle,
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        depthTest: false,
-        depthWrite: false,
-        toneMapped: false,
-        side: THREE.DoubleSide,
-      });
-      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      const spriteMaterial = (map: THREE.Texture, color: number, additive: boolean): THREE.SpriteMaterial =>
+        new THREE.SpriteMaterial({
+          map,
+          color,
+          transparent: true,
+          opacity: 0,
+          blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+          depthTest: false,
+          depthWrite: false,
+          toneMapped: false,
+        });
+
+      // The ring is a soft annulus, not a tube: it expands as a pressure wave
+      // with falloff on both lips instead of reading as a hard wire hoop.
+      const ringMaterial = spriteMaterial(maps.ring, PALETTE.sunFlare, false);
+      const flashMaterial = spriteMaterial(maps.spark, PALETTE.sparkle, true);
+      const ring = new THREE.Sprite(ringMaterial);
       ring.name = 'honor-coin-burst-ring';
-      ring.position.y = 0.09;
-      const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+      const flash = new THREE.Sprite(flashMaterial);
       flash.name = 'honor-coin-burst-flash';
-      flash.position.y = 0.12;
       root.add(ring, flash);
 
-      const rays: THREE.Mesh[] = [];
+      // Radial streaks. Each keeps its own material so its in-plane rotation
+      // can point outward from the coin face.
+      const rayMaterials: THREE.SpriteMaterial[] = [];
+      const rays: THREE.Sprite[] = [];
       for (let rayIndex = 0; rayIndex < 8; rayIndex++) {
-        const ray = new THREE.Mesh(rayGeometry, rayMaterial);
+        const rayMaterial = spriteMaterial(maps.spark, PALETTE.sunCore, true);
+        const ray = new THREE.Sprite(rayMaterial);
         ray.name = 'honor-coin-burst-ray';
-        ray.position.y = 0.11;
-      ray.rotation.z = rayIndex * Math.PI / 4 - Math.PI / 2;
+        ray.center.set(0.5, 0);
         root.add(ray);
         rays.push(ray);
+        rayMaterials.push(rayMaterial);
       }
 
-      const chips: THREE.Mesh[] = [];
+      // Torn metal flakes. The sprite never turns edge-on, so the flip is
+      // faked by squeezing its width through zero — the same trick arcade
+      // shards use, and it costs nothing compared to real tumbling geometry.
+      const chipMaterials: THREE.SpriteMaterial[] = [];
+      const chips: THREE.Sprite[] = [];
       for (let chipIndex = 0; chipIndex < 10; chipIndex++) {
-        const chip = new THREE.Mesh(chipGeometry, chipMaterial);
+        const chipMaterial = spriteMaterial(maps.shard, PALETTE.sunFlare, false);
+        const chip = new THREE.Sprite(chipMaterial);
         chip.name = 'honor-coin-burst-chip';
-        chip.position.y = 0.16;
         root.add(chip);
         chips.push(chip);
+        chipMaterials.push(chipMaterial);
       }
+
       this.object.add(root);
       this.coinBursts.push({
         root,
@@ -426,8 +461,8 @@ export class HonorTargetSystem {
         rays,
         chips,
         ringMaterial,
-        rayMaterial,
-        chipMaterial,
+        rayMaterials,
+        chipMaterials,
         flashMaterial,
         life: 0,
         baseY: 0,
@@ -437,27 +472,22 @@ export class HonorTargetSystem {
   }
 
   private applyCoinBurst(slot: CoinBurstSlot): void {
-    slot.ringMaterial.opacity = 0.86;
-    slot.rayMaterial.opacity = 0.94;
-    slot.chipMaterial.opacity = 1;
-    slot.flashMaterial.opacity = 0.62;
+    slot.ringMaterial.opacity = 0.95;
+    slot.flashMaterial.opacity = 1;
     // Start just inside the coin rim, then clear the silhouette within the
     // first beat so the pickup reads as a deliberate minted-ring snap.
-    slot.ring.scale.setScalar(0.8);
-    slot.flash.scale.setScalar(0.3);
-    slot.ring.rotation.z = 0;
-    slot.flash.rotation.z = 0;
+    const ringSize = COIN_BURST_RING_START * 2;
+    slot.ring.scale.set(ringSize, ringSize, 1);
+    const flashSize = 1.1;
+    slot.flash.scale.set(flashSize, flashSize, 1);
     for (let index = 0; index < slot.rays.length; index++) {
-      const ray = slot.rays[index];
-      ray.position.set(0, 0.11, 0);
-      ray.scale.set(1, 0.5, 1);
-      ray.rotation.z = index * Math.PI / 4;
+      slot.rays[index].position.set(0, 0, 0);
+      slot.rayMaterials[index].opacity = 1;
+      slot.rayMaterials[index].rotation = index * Math.PI / 4;
     }
     for (let index = 0; index < slot.chips.length; index++) {
-      const chip = slot.chips[index];
-      chip.position.set(0, 0.16, 0);
-      chip.rotation.set(0, 0, 0);
-      chip.scale.setScalar(0.7 + (index % 3) * 0.12);
+      slot.chips[index].position.set(0, 0, 0);
+      slot.chipMaterials[index].opacity = 1;
     }
   }
 
@@ -468,46 +498,62 @@ export class HonorTargetSystem {
       if (slot.life <= 0) {
         slot.root.visible = false;
         slot.ringMaterial.opacity = 0;
-        slot.rayMaterial.opacity = 0;
-        slot.chipMaterial.opacity = 0;
         slot.flashMaterial.opacity = 0;
+        for (const material of slot.rayMaterials) material.opacity = 0;
+        for (const material of slot.chipMaterials) material.opacity = 0;
         continue;
       }
       const progress = 1 - slot.life / COIN_BURST_DURATION;
-      const ease = 1 - Math.pow(1 - progress, 3);
-      const fade = Math.pow(1 - progress, 0.72);
+      // Three separate clocks: the flash is a 2-frame punch, the ring and rays
+      // are the 0.45s shockwave, and the chips carry the full second. A single
+      // shared curve makes all three read as one mushy blob.
+      const ringT = Math.min(1, progress / 0.45);
+      const ringEase = 1 - Math.pow(1 - ringT, 3);
+      const flashT = Math.min(1, progress / 0.18);
+      const chipT = Math.max(0, (progress - 0.04) / 0.96);
+
       slot.root.position.y = slot.baseY + Math.sin(Math.min(1, progress) * Math.PI) * 0.08;
-      slot.ring.scale.setScalar(0.8 + ease * 2.0);
-      slot.ring.rotation.z += dt * 1.8;
-      slot.ringMaterial.opacity = fade * 0.86;
-      slot.flash.scale.setScalar(0.3 + ease * 1.2);
-      slot.flash.rotation.z -= dt * 2.8;
-      slot.flashMaterial.opacity = Math.max(0, 0.62 * (1 - progress * 1.7));
 
-      const rayRadius = 0.92 + ease * 1.62;
+      // Ring: a pressure wave that thins as it grows.
+      const ringRadius = COIN_BURST_RING_START + ringEase * COIN_BURST_RING_TRAVEL;
+      const ringSize = ringRadius * 2;
+      slot.ring.scale.set(ringSize, ringSize, 1);
+      slot.ringMaterial.opacity = Math.pow(1 - ringT, 1.5) * 0.95;
+
+      // Flash: hard pop, gone before the ring has travelled a coin width.
+      const flashSize = 1.1 + flashT * 3.4;
+      slot.flash.scale.set(flashSize, flashSize, 1);
+      slot.flashMaterial.opacity = Math.pow(1 - flashT, 2.2);
+
+      // Rays: stretched outward, thinning as they go.
+      const rayRadius = 0.9 + ringEase * (COIN_BURST_RING_TRAVEL + 0.5);
       for (let index = 0; index < slot.rays.length; index++) {
-        const ray = slot.rays[index];
-        const angle = index * Math.PI / 4 + progress * 0.9;
-        ray.position.set(Math.cos(angle) * rayRadius, 0.11 + progress * 0.16 + Math.sin(angle) * 0.08, Math.sin(angle) * 0.12);
-        ray.rotation.z = angle - Math.PI / 2;
-        ray.scale.set(1, 0.34 + (1 - progress) * 0.5, 1);
+        const material = slot.rayMaterials[index];
+        const angle = index * Math.PI / 4 + ringT * 0.5;
+        slot.rays[index].position.set(Math.cos(angle) * rayRadius, Math.sin(angle) * rayRadius, 0);
+        material.rotation = angle - Math.PI / 2;
+        const length = 1.5 * (1 - ringT * 0.55);
+        slot.rays[index].scale.set(0.34 * (1 - ringT * 0.5), length, 1);
+        material.opacity = Math.pow(1 - ringT, 1.4) * 0.9;
       }
-      slot.rayMaterial.opacity = fade * 0.88;
 
+      // Chips: real 3D ballistic arc, with the flip faked by squeezing width.
+      const chipEase = 1 - Math.pow(1 - chipT, 2.4);
       for (let index = 0; index < slot.chips.length; index++) {
         const chip = slot.chips[index];
+        const material = slot.chipMaterials[index];
         const lane = index / slot.chips.length;
-        const angle = lane * Math.PI * 2 + progress * (2.8 + (index % 3) * 0.4);
-        const radius = 0.86 + ease * (1.12 + (index % 4) * 0.18);
-        chip.position.set(
-          Math.cos(angle) * radius,
-          0.16 + Math.sin(angle) * radius * 0.62 + Math.sin(progress * Math.PI) * (0.55 + (index % 3) * 0.16) - progress * progress * 0.38,
-          0.28 + Math.sin(angle) * 0.16,
-        );
-        chip.rotation.set(progress * (2.3 + index * 0.17), angle + progress * 3, progress * (1.7 + index * 0.11));
-        chip.scale.setScalar((0.72 + (index % 3) * 0.12) * (0.96 - progress * 0.34));
+        const angle = lane * Math.PI * 2 + chipT * (1.5 + (index % 3) * 0.5);
+        const radius = 0.5 + chipEase * (1.5 + (index % 4) * 0.24);
+        const launch = 0.5 + (index % 3) * 0.22;
+        const height = Math.sin(chipT * Math.PI) * launch - chipT * chipT * 0.9;
+        chip.position.set(Math.cos(angle) * radius, height, Math.sin(angle) * radius * 0.5);
+        // Squeeze the width through zero twice: a torn flake turning over.
+        const flip = Math.cos(chipT * (7 + index * 0.6));
+        const size = (0.62 + (index % 3) * 0.14) * (1 - chipT * 0.3);
+        chip.scale.set(size * flip, size, 1);
+        material.opacity = Math.pow(1 - chipT, 0.8);
       }
-      slot.chipMaterial.opacity = fade;
     }
   }
 
@@ -619,8 +665,24 @@ export class HonorTargetSystem {
     const pennantGeometry = new THREE.BoxGeometry(1.65, 0.62, 0.14);
     const beaconGeometry = new THREE.SphereGeometry(0.25, 10, 8);
     const stemGeometry = new THREE.CylinderGeometry(0.1, 0.16, 1.55, 8);
-    const floatGeometry = new THREE.CylinderGeometry(1.05, 1.28, 0.7, 12);
-    const floatFoamGeometry = new THREE.TorusGeometry(1.2, 0.13, 7, 24);
+    // The float is a lathed buoy profile: a tight stem at the top flaring out
+    // to a wide, rounded waterline skirt. A plain cylinder reads as a stacked
+    // paper disc the moment the camera gets close enough to see the waterline.
+    const floatGeometry = new THREE.LatheGeometry([
+      new THREE.Vector2(0.0, 0.2),
+      new THREE.Vector2(0.92, 0.2),
+      new THREE.Vector2(1.16, 0.13),
+      new THREE.Vector2(1.3, -0.04),
+      new THREE.Vector2(1.34, -0.26),
+      new THREE.Vector2(1.26, -0.44),
+      new THREE.Vector2(0.98, -0.56),
+      new THREE.Vector2(0.0, -0.6),
+    ], 20);
+    const floatFoamGeometry = new THREE.TorusGeometry(1.24, 0.09, 6, 28);
+    // A flat foam annulus pinned to the live water plane. This is the single
+    // cue that welds the buoy into the surface instead of hovering over it.
+    const waterlineGeometry = new THREE.RingGeometry(1.04, 1.92, 28, 1);
+    waterlineGeometry.rotateX(-Math.PI / 2);
     const orbitGeometry = new THREE.SphereGeometry(0.2, 10, 8);
     const materials = new Map<HonorTargetKind, THREE.ShaderMaterial>();
     const materialFor = (kind: HonorTargetKind): THREE.ShaderMaterial => {
@@ -653,40 +715,74 @@ export class HonorTargetSystem {
       rimColor: PALETTE.ink,
       rimStrength: 0.4,
     });
-    const coinEdgeMaterial = createToonMaterial({
+    // The milled outer band is where the coin actually reads as struck metal:
+    // full anisotropic sweep, 64 lobes matching the 64 authored serrations, and
+    // a deep gold that stays saturated in shade.
+    const coinEdgeMaterial = createCoinMaterial({
       color: PALETTE.sunFlare,
-      emissive: PALETTE.sunFlare,
-      emissiveIntensity: 0.16,
-      rimColor: PALETTE.ink,
-      rimStrength: 0.35,
-    });
-    const coinFaceMaterial = createToonMaterial({
-      color: PALETTE.sunCore,
-      emissive: PALETTE.sunFlare,
-      emissiveIntensity: 0.22,
-      rimColor: PALETTE.foam,
-      rimStrength: 0.44,
-    });
-    const coinRimMaterial = createToonMaterial({
-      color: PALETTE.sunFlare,
-      emissive: PALETTE.sunCore,
-      emissiveIntensity: 0.28,
-      rimColor: PALETTE.foam,
-      rimStrength: 0.5,
-    });
-    const coinStampMaterial = createToonMaterial({
-      color: PALETTE.ink,
-      emissive: PALETTE.sunFlare,
-      emissiveIntensity: 0.05,
+      deep: 0xa8660c,
+      milled: 1,
+      lobes: 64,
+      specColor: PALETTE.sparkle,
+      spec1: 0.86,
       rimColor: PALETTE.sunCore,
-      rimStrength: 0.18,
+      rimStrength: 0.42,
+      rimThreshold: 0.6,
     });
-    const coinHighlightMaterial = createToonMaterial({
-      color: PALETTE.foam,
-      emissive: PALETTE.sunCore,
-      emissiveIntensity: 0.32,
+    // The face is polished but not milled. It keeps a faint sweep so the whole
+    // disc turns as one object.
+    const coinFaceMaterial = createCoinMaterial({
+      color: PALETTE.sunCore,
+      deep: 0xd9a12a,
+      milled: 0.3,
+      lobes: 12,
+      specColor: PALETTE.sparkle,
+      spec1: 0.93,
       rimColor: PALETTE.foam,
-      rimStrength: 0.18,
+      rimStrength: 0.3,
+      rimThreshold: 0.66,
+    });
+    const coinRimMaterial = createCoinMaterial({
+      color: 0xffdc63,
+      deep: 0xb0760f,
+      milled: 0.72,
+      lobes: 40,
+      specColor: PALETTE.sparkle,
+      spec1: 0.88,
+      rimColor: PALETTE.sunCore,
+      rimStrength: 0.46,
+      rimThreshold: 0.56,
+    });
+    // The stamp is recessed: darker than the face with almost no specular, so
+    // the compass reads as pressed into the metal rather than printed on it.
+    const coinStampMaterial = createCoinMaterial({
+      color: 0x8c5a08,
+      deep: 0x4d3006,
+      milled: 0,
+      specColor: PALETTE.sunFlare,
+      spec1: 0.985,
+      rimColor: PALETTE.sunCore,
+      rimStrength: 0.22,
+      rimThreshold: 0.7,
+    });
+    // The chamfer highlight is cream, never gold — a minted edge catches sky.
+    const coinHighlightMaterial = createCoinMaterial({
+      color: PALETTE.foam,
+      deep: PALETTE.sunCore,
+      milled: 0,
+      specColor: PALETTE.sparkle,
+      spec1: 0.9,
+      rimColor: PALETTE.foam,
+      rimStrength: 0.3,
+      rimThreshold: 0.5,
+    });
+    const waterlineMaterial = new THREE.MeshBasicMaterial({
+      color: PALETTE.foam,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
     });
 
     for (let index = 0; index < TARGET_LAYOUT.length; index++) {
@@ -776,7 +872,7 @@ export class HonorTargetSystem {
       mast.name = 'honor-signal-mast';
       mast.position.y = 0.62;
       group.add(mast);
-      const pennant = new THREE.Mesh(pennantGeometry, spec.kind === 'coin' ? coinStampMaterial : materialFor(spec.kind));
+      const pennant = new THREE.Mesh(pennantGeometry, spec.kind === 'coin' ? coinRimMaterial : materialFor(spec.kind));
       pennant.name = 'honor-signal-pennant';
       pennant.position.set(0.7, 1.65, -0.04);
       pennant.userData.noOutline = true;
@@ -793,8 +889,40 @@ export class HonorTargetSystem {
       const floatFoam = new THREE.Mesh(floatFoamGeometry, beamMaterial);
       floatFoam.name = 'honor-float-foam';
       floatFoam.rotation.x = Math.PI / 2;
-      floatFoam.position.y = -0.3;
+      floatFoam.position.y = WATERLINE_Y + 0.06;
       group.add(floatFoam);
+
+      const waterline = new THREE.Mesh(waterlineGeometry, waterlineMaterial);
+      waterline.name = 'honor-waterline-foam';
+      waterline.position.y = WATERLINE_Y;
+      waterline.renderOrder = 3;
+      waterline.userData.noInk = true;
+      waterline.userData.noOutline = true;
+      waterline.layers.set(0);
+      group.add(waterline);
+
+      // An additive bloom behind the marker. At chase distance the coin alone
+      // is a few pixels; this is what makes it read as a premium pickup from
+      // far enough away that the player can still choose the detour line.
+      // Sprites billboard per camera, so both duo windows get it correct.
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: coinTextures().spark,
+        color: spec.kind === 'coin' ? PALETTE.sunFlare : PALETTE.hullKai,
+        transparent: true,
+        opacity: spec.kind === 'coin' ? 0.44 : 0.2,
+        blending: THREE.AdditiveBlending,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      }));
+      halo.name = 'honor-halo';
+      halo.scale.set(2.9, 2.9, 1);
+      halo.position.y = 1.02;
+      halo.renderOrder = 8;
+      halo.userData.noInk = true;
+      halo.userData.noOutline = true;
+      halo.layers.set(0);
+      group.add(halo);
 
       const stem = new THREE.Mesh(stemGeometry, inkMaterial);
       stem.name = 'honor-stem';
@@ -831,6 +959,8 @@ export class HonorTargetSystem {
         emblem,
         float,
         floatFoam,
+        waterline,
+        halo,
         orbit,
         x,
         z,

@@ -1121,14 +1121,19 @@ export class HUD {
     precision: 'center' | 'edge',
     kind: 'duck' | 'coin',
     lane: 'left' | 'center' | 'right' = 'center',
+    streak = 0,
   ): void {
+    const safeStreak = Math.max(0, Math.min(streak, 6));
+    const detail = safeStreak > 0
+      ? `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 连击 ×${safeStreak + 1} · 荣誉已记录`
+      : `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 荣誉已记录`;
     this.enqueueImpact({
       kind: kind === 'coin' ? 'honor-coin' : 'honor-duck',
-      kicker: kind === 'coin' ? 'COIN PICKUP' : 'HONOR HIT',
+      kicker: kind === 'coin' ? (safeStreak > 0 ? `COIN COMBO ×${safeStreak + 1}` : 'COIN PICKUP') : 'HONOR HIT',
       title: `${title} +${value}`,
-      detail: `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 荣誉已记录`,
+      detail,
       color: kind === 'coin' ? PALETTE.sunFlare : PALETTE.hullKai,
-      duration: kind === 'coin' ? 1.25 : 1.15,
+      duration: kind === 'coin' ? 0.92 : 1.05,
       priority: 70,
       lane,
     });

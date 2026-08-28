@@ -224,6 +224,15 @@ export class CameraRig {
     }
   }
 
+  /** Short positive FOV pop + tiny pull-back on a coin pickup; grows with streak. */
+  coinPickupKick(streak = 0): void {
+    if (this.reducedMotion) return;
+    const step = Math.min(streak, 6);
+    this.shake(0.04 + step * 0.015);
+    this.impactFov = Math.max(this.impactFov, 0.9 + step * 0.45);
+    this.impactBack = Math.max(this.impactBack, 0.14 + step * 0.06);
+  }
+
   collisionKick(strength: number, side = 0): void {
     const amount = this.reducedMotion || this.collisionImpactLevel === 'off'
       ? 0

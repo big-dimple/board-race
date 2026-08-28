@@ -430,6 +430,17 @@ let prevCorridorStage = 0;
 let harnessCheckpointEvents = 0;
 let harnessCollisionFxBursts = 0;
 const humanCollisionCounts = [0, 0];
+// Per-racer coin pickup streak. A pickup within COIN_STREAK_WINDOW seconds
+// of the previous pickup grows the streak; otherwise it resets to 1. The
+// streak drives both the bonus point value on the honor ledger and the
+// pitch ladder of the metallic chime, so a run that threads multiple
+// pickups reads as a single escalating pickup arc.
+const coinStreakCounts: number[] = [];
+const coinStreakTimes: number[] = [];
+const COIN_BASE_VALUE = 130;
+const COIN_STREAK_BONUS = 45;
+const COIN_STREAK_MAX = 6;
+const COIN_STREAK_WINDOW = 4.5;
 let harnessRoutePilotIndex = -1;
 const harnessRoutePasses = new Array<number>(boats.length).fill(0);
 const harnessRouteFails = new Array<number>(boats.length).fill(0);
@@ -1013,6 +1024,12 @@ function startNextRaceRound(): void {
   // while the next round gets a fresh local ledger and target inventory.
   honors.reset(boats.length);
   honorTargets.reset();
+  coinStreakCounts.length = 0;
+  coinStreakTimes.length = 0;
+  for (let index = 0; index < boats.length; index++) {
+    coinStreakCounts.push(0);
+    coinStreakTimes.push(-Infinity);
+  }
   duoInteractions.reset();
   humanCollisionCounts[0] = 0;
   humanCollisionCounts[1] = 0;
@@ -1289,6 +1306,12 @@ function resetRace(): void {
   course.resetFinalStation();
   honorTargets.reset();
   honors.reset(boats.length);
+  coinStreakCounts.length = 0;
+  coinStreakTimes.length = 0;
+  for (let index = 0; index < boats.length; index++) {
+    coinStreakCounts.push(0);
+    coinStreakTimes.push(-Infinity);
+  }
   honorHighlights.hide();
   duoInteractions.reset();
   duoEliminated[0] = false;
@@ -1537,6 +1560,22 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
 
 function presentHonorHits(hits: readonly HonorHit[]): void {
   for (const hit of hits) {
+    // Coin streak: a pickup within the time window grows the ladder; the
+    // bonus value is what the honor ledger sees and what the HUD/chime/camera
+    // read. Streak resets on the next race round (see startNextRaceRound).
+    let streakStep = 0;
+    if (hit.kind === 'coin') {
+      const lastAt = coinStreakTimes[hit.racerId] ?? -Infinity;
+      const last = coinStreakCounts[hit.racerId] ?? 0;
+      if (last > 0 && race.raceTime - lastAt <= COIN_STREAK_WINDOW) {
+        coinStreakCounts[hit.racerId] = Math.min(last + 1, COIN_STREAK_MAX);
+      } else {
+        coinStreakCounts[hit.racerId] = 1;
+      }
+      coinStreakTimes[hit.racerId] = race.raceTime;
+      streakStep = Math.max(0, coinStreakCounts[hit.racerId] - 1);
+      hit.value = COIN_BASE_VALUE + streakStep * COIN_STREAK_BONUS;
+    }
     honors.addTargetHit(hit);
     honorFxPoint.set(hit.x, hit.y, hit.z);
     spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 7, hit.kind === 'duck' ? 7.2 : 4.8);
@@ -1546,12 +1585,12 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
     if (hit.kind === 'duck') audio.balloonPop();
-    else audio.coinCollect();
+    else audio.coinCollect(streakStep);
     const targetPipeline = isDuoMode() && hit.racerId < 2
       ? hit.racerId === 0 ? teamLeftPipeline : teamRightPipeline
       : pipeline;
-    targetPipeline.pulse('ready', hit.kind === 'coin' ? 0.72 : 0.58);
-    const rumbleStrength = hit.kind === 'coin' ? 0.56 : 0.42;
+    targetPipeline.pulse('ready', hit.kind === 'coin' ? 0.72 + streakStep * 0.04 : 0.58);
+    const rumbleStrength = hit.kind === 'coin' ? 0.56 + streakStep * 0.04 : 0.42;
     // A target belongs to the boat that touched it. In dual play route the
     // pulse to that seat's device instead of whichever controller was last
     // active globally; single play keeps the normal haptics lane.
@@ -1560,6 +1599,9 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     } else {
       haptics.impact('collision-light', rumbleStrength, false);
     }
+    // Camera pickup punch grows with the streak so a combo reads as one
+    // accelerating hit rather than six equal ones.
+    if (hit.kind === 'coin') cameraRig.coinPickupKick(streakStep);
     hud.showHonorTargetNotice(
       racer?.name ?? '选手',
       definition?.title ?? '荣誉目标',
@@ -1567,6 +1609,7 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
       hit.precision,
       hit.kind,
       isDuoMode() && hit.racerId < 2 ? hit.racerId === 0 ? 'left' : 'right' : 'center',
+      streakStep,
     );
     trackGameEvent('honor_award', {
       id: `target.${hit.kind}`,
@@ -1574,6 +1617,7 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
       value: hit.value,
       precision: hit.precision,
       at: hit.at,
+      streak: streakStep,
     });
   }
 }
