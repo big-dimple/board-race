@@ -523,7 +523,7 @@ function applySelectedDriver(id: string): void {
     const profile = driverProfile(definition.profileId);
     boats[definition.id].setDriver(definition.color, profile.handling);
     riders[definition.id].setColor(definition.color, profile.look);
-    riders[definition.id].update(1 / 60, boats[definition.id].state, presentationTime, false);
+    riders[definition.id].update(1 / 60, boats[definition.id].state, presentationTime);
   }
   ais = buildAiControllers();
   race.setDefinitions(roster);
@@ -642,7 +642,7 @@ function startDuoRace(selection: DuoSelection): void {
     boats[definition.id].setDriver(definition.color, profile.handling);
     boats[definition.id].setPlayerOwned(definition.isPlayer);
     riders[definition.id].setColor(definition.color, profile.look);
-    riders[definition.id].update(1 / 60, boats[definition.id].state, presentationTime, false);
+    riders[definition.id].update(1 / 60, boats[definition.id].state, presentationTime);
   }
   // setDefinitions is legal in READY and resets the six racer states while
   // preserving the authored grid positions; the explicit player list then
@@ -1252,10 +1252,9 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     seaDecor.update(presentationTime, stage.camera.position);
     course.update(dt, presentationTime);
     // The race step returns early here, so without this the riders freeze in
-    // their driving pose: rivals who crossed earlier were seen celebrating,
-    // but the player's own rider never pumped a fist. Keep the celebration
-    // alive through the finale presentation.
-    for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime, race.racers[i].finished);
+    // their driving pose. Keep breathing and secondary motion running through
+    // the finale presentation; the finish is sold by the camera and the HUD.
+    for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime);
   }
   pipeline.update(dt, finalPresentation ? presentationTime : retryLessonFrozenT, frozen, phase);
   hud.update(dt, race, focusBoat, boats);
@@ -1737,7 +1736,7 @@ function updateFrontDoor(dt: number, t: number): void {
   sky.update(presentationTime, stage.camera.position);
   seaDecor.update(presentationTime, stage.camera.position);
   for (const boat of boats) boat.syncSurfacePresentation(presentationTime);
-  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime, false);
+  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime);
   openingShowcase.update(dt);
   course.update(0, presentationTime);
   honorTargets.update(dt, presentationTime, [], race.racers, honorHitScratch, false);
@@ -1840,7 +1839,7 @@ function updateTeamPresentation(dt: number, t: number): void {
   teamExperience.updateTransition(dt);
   for (let i = 0; i < boats.length; i++) {
     if (!boats[i].object.visible) continue;
-    riders[i].update(dt, boats[i].state, t, false);
+    riders[i].update(dt, boats[i].state, t);
     wakes[i].update(dt, t);
   }
   spray.update(dt, t);
@@ -2131,7 +2130,7 @@ function step(dt: number, _t: number): void {
     sky.update(readySceneTime, stage.camera.position);
     seaDecor.update(readySceneTime, stage.camera.position);
     for (const boat of boats) boat.syncSurfacePresentation(readySceneTime);
-    for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime, false);
+    for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime);
     openingShowcase.update(dt);
     course.update(0, readySceneTime);
     honorTargets.update(dt, readySceneTime, [], race.racers, honorHitScratch, false);
@@ -2159,7 +2158,7 @@ function step(dt: number, _t: number): void {
       sky.update(worldTime, stage.camera.position);
       seaDecor.update(worldTime, stage.camera.position);
       for (const boat of boats) boat.syncSurfacePresentation(worldTime);
-      for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, false);
+      for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime);
       course.update(0, worldTime);
     }
     honorTargets.update(dt, worldTime, [], race.racers, honorHitScratch, false);
@@ -2551,7 +2550,7 @@ function step(dt: number, _t: number): void {
       }
     }
   }
-  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime, race.racers[i].finished);
+  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime);
 
   updateRaceCamera(dt, worldTime, focusBoat);
   applyHarnessCameraOverride();
@@ -4118,7 +4117,7 @@ function prepareHarnessRiderInspection(): THREE.Object3D {
   }
   placeHarnessBoat(0, 0.22, 0);
   boats[0].syncSurfacePresentation(worldTime);
-  riders[0].update(1 / 60, boats[0].state, worldTime, false);
+  riders[0].update(1 / 60, boats[0].state, worldTime);
   return getRiderFaceTarget();
 }
 

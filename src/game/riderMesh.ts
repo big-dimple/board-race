@@ -1042,21 +1042,20 @@ export function updateHairAccessory(
   lean: number,
   airborne: number,
   flight: number,
-  celebration: number,
   time: number,
 ): void {
   const bones = skin.hair.bones;
   if (bones.length < 2) return;
   const sway = Math.sin(time * 1.7) * 0.035 + lean * 0.16;
   const root = bones[0];
-  root.rotation.set(-airborne * 0.08 + flight * 0.06, 0, sway * (1 - celebration));
+  root.rotation.set(-airborne * 0.08 + flight * 0.06, 0, sway);
   for (let i = 1; i < bones.length; i++) {
     const t = i / (bones.length - 1);
     const bone = bones[i];
     bone.rotation.set(
       (airborne * 0.1 + flight * 0.06) * t,
       Math.sin(time * 1.35 + i * 0.7) * 0.045 * t,
-      sway * (0.35 + t) * (1 - celebration * 0.5),
+      sway * (0.35 + t),
     );
   }
 }

@@ -10,7 +10,11 @@
  *   - drift hip twist, throttle wrist, rpm vibration
  *   - airborne "whee" pose, springy landing crouch on landImpulse
  *   - idle breathing + secondary motion lagging the boat's pitch/roll
- *   - celebration loop (arm pumps, head nod) blended in over ~0.4s
+ *   - taunt: a square head turn at an alongside rival, no raised arm
+ *
+ * There is deliberately no victory animation. Every looping arm pump read as a
+ * mechanical puppet on the frozen finish frame, so the rider stays on the grips
+ * and the moment is carried by the camera and the HUD instead.
  *
  * All animation state lives in a handful of scalar damped springs; update()
  * applies DELTA rotations on top of the baked rest pose. Zero per-frame
@@ -80,15 +84,8 @@ const TUNING = {
   elbowPoleForward: -0.15,
   elbowPoleY: 0.35,
 
-  // Celebration: ~0.4s blend in, loops while `celebrating`.
-  celOmega: 7, celZeta: 1,
-  pumpHz: 1.7, pumpAmp: 0.45, pumpRaise: -2.3,
-  celLeftRaise: -2.1, celLeftLag: 0.9, // both hands off the bar at the line
-  celNodHz: 0.9, celNodAmp: 0.12,
-  celUpright: 0.35,
-
   // Head-look into the steering direction: the rider eyes the corner, not
-  // the bow. Small, damped, suppressed while celebrating or taunting.
+  // the bow. Small, damped, suppressed while taunting.
   headSteerLook: 0.3,
 
   // Taunt: a alongside rival gets a square head turn for ~1.6s, then a long
@@ -162,7 +159,6 @@ export class Rider {
   private readonly airS = new Spring();
   private readonly flightS = new Spring();
   private readonly crouchS = new Spring();
-  private readonly celS = new Spring();
   private readonly tauntS = new Spring();
   private readonly boatPitchS = new Spring();
   private readonly boatRollS = new Spring();
@@ -366,7 +362,7 @@ export class Rider {
   }
 
   /** dt is fixed 1/60. Applies delta rotations on top of the baked rest pose. */
-  update(dt: number, boat: BoatState, t: number, celebrating: boolean): void {
+  update(dt: number, boat: BoatState, t: number): void {
     const T = TUNING;
     const j = this.j;
 
@@ -376,17 +372,15 @@ export class Rider {
     const driftT = boat.drifting ? T.driftSign * boat.steer * T.driftTwist : 0;
     const airT = boat.airborne ? 1 : 0;
     const flightT = boat.flightPhase !== 'surface' ? 1 : 0;
-    const celT = celebrating ? 1 : 0;
 
     const lean = this.leanS.update(leanT, T.leanOmega, T.leanZeta, dt);
     const pitch = this.pitchS.update(pitchT, T.pitchOmega, T.pitchZeta, dt);
     const drift = this.driftS.update(driftT, T.driftOmega, T.driftZeta, dt);
     const air = this.airS.update(airT, T.airOmega, T.airZeta, dt);
     const flight = this.flightS.update(flightT, T.flightOmega, T.flightZeta, dt);
-    const cel = this.celS.update(celT, T.celOmega, T.celZeta, dt);
 
     this.tauntRemaining = Math.max(0, this.tauntRemaining - dt);
-    const taunt = this.tauntS.update(this.tauntRemaining > 0 ? 1 : 0, T.tauntOmega, T.tauntZeta, dt) * (1 - cel);
+    const taunt = this.tauntS.update(this.tauntRemaining > 0 ? 1 : 0, T.tauntOmega, T.tauntZeta, dt);
 
     // Landing crouch: impulse kicks the spring, underdamped ~0.4s recovery.
     if (boat.landImpulse > 0) this.crouchS.v += boat.landImpulse * T.landKick;
@@ -412,77 +406,59 @@ export class Rider {
     const bob = Math.sin(tp * 2 * Math.PI * T.breathHz + 0.6) * T.breathBob * idleW;
     const vib = (Math.sin(tp * T.vibF1) + Math.sin(tp * T.vibF2)) * 0.5 * T.vibAmp * boat.rpm;
 
-    // Celebration suppresses the driving layer.
-    const drive = 1 - cel * 0.85;
-
     // ------------------------------------------------------ composite ----
     // Hips: lean roll, drift twist, crouch drop, breathing bob.
     j.hips.rotation.set(
-      -air * T.airBodyOpen * 0.4 + flight * T.airBodyOpen * 0.4 - cel * 0.1,
-      drift * drive,
-      lean * T.leanHips * drive + secR * 0.5,
+      -air * T.airBodyOpen * 0.4 + flight * T.airBodyOpen * 0.4,
+      drift,
+      lean * T.leanHips + secR * 0.5,
     );
     j.hips.position.y = this.hipsBaseY + bob;
 
-    // Spine: baked forward hunch + weight shift, lean, breathing, secondary
-    // lag, celebration upright.
+    // Spine: baked forward hunch + weight shift, lean, breathing and secondary
+    // lag. The riding crouch is never straightened into a pose.
     j.spine.rotation.set(
-      POSE.hunchSpine + pitch + breath + secP
-        - air * T.airBodyOpen - flight * T.flightChestOpen - cel * T.celUpright,
+      POSE.hunchSpine + pitch + breath + secP - air * T.airBodyOpen - flight * T.flightChestOpen,
       0,
-      lean * T.leanSpine * drive,
+      lean * T.leanSpine,
     );
     j.chest.rotation.set(
-      POSE.hunchChest + pitch * 0.4 + secP * 0.5 - cel * T.celUpright * 0.4,
-      drift * 0.3 * drive,
-      lean * T.leanChest * drive,
+      POSE.hunchChest + pitch * 0.4 + secP * 0.5,
+      drift * 0.3,
+      lean * T.leanChest,
     );
 
-    // Head: counter-lean, tips up airborne, nods while celebrating, eyes the
-    // steering direction, and turns squarely at a taunted rival.
+    // Head: counter-lean, tips up airborne, eyes the steering direction and
+    // turns squarely at a taunted rival.
     j.head.rotation.set(
-      POSE.headTiltUp - air * T.airHeadUp - pitch * 0.5
-        + cel * Math.sin(t * 2 * Math.PI * T.celNodHz) * T.celNodAmp,
-      (-boat.steer * T.headSteerLook * drive + taunt * T.tauntHeadYaw * this.tauntSide) * (1 - cel),
-      -lean * T.headCounter * drive - secR * 0.4,
+      POSE.headTiltUp - air * T.airHeadUp - pitch * 0.5,
+      -boat.steer * T.headSteerLook + taunt * T.tauntHeadYaw * this.tauntSide,
+      -lean * T.headCounter - secR * 0.4,
     );
 
     // Legs: inside knee flares with lean (lean < 0 = turning left = left inside),
     // crouch flexes both knees, airborne extends them a touch.
-    const flareL = Math.max(0, -lean) / T.leanMax * T.kneeFlare * drive;
-    const flareR = Math.max(0, lean) / T.leanMax * T.kneeFlare * drive;
+    const flareL = Math.max(0, -lean) / T.leanMax * T.kneeFlare;
+    const flareR = Math.max(0, lean) / T.leanMax * T.kneeFlare;
     j.hipL.rotation.set(crouch * T.landHip + air * 0.1 + flight * T.flightKnee * 0.65, 0, flareL);
     j.hipR.rotation.set(crouch * T.landHip + air * 0.1 + flight * T.flightKnee * 0.65, 0, -flareR);
     j.kneeL.rotation.set(-crouch * T.landKnee - air * T.airLegExtend - flight * T.flightKnee, 0, 0);
     j.kneeR.rotation.set(-crouch * T.landKnee - air * T.airLegExtend - flight * T.flightKnee, 0, 0);
 
-    // Celebration pump: right arm overhead in a loop, left joins late and
-    // returns to the grip every cycle.
-    const pumpT = tp * 2 * Math.PI * T.pumpHz;
-    const pumpR = T.pumpRaise + Math.sin(pumpT) * T.pumpAmp;
-    const gateL = Math.pow(Math.max(0, Math.sin(pumpT - T.celLeftLag)), 1.5);
-    const pumpL = T.celLeftRaise * gateL;
-
-    // Solve both arms against the boat-fixed grips after the torso has moved.
-    // The pole vector deliberately places each elbow forward and outward;
+    // Both gloves stay on the grips for the whole run, including the finish.
+    // Solve against the boat-fixed grips after the torso has moved: the pole
+    // vector deliberately places each elbow forward and outward, because
     // endpoint-only shoulder counter-rotation was the source of the reversed
     // elbow silhouette in the previous build.
     this.object.updateWorldMatrix(true, true);
-    if (cel < 0.72) {
-      this.solveArm(1, j.shoulderL, j.elbowL, j.handL, RIDER_GRIP_LOCAL.left, lean);
-      this.solveArm(-1, j.shoulderR, j.elbowR, j.handR, RIDER_GRIP_LOCAL.right, lean);
-    } else {
-      j.shoulderL.rotation.set(pumpL, 0, -0.1);
-      j.shoulderR.rotation.set(pumpR, 0, 0.1);
-      j.elbowL.rotation.set(0, 0, 0);
-      j.elbowR.rotation.set(Math.sin(pumpT) * 0.3 - 0.3, 0, 0);
-    }
+    this.solveArm(1, j.shoulderL, j.elbowL, j.handL, RIDER_GRIP_LOCAL.left, lean);
+    this.solveArm(-1, j.shoulderR, j.elbowR, j.handR, RIDER_GRIP_LOCAL.right, lean);
 
     // Right wrist works the throttle; left stays quiet on its grip.
     const thr = clamp(boat.throttle, 0, 1);
-    j.handR.rotation.set(-thr * T.throttleWrist * (1 - cel), 0, 0);
+    j.handR.rotation.set(-thr * T.throttleWrist, 0, 0);
     j.handL.rotation.set(vib * 0.5, 0, 0);
     this.object.updateMatrixWorld(true);
-    updateHairAccessory(this.skin, lean, air, flight, cel, tp);
+    updateHairAccessory(this.skin, lean, air, flight, tp);
   }
 }
