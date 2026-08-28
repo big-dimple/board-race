@@ -2868,6 +2868,7 @@ interface Harness {
   radioTechniqueCase(): Record<string, unknown>;
   offCourseRecoveryCase(): Record<string, unknown>;
   finalEligibilityCase(): Record<string, unknown>;
+  postSetRankCase(): Record<string, unknown>;
   finaleHonorSequenceCase(leaveVisible?: boolean, testAutoContinue?: boolean): Record<string, unknown>;
   singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
@@ -3647,6 +3648,77 @@ function runFinalEligibilityCase(): Record<string, unknown> {
     };
   } finally {
     // Leave the browser harness in a clean READY state for the next scenario.
+    resetRace();
+  }
+}
+
+/**
+ * A racer that already completed a whole authored flight set must keep its
+ * rank while it takes one more route. Clearing the eighth flight used to
+ * revoke the qualification flag place sorting relies on, and the armed
+ * player's tracked distance was still pinned to the arming moment, so the
+ * leader became sixth one frame later without ever losing the physical lead.
+ */
+function runPostSetRankCase(): Record<string, unknown> {
+  const dt = 1 / 60;
+  const routeCount = Math.max(1, course.flightRoutes.length);
+  try {
+    resetRace();
+    race.setPlayerIds([0]);
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    // Teleporting clears flight tracking, so stage the authored progress after
+    // every placement: the player owns a whole set, the pack owns none.
+    const stage = (id: number, u: number, lateral: number, cleared: number): void => {
+      placeHarnessBoat(id, u, lateral);
+      const st = boats[id].state;
+      st.flightPhase = 'surface';
+      st.airborne = false;
+      st.flightRouteState = 'idle';
+      st.flightRouteIndex = -1;
+      st.flightGateProgress = 0;
+      st.flightRouteFailReason = 'none';
+      st.flightFailure = null;
+      st.flightRouteCursor = cleared;
+      st.flightsCleared = cleared;
+    };
+    // The player leads the pack; stay clear of the half-lap antipode so the
+    // staging teleports resolve as forward placements, not wrap-arounds.
+    stage(0, 0.25, 0, routeCount);
+    for (let id = 1; id < boats.length; id++) stage(id, 0.2 - id * 0.02, id % 2 === 0 ? 2.4 : -2.4, 0);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.update(dt);
+    if (!race.armFinale()) throw new Error('unable to arm Final for the post-set rank case');
+    course.armFinalStation();
+    const progressAtArming = Math.round(race.racers[0].progress);
+    // The player keeps racing toward the next corridor instead of crossing.
+    stage(0, 0.35, 0, routeCount);
+    race.update(dt);
+    const progressAfterDriving = Math.round(race.racers[0].progress);
+    // The pack physically laps past the player's banked distance. Move in
+    // sub-half-lap hops so each placement resyncs forward instead of being
+    // read as a wrap backwards across the line.
+    for (const u of [0.45, 0.85]) {
+      for (let id = 1; id < boats.length; id++) stage(id, u - id * 0.01, id % 2 === 0 ? 2.4 : -2.4, 0);
+      course.syncFlightTrackingAfterCollisions(boats);
+      race.update(dt);
+    }
+    const placeWhileQualified = race.racers[0].place;
+    // Clear one more authored route: the eighth gate of the run.
+    const player = boats[0];
+    player.state.flightRouteState = 'active';
+    player.state.flightRouteIndex = 0;
+    player.completeFlightRoute(0, routeCount);
+    race.update(dt);
+    return {
+      progressAtArming,
+      progressAfterDriving,
+      placeWhileQualified,
+      placeAfterExtraRoute: race.racers[0].place,
+      flightsCleared: player.state.flightsCleared,
+      bestRivalProgress: Math.round(Math.max(...race.racers.slice(1).map((racer) => racer.progress))),
+    };
+  } finally {
     resetRace();
   }
 }
@@ -4860,6 +4932,7 @@ if (HARNESS) {
     radioTechniqueCase: runRadioTechniqueCase,
     offCourseRecoveryCase: runOffCourseRecoveryCase,
     finalEligibilityCase: runFinalEligibilityCase,
+    postSetRankCase: runPostSetRankCase,
     finaleHonorSequenceCase: runFinaleHonorSequenceCase,
     singleHonorCase: runSingleHonorCase,
     buoyState: () => course.buoyDebugStates(),

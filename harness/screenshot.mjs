@@ -374,6 +374,19 @@ async function verifyMode(browser, mobile) {
     console.log(`desktop final eligibility: qualified=${finalEligibility.qualifiedFinishedIds.join(',')} ` +
       `underqualified=${finalEligibility.unqualifiedFinishedIds.length} order=${finalEligibility.finishOrder.join(',')}`);
 
+    const postSetRank = await page.evaluate(() => window.__harness.postSetRankCase());
+    assert.ok(postSetRank.progressAfterDriving > postSetRank.progressAtArming,
+      `${label}: armed player stopped banking race distance: ${JSON.stringify(postSetRank)}`);
+    assert.equal(postSetRank.placeWhileQualified, 1,
+      `${label}: qualified player was demoted by unqualified lap progress: ${JSON.stringify(postSetRank)}`);
+    assert.equal(postSetRank.flightsCleared, 7 + 1,
+      `${label}: the extra authored route did not clear: ${JSON.stringify(postSetRank)}`);
+    assert.equal(postSetRank.placeAfterExtraRoute, 1,
+      `${label}: clearing one more route dropped the set-qualified leader: ${JSON.stringify(postSetRank)}`);
+    console.log(`${label} post-set rank: place ${postSetRank.placeWhileQualified} -> ` +
+      `${postSetRank.placeAfterExtraRoute} progress ${postSetRank.progressAtArming} -> ` +
+      `${postSetRank.progressAfterDriving} (rival ${postSetRank.bestRivalProgress})`);
+
     const singleHonors = await page.evaluate(() => window.__harness.singleHonorCase());
     assert.equal(singleHonors.mode, 'single', `${label}: single result envelope was not marked single`);
     assert.equal(singleHonors.seatCount, 1, `${label}: single result envelope gained a phantom seat`);

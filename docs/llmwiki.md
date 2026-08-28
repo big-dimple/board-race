@@ -72,10 +72,16 @@
   深度越过硬边界立即判负；判定、物理和表现共用这一条危险曲线。
 - 水面越过主线硬边后立即显示 `off_course` 警告，只有持续 15 秒未回线才判负；回线衰减、
   Final Station 解除和 `wrong_way` 的独立警告 / 判负时钟保持原语义。
-- 第七飞计分后路线失败永久退休，但该飞 recovery 仍完整播放。只有完成全部
-  `flightRoutes`、`flightsCleared % routeCount === 0` 且当前 route 已回到 `idle` 的实体选手，
-  才能通过同一个 swept Final portal 完成冲线；物理门线本身不授予未合格船终局资格。Final 激活后，
-  尚未冲线的合格选手优先于未合格但已多跑圈的对手，避免等待 Final 时名次被错误挤掉。合格选手仍使用
+- 第七飞计分后路线失败永久退休，但该飞 recovery 仍完整播放。`冲线资格` 与 `排名资格` 是两个判定，
+  不可混用：冲线资格是瞬时集合边界判定——只有完成全部 `flightRoutes`、
+  `flightsCleared % routeCount === 0` 且当前 route 已回到 `idle` 的实体选手才能穿过 swept Final
+  portal；物理门线本身不授予未合格船终局资格。排名资格是闩锁成就——一旦某艇完成过一整套
+  `flightRoutes`，`Race` 就把它记为 Final contender，本局不再撤销；否则清掉第八门时
+  `flightsCleared` 变成 8，瞬时判定翻假，刚拿到资格的领跑者会被未合格对手的多跑圈数挤掉。
+  Final 激活后，尚未冲线的 contender 优先于未合格但已多跑圈的对手，避免等待 Final 时名次被错误挤掉。
+- Final 激活期间主玩家只暂停危险计时与门 / 圈记账，`contU` 与 `progress` 必须继续随船累计。
+  把进度钉在激活那一刻会让玩家停在旧圈上，任何一次资格判定抖动都会直接掉到末位；
+  名次保护交给上面的 contender 闩锁，不靠冻结距离。合格选手仍使用
   亚帧 crossing time 排名，已完赛车手继续保留实体和碰撞。
 - Final 回港刹车不能触发漂移、BOOST、飞行库存变化、倒车或额外反馈。
 

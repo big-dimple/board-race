@@ -132,7 +132,7 @@ export class Race implements RaceView {
   private battleCooldown: number[] = [];
   private resynced: boolean[] = [];
   private previousWorld: THREE.Vector3[] = [];
-  private finalApproachProgress: number | null = null;
+  private finalContender: boolean[] = [];
   private battleDisplayPlace = RACER_DEFS[0].startPlace;
   private overtakeStreak = 0;
   private lastOvertakeAt = -Infinity;
@@ -188,7 +188,6 @@ export class Race implements RaceView {
     const racer = this.racers[id];
     if (!racer || racer.eliminated) return false;
     this.primaryPlayerId = id;
-    this.finalApproachProgress = racer.progress;
     return true;
   }
 
@@ -205,7 +204,6 @@ export class Race implements RaceView {
       const next = this.playerIds.find((playerId) => !this.racers[playerId].eliminated);
       if (next !== undefined) {
         this.primaryPlayerId = next;
-        this.finalApproachProgress = this.racers[next].progress;
       }
     }
     const alive = this.playerIds.some((playerId) => !this.racers[playerId].eliminated);
@@ -256,7 +254,7 @@ export class Race implements RaceView {
     this.qualificationTime = null;
     this.finalStationArmed = false;
     this.finaleCompleted = false;
-    this.finalApproachProgress = null;
+    this.finalContender = new Array(this.boats.length).fill(false);
     for (const r of this.racers) {
       r.lap = 1;
       r.progress = 0;
@@ -335,7 +333,6 @@ export class Race implements RaceView {
     const primary = candidate;
     this.finalStationArmed = true;
     const player = primary;
-    this.finalApproachProgress = player.progress;
     this.wrongT[player.id] = 0;
     this.offCourseT[player.id] = 0;
     this.setCourseWarning(player, 'none');
@@ -346,7 +343,6 @@ export class Race implements RaceView {
   startFinalContinueCountdown(): boolean {
     if (this.phase !== 'finished' || !this.finaleCompleted) return false;
     this.finalStationArmed = false;
-    this.finalApproachProgress = null;
     this.finaleCompleted = false;
     this.challengeResult = null;
     for (const racer of this.racers) {
@@ -548,6 +544,11 @@ export class Race implements RaceView {
         ? this.course.crossFinalStation(previousPosition, boat.state.position)
         : -1;
       previousPosition.copy(boat.state.position);
+      // Completing a whole authored set is an earned standing, not a momentary
+      // arithmetic state. Latch it: the portal test below is only true at a set
+      // boundary, so without this the leader's rank collapsed the moment it
+      // started the next set's first route.
+      if (!resyncOnly && this.hasFinalQualification(id)) this.finalContender[id] = true;
       if (!this.inited[id]) {
         // grid sits just behind the line (u ~ 0.996): unwrap to slightly negative
         this.contU[id] = u > 0.5 ? u - 1 : u;
@@ -561,16 +562,6 @@ export class Race implements RaceView {
       if (this.finalStationArmed && finalCrossing >= 0 && boat.state.flightPhase === 'surface' &&
           boat.state.flightRouteState === 'idle') {
         this.finishAtFinal(r, finalCrossing, dt);
-      }
-      if (id === this.primaryPlayerId && this.finalStationArmed) {
-        this.prevRoute[id] = _sample.routeId;
-        this.prevU[id] = u;
-        this.prevContU[id] = this.contU[id];
-        this.wrongT[id] = 0;
-        this.offCourseT[id] = 0;
-        this.setCourseWarning(r, 'none');
-        r.progress = this.finalApproachProgress ?? r.progress;
-        continue;
       }
       if (this.prevRoute[id] !== _sample.routeId) {
         // Flight and surface share canonical u, but their nearest projections
@@ -610,6 +601,21 @@ export class Race implements RaceView {
           if (newCu >= this.lapWindow[id] + 1) this.completeWindow(r, id);
           r.progress = this.windowedProgress(id);
         }
+        continue;
+      }
+
+      if (id === this.primaryPlayerId && this.finalStationArmed) {
+        // An armed player is lining up the portal, so hazard clocks and gate
+        // credit stay suspended. The tracked distance must not: pinning it to
+        // the arming moment stranded the player on a stale lap while the pack
+        // banked the next one, which turned any lost qualification into a
+        // fall to last place.
+        this.contU[id] += du;
+        this.prevContU[id] = this.contU[id];
+        this.wrongT[id] = 0;
+        this.offCourseT[id] = 0;
+        this.setCourseWarning(r, 'none');
+        if (!resyncOnly) r.progress = this.windowedProgress(id);
         continue;
       }
 
@@ -741,7 +747,12 @@ export class Race implements RaceView {
     for (const key of this.cpLeaderTimes.keys()) if (key < minKey) this.cpLeaderTimes.delete(key);
   }
 
-  /** Lock an exact, sub-frame finish before place sorting. */
+  /**
+   * May this racer cross the Final portal right now? Only true at the end of a
+   * set that cleared every authored route. Place sorting uses the latched
+   * `finalContender` flag instead, because this test is false again the moment
+   * the racer starts the next set's first route.
+   */
   private hasFinalQualification(id: number): boolean {
     const routeCount = Math.max(1, this.course.flightRoutes.length);
     const cleared = this.boats[id].state.flightsCleared;
@@ -905,8 +916,8 @@ export class Race implements RaceView {
     // lapped the circuit, but cannot finish this run and must not rank ahead of
     // a racer who has completed the authored flight set.
     if (this.finalStationArmed && !a.finished && !b.finished) {
-      const aQualified = this.hasFinalQualification(a.id);
-      const bQualified = this.hasFinalQualification(b.id);
+      const aQualified = this.finalContender[a.id] ?? false;
+      const bQualified = this.finalContender[b.id] ?? false;
       if (aQualified !== bQualified) return aQualified;
     }
     if (a.progress !== b.progress) return a.progress > b.progress;
