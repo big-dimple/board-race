@@ -1563,34 +1563,29 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     // Coin streak: a pickup within the time window grows the ladder; the
     // bonus value is what the honor ledger sees and what the HUD/chime/camera
     // read. Streak resets on the next race round (see startNextRaceRound).
-    let streakStep = 0;
-    if (hit.kind === 'coin') {
-      const lastAt = coinStreakTimes[hit.racerId] ?? -Infinity;
-      const last = coinStreakCounts[hit.racerId] ?? 0;
-      if (last > 0 && race.raceTime - lastAt <= COIN_STREAK_WINDOW) {
-        coinStreakCounts[hit.racerId] = Math.min(last + 1, COIN_STREAK_MAX);
-      } else {
-        coinStreakCounts[hit.racerId] = 1;
-      }
-      coinStreakTimes[hit.racerId] = race.raceTime;
-      streakStep = Math.max(0, coinStreakCounts[hit.racerId] - 1);
-      hit.value = COIN_BASE_VALUE + streakStep * COIN_STREAK_BONUS;
+    const lastAt = coinStreakTimes[hit.racerId] ?? -Infinity;
+    const last = coinStreakCounts[hit.racerId] ?? 0;
+    if (last > 0 && race.raceTime - lastAt <= COIN_STREAK_WINDOW) {
+      coinStreakCounts[hit.racerId] = Math.min(last + 1, COIN_STREAK_MAX);
+    } else {
+      coinStreakCounts[hit.racerId] = 1;
     }
+    coinStreakTimes[hit.racerId] = race.raceTime;
+    const streakStep = Math.max(0, coinStreakCounts[hit.racerId] - 1);
+    hit.value = COIN_BASE_VALUE + streakStep * COIN_STREAK_BONUS;
     honors.addTargetHit(hit);
     honorFxPoint.set(hit.x, hit.y, hit.z);
-    spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 7, hit.kind === 'duck' ? 7.2 : 4.8);
-    if (hit.kind === 'duck') feathers.burst(honorFxPoint, 36, 10.5);
-    else honorTargets.presentHitFx(hit);
+    spray.burst(honorFxPoint, 7, 4.8);
+    honorTargets.presentHitFx(hit);
     if (!isHumanRacer(hit.racerId)) continue;
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
-    if (hit.kind === 'duck') audio.balloonPop();
-    else audio.coinCollect(streakStep);
+    audio.coinCollect(streakStep);
     const targetPipeline = isDuoMode() && hit.racerId < 2
       ? hit.racerId === 0 ? teamLeftPipeline : teamRightPipeline
       : pipeline;
-    targetPipeline.pulse('ready', hit.kind === 'coin' ? 0.72 + streakStep * 0.04 : 0.58);
-    const rumbleStrength = hit.kind === 'coin' ? 0.56 + streakStep * 0.04 : 0.42;
+    targetPipeline.pulse('ready', 0.72 + streakStep * 0.04);
+    const rumbleStrength = 0.56 + streakStep * 0.04;
     // A target belongs to the boat that touched it. In dual play route the
     // pulse to that seat's device instead of whichever controller was last
     // active globally; single play keeps the normal haptics lane.
@@ -1601,13 +1596,12 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     }
     // Camera pickup punch grows with the streak so a combo reads as one
     // accelerating hit rather than six equal ones.
-    if (hit.kind === 'coin') cameraRig.coinPickupKick(streakStep);
+    cameraRig.coinPickupKick(streakStep);
     hud.showHonorTargetNotice(
       racer?.name ?? '选手',
       definition?.title ?? '荣誉目标',
       hit.value,
       hit.precision,
-      hit.kind,
       isDuoMode() && hit.racerId < 2 ? hit.racerId === 0 ? 'left' : 'right' : 'center',
       streakStep,
     );
@@ -3802,7 +3796,7 @@ function runSingleHonorCase(): Record<string, unknown> {
     // the cached places untouched. A real mid-step failure must report this
     // current order on the result wall.
     for (let id = 0; id < race.racers.length; id++) race.racers[id].progress = id === 0 ? 10 : 100 + id;
-    honors.award('target.duck', 0, HONOR_DEFINITIONS['target.duck'].value, race.raceTime);
+    honors.award('target.coin', 0, HONOR_DEFINITIONS['target.coin'].value, race.raceTime);
     honors.award('flight.ace', 0, HONOR_DEFINITIONS['flight.ace'].value, race.raceTime + 0.1);
     race.defeatFlight({
       reason: 'gate_left',
@@ -4467,10 +4461,10 @@ function scenario(name: string): void {
     }
     case "honor-target":
       // Face the first live coin after the real countdown so the retained
-      // visual-review scenario inspects the replacement prop, not a duck.
+      // visual-review scenario frames an authored honor prop.
       advanceUntil(() => race.phase === "racing", 8);
       {
-        const target = honorTargets.debugTargets().find((candidate) => candidate.kind === 'coin');
+        const target = honorTargets.debugTargets()[0];
         if (target) {
           boats[0].teleport(
             target.x - target.forwardX * 14,

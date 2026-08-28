@@ -150,7 +150,7 @@
 - 正规水面路线上的 8 对 checkpoint 门浮标是基础实体障碍：水面船体接触会损失 20% 速度，
   把浮标撞飞并弹出旋转后爆开的鸭子气球；浮标落水后延迟归位，不判负、不触发碰撞电台/镜头冲击；飞行相位与
   足够高度的浪跳不触发。菱形升空入口和飞行分支 chevron 只作导航，不生成锥体、浮标或碰撞体。
-- 另外八个大型荣誉目标（两只鸭子、六枚金币）由 `HonorTargetSystem` 负责
+- 另外六个大型荣誉目标（六枚金币）由 `HonorTargetSystem` 负责
   视觉和 fixed-step 接触采样；每个目标都是水面实体浮标，根节点贴着实时浪高，由浮筒、泡沫圈、
   信号桅杆和实心徽记组成。金币使用锯齿外轮廓、双层轮缘、双面罗盘压印和局部铸造高光，
   绝不伪装成升空菱形或隐藏资源站；只放在离开起终点缓冲区的中段水面扇区。它们不直接改写 Boat 的世界变换、
@@ -161,9 +161,11 @@
   `+` 连击步长 × `COIN_STREAK_BONUS`，上限 `COIN_STREAK_MAX` 步；音效分音按大三度/步升调，
   HUD 拾取卡 `COIN COMBO ×N` 切换，相机让位随连击步长增强。连击不影响飞行库存、BOOST 或路线。
   HUD 只显示专属金色拾取卡：桌面位于顶部安全带，移动端进一步上移并避开四个触控热区，
-  双打按左 / 右席位分栏；拾取反馈不改变速度、飞行库存或路线。历史 ledger 仍保留
-  `target.ring` / `target.center` / `target.bell` / `target.star` / `target.crown` / `target.comet`
-  旧 id 供迁移读取，但当前布局只产生 `target.duck` 与 `target.coin`。
+  双打按左 / 右席位分栏；拾取反馈不改变速度、飞行库存或路线。鸭子荣誉道具已删除——checkpoint
+  浮漂已经会弹出真实鸭子气球，第二个鸭子标记只会让 `鸭鸭爆点` 提示来源含混；`target.duck` 降为历史 id。
+  历史 ledger 仍保留
+  `target.duck` / `target.ring` / `target.center` / `target.bell` / `target.star` / `target.crown` / `target.comet`
+  旧 id 供迁移读取，但当前布局只产生 `target.coin`。
 
 ## HUD 与电台
 

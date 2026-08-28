@@ -383,10 +383,10 @@ async function verifyMode(browser, mobile) {
       `${label}: failure result used a stale pre-failure place: ${JSON.stringify(singleHonors)}`);
     assert.ok(singleHonors.cardCount >= 2,
       `${label}: single-player honors did not retain the earned cards: ${JSON.stringify(singleHonors)}`);
-    assert.equal(singleHonors.spotlight, '鸭鸭爆点',
+    assert.equal(singleHonors.spotlight, '金币猎手',
       `${label}: single-player Play of the Run did not select the highest earned card`);
-    assert.equal(singleHonors.score, 210, `${label}: single honor score did not settle through the result DTO`);
-    assert.deepEqual(singleHonors.counts, { 'target.duck': 1, 'flight.ace': 1 },
+    assert.equal(singleHonors.score, 220, `${label}: single honor score did not settle through the result DTO`);
+    assert.deepEqual(singleHonors.counts, { 'target.coin': 1, 'flight.ace': 1 },
       `${label}: single honor counts drifted: ${JSON.stringify(singleHonors)}`);
     assert.equal(singleHonors.awardCount, 2, `${label}: single honor awards were duplicated or dropped`);
     assert.equal(singleHonors.failureLesson.visible, true,
@@ -547,8 +547,8 @@ async function verifyMode(browser, mobile) {
     `${label}: honor targets overlap an authored flight span: ${JSON.stringify(honorTarget)}`);
   assert.ok(honorTarget.minTargetLateral >= 4.5,
     `${label}: honor targets drifted back onto the flight line: ${JSON.stringify(honorTarget)}`);
-  assert.equal(honorTarget.targetKinds, 'duck,coin,coin,coin,coin,coin,duck,coin',
-    `${label}: live honor props are not limited to ducks and coins: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.targetKinds, 'coin,coin,coin,coin,coin,coin',
+    `${label}: live honor props are not all coins: ${JSON.stringify(honorTarget)}`);
   assert.ok(honorTarget.minCoinStartDistanceU >= 0.1,
     `${label}: a coin leaked into the start/finish buffer: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.centerHits, 2,
