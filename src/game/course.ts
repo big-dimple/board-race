@@ -2824,11 +2824,19 @@ export class Course implements ICourse {
       const recoverySlot = this.playerRecoveryRoute >= 0
         ? this.playerRecoveryRoute
         : this.flightVisuals.findIndex((visual) => visual.recoveryFade > 0);
-      const committedSlot = this.playerLaunchCommittedRoute >= 0 && st.flightPhase !== 'surface'
+      const flightActive = st.flightPhase !== 'surface';
+      // Final is one shared flag, so it must never retire a corridor this boat
+      // is still flying. The launch commit is only written while the portal is
+      // unarmed, so fall back to the boat's own active route exactly like the
+      // second seat does; otherwise the guidance seat goes blind in the air the
+      // moment the other seat (or its own seventh gate) arms the portal.
+      const committedSlot = this.playerLaunchCommittedRoute >= 0 && flightActive
         ? this.playerLaunchCommittedRoute
-        : -1;
-      const finalApproach = this.finalArmed &&
-        st.flightsCleared >= FLIGHT_ROUTES.length && recoverySlot < 0;
+        : flightActive && st.flightRouteIndex >= 0
+          ? st.flightRouteIndex
+          : -1;
+      const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
+        recoverySlot < 0 && committedSlot < 0 && !flightActive;
       const slot = committedSlot >= 0
         ? committedSlot
         : recoverySlot >= 0

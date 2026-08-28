@@ -27,6 +27,13 @@
   冲线仍用瞬时集合边界判定，名次保护改用闩锁的 `finalContender`（完成过一整套就不再撤销），
   且激活期间危险计时与门 / 圈记账照旧暂停、距离照旧累计。回归用例 `postSetRankCase` 已进
   `verify:smoke`：撤回修复时它报 `place 1 -> 6`、进度 628 纹丝不动。
+- 双打雾道的不对称已修：`updatePlayerGuidance`（引导席）的 `committedSlot` 补上"空中回退到
+  `flightRouteIndex`"的兜底，`finalApproach` 补上 `committedSlot < 0 && !flightActive` 守卫，
+  与右席 `updateSecondaryGuidance`（course.ts:2975-2981）已验证的写法对齐。原因是 Final 是**共享**
+  单一标志，任一席第 7 飞就置位，原来引导席会在空中整条瞎掉而另一席不会。
+  注意：`finalArmed` 置位后，凡是 `flightsCleared >= 7` 的席位都会被切成 Final 接近引导、且不能再起飞
+  （`finalQualifiedIdle`，course.ts:2507）——这是**设计行为**，只有冲过 Final 或重开才解除，
+  用户反馈的"雾道整段消失"大头来自这里；未合格席不受影响。要不要放开合格席继续飞，待用户拍板。
 - 冲线定格的招手欢呼已删除：`Rider.update()` 不再接收 `celebrating`，车手全程双手握把，
   胜利情绪交给镜头与 HUD。连带清掉庆祝弹簧 `celS`、手臂泵动 / 点头分支、`TUNING` 里的庆祝参数段，
   以及 `updateHairAccessory()` 的 `celebration` 形参（`riderMesh.ts`）。并肩挑衅的转头

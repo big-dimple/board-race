@@ -4858,6 +4858,20 @@ function runDuoGuidanceCase(): Record<string, unknown> {
       (finalArmedRightFlight.activeRoute < 0 || finalArmedRightFlight.visibleRoutes < 1)) {
     throw new Error(`right airborne route hidden after Final armed: ${JSON.stringify(finalArmedRightFlight)}`);
   }
+  // The guidance seat owns the other half of the same contract. Final is one
+  // shared flag, so an armed portal must not retire the left seat's corridor
+  // while that boat is still flying its own route.
+  const finalArmedLeft = course.guidanceStatusFor(0);
+  const finalArmedLeftFlight = {
+    phase: boats[0].state.flightPhase,
+    routeState: boats[0].state.flightRouteState,
+    activeRoute: finalArmedLeft.activeRouteIndex,
+    visibleRoutes: finalArmedLeft.visibleRouteCount,
+  };
+  if (finalArmedLeftFlight.phase !== 'surface' && finalArmedLeftFlight.routeState !== 'failed' &&
+      (finalArmedLeftFlight.activeRoute < 0 || finalArmedLeftFlight.visibleRoutes < 1)) {
+    throw new Error(`left airborne route hidden after Final armed: ${JSON.stringify(finalArmedLeftFlight)}`);
+  }
   const flightPhases = boats.slice(0, 2).map((boat) => boat.state.flightPhase);
   const flightRouteStates = boats.slice(0, 2).map((boat) => boat.state.flightRouteState);
   const flightStatus = [course.guidanceStatusFor(0), course.guidanceStatusFor(1)];
@@ -4901,6 +4915,7 @@ function runDuoGuidanceCase(): Record<string, unknown> {
     visibleRoutes: flightStatus.map((entry) => entry.visibleRouteCount),
     visibilityTimeline,
     finalArmedRightFlight,
+    finalArmedLeftFlight,
     qualifiedIdleGuard,
   };
 }

@@ -422,6 +422,14 @@ async function verifyGamepadSeating(page) {
   assert.ok(finalFlight && (finalFlight.phase === 'surface' || finalFlight.routeState === 'failed' ||
     (finalFlight.activeRoute >= 0 && finalFlight.visibleRoutes >= 1)),
   `right airborne corridor was hidden when the other seat armed Final: ${JSON.stringify(guidance)}`);
+  // The guidance seat runs the same contract through a different code path, so
+  // it needs its own assertion: an armed Final is one shared flag and must not
+  // retire the left seat's corridor mid-flight.
+  const finalArmedLeft = guidance.finalArmedLeftFlight;
+  assert.equal(finalArmedLeft.phase !== 'surface', true,
+    `left seat was not airborne when the cross-seat Final case armed: ${JSON.stringify(guidance)}`);
+  assert.ok(finalArmedLeft.activeRoute >= 0 && finalArmedLeft.visibleRoutes >= 1,
+    `left airborne corridor was hidden after Final armed: ${JSON.stringify(guidance)}`);
   const qualifiedIdle = guidance.qualifiedIdleGuard;
   assert.deepEqual(qualifiedIdle, {
     phase: 'surface',
