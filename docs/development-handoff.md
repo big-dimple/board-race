@@ -27,6 +27,11 @@
   冲线仍用瞬时集合边界判定，名次保护改用闩锁的 `finalContender`（完成过一整套就不再撤销），
   且激活期间危险计时与门 / 圈记账照旧暂停、距离照旧累计。回归用例 `postSetRankCase` 已进
   `verify:smoke`：撤回修复时它报 `place 1 -> 6`、进度 628 纹丝不动。
+- 双打名次塔已按席位拆分（"每席一套表现层"第 1 步）：`RaceTower` 新增 `side`（solo/left/right）与
+  `setSeat`；双打实例化两座塔，各钉在自己半屏（CSS `[data-side="right"]` 走右边缘），各自高亮本席、
+  各自持有独立 `RadioDirector`。原来 `tower.update()` 拿左席的 `flightPhase` 当 flightFocus，
+  左席一进飞行就把两席的名次列表和电台一起掐掉，现在按席位各自判定。`verify:team` 已加断言：
+  必须存在两座塔且各自落在自己半屏内。下一步（第 2 步）是每帧事件反馈与音效按席位各跑一遍。
 - 双打雾道的不对称已修：`updatePlayerGuidance`（引导席）的 `committedSlot` 补上"空中回退到
   `flightRouteIndex`"的兜底，`finalApproach` 补上 `committedSlot < 0 && !flightActive` 守卫，
   与右席 `updateSecondaryGuidance`（course.ts:2975-2981）已验证的写法对齐。原因是 Final 是**共享**

@@ -257,7 +257,33 @@ const hud = new HUD(
 );
 const mixer = new MixerControls(app, audio);
 const tower = new RaceTower(hudLayer);
-tower.setRoster(roster);
+// Split play gives each seat its own tower, its own standings highlight and
+// its own radio slot. The second tower stays hidden in solo play.
+const towerRight = new RaceTower(hudLayer, 'right');
+const towers: RaceTower[] = [tower, towerRight];
+const soloTowers: RaceTower[] = [tower];
+tower.setSeat(0);
+towerRight.setSeat(1);
+towerRight.setVisible(false);
+
+/** Re-place the towers when the run switches between solo and split play. */
+function applyTowerSeats(): void {
+  const duo = isDuoMode();
+  tower.setSide(duo ? 'left' : 'solo');
+  tower.setSeat(0);
+  towerRight.setSide('right');
+  towerRight.setSeat(1);
+  for (const entry of towers) entry.setRoster(roster);
+  if (!duo) towerRight.setVisible(false);
+}
+
+/** Only the seats that are actually playing own a tower. Preallocated: this
+ *  runs inside the fixed step. */
+function activeTowers(): RaceTower[] {
+  return isDuoMode() ? towers : soloTowers;
+}
+
+for (const entry of towers) entry.setRoster(roster);
 const driverSelect = new DriverSelect(
   hudLayer,
   selectedDriverId,
@@ -462,7 +488,8 @@ const race = new Race(course, boats, {
     const signaled = audio.startSignal() === 'played';
     if (!signaled) audio.countdownBeep(true);
     cameraRig.mode = 'chase';
-    tower.announceGo(roster[0].name);
+    const goTowers = activeTowers();
+    for (let seat = 0; seat < goTowers.length; seat++) goTowers[seat].announceGo(roster[seat].name);
     if (!resuming && !drivingCoach.progress.mastery.airBrakedInTurn) tower.announceTechniqueTip();
   },
   lapDone: () => {},
@@ -527,7 +554,7 @@ function applySelectedDriver(id: string): void {
   }
   ais = buildAiControllers();
   race.setDefinitions(roster);
-  tower.setRoster(roster);
+  for (const entry of towers) entry.setRoster(roster);
   openingShowcase.setRoster(roster);
   // Selection already happens on a frozen READY grid. Updating the six
   // definitions in place keeps the portrait reveal and its audio
@@ -612,8 +639,9 @@ function enterIndependentCompetition(): void {
   hud.setVisible(true);
   hud.setDuoControls(false);
   hud.setDuoSplit(false);
+  applyTowerSeats();
   duoViewportHud.setVisible(false);
-  tower.setVisible(true);
+  for (const entry of activeTowers()) entry.setVisible(true);
   mixer.setVisible(!mobileInput.enabled);
   mobileInput.setOverlayHidden(false);
 }
@@ -649,7 +677,7 @@ function startDuoRace(selection: DuoSelection): void {
   // promotes seat 2 when seat 1 is eliminated.
   race.setDefinitions(roster);
   race.setPlayerIds([0, 1]);
-  tower.setRoster(roster);
+  for (const entry of towers) entry.setRoster(roster);
   openingShowcase.setRoster(roster);
   collisions.setFriendlyPair(0, 1, false);
   resetRace();
@@ -660,7 +688,8 @@ function startDuoRace(selection: DuoSelection): void {
   hud.setVisible(true);
   hud.setDuoControls(true, selection.left.deviceId, selection.right.deviceId);
   hud.setDuoSplit(true);
-  tower.setVisible(true);
+  applyTowerSeats();
+  for (const entry of activeTowers()) entry.setVisible(true);
   mixer.setVisible(false);
   mobileInput.setOverlayHidden(true);
   audio.startReadyMusic();
@@ -685,7 +714,7 @@ function enterFrontDoor(): void {
   driverSelect.hide();
   hud.setVisible(false);
   hud.setDuoControls(false);
-  tower.setVisible(false);
+  for (const entry of activeTowers()) entry.setVisible(false);
   mixer.setVisible(false);
   mobileInput.setOverlayHidden(true);
   teamSave = loadTeamSave();
@@ -720,7 +749,7 @@ function startTeamExpedition(selection: DuoSelection): void {
   driverSelect.hide();
   openingShowcase.stop();
   hud.setVisible(false);
-  tower.setVisible(false);
+  for (const entry of activeTowers()) entry.setVisible(false);
   mixer.setVisible(false);
   mobileInput.setOverlayHidden(true);
   collisions.setFriendlyPair(0, 1, true);
@@ -909,7 +938,7 @@ function requestRetry(): void {
 function dismissHonorReview(): void {
   honorHighlights.hide();
   hud.setVisible(true);
-  tower.setVisible(true);
+  for (const entry of activeTowers()) entry.setVisible(true);
   requestRetry();
 }
 
@@ -986,7 +1015,7 @@ function startFreshCountdown(): void {
   hud.showPcControlPrimer(null, false, pcControlPrimer.active);
   currentRun = records.beginRun();
   rivalDirector.beginRun(currentRun);
-  tower.resetRun(currentRun);
+  for (const entry of towers) entry.resetRun(currentRun);
   input.reset();
   gamepadInput.reset();
   mobileInput.reset();
@@ -1050,7 +1079,7 @@ function startNextRaceRound(): void {
   mobileInput.setOverlayHidden(false);
   mobileInput.setControlPhase('preparing');
   hud.setVisible(true);
-  tower.setVisible(true);
+  for (const entry of activeTowers()) entry.setVisible(true);
   cameraRig.mode = 'chase';
   audio.startRaceScore(false);
   audio.setScene('countdown');
@@ -1080,7 +1109,7 @@ function continueAfterFinale(): void {
     mobileInput.setOverlayHidden(true);
     mobileInput.setControlPhase('inactive');
     hud.setVisible(false);
-    tower.setVisible(false);
+    for (const entry of activeTowers()) entry.setVisible(false);
     mixer.setVisible(false);
     if (shouldShowHonors) showHonorReview();
     return;
@@ -1294,6 +1323,7 @@ function resetRace(): void {
   duoPauseActive = false;
   hud.setDuoControls(false);
   hud.setDuoSplit(false);
+  applyTowerSeats();
   duoViewportHud.setVisible(false);
   comebackAwarded[0] = false;
   comebackAwarded[1] = false;
@@ -1349,7 +1379,7 @@ function resetRace(): void {
   previousHumanPlaces[0] = race.racers[0]?.place ?? Infinity;
   previousHumanPlaces[1] = race.racers[1]?.place ?? Infinity;
   currentRun = records.data.runs + 1;
-  tower.resetRun(currentRun);
+  for (const entry of towers) entry.resetRun(currentRun);
   const resetFocus = primaryBoat();
   prevFlightCharges = resetFocus.state.flightCharges;
   prevDriftReleaseReady = resetFocus.state.driftReleaseReady;
@@ -1380,11 +1410,11 @@ function resetRace(): void {
   if (showIndependentFrontDoor) {
     driverSelect.show();
     hud.setVisible(true);
-    tower.setVisible(true);
+    for (const entry of activeTowers()) entry.setVisible(true);
   } else {
     driverSelect.hide();
     hud.setVisible(false);
-    tower.setVisible(false);
+    for (const entry of activeTowers()) entry.setVisible(false);
   }
   syncDrivingCoachUi();
   mobileInput.setGoPrompt(false);
@@ -1618,7 +1648,7 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
 function showHonorReview(): void {
   if (honorsSettled) return;
   hud.setVisible(false);
-  tower.setVisible(false);
+  for (const entry of activeTowers()) entry.setVisible(false);
   mixer.setVisible(false);
   const humanIds = isDuoMode() ? [0, 1] : [0];
   for (const id of humanIds) {
@@ -1718,7 +1748,7 @@ function beginFinalePresentation(): void {
   mobileInput.setOverlayHidden(true);
   mobileInput.setControlPhase('inactive');
   hud.setVisible(false);
-  tower.setVisible(false);
+  for (const entry of activeTowers()) entry.setVisible(false);
   mixer.setVisible(false);
   audio.setScene('medal');
   haptics.cue('medal');
@@ -2134,7 +2164,7 @@ function step(dt: number, _t: number): void {
     openingShowcase.update(dt);
     course.update(0, readySceneTime);
     honorTargets.update(dt, readySceneTime, [], race.racers, honorHitScratch, false);
-    tower.update(dt, race);
+    for (const entry of activeTowers()) entry.update(dt, race);
     hud.update(dt, race, boats[0], boats);
     pipeline.update(dt, worldTime, boats[0].state, 'ready');
     audio.update(dt);
@@ -2162,7 +2192,7 @@ function step(dt: number, _t: number): void {
       course.update(0, worldTime);
     }
     honorTargets.update(dt, worldTime, [], race.racers, honorHitScratch, false);
-    tower.update(dt, race);
+    for (const entry of activeTowers()) entry.update(dt, race);
     hud.update(dt, race, boats[0], boats);
     if (!resuming) {
       pcPrimerPresentation = pcControlPrimer.update(dt, {
@@ -2564,13 +2594,18 @@ function step(dt: number, _t: number): void {
   jetTrail.update(dt);
 
   const ps = focusBoat.state;
-  tower.update(
-    dt,
-    race,
-    ps.flightPhase !== 'surface',
-    turnWarning || coachPresentation !== null || pcPrimerPresentation !== null || hud.flightPromptVisible() ||
-      hud.coachPresentationBlocked(),
-  );
+  // Each tower follows its own seat: one seat entering flight must not blank
+  // the other seat's standings or block its team radio.
+  const seatTowers = activeTowers();
+  for (let seat = 0; seat < seatTowers.length; seat++) {
+    seatTowers[seat].update(
+      dt,
+      race,
+      boats[seat].state.flightPhase !== 'surface',
+      turnWarning || coachPresentation !== null || pcPrimerPresentation !== null || hud.flightPromptVisible() ||
+        hud.coachPresentationBlocked(),
+    );
+  }
   hud.update(dt, race, focusBoat, boats);
   updateDuoViewportHud();
   const routeGuidance = course.guidanceStatus();

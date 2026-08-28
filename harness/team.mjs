@@ -397,6 +397,28 @@ async function verifyGamepadSeating(page) {
   await advance(page, 4.35);
   assert.equal(await page.evaluate(() => window.__harness.duoState().phase), 'racing');
 
+  // Each seat owns a standings tower inside its own half. One shared tower
+  // used to sit on the left edge only, so the right seat had no standings at
+  // all and lost its radio whenever the left seat entered flight.
+  const towerBoxes = await page.evaluate(() => {
+    const width = window.innerWidth;
+    return [...document.querySelectorAll('.race-tower')]
+      .filter((el) => !el.hidden && el.classList.contains('on'))
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return { side: el.dataset.side ?? 'solo', left: Math.round(rect.left), right: Math.round(rect.right), half: Math.round(width / 2) };
+      });
+  });
+  assert.equal(towerBoxes.length, 2,
+    `split play did not give each seat its own standings tower: ${JSON.stringify(towerBoxes)}`);
+  for (const box of towerBoxes) {
+    if (box.side === 'left') {
+      assert.ok(box.right <= box.half, `left tower spilled into the right view: ${JSON.stringify(towerBoxes)}`);
+    } else {
+      assert.ok(box.left >= box.half, `right tower is not inside the right view: ${JSON.stringify(towerBoxes)}`);
+    }
+  }
+
   // Force both real boats through the first launch. This catches the former
   // right-seat failure where its mist branch was shared with the left camera
   // and vanished as soon as the two boats diverged.

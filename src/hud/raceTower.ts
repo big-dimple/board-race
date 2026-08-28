@@ -5,6 +5,9 @@ import './raceTower.css';
 
 const TEAM_SPEAKER: RadioSpeaker = { kind: 'team', name: 'TEAM', color: 0x55e7ff, icon: 'W' };
 
+/** `solo` spans the whole screen; `left`/`right` keep the tower inside one half. */
+export type TowerSide = 'solo' | 'left' | 'right';
+
 const COLLISION_LINES: Record<DriverMood, string> = {
   '沉稳': '这一下算你狠。稳住，下一段见。',
   '骄傲': '这条线我先拿了。',
@@ -33,13 +36,26 @@ export class RaceTower {
   private lastCollisionLineAt = -Infinity;
   private raceTime = 0;
   private renderedRevision = -1;
+  /** Which human this tower stands for; null falls back to the first player. */
+  private seatId: number | null = null;
 
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
   }
 
-  constructor(parent: HTMLElement) {
+  /** Re-place the tower when the run switches between solo and split play. */
+  setSide(side: TowerSide): void {
+    this.root.dataset.side = side;
+  }
+
+  /** In split play each tower highlights and follows its own seat. */
+  setSeat(seatId: number | null): void {
+    this.seatId = seatId;
+  }
+
+  constructor(parent: HTMLElement, side: TowerSide = 'solo') {
     this.root = node('div', 'race-tower', parent);
+    this.root.dataset.side = side;
     node('div', 'race-tower-head', this.root, 'W.H.L // LIVE');
     this.list = node('div', 'race-tower-list', this.root);
     this.radio = node('div', 'race-radio', this.root);
@@ -113,7 +129,9 @@ export class RaceTower {
     if (this.accumulator < 0.1) return;
     this.accumulator = 0;
     const order = [...race.racers].sort((a, b) => a.place - b.place);
-    const player = race.racers.find((racer) => racer.isPlayer);
+    const player = this.seatId === null
+      ? race.racers.find((racer) => racer.isPlayer)
+      : race.racers.find((racer) => racer.id === this.seatId);
     for (let i = 0; i < order.length; i++) {
       const racer = order[i];
       const row = this.rows.get(racer.id);

@@ -8,6 +8,21 @@
 .race-tower.compact .race-tower-row:not(.player):not(.near-player) { display:none; }
 .race-tower.flight-focus .race-tower-list { display:none; }
 .race-tower.flight-focus { width:96px; opacity:.82; }
+/* Split play: each seat owns a tower inside its own half. The broadcast card
+   follows its seat too, so a notice never lands on the seam between the two
+   views and one seat's flight never blanks the other seat's standings. */
+.race-tower[data-side="right"] { left:auto; right:max(18px,env(safe-area-inset-right)); }
+.race-tower[data-side="left"] .race-radio.broadcast,
+.race-tower[data-side="right"] .race-radio.broadcast { width:min(420px,calc(50vw - 44px)); }
+.race-tower[data-side="left"] .race-radio.broadcast { left:25%; }
+.race-tower[data-side="right"] .race-radio.broadcast { left:75%; }
+.race-tower[data-side="left"] .race-radio.broadcast.on,
+.race-tower[data-side="right"] .race-radio.broadcast.on { animation-name:race-radio-broadcast-split; }
+@keyframes race-radio-broadcast-split {
+  0% { opacity:0; transform:translateX(calc(-50% + 22vw)); }
+  9.75%,84% { opacity:1; transform:translateX(-50%); }
+  100% { opacity:0; transform:translateX(calc(-50% - 22vw)); }
+}
 .race-tower-row img { width:28px; height:28px; object-fit:cover; object-position:50% 22%; background:#1e1b3a; }
 .race-tower-place { text-align:center; color:var(--racer-color); font:italic 900 13px/1 'Arial Black',Impact,sans-serif; }
 .race-tower-name { overflow:hidden; padding-left:6px; font:italic 900 12px/1 'Arial Black',Impact,sans-serif; text-overflow:ellipsis; white-space:nowrap; }
