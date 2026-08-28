@@ -419,6 +419,12 @@ async function verifyGamepadSeating(page) {
     }
   }
 
+  // The second seat's own events must make sound. One feedback pass keyed to
+  // the primary seat used to leave the right seat completely silent.
+  const feedback = await page.evaluate(() => window.__harness.duoFeedbackCase());
+  assert.ok(feedback.after > feedback.before,
+    `the right seat's own event produced no audio: ${JSON.stringify(feedback)}`);
+
   // Force both real boats through the first launch. This catches the former
   // right-seat failure where its mist branch was shared with the left camera
   // and vanished as soon as the two boats diverged.

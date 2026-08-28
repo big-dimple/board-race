@@ -27,6 +27,12 @@
   冲线仍用瞬时集合边界判定，名次保护改用闩锁的 `finalContender`（完成过一整套就不再撤销），
   且激活期间危险计时与门 / 圈记账照旧暂停、距离照旧累计。回归用例 `postSetRankCase` 已进
   `verify:smoke`：撤回修复时它报 `place 1 -> 6`、进度 628 纹丝不动。
+- 双打每帧事件反馈已按席位各跑一遍（"每席一套表现层"第 2 步）：9 个"上一帧状态"标量合并成按席位的
+  `seatEdges`，事件边（漂移入库 / 飞行库存 / 续航 / BOOST / 起飞 / 空刹 / 过门 / 航线通过或失败 /
+  转向预警）双打跑两遍；镜头冲击与后处理脉冲改走该席的 `teamLeft/RightCameraRig`、
+  `teamLeft/RightPipeline`。连续总线（引擎 / 音乐 / 水声）按 llmwiki 合同保持居中，未动。
+  回归用例 `duoFeedbackCase` 已进 `verify:team`：反向验证（只跑主玩家）报 `before:7 → after:7`，
+  右席一声不响。**遗留**：触觉 `haptics` 仍只跟主玩家设备，按席位震动待办。
 - 双打名次塔已按席位拆分（"每席一套表现层"第 1 步）：`RaceTower` 新增 `side`（solo/left/right）与
   `setSeat`；双打实例化两座塔，各钉在自己半屏（CSS `[data-side="right"]` 走右边缘），各自高亮本席、
   各自持有独立 `RadioDirector`。原来 `tower.update()` 拿左席的 `flightPhase` 当 flightFocus，

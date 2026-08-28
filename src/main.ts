@@ -443,15 +443,38 @@ let duoPauseActive = false;
 let pageWasHidden = false;
 let interruptionNeedsCountdown = false;
 const retryReasonCounts = new Map<string, number>();
-let prevFlightCharges = 0;
-let prevDriftReleaseReady = false;
-let prevFlightGateProgress = 0;
-let prevFlightRouteState = boats[0].state.flightRouteState;
-let prevFlightPhase = boats[0].state.flightPhase;
-let prevBoosting = false;
-let prevAirBraking = false;
-let prevDrifting = false;
-let prevTurnWarning = false;
+/**
+ * Previous-frame snapshot for one human seat. Split play needs one per seat:
+ * a single snapshot keyed to the primary seat is why the second player's gates,
+ * landings and buffs used to be completely silent.
+ */
+interface SeatEdges {
+  flightCharges: number;
+  driftReleaseReady: boolean;
+  flightGateProgress: number;
+  flightRouteState: typeof boats[0]['state']['flightRouteState'];
+  flightPhase: typeof boats[0]['state']['flightPhase'];
+  boosting: boolean;
+  airBraking: boolean;
+  drifting: boolean;
+  turnWarning: boolean;
+}
+
+const emptySeatEdges = (): SeatEdges => ({
+  flightCharges: 0,
+  driftReleaseReady: false,
+  flightGateProgress: 0,
+  flightRouteState: 'idle',
+  flightPhase: 'surface',
+  boosting: false,
+  airBraking: false,
+  drifting: false,
+  turnWarning: false,
+});
+
+const seatEdges: SeatEdges[] = [emptySeatEdges(), emptySeatEdges()];
+const SOLO_FEEDBACK_SEATS = [0];
+const DUO_FEEDBACK_SEATS = [0, 1];
 let prevCorridorStage = 0;
 let harnessCheckpointEvents = 0;
 let harnessCollisionFxBursts = 0;
@@ -1381,15 +1404,19 @@ function resetRace(): void {
   currentRun = records.data.runs + 1;
   for (const entry of towers) entry.resetRun(currentRun);
   const resetFocus = primaryBoat();
-  prevFlightCharges = resetFocus.state.flightCharges;
-  prevDriftReleaseReady = resetFocus.state.driftReleaseReady;
-  prevFlightGateProgress = resetFocus.state.flightGateProgress;
-  prevFlightRouteState = resetFocus.state.flightRouteState;
-  prevFlightPhase = resetFocus.state.flightPhase;
-  prevBoosting = resetFocus.state.boosting;
-  prevAirBraking = false;
-  prevDrifting = resetFocus.state.drifting;
-  prevTurnWarning = false;
+  for (const seat of DUO_FEEDBACK_SEATS) {
+    const seatState = boats[seat].state;
+    const edge = seatEdges[seat];
+    edge.flightCharges = seatState.flightCharges;
+    edge.driftReleaseReady = seatState.driftReleaseReady;
+    edge.flightGateProgress = seatState.flightGateProgress;
+    edge.flightRouteState = seatState.flightRouteState;
+    edge.flightPhase = seatState.flightPhase;
+    edge.boosting = seatState.boosting;
+    edge.airBraking = false;
+    edge.drifting = seatState.drifting;
+    edge.turnWarning = false;
+  }
   drivingCoach.resetRun(resetFocus.state);
   harnessCheckpointEvents = 0;
   harnessCollisionFxBursts = 0;
@@ -2443,63 +2470,80 @@ function step(dt: number, _t: number): void {
 
   const focusBoat = primaryBoat();
   const playerState = focusBoat.state;
-  if (playerState.drifting && !prevDrifting && playerState.speed > 12) haptics.cue('drift-active');
-  if (playerState.driftReleaseReady && !prevDriftReleaseReady) {
-    audio.driftReleaseReady();
-    haptics.cue('drift-ready');
-  }
-  if (playerState.flightCharges > prevFlightCharges) {
-    audio.flightReady(playerState.flightCharges);
-    cameraRig.flightReadyKick();
-    pipeline.pulse('ready');
-    const stockIntensity = 0.82 + 0.18 * Math.max(0, playerState.flightCharges - 1) /
-      Math.max(1, MAX_FLIGHT_CHARGES - 1);
-    haptics.cue('charge', stockIntensity);
-  }
-  if (playerState.flightExtended) {
-    audio.flightExtend();
-    cameraRig.flightExtendKick();
-    pipeline.pulse('ready', 0.68);
-    haptics.cue('extend');
-  }
-  if (playerState.boosting && !prevBoosting) {
-    pipeline.pulse('boost', 0.92);
-    haptics.cue('boost');
-  }
-  if (playerState.flightPhase === 'spool' && prevFlightPhase !== 'spool') {
-    pipeline.pulse('launch', 1.05);
-    haptics.cue('launch');
-  }
-  const airBraking = playerState.flightPhase !== 'surface' && playerState.flightAirBrake > 0.28;
-  if (airBraking && !prevAirBraking) {
-    audio.airBrakeSnap();
-    haptics.cue('air-brake');
-  }
-  if (playerState.flightGateProgress > prevFlightGateProgress) {
-    const flightNumber = Math.max(1, playerState.flightsCleared);
-    const feedbackStep = Math.min(3, ((flightNumber - 1) % 3) + 1);
-    audio.flightGate(feedbackStep);
-    cameraRig.flightGateKick(feedbackStep);
-    pipeline.pulse('gate', flightNumber === 3 ? 0.72 : 0.4);
-    haptics.cue('gate');
-  }
-  if (playerState.flightRouteState !== prevFlightRouteState) {
-    if (playerState.flightRouteState === 'passed') {
-      audio.routeClear(Math.min(3, ((playerState.flightsCleared - 1) % 3) + 1));
+  // Every event edge is evaluated once per human seat. A single pass keyed to
+  // the primary seat is why the second player's gates, buffs and air-brake
+  // snaps were completely silent while the first player heard all of them.
+  const feedbackSeats = isDuoMode() ? DUO_FEEDBACK_SEATS : SOLO_FEEDBACK_SEATS;
+  const primarySeat = race.player().id;
+  for (const seat of feedbackSeats) {
+    const racer = race.racers[seat];
+    if (!racer || racer.eliminated) continue;
+    const state = boats[seat].state;
+    const edge = seatEdges[seat];
+    const seatCamera = isDuoMode() ? (seat === 0 ? teamLeftCameraRig : teamRightCameraRig) : cameraRig;
+    const seatPipeline = isDuoMode() ? (seat === 0 ? teamLeftPipeline : teamRightPipeline) : pipeline;
+    // Haptics still follow the primary seat's device; per-device rumble for
+    // every cue is a separate pass.
+    const primary = seat === primarySeat;
+    if (state.drifting && !edge.drifting && state.speed > 12 && primary) haptics.cue('drift-active');
+    if (state.driftReleaseReady && !edge.driftReleaseReady) {
+      audio.driftReleaseReady();
+      if (primary) haptics.cue('drift-ready');
     }
-    else if (playerState.flightRouteState === 'failed') cameraRig.routeMissKick();
+    if (state.flightCharges > edge.flightCharges) {
+      audio.flightReady(state.flightCharges);
+      seatCamera.flightReadyKick();
+      seatPipeline.pulse('ready');
+      const stockIntensity = 0.82 + 0.18 * Math.max(0, state.flightCharges - 1) /
+        Math.max(1, MAX_FLIGHT_CHARGES - 1);
+      if (primary) haptics.cue('charge', stockIntensity);
+    }
+    if (state.flightExtended) {
+      audio.flightExtend();
+      seatCamera.flightExtendKick();
+      seatPipeline.pulse('ready', 0.68);
+      if (primary) haptics.cue('extend');
+    }
+    if (state.boosting && !edge.boosting) {
+      seatPipeline.pulse('boost', 0.92);
+      if (primary) haptics.cue('boost');
+    }
+    if (state.flightPhase === 'spool' && edge.flightPhase !== 'spool') {
+      seatPipeline.pulse('launch', 1.05);
+      if (primary) haptics.cue('launch');
+    }
+    const airBraking = state.flightPhase !== 'surface' && state.flightAirBrake > 0.28;
+    if (airBraking && !edge.airBraking) {
+      audio.airBrakeSnap();
+      if (primary) haptics.cue('air-brake');
+    }
+    if (state.flightGateProgress > edge.flightGateProgress) {
+      const flightNumber = Math.max(1, state.flightsCleared);
+      const feedbackStep = Math.min(3, ((flightNumber - 1) % 3) + 1);
+      audio.flightGate(feedbackStep);
+      seatCamera.flightGateKick(feedbackStep);
+      seatPipeline.pulse('gate', flightNumber === 3 ? 0.72 : 0.4);
+      if (primary) haptics.cue('gate');
+    }
+    if (state.flightRouteState !== edge.flightRouteState) {
+      if (state.flightRouteState === 'passed') {
+        audio.routeClear(Math.min(3, ((state.flightsCleared - 1) % 3) + 1));
+      }
+      else if (state.flightRouteState === 'failed') seatCamera.routeMissKick();
+    }
+    edge.flightCharges = state.flightCharges;
+    edge.driftReleaseReady = state.driftReleaseReady;
+    edge.flightGateProgress = state.flightGateProgress;
+    edge.flightRouteState = state.flightRouteState;
+    edge.flightPhase = state.flightPhase;
+    edge.boosting = state.boosting;
+    edge.airBraking = airBraking;
+    edge.drifting = state.drifting;
+    const seatTurnWarning = course.flightTurnWarning(seat);
+    if (seatTurnWarning && !edge.turnWarning && primary) haptics.cue('warning');
+    edge.turnWarning = seatTurnWarning;
   }
-  prevFlightCharges = playerState.flightCharges;
-  prevDriftReleaseReady = playerState.driftReleaseReady;
-  prevFlightGateProgress = playerState.flightGateProgress;
-  prevFlightRouteState = playerState.flightRouteState;
-  prevFlightPhase = playerState.flightPhase;
-  prevBoosting = playerState.boosting;
-  prevAirBraking = airBraking;
-  prevDrifting = playerState.drifting;
   const turnWarning = course.flightTurnWarning(focusBoat.id);
-  if (turnWarning && !prevTurnWarning) haptics.cue('warning');
-  prevTurnWarning = turnWarning;
 
   const controls = activeCoachControls();
   coachPresentation = drivingCoach.update(dt, {
@@ -2923,6 +2967,7 @@ interface Harness {
   teamPlaceAtTarget(side: SeatSide): void;
   duoState(): Record<string, unknown>;
   duoGuidanceCase(): Record<string, unknown>;
+  duoFeedbackCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
 }
 
@@ -4955,6 +5000,29 @@ function runDuoGuidanceCase(): Record<string, unknown> {
   };
 }
 
+/**
+ * Split-play feedback regression: the second seat's own events must reach the
+ * audio path. One feedback pass keyed to the primary seat used to leave the
+ * right seat completely silent while the left seat heard everything.
+ */
+function runDuoFeedbackCase(): Record<string, unknown> {
+  if (!isDuoMode() || race.phase !== 'racing') {
+    throw new Error('duo feedback diagnostic requires an active dual race');
+  }
+  const sample = (): number => Number(audio.debugState().activeOneShots);
+  const before = sample();
+  // Nudge only the right seat past a gate. The left seat keeps its state, so a
+  // change in the one-shot count can only come from seat 1's own edge.
+  boats[1].state.flightGateProgress += 1;
+  loop.advance(1 / 60);
+  return {
+    before,
+    after: sample(),
+    rightGateProgress: boats[1].state.flightGateProgress,
+    leftGateProgress: boats[0].state.flightGateProgress,
+  };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -5091,6 +5159,7 @@ if (HARNESS) {
       result: lastResultEnvelope,
     }),
     duoGuidanceCase: runDuoGuidanceCase,
+    duoFeedbackCase: runDuoFeedbackCase,
     duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
