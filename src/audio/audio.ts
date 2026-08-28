@@ -497,6 +497,17 @@ export class GameAudio {
     this.blip(580, t0 + 0.006, 0.04, 0.22, 'sine');
   }
 
+  /** Bright two-step pickup chime for the solid water-coin target. */
+  coinCollect(): void {
+    const c = this.ctx;
+    if (!c) return;
+    const t = c.currentTime;
+    this.traceEvent('coin-collect', 1);
+    this.blip(1046.5, t, 0.1, 0.14, 'triangle');
+    this.blip(1568, t + 0.055, 0.16, 0.13, 'triangle');
+    this.duckMusic(0.82, 0.09);
+  }
+
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */
   setEngine(rpm: number, throttle: number, boosting: boolean): void {
     const c = this.ctx;

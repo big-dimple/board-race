@@ -1545,12 +1545,12 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
     if (hit.kind === 'duck') audio.balloonPop();
-    else audio.collision(4.2);
+    else audio.coinCollect();
     const targetPipeline = isDuoMode() && hit.racerId < 2
       ? hit.racerId === 0 ? teamLeftPipeline : teamRightPipeline
       : pipeline;
-    targetPipeline.pulse('ready', hit.kind === 'crown' ? 0.9 : 0.58);
-    const rumbleStrength = hit.kind === 'crown' ? 0.72 : 0.42;
+    targetPipeline.pulse('ready', hit.kind === 'coin' ? 0.72 : 0.58);
+    const rumbleStrength = hit.kind === 'coin' ? 0.56 : 0.42;
     // A target belongs to the boat that touched it. In dual play route the
     // pulse to that seat's device instead of whichever controller was last
     // active globally; single play keeps the normal haptics lane.
@@ -4417,12 +4417,11 @@ function scenario(name: string): void {
       break;
     }
     case "honor-target":
-      // The harness places the player against the first authored target after
-      // the real countdown; leaving the scene untouched keeps this diagnostic
-      // focused on the target's center/edge contract.
+      // Face the first live coin after the real countdown so the retained
+      // visual-review scenario inspects the replacement prop, not a duck.
       advanceUntil(() => race.phase === "racing", 8);
       {
-        const target = honorTargets.debugTargets()[0];
+        const target = honorTargets.debugTargets().find((candidate) => candidate.kind === 'coin');
         if (target) {
           boats[0].teleport(
             target.x - target.forwardX * 14,
@@ -4436,6 +4435,7 @@ function scenario(name: string): void {
             lookAt: [0, 2.1, 5.5],
             fov: 54,
           };
+          loop.advance(1.45);
         }
       }
       break;
@@ -4605,6 +4605,9 @@ function runHonorTargetCase(): Record<string, number | string | boolean> {
     maxTargetY: Math.max(...targetStates.map((state) => state.y)),
     minTargetLateral: Math.min(...targetStates.map((state) => Math.abs(state.lateral))),
     targetKinds: targetStates.map((state) => state.kind).join(','),
+    minCoinStartDistanceU: Math.min(...targetStates
+      .filter((state) => state.kind === 'coin')
+      .map((state) => Math.min(state.u, 1 - state.u))),
     hits: afterEdge.hits,
     centerHits: afterEdge.centerHits,
     edgeHits: afterEdge.edgeHits,

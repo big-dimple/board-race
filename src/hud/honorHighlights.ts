@@ -87,7 +87,7 @@ export class HonorHighlights {
       <footer class="honor-review-foot">
         <span class="honor-review-score"></span>
         <span class="honor-review-hint"></span>
-        <button class="honor-review-continue" type="button"><span aria-hidden="true">▶</span> 继续下一轮</button>
+        <button class="honor-review-continue" type="button"><span aria-hidden="true">▶</span> 游戏尚未结束</button>
         <button class="honor-review-retry" type="button"><span aria-hidden="true">↻</span> 再来一局</button>
         <button class="honor-review-exit" type="button"><span aria-hidden="true">←</span> 玩法目录</button>
       </footer>`;
@@ -325,7 +325,7 @@ export class HonorHighlights {
     this.root.classList.add('settled');
     this.autoContinueRemaining = this.payload?.canContinue ? HONOR_AUTO_CONTINUE_S : 0;
     this.hint.textContent = this.payload?.canContinue
-      ? '5 秒后自动继续下一轮 · ← → 选择卡片 · ENTER 立即继续'
+      ? '5 秒后自动回到赛道 · ← → 选择卡片 · ENTER 立即继续'
       : '← → 选择卡片 · ENTER 再来一局';
     this.continue.disabled = !this.payload?.canContinue;
     this.retry.disabled = false;
@@ -336,7 +336,7 @@ export class HonorHighlights {
 
   private resetContinueLabel(): void {
     this.autoContinueDisplayedSecond = -1;
-    this.continue.innerHTML = '<span aria-hidden="true">▶</span> 继续下一轮';
+    this.continue.innerHTML = '<span aria-hidden="true">▶</span> 游戏尚未结束';
     this.continue.removeAttribute('aria-label');
   }
 
@@ -345,8 +345,8 @@ export class HonorHighlights {
     const seconds = Math.max(1, Math.ceil(this.autoContinueRemaining));
     if (seconds === this.autoContinueDisplayedSecond) return;
     this.autoContinueDisplayedSecond = seconds;
-    this.continue.innerHTML = `<span aria-hidden="true">▶</span> 继续下一轮 · ${seconds} 秒`;
-    this.continue.setAttribute('aria-label', `继续下一轮，${seconds}秒后自动继续`);
+    this.continue.innerHTML = `<span aria-hidden="true">▶</span> 游戏尚未结束 · ${seconds} 秒`;
+    this.continue.setAttribute('aria-label', `游戏尚未结束，${seconds}秒后自动回到赛道`);
   }
 }
 

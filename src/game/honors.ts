@@ -13,7 +13,7 @@ import { addOutline } from '../cel/outline';
 import { markInk } from '../contracts';
 import { FLIGHT_ROUTES } from './course';
 
-export type HonorTargetKind = 'duck' | 'ring' | 'bell' | 'star' | 'crown' | 'comet';
+export type HonorTargetKind = 'duck' | 'coin';
 
 export interface HonorHit {
   targetId: number;
@@ -48,8 +48,9 @@ export interface HonorDefinition {
 /** Stable ids are deliberately protocol-safe: these are future server fields. */
 export const HONOR_DEFINITIONS: Readonly<Record<string, HonorDefinition>> = {
   'target.duck': { title: '鸭鸭爆点', detail: '撞飞气球，触发大螺旋爆破', value: 120, color: PALETTE.hullKai },
-  // Legacy ids remain readable in historical records; no new target uses the
-  // ring or center-energy mechanic.
+  'target.coin': { title: '金币猎手', detail: '偏离主线撞取实体金币', value: 130, color: PALETTE.sunFlare },
+  // Legacy ids remain readable in historical records; no new target uses
+  // these props or the old ring/center-energy mechanic.
   'target.ring': { title: '旧制穿环', detail: '历史版本荣誉记录', value: 100, color: PALETTE.flight },
   'target.bell': { title: '海铃连响', detail: '把会摇摆的海铃撞到发声', value: 110, color: PALETTE.sunFlare },
   'target.star': { title: '浪尖摘星', detail: '在浪尖上拿到星标', value: 140, color: PALETTE.racingLine },
@@ -75,16 +76,20 @@ const TARGET_LAYOUT: readonly {
   // flight spans. Lateral offsets keep the racing line clear while making the
   // float and the collectible silhouette readable from the chase camera.
   { u: 0.045, lateral: -5.4, kind: 'duck', phase: 0.1 },
-  { u: 0.185, lateral: 5.2, kind: 'bell', phase: 1.4 },
-  { u: 0.33, lateral: -5.8, kind: 'star', phase: 2.7 },
-  { u: 0.49, lateral: 5.6, kind: 'crown', phase: 3.8 },
-  { u: 0.607, lateral: -5.2, kind: 'comet', phase: 4.9 },
+  // Two opposing coins replace the former start-line prop inside the broad
+  // surface sector between flights one and two.
+  { u: 0.155, lateral: -5.2, kind: 'coin', phase: 0.9 },
+  { u: 0.215, lateral: 5.2, kind: 'coin', phase: 1.4 },
+  { u: 0.33, lateral: -5.8, kind: 'coin', phase: 2.7 },
+  { u: 0.49, lateral: 5.6, kind: 'coin', phase: 3.8 },
+  { u: 0.607, lateral: -5.2, kind: 'coin', phase: 4.9 },
   { u: 0.748, lateral: 5.5, kind: 'duck', phase: 6.0 },
-  { u: 0.882, lateral: -5.8, kind: 'bell', phase: 7.1 },
-  { u: 0.99, lateral: 5.1, kind: 'star', phase: 8.3 },
+  { u: 0.882, lateral: -5.8, kind: 'coin', phase: 7.1 },
 ];
 
 const TARGET_RADIUS = 4.65;
+/** The start/finish at u=0 keeps a clean opening view in both directions. */
+const COIN_START_CLEARANCE_U = 0.1;
 // A generous contact radius makes the optional side route feel physical; the
 // center/edge telemetry remains descriptive only.
 const TARGET_CENTER_RADIUS = 2.8;
@@ -99,6 +104,11 @@ const MAX_TARGET_RACERS = 8;
 // target in the same fixed step. The live six-boat race uses fewer slots, but
 // the contract is intentionally future-room safe for local/net replay probes.
 const MAX_HIT_EVENTS = TARGET_LAYOUT.length * MAX_TARGET_RACERS;
+
+function distanceFromStart(u: number): number {
+  const wrapped = ((u % 1) + 1) % 1;
+  return Math.min(wrapped, 1 - wrapped);
+}
 
 interface HonorTargetVisual {
   group: THREE.Group;
@@ -189,12 +199,13 @@ export class HonorTargetSystem {
       target.group.position.y = target.y;
       target.group.rotation.x = Math.sin(target.phase * 0.83) * 0.055;
       target.group.rotation.z = Math.cos(target.phase * 0.71) * 0.075;
-      target.emblem.rotation.z += dt * (target.kind === 'comet' ? -0.45 : 0.24);
+      target.emblem.rotation.z += dt * (target.kind === 'coin' ? 0.48 : 0.24);
       target.emblem.rotation.x = Math.sin(target.phase * 1.3) * 0.06;
       target.float.rotation.z = Math.sin(target.phase * 0.92) * 0.14;
       target.floatFoam.rotation.z = Math.cos(target.phase * 0.86) * 0.12;
       target.floatFoam.position.y = -0.3 + Math.sin(target.phase * 1.7) * 0.05;
-      target.emblem.rotation.y += dt * (target.kind === 'bell' ? 2.4 : 0.8);
+      if (target.kind === 'coin') target.emblem.rotation.y = Math.sin(target.phase * 1.15) * 0.42;
+      else target.emblem.rotation.y += dt * 0.8;
       target.orbit.rotation.y -= dt * 1.6;
       const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
       target.group.scale.setScalar(idlePulse + target.pulse * 0.2);
@@ -318,14 +329,17 @@ export class HonorTargetSystem {
       if (FLIGHT_ROUTES.some((route) => spec.u >= route.entryU && spec.u <= route.exitU)) {
         throw new Error(`honor target ${spec.kind} is inside a flight span at u=${spec.u}`);
       }
+      if (spec.kind === 'coin' && distanceFromStart(spec.u) < COIN_START_CLEARANCE_U) {
+        throw new Error(`honor coin is inside the start/finish buffer at u=${spec.u}`);
+      }
     }
     const coreGeometry = new THREE.SphereGeometry(0.82, 16, 12);
-    const gripGeometry = new THREE.BoxGeometry(0.28, 0.58, 0.24);
-    const starGeometry = new THREE.OctahedronGeometry(1.22, 0);
-    const bellGeometry = new THREE.CylinderGeometry(0.82, 1.08, 1.16, 12);
-    const crownBaseGeometry = new THREE.CylinderGeometry(1.08, 1.24, 0.4, 8);
-    const crownPointGeometry = new THREE.ConeGeometry(0.32, 1.18, 5);
-    const cometTailGeometry = new THREE.ConeGeometry(0.42, 2.5, 8);
+    const coinCoreGeometry = new THREE.CylinderGeometry(1.24, 1.24, 0.34, 24);
+    coinCoreGeometry.rotateX(Math.PI / 2);
+    const coinRimGeometry = new THREE.TorusGeometry(1.04, 0.15, 8, 28);
+    const coinStampBarGeometry = new THREE.BoxGeometry(0.22, 1.2, 0.12);
+    const coinStampHeadGeometry = new THREE.BoxGeometry(0.22, 0.52, 0.12);
+    const coinStampFootGeometry = new THREE.BoxGeometry(0.68, 0.2, 0.12);
     // The mast and pennant are deliberately chunky. They make each optional
     // target read as a real water marker from the chase camera instead of a
     // tiny floating UI glyph. A horizontal pennant cannot be confused with
@@ -368,6 +382,20 @@ export class HonorTargetSystem {
       rimColor: PALETTE.ink,
       rimStrength: 0.4,
     });
+    const coinRimMaterial = createToonMaterial({
+      color: PALETTE.sunCore,
+      emissive: PALETTE.sunFlare,
+      emissiveIntensity: 0.36,
+      rimColor: PALETTE.foam,
+      rimStrength: 0.58,
+    });
+    const coinStampMaterial = createToonMaterial({
+      color: 0xb86f12,
+      emissive: PALETTE.sunFlare,
+      emissiveIntensity: 0.14,
+      rimColor: PALETTE.sunCore,
+      rimStrength: 0.24,
+    });
 
     for (let index = 0; index < TARGET_LAYOUT.length; index++) {
       const spec = TARGET_LAYOUT[index];
@@ -388,38 +416,28 @@ export class HonorTargetSystem {
       group.rotation.y = heading;
       const emblem = new THREE.Group();
       emblem.name = `honor-emblem-${spec.kind}`;
-      if (spec.kind === 'star') {
-        const star = new THREE.Mesh(starGeometry, materialFor(spec.kind));
-        star.name = 'honor-star';
-        star.rotation.z = Math.PI * 0.25;
-        emblem.add(star);
-      } else if (spec.kind === 'bell') {
-        const bell = new THREE.Mesh(bellGeometry, materialFor(spec.kind));
-        bell.name = 'honor-bell';
-        const clapper = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), beamMaterial);
-        clapper.name = 'honor-bell-clapper';
-        clapper.position.y = -0.72;
-        emblem.add(bell, clapper);
-      } else if (spec.kind === 'crown') {
-        const base = new THREE.Mesh(crownBaseGeometry, materialFor(spec.kind));
-        base.name = 'honor-crown-base';
-        emblem.add(base);
-        for (const xOffset of [-0.82, 0, 0.82]) {
-          const pointMesh = new THREE.Mesh(crownPointGeometry, materialFor(spec.kind));
-          pointMesh.position.set(xOffset, 0.75, 0);
-          pointMesh.rotation.z = xOffset * 0.18;
-          pointMesh.name = 'honor-crown-point';
-          emblem.add(pointMesh);
+      if (spec.kind === 'coin') {
+        const coin = new THREE.Mesh(coinCoreGeometry, materialFor(spec.kind));
+        coin.name = 'honor-coin-core';
+        emblem.add(coin);
+        for (const side of [-1, 1]) {
+          const faceZ = side * 0.19;
+          const rim = new THREE.Mesh(coinRimGeometry, coinRimMaterial);
+          rim.name = 'honor-coin-rim';
+          rim.position.z = faceZ;
+          emblem.add(rim);
+          const stampBar = new THREE.Mesh(coinStampBarGeometry, coinStampMaterial);
+          stampBar.name = 'honor-coin-stamp';
+          stampBar.position.set(0, 0.08, side * 0.24);
+          const stampHead = new THREE.Mesh(coinStampHeadGeometry, coinStampMaterial);
+          stampHead.name = 'honor-coin-stamp';
+          stampHead.position.set(-0.13, 0.57, side * 0.24);
+          stampHead.rotation.z = -0.55;
+          const stampFoot = new THREE.Mesh(coinStampFootGeometry, coinStampMaterial);
+          stampFoot.name = 'honor-coin-stamp';
+          stampFoot.position.set(0, -0.54, side * 0.24);
+          emblem.add(stampBar, stampHead, stampFoot);
         }
-      } else if (spec.kind === 'comet') {
-        const head = new THREE.Mesh(coreGeometry, materialFor(spec.kind));
-        head.name = 'honor-comet-head';
-        const tail = new THREE.Mesh(cometTailGeometry, beamMaterial);
-        tail.name = 'honor-comet-tail';
-        tail.rotation.x = -Math.PI / 2;
-        tail.position.z = -1.35;
-        tail.scale.set(1, 1, 1.15);
-        emblem.add(head, tail);
       } else {
         const duck = new THREE.Mesh(coreGeometry, materialFor(spec.kind));
         duck.name = 'honor-duck-body';
@@ -436,19 +454,6 @@ export class HonorTargetSystem {
       emblem.position.set(0, 1.02, 0);
       emblem.scale.setScalar(1.18);
       group.add(emblem);
-
-      // Crown grips remain a readable physical frame, but are compact and
-      // attached to the emblem rather than forming a misleading ring.
-      if (spec.kind === 'crown') {
-        for (const angle of [0.48, Math.PI - 0.48, Math.PI + 0.48, -0.48]) {
-          const grip = new THREE.Mesh(gripGeometry, beamMaterial);
-          grip.name = 'technique-helm-grip';
-          grip.position.set(Math.sin(angle) * 1.08, Math.cos(angle) * 0.56, 0);
-          grip.rotation.z = angle;
-          grip.userData.noOutline = true;
-          emblem.add(grip);
-        }
-      }
 
       // A chunky float and foam collar make the target physically legible at
       // a glance. The stem terminates in the float instead of disappearing
@@ -490,7 +495,9 @@ export class HonorTargetSystem {
       const orbit = new THREE.Group();
       orbit.name = 'honor-orbit';
       for (let orbitIndex = 0; orbitIndex < 3; orbitIndex++) {
-        const orb = new THREE.Mesh(orbitGeometry, materialFor(spec.kind));
+        const orb = new THREE.Mesh(spec.kind === 'coin' ? coinCoreGeometry : orbitGeometry, materialFor(spec.kind));
+        orb.name = spec.kind === 'coin' ? 'honor-orbit-coin' : 'honor-orbit-bubble';
+        if (spec.kind === 'coin') orb.scale.setScalar(0.2);
         const angle = orbitIndex * (Math.PI * 2 / 3);
         orb.position.set(Math.cos(angle) * 2.22, 1.02 + Math.sin(angle * 1.3) * 0.28, Math.sin(angle) * 2.22);
         orbit.add(orb);

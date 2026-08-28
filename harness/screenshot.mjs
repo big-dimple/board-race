@@ -260,9 +260,9 @@ async function verifyMode(browser, mobile) {
     `${label}: final crossing honor was not added to historical honor score`);
   assert.equal(finaleSequence.settledBeforeContinue.continueDisabled, false,
     `${label}: next-round action stayed disabled after the high-light sequence settled`);
-  assert.match(finaleSequence.settledBeforeContinue.continueLabel, /继续下一轮.*5\s*秒/,
+  assert.match(finaleSequence.settledBeforeContinue.continueLabel, /游戏尚未结束.*5\s*秒/,
     `${label}: settled honor wall did not expose the five-second auto-continue countdown`);
-  assert.match(finaleSequence.settledBeforeContinue.continueAriaLabel, /5秒后自动继续/,
+  assert.match(finaleSequence.settledBeforeContinue.continueAriaLabel, /5秒后自动回到赛道/,
     `${label}: auto-continue countdown is missing from the accessible action label`);
   assert.equal(finaleSequence.settledBeforeContinue.spotlightDisplay, 'none',
     `${label}: completed Play-of-the-Run beat still reserved a hidden layout row`);
@@ -520,8 +520,10 @@ async function verifyMode(browser, mobile) {
     `${label}: honor targets overlap an authored flight span: ${JSON.stringify(honorTarget)}`);
   assert.ok(honorTarget.minTargetLateral >= 4.5,
     `${label}: honor targets drifted back onto the flight line: ${JSON.stringify(honorTarget)}`);
-  assert.match(honorTarget.targetKinds, /duck.*bell.*star.*crown.*comet/,
-    `${label}: authored honor props are missing a readable variety: ${JSON.stringify(honorTarget)}`);
+  assert.equal(honorTarget.targetKinds, 'duck,coin,coin,coin,coin,coin,duck,coin',
+    `${label}: live honor props are not limited to ducks and coins: ${JSON.stringify(honorTarget)}`);
+  assert.ok(honorTarget.minCoinStartDistanceU >= 0.1,
+    `${label}: a coin leaked into the start/finish buffer: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.centerHits, 2,
     `${label}: straight target contact was not classified as center telemetry: ${JSON.stringify(honorTarget)}`);
   assert.equal(honorTarget.chargesBeforeFirst, 0,
