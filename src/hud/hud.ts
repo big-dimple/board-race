@@ -55,6 +55,18 @@ interface ImpactNotice {
   lane?: 'left' | 'center' | 'right';
 }
 
+/** One independent impact card: its own DOM, its own timer and its own queue. */
+interface ImpactSlot {
+  el: HTMLDivElement;
+  kicker: HTMLDivElement;
+  title: HTMLDivElement;
+  detail: HTMLDivElement;
+  queue: ImpactNotice[];
+  timer: number;
+  priority: number;
+  active: ImpactNotice | null;
+}
+
 /** Palette hex int → canvas/CSS color string. */
 const css = (hexInt: number): string => '#' + hexInt.toString(16).padStart(6, '0');
 
@@ -94,6 +106,7 @@ export class HUD {
 
   setDuoSplit(visible: boolean): void {
     this.root.classList.toggle('duo-split', visible);
+    this.duoSplit = visible;
   }
 
   // speedometer
@@ -148,14 +161,13 @@ export class HUD {
 
   // full-screen, event-driven impact layer
   private readonly driftFx: HTMLDivElement;
-  private readonly impactEl: HTMLDivElement;
-  private readonly impactKicker: HTMLDivElement;
-  private readonly impactTitle: HTMLDivElement;
-  private readonly impactDetail: HTMLDivElement;
-  private readonly impactQueue: ImpactNotice[] = [];
-  private impactTimer = 0;
-  private impactPriority = -1;
-  private activeImpact: ImpactNotice | null = null;
+  /**
+   * Impact cards. Split play builds one slot per seat so a notice can never
+   * preempt or evict the other seat's, and neither one lands on the seam
+   * between the two views.
+   */
+  private readonly impactSlots: ImpactSlot[] = [];
+  private duoSplit = false;
 
   // Overtakes are competition-critical and never share the generic queue.
   private readonly battleEl: HTMLDivElement;
@@ -385,16 +397,26 @@ export class HUD {
     // ---- toasts / wrong way / countdown ----------------------------------------------
     this.toastBox = h('div', 'hud-toasts', this.root);
     this.driftFx = h('div', 'hud-drift-fx', this.root);
-    this.impactEl = h('div', 'hud-impact', this.root);
-    this.impactEl.setAttribute('role', 'status');
-    this.impactEl.setAttribute('aria-live', 'polite');
-    h('div', 'hud-impact-flash', this.impactEl);
-    h('div', 'hud-impact-lines left', this.impactEl);
-    h('div', 'hud-impact-lines right', this.impactEl);
-    const impactCopy = h('div', 'hud-impact-copy', this.impactEl);
-    this.impactKicker = h('div', 'hud-impact-kicker hud-inked', impactCopy);
-    this.impactTitle = h('div', 'hud-impact-title hud-inked', impactCopy);
-    this.impactDetail = h('div', 'hud-impact-detail', impactCopy);
+    for (const slot of ['a', 'b'] as const) {
+      const el = h('div', 'hud-impact', this.root);
+      el.dataset.slot = slot;
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      h('div', 'hud-impact-flash', el);
+      h('div', 'hud-impact-lines left', el);
+      h('div', 'hud-impact-lines right', el);
+      const impactCopy = h('div', 'hud-impact-copy', el);
+      this.impactSlots.push({
+        el,
+        kicker: h('div', 'hud-impact-kicker hud-inked', impactCopy),
+        title: h('div', 'hud-impact-title hud-inked', impactCopy),
+        detail: h('div', 'hud-impact-detail', impactCopy),
+        queue: [],
+        timer: 0,
+        priority: -1,
+        active: null,
+      });
+    }
 
     this.battleEl = h('div', 'hud-battle', this.root);
     this.battleEl.setAttribute('role', 'status');
@@ -1248,7 +1270,7 @@ export class HUD {
   }
 
   showCoach(presentation: CoachPresentation | null): void {
-    if (presentation && (this.battleTimer > 0 || this.impactTimer > 0)) presentation = null;
+    if (presentation && (this.battleTimer > 0 || this.impactBusy())) presentation = null;
     if (!presentation) {
       this.activeCoach = null;
       this.coachEl.classList.remove('on');
@@ -1282,7 +1304,7 @@ export class HUD {
   }
 
   coachPresentationBlocked(): boolean {
-    return this.battleTimer > 0 || this.impactTimer > 0;
+    return this.battleTimer > 0 || this.impactBusy();
   }
 
   flightPromptVisible(): boolean {
@@ -1475,11 +1497,13 @@ export class HUD {
 
   clearTransientNotices(): void {
     this.clearBattle();
-    this.impactQueue.length = 0;
-    this.impactTimer = 0;
-    this.impactPriority = -1;
-    this.activeImpact = null;
-    this.impactEl.classList.remove('on');
+    for (const slot of this.impactSlots) {
+      slot.queue.length = 0;
+      slot.timer = 0;
+      slot.priority = -1;
+      slot.active = null;
+      slot.el.classList.remove('on');
+    }
   }
 
   private activateBattle(
@@ -1736,53 +1760,66 @@ export class HUD {
     this.toasts.push({ el, life: TOAST_LIFE });
   }
 
-  private enqueueImpact(notice: ImpactNotice): void {
-    if (this.impactTimer <= 0 || notice.priority >= this.impactPriority) {
-      if (this.impactTimer > 0 && this.impactPriority >= 50 && this.activeImpact) {
-        this.impactQueue.unshift({ ...this.activeImpact, duration: Math.min(this.impactTimer, 0.35) });
-      }
-      this.activateImpact(notice);
-      return;
-    }
-    this.impactQueue.push(notice);
-    this.impactQueue.sort((a, b) => b.priority - a.priority);
-    if (this.impactQueue.length > 2) this.impactQueue.length = 2;
+  private impactBusy(): boolean {
+    return this.impactSlots.some((slot) => slot.timer > 0);
   }
 
-  private activateImpact(notice: ImpactNotice): void {
-    this.impactTimer = notice.duration;
-    this.impactPriority = notice.priority;
-    this.activeImpact = notice;
-    this.impactEl.dataset.kind = notice.kind;
-    this.impactEl.dataset.lane = notice.lane ?? 'center';
-    this.impactEl.style.setProperty('--impact', css(notice.color));
-    this.impactEl.style.setProperty('--impact-duration', `${notice.duration}s`);
-    this.impactKicker.textContent = notice.kicker;
-    this.impactTitle.textContent = notice.title;
-    this.impactDetail.textContent = notice.detail;
-    this.impactEl.classList.remove('on');
-    void this.impactEl.offsetWidth;
-    this.impactEl.classList.add('on');
+  /** In split play each seat owns a slot; solo play uses the first one only. */
+  private slotForLane(lane: ImpactNotice['lane']): ImpactSlot {
+    if (!this.duoSplit) return this.impactSlots[0];
+    return lane === 'right' ? this.impactSlots[1] : this.impactSlots[0];
+  }
+
+  private enqueueImpact(notice: ImpactNotice): void {
+    const slot = this.slotForLane(notice.lane);
+    if (slot.timer <= 0 || notice.priority >= slot.priority) {
+      if (slot.timer > 0 && slot.priority >= 50 && slot.active) {
+        slot.queue.unshift({ ...slot.active, duration: Math.min(slot.timer, 0.35) });
+      }
+      this.activateImpact(slot, notice);
+      return;
+    }
+    slot.queue.push(notice);
+    slot.queue.sort((a, b) => b.priority - a.priority);
+    if (slot.queue.length > 2) slot.queue.length = 2;
+  }
+
+  private activateImpact(slot: ImpactSlot, notice: ImpactNotice): void {
+    slot.timer = notice.duration;
+    slot.priority = notice.priority;
+    slot.active = notice;
+    slot.el.dataset.kind = notice.kind;
+    slot.el.dataset.lane = notice.lane ?? 'center';
+    slot.el.style.setProperty('--impact', css(notice.color));
+    slot.el.style.setProperty('--impact-duration', `${notice.duration}s`);
+    slot.kicker.textContent = notice.kicker;
+    slot.title.textContent = notice.title;
+    slot.detail.textContent = notice.detail;
+    slot.el.classList.remove('on');
+    void slot.el.offsetWidth;
+    slot.el.classList.add('on');
   }
 
   private updateImpact(dt: number, racing: boolean): void {
-    if (!racing) {
-      this.impactQueue.length = 0;
-      this.impactTimer = 0;
-      this.impactPriority = -1;
-      this.activeImpact = null;
-      this.impactEl.classList.remove('on');
-      return;
-    }
-    if (this.impactTimer <= 0) return;
-    this.impactTimer -= dt;
-    if (this.impactTimer > 0) return;
-    this.impactEl.classList.remove('on');
-    const next = this.impactQueue.shift();
-    if (next) this.activateImpact(next);
-    else {
-      this.impactPriority = -1;
-      this.activeImpact = null;
+    for (const slot of this.impactSlots) {
+      if (!racing) {
+        slot.queue.length = 0;
+        slot.timer = 0;
+        slot.priority = -1;
+        slot.active = null;
+        slot.el.classList.remove('on');
+        continue;
+      }
+      if (slot.timer <= 0) continue;
+      slot.timer -= dt;
+      if (slot.timer > 0) continue;
+      slot.el.classList.remove('on');
+      const next = slot.queue.shift();
+      if (next) this.activateImpact(slot, next);
+      else {
+        slot.priority = -1;
+        slot.active = null;
+      }
     }
   }
 

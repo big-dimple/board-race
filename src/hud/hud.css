@@ -894,6 +894,18 @@
   opacity: 1;
   visibility: visible;
 }
+/* Split play: each seat owns one slot and that slot renders as a half-width
+   HUD, so every authored percentage inside it resolves within that seat's own
+   view. One shared card used to sit on the seam, and a full-width flash washed
+   over the other player's window. */
+.hud.duo-split .hud-impact { width: 50%; right: auto; }
+.hud.duo-split .hud-impact[data-slot='b'] { left: 50%; }
+/* The coin card is pinned per lane on a full-width HUD; inside a half it is
+   simply centred. */
+.hud.duo-split .hud-impact[data-kind='honor-coin'] .hud-impact-copy {
+  left: 50%;
+  width: min(390px, calc(100% - 32px));
+}
 
 .hud-impact-flash {
   position: absolute;

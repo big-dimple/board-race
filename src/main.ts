@@ -2968,6 +2968,7 @@ interface Harness {
   duoState(): Record<string, unknown>;
   duoGuidanceCase(): Record<string, unknown>;
   duoFeedbackCase(): Record<string, unknown>;
+  duoImpactCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
 }
 
@@ -5023,6 +5024,30 @@ function runDuoFeedbackCase(): Record<string, unknown> {
   };
 }
 
+/**
+ * Split-play impact-card regression: each seat must own a card inside its own
+ * half. One shared card used to sit on the seam and a high-priority notice
+ * from either seat silently evicted the other's.
+ */
+function runDuoImpactCase(): Record<string, unknown> {
+  if (!isDuoMode() || race.phase !== 'racing') {
+    throw new Error('duo impact diagnostic requires an active dual race');
+  }
+  for (const lane of ['left', 'right'] as const) {
+    hud.showHonorTargetNotice(roster[lane === 'left' ? 0 : 1].name, '席位提示', 10, 'edge', lane, 0);
+  }
+  const cards = [...document.querySelectorAll<HTMLElement>('.hud-impact.on')].map((el) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      slot: el.dataset.slot ?? '',
+      lane: el.dataset.lane ?? '',
+      left: Math.round(rect.left),
+      right: Math.round(rect.right),
+    };
+  });
+  return { cards, half: Math.round(window.innerWidth / 2) };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -5160,6 +5185,7 @@ if (HARNESS) {
     }),
     duoGuidanceCase: runDuoGuidanceCase,
     duoFeedbackCase: runDuoFeedbackCase,
+    duoImpactCase: runDuoImpactCase,
     duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

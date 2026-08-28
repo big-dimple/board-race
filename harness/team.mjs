@@ -425,6 +425,19 @@ async function verifyGamepadSeating(page) {
   assert.ok(feedback.after > feedback.before,
     `the right seat's own event produced no audio: ${JSON.stringify(feedback)}`);
 
+  // Each seat's impact card must render inside its own half: one shared card
+  // sat on the seam and let either seat's notice evict the other's.
+  const impact = await page.evaluate(() => window.__harness.duoImpactCase());
+  assert.equal(impact.cards.length, 2,
+    `both seats did not get their own impact card: ${JSON.stringify(impact)}`);
+  for (const card of impact.cards) {
+    if (card.slot === 'b') {
+      assert.ok(card.left >= impact.half, `right card is not inside the right view: ${JSON.stringify(impact)}`);
+    } else {
+      assert.ok(card.right <= impact.half, `left card spilled into the right view: ${JSON.stringify(impact)}`);
+    }
+  }
+
   // Force both real boats through the first launch. This catches the former
   // right-seat failure where its mist branch was shared with the left camera
   // and vanished as soon as the two boats diverged.
