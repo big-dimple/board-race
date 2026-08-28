@@ -100,6 +100,8 @@ const TARGET_MIN_FORWARD_ALIGN = 0.7;
 const TARGET_BASE_Y = 0.38;
 const TARGET_BOB_AMPLITUDE = 0.12;
 const MAX_TARGET_RACERS = 8;
+const COIN_BURST_POOL_SIZE = 8;
+const COIN_BURST_DURATION = 1.05;
 // Keep the fixed event pool large enough for every supported racer to leave a
 // target in the same fixed step. The live six-boat race uses fewer slots, but
 // the contract is intentionally future-room safe for local/net replay probes.
@@ -108,6 +110,20 @@ const MAX_HIT_EVENTS = TARGET_LAYOUT.length * MAX_TARGET_RACERS;
 function distanceFromStart(u: number): number {
   const wrapped = ((u % 1) + 1) % 1;
   return Math.min(wrapped, 1 - wrapped);
+}
+
+function radialShape(vertexCount: number, radiusAt: (index: number) => number): THREE.Shape {
+  const shape = new THREE.Shape();
+  for (let index = 0; index < vertexCount; index++) {
+    const angle = Math.PI / 2 + index / vertexCount * Math.PI * 2;
+    const radius = radiusAt(index);
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (index === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
 }
 
 interface HonorTargetVisual {
@@ -134,6 +150,21 @@ interface HonorTargetVisual {
   bestAt: Float32Array;
 }
 
+interface CoinBurstSlot {
+  root: THREE.Group;
+  ring: THREE.Mesh;
+  flash: THREE.Mesh;
+  rays: THREE.Mesh[];
+  chips: THREE.Mesh[];
+  ringMaterial: THREE.MeshBasicMaterial;
+  rayMaterial: THREE.MeshBasicMaterial;
+  chipMaterial: THREE.MeshBasicMaterial;
+  flashMaterial: THREE.MeshBasicMaterial;
+  life: number;
+  baseY: number;
+  strength: number;
+}
+
 /**
  * Large, optional collision targets. They are presentation-rich and emit a
  * deterministic center/edge telemetry; the boat remains the sole transform
@@ -142,6 +173,7 @@ interface HonorTargetVisual {
 export class HonorTargetSystem {
   readonly object: THREE.Group;
   private readonly targets: HonorTargetVisual[] = [];
+  private readonly coinBursts: CoinBurstSlot[] = [];
   private readonly eventPool: HonorHit[] = Array.from({ length: MAX_HIT_EVENTS }, () => ({
     targetId: -1,
     kind: 'duck',
@@ -157,17 +189,22 @@ export class HonorTargetSystem {
   private hitCount = 0;
   private centerHitCount = 0;
   private edgeHitCount = 0;
+  private coinBurstCursor = 0;
+  private coinBurstCount = 0;
 
   constructor(private readonly course: ICourse) {
     this.object = new THREE.Group();
     this.object.name = 'honor-targets';
     this.buildTargets();
+    this.buildCoinBursts();
   }
 
   reset(): void {
     this.hitCount = 0;
     this.centerHitCount = 0;
     this.edgeHitCount = 0;
+    this.coinBurstCursor = 0;
+    this.coinBurstCount = 0;
     for (const target of this.targets) {
       target.hitMask = 0;
       target.activeMask = 0;
@@ -176,6 +213,10 @@ export class HonorTargetSystem {
       target.bestForwardAlign.fill(-1);
       target.group.visible = true;
       target.group.scale.setScalar(1);
+    }
+    for (const burst of this.coinBursts) {
+      burst.life = 0;
+      burst.root.visible = false;
     }
   }
 
@@ -190,6 +231,7 @@ export class HonorTargetSystem {
   ): void {
     out.length = 0;
     this.eventCursor = 0;
+    this.updateCoinBursts(dt);
     for (let targetIndex = 0; targetIndex < this.targets.length; targetIndex++) {
       const target = this.targets[targetIndex];
       target.phase += dt * (1.2 + targetIndex * 0.035);
@@ -199,12 +241,12 @@ export class HonorTargetSystem {
       target.group.position.y = target.y;
       target.group.rotation.x = Math.sin(target.phase * 0.83) * 0.055;
       target.group.rotation.z = Math.cos(target.phase * 0.71) * 0.075;
-      target.emblem.rotation.z += dt * (target.kind === 'coin' ? 0.48 : 0.24);
+      target.emblem.rotation.z += dt * (target.kind === 'coin' ? 0.78 : 0.24);
       target.emblem.rotation.x = Math.sin(target.phase * 1.3) * 0.06;
       target.float.rotation.z = Math.sin(target.phase * 0.92) * 0.14;
       target.floatFoam.rotation.z = Math.cos(target.phase * 0.86) * 0.12;
       target.floatFoam.position.y = -0.3 + Math.sin(target.phase * 1.7) * 0.05;
-      if (target.kind === 'coin') target.emblem.rotation.y = Math.sin(target.phase * 1.15) * 0.42;
+      if (target.kind === 'coin') target.emblem.rotation.y = Math.sin(target.phase * 1.15) * 0.32;
       else target.emblem.rotation.y += dt * 0.8;
       target.orbit.rotation.y -= dt * 1.6;
       const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
@@ -273,7 +315,212 @@ export class HonorTargetSystem {
     }
   }
 
-  debugState(): { targets: number; hits: number; centerHits: number; edgeHits: number; visible: number; surfaceLayoutValid: boolean } {
+  /** Play a fixed-pool gold burst without changing target ownership or rewards. */
+  presentHitFx(hit: HonorHit): void {
+    if (hit.kind !== 'coin' || this.coinBursts.length === 0) return;
+    const slot = this.coinBursts[this.coinBurstCursor++ % this.coinBursts.length];
+    const target = this.targets[hit.targetId];
+    slot.life = COIN_BURST_DURATION;
+    // The contact sample is at hull height. Resolve the target's authored
+    // emblem height so the expanding ring frames the minted face rather than
+    // reading as a second ring around the float.
+    slot.baseY = target ? target.y + 1.1 : hit.y + 0.92;
+    slot.strength = hit.precision === 'center' ? 1.08 : 0.9;
+    slot.root.visible = true;
+    // Pull the burst a fraction toward the approaching boat so the readable
+    // ring/chips sit in front of the marker instead of disappearing inside it.
+    const forwardX = target?.forwardX ?? 0;
+    const forwardZ = target?.forwardZ ?? 1;
+    slot.root.position.set(hit.x - forwardX * 0.42, slot.baseY, hit.z - forwardZ * 0.42);
+    slot.root.rotation.set(0, target ? Math.atan2(target.forwardX, target.forwardZ) : 0, 0);
+    slot.root.scale.setScalar(slot.strength);
+    this.applyCoinBurst(slot);
+    this.coinBurstCount++;
+  }
+
+  private buildCoinBursts(): void {
+    // TorusGeometry is authored in the XY plane, matching the coin face. Keep
+    // that orientation so the pickup ring frames the minted face; the chips
+    // provide the depth and water-surface motion around it.
+    const ringGeometry = new THREE.TorusGeometry(0.92, 0.055, 6, 28);
+    const flashGeometry = new THREE.RingGeometry(0.16, 0.38, 20);
+    const rayGeometry = new THREE.BoxGeometry(0.07, 0.46, 0.05);
+    const chipGeometry = new THREE.OctahedronGeometry(0.16, 0);
+
+    for (let burstIndex = 0; burstIndex < COIN_BURST_POOL_SIZE; burstIndex++) {
+      const root = new THREE.Group();
+      root.name = `honor-coin-burst-${burstIndex + 1}`;
+      root.visible = false;
+      root.renderOrder = 12;
+
+      const ringMaterial = new THREE.MeshBasicMaterial({
+        color: PALETTE.sunFlare,
+        transparent: true,
+        opacity: 0,
+        // Normal blending keeps the minted gold saturated against a bright
+        // sky; the smaller inner flash below supplies the actual glow.
+        blending: THREE.NormalBlending,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+      });
+      const rayMaterial = new THREE.MeshBasicMaterial({
+        color: PALETTE.sunFlare,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.NormalBlending,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const chipMaterial = new THREE.MeshBasicMaterial({
+        color: PALETTE.sunFlare,
+        transparent: true,
+        depthTest: false,
+        opacity: 0,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const flashMaterial = new THREE.MeshBasicMaterial({
+        color: PALETTE.sparkle,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+      });
+      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      ring.name = 'honor-coin-burst-ring';
+      ring.position.y = 0.09;
+      const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+      flash.name = 'honor-coin-burst-flash';
+      flash.position.y = 0.12;
+      root.add(ring, flash);
+
+      const rays: THREE.Mesh[] = [];
+      for (let rayIndex = 0; rayIndex < 8; rayIndex++) {
+        const ray = new THREE.Mesh(rayGeometry, rayMaterial);
+        ray.name = 'honor-coin-burst-ray';
+        ray.position.y = 0.11;
+      ray.rotation.z = rayIndex * Math.PI / 4 - Math.PI / 2;
+        root.add(ray);
+        rays.push(ray);
+      }
+
+      const chips: THREE.Mesh[] = [];
+      for (let chipIndex = 0; chipIndex < 10; chipIndex++) {
+        const chip = new THREE.Mesh(chipGeometry, chipMaterial);
+        chip.name = 'honor-coin-burst-chip';
+        chip.position.y = 0.16;
+        root.add(chip);
+        chips.push(chip);
+      }
+      this.object.add(root);
+      this.coinBursts.push({
+        root,
+        ring,
+        flash,
+        rays,
+        chips,
+        ringMaterial,
+        rayMaterial,
+        chipMaterial,
+        flashMaterial,
+        life: 0,
+        baseY: 0,
+        strength: 1,
+      });
+    }
+  }
+
+  private applyCoinBurst(slot: CoinBurstSlot): void {
+    slot.ringMaterial.opacity = 0.86;
+    slot.rayMaterial.opacity = 0.94;
+    slot.chipMaterial.opacity = 1;
+    slot.flashMaterial.opacity = 0.62;
+    // Start just inside the coin rim, then clear the silhouette within the
+    // first beat so the pickup reads as a deliberate minted-ring snap.
+    slot.ring.scale.setScalar(0.8);
+    slot.flash.scale.setScalar(0.3);
+    slot.ring.rotation.z = 0;
+    slot.flash.rotation.z = 0;
+    for (let index = 0; index < slot.rays.length; index++) {
+      const ray = slot.rays[index];
+      ray.position.set(0, 0.11, 0);
+      ray.scale.set(1, 0.5, 1);
+      ray.rotation.z = index * Math.PI / 4;
+    }
+    for (let index = 0; index < slot.chips.length; index++) {
+      const chip = slot.chips[index];
+      chip.position.set(0, 0.16, 0);
+      chip.rotation.set(0, 0, 0);
+      chip.scale.setScalar(0.7 + (index % 3) * 0.12);
+    }
+  }
+
+  private updateCoinBursts(dt: number): void {
+    for (const slot of this.coinBursts) {
+      if (slot.life <= 0) continue;
+      slot.life = Math.max(0, slot.life - dt);
+      if (slot.life <= 0) {
+        slot.root.visible = false;
+        slot.ringMaterial.opacity = 0;
+        slot.rayMaterial.opacity = 0;
+        slot.chipMaterial.opacity = 0;
+        slot.flashMaterial.opacity = 0;
+        continue;
+      }
+      const progress = 1 - slot.life / COIN_BURST_DURATION;
+      const ease = 1 - Math.pow(1 - progress, 3);
+      const fade = Math.pow(1 - progress, 0.72);
+      slot.root.position.y = slot.baseY + Math.sin(Math.min(1, progress) * Math.PI) * 0.08;
+      slot.ring.scale.setScalar(0.8 + ease * 2.0);
+      slot.ring.rotation.z += dt * 1.8;
+      slot.ringMaterial.opacity = fade * 0.86;
+      slot.flash.scale.setScalar(0.3 + ease * 1.2);
+      slot.flash.rotation.z -= dt * 2.8;
+      slot.flashMaterial.opacity = Math.max(0, 0.62 * (1 - progress * 1.7));
+
+      const rayRadius = 0.92 + ease * 1.62;
+      for (let index = 0; index < slot.rays.length; index++) {
+        const ray = slot.rays[index];
+        const angle = index * Math.PI / 4 + progress * 0.9;
+        ray.position.set(Math.cos(angle) * rayRadius, 0.11 + progress * 0.16 + Math.sin(angle) * 0.08, Math.sin(angle) * 0.12);
+        ray.rotation.z = angle - Math.PI / 2;
+        ray.scale.set(1, 0.34 + (1 - progress) * 0.5, 1);
+      }
+      slot.rayMaterial.opacity = fade * 0.88;
+
+      for (let index = 0; index < slot.chips.length; index++) {
+        const chip = slot.chips[index];
+        const lane = index / slot.chips.length;
+        const angle = lane * Math.PI * 2 + progress * (2.8 + (index % 3) * 0.4);
+        const radius = 0.86 + ease * (1.12 + (index % 4) * 0.18);
+        chip.position.set(
+          Math.cos(angle) * radius,
+          0.16 + Math.sin(angle) * radius * 0.62 + Math.sin(progress * Math.PI) * (0.55 + (index % 3) * 0.16) - progress * progress * 0.38,
+          0.28 + Math.sin(angle) * 0.16,
+        );
+        chip.rotation.set(progress * (2.3 + index * 0.17), angle + progress * 3, progress * (1.7 + index * 0.11));
+        chip.scale.setScalar((0.72 + (index % 3) * 0.12) * (0.96 - progress * 0.34));
+      }
+      slot.chipMaterial.opacity = fade;
+    }
+  }
+
+  debugState(): {
+    targets: number;
+    hits: number;
+    centerHits: number;
+    edgeHits: number;
+    visible: number;
+    coinBursts: number;
+    activeCoinBursts: number;
+    surfaceLayoutValid: boolean;
+  } {
     let visible = 0;
     for (const target of this.targets) if (target.group.visible) visible++;
     return {
@@ -282,6 +529,8 @@ export class HonorTargetSystem {
       centerHits: this.centerHitCount,
       edgeHits: this.edgeHitCount,
       visible,
+      coinBursts: this.coinBurstCount,
+      activeCoinBursts: this.coinBursts.reduce((count, burst) => count + (burst.life > 0 ? 1 : 0), 0),
       surfaceLayoutValid: TARGET_LAYOUT.every((spec) => !FLIGHT_ROUTES.some((route) => spec.u >= route.entryU && spec.u <= route.exitU)),
     };
   }
@@ -334,12 +583,34 @@ export class HonorTargetSystem {
       }
     }
     const coreGeometry = new THREE.SphereGeometry(0.82, 16, 12);
-    const coinCoreGeometry = new THREE.CylinderGeometry(1.24, 1.24, 0.34, 24);
-    coinCoreGeometry.rotateX(Math.PI / 2);
-    const coinRimGeometry = new THREE.TorusGeometry(1.04, 0.15, 8, 28);
-    const coinStampBarGeometry = new THREE.BoxGeometry(0.22, 1.2, 0.12);
-    const coinStampHeadGeometry = new THREE.BoxGeometry(0.22, 0.52, 0.12);
-    const coinStampFootGeometry = new THREE.BoxGeometry(0.68, 0.2, 0.12);
+    // The coin uses one broad silhouette and a few large minted shapes. The
+    // subtly milled edge catches motion, while the compass face stays readable
+    // at chase-camera size instead of collapsing into a plastic yellow disc.
+    const coinEdgeShape = radialShape(64, (index) => index % 4 < 2 ? 1.34 : 1.28);
+    const coinCoreGeometry = new THREE.ExtrudeGeometry(coinEdgeShape, {
+      depth: 0.34,
+      steps: 1,
+      bevelEnabled: true,
+      bevelSegments: 1,
+      bevelSize: 0.035,
+      bevelThickness: 0.035,
+      curveSegments: 1,
+    });
+    coinCoreGeometry.translate(0, 0, -0.17);
+    const coinFaceGeometry = new THREE.CylinderGeometry(1.12, 1.12, 0.075, 32);
+    coinFaceGeometry.rotateX(Math.PI / 2);
+    const coinRimGeometry = new THREE.TorusGeometry(1.06, 0.12, 8, 32);
+    const coinGrooveGeometry = new THREE.TorusGeometry(0.78, 0.035, 6, 28);
+    const coinHighlightGeometry = new THREE.TorusGeometry(0.9, 0.045, 6, 18, Math.PI * 0.58);
+    const coinStampGeometry = new THREE.ShapeGeometry(radialShape(16, (index) => {
+      if (index % 4 === 0) return 0.67;
+      if (index % 2 === 0) return 0.46;
+      return 0.19;
+    }));
+    const coinStampHubGeometry = new THREE.CircleGeometry(0.17, 14);
+    const coinMiniGeometry = new THREE.CylinderGeometry(0.23, 0.23, 0.08, 12);
+    coinMiniGeometry.rotateX(Math.PI / 2);
+    const coinGlintGeometry = new THREE.OctahedronGeometry(0.25, 0);
     // The mast and pennant are deliberately chunky. They make each optional
     // target read as a real water marker from the chase camera instead of a
     // tiny floating UI glyph. A horizontal pennant cannot be confused with
@@ -382,19 +653,40 @@ export class HonorTargetSystem {
       rimColor: PALETTE.ink,
       rimStrength: 0.4,
     });
-    const coinRimMaterial = createToonMaterial({
+    const coinEdgeMaterial = createToonMaterial({
+      color: PALETTE.sunFlare,
+      emissive: PALETTE.sunFlare,
+      emissiveIntensity: 0.16,
+      rimColor: PALETTE.ink,
+      rimStrength: 0.35,
+    });
+    const coinFaceMaterial = createToonMaterial({
       color: PALETTE.sunCore,
       emissive: PALETTE.sunFlare,
-      emissiveIntensity: 0.36,
+      emissiveIntensity: 0.22,
       rimColor: PALETTE.foam,
-      rimStrength: 0.58,
+      rimStrength: 0.44,
+    });
+    const coinRimMaterial = createToonMaterial({
+      color: PALETTE.sunFlare,
+      emissive: PALETTE.sunCore,
+      emissiveIntensity: 0.28,
+      rimColor: PALETTE.foam,
+      rimStrength: 0.5,
     });
     const coinStampMaterial = createToonMaterial({
-      color: 0xb86f12,
+      color: PALETTE.ink,
       emissive: PALETTE.sunFlare,
-      emissiveIntensity: 0.14,
+      emissiveIntensity: 0.05,
       rimColor: PALETTE.sunCore,
-      rimStrength: 0.24,
+      rimStrength: 0.18,
+    });
+    const coinHighlightMaterial = createToonMaterial({
+      color: PALETTE.foam,
+      emissive: PALETTE.sunCore,
+      emissiveIntensity: 0.32,
+      rimColor: PALETTE.foam,
+      rimStrength: 0.18,
     });
 
     for (let index = 0; index < TARGET_LAYOUT.length; index++) {
@@ -417,26 +709,48 @@ export class HonorTargetSystem {
       const emblem = new THREE.Group();
       emblem.name = `honor-emblem-${spec.kind}`;
       if (spec.kind === 'coin') {
-        const coin = new THREE.Mesh(coinCoreGeometry, materialFor(spec.kind));
+        const coin = new THREE.Mesh(coinCoreGeometry, coinEdgeMaterial);
         coin.name = 'honor-coin-core';
         emblem.add(coin);
         for (const side of [-1, 1]) {
-          const faceZ = side * 0.19;
+          const faceZ = side * 0.21;
+          const face = new THREE.Mesh(coinFaceGeometry, coinFaceMaterial);
+          face.name = 'honor-coin-face';
+          face.position.z = faceZ;
+          face.userData.noOutline = true;
+          emblem.add(face);
           const rim = new THREE.Mesh(coinRimGeometry, coinRimMaterial);
           rim.name = 'honor-coin-rim';
-          rim.position.z = faceZ;
+          rim.position.z = side * 0.255;
           emblem.add(rim);
-          const stampBar = new THREE.Mesh(coinStampBarGeometry, coinStampMaterial);
-          stampBar.name = 'honor-coin-stamp';
-          stampBar.position.set(0, 0.08, side * 0.24);
-          const stampHead = new THREE.Mesh(coinStampHeadGeometry, coinStampMaterial);
-          stampHead.name = 'honor-coin-stamp';
-          stampHead.position.set(-0.13, 0.57, side * 0.24);
-          stampHead.rotation.z = -0.55;
-          const stampFoot = new THREE.Mesh(coinStampFootGeometry, coinStampMaterial);
-          stampFoot.name = 'honor-coin-stamp';
-          stampFoot.position.set(0, -0.54, side * 0.24);
-          emblem.add(stampBar, stampHead, stampFoot);
+
+          const groove = new THREE.Mesh(coinGrooveGeometry, coinStampMaterial);
+          groove.name = 'honor-coin-groove';
+          groove.position.z = side * 0.269;
+          groove.userData.noOutline = true;
+          emblem.add(groove);
+
+          const stamp = new THREE.Mesh(coinStampGeometry, coinStampMaterial);
+          stamp.name = 'honor-coin-stamp';
+          stamp.position.z = side * 0.276;
+          if (side < 0) stamp.rotation.y = Math.PI;
+          stamp.userData.noOutline = true;
+          emblem.add(stamp);
+
+          const stampHub = new THREE.Mesh(coinStampHubGeometry, coinRimMaterial);
+          stampHub.name = 'honor-coin-stamp-hub';
+          stampHub.position.z = side * 0.281;
+          if (side < 0) stampHub.rotation.y = Math.PI;
+          stampHub.userData.noOutline = true;
+          emblem.add(stampHub);
+
+          const highlight = new THREE.Mesh(coinHighlightGeometry, coinHighlightMaterial);
+          highlight.name = 'honor-coin-highlight';
+          highlight.position.z = side * 0.286;
+          highlight.rotation.z = side > 0 ? 0.56 : -2.58;
+          if (side < 0) highlight.rotation.y = Math.PI;
+          highlight.userData.noOutline = true;
+          emblem.add(highlight);
         }
       } else {
         const duck = new THREE.Mesh(coreGeometry, materialFor(spec.kind));
@@ -462,7 +776,7 @@ export class HonorTargetSystem {
       mast.name = 'honor-signal-mast';
       mast.position.y = 0.62;
       group.add(mast);
-      const pennant = new THREE.Mesh(pennantGeometry, materialFor(spec.kind));
+      const pennant = new THREE.Mesh(pennantGeometry, spec.kind === 'coin' ? coinStampMaterial : materialFor(spec.kind));
       pennant.name = 'honor-signal-pennant';
       pennant.position.set(0.7, 1.65, -0.04);
       pennant.userData.noOutline = true;
@@ -494,12 +808,17 @@ export class HonorTargetSystem {
 
       const orbit = new THREE.Group();
       orbit.name = 'honor-orbit';
-      for (let orbitIndex = 0; orbitIndex < 3; orbitIndex++) {
-        const orb = new THREE.Mesh(spec.kind === 'coin' ? coinCoreGeometry : orbitGeometry, materialFor(spec.kind));
-        orb.name = spec.kind === 'coin' ? 'honor-orbit-coin' : 'honor-orbit-bubble';
-        if (spec.kind === 'coin') orb.scale.setScalar(0.2);
-        const angle = orbitIndex * (Math.PI * 2 / 3);
-        orb.position.set(Math.cos(angle) * 2.22, 1.02 + Math.sin(angle * 1.3) * 0.28, Math.sin(angle) * 2.22);
+      const orbitCount = spec.kind === 'coin' ? 4 : 3;
+      for (let orbitIndex = 0; orbitIndex < orbitCount; orbitIndex++) {
+        const isCoinChip = spec.kind === 'coin' && orbitIndex % 2 === 0;
+        const orb = new THREE.Mesh(
+          spec.kind === 'coin' ? isCoinChip ? coinMiniGeometry : coinGlintGeometry : orbitGeometry,
+          spec.kind === 'coin' ? isCoinChip ? coinRimMaterial : coinHighlightMaterial : materialFor(spec.kind),
+        );
+        orb.name = spec.kind === 'coin' ? isCoinChip ? 'honor-orbit-coin' : 'honor-coin-glint' : 'honor-orbit-bubble';
+        orb.userData.noOutline = spec.kind === 'coin';
+        const angle = orbitIndex * (Math.PI * 2 / orbitCount);
+        orb.position.set(Math.cos(angle) * 2.15, 1.02 + Math.sin(angle * 1.3) * 0.32, Math.sin(angle) * 2.15);
         orbit.add(orb);
       }
       group.add(orbit);

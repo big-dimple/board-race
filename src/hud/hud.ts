@@ -52,6 +52,7 @@ interface ImpactNotice {
   color: number;
   duration: number;
   priority: number;
+  lane?: 'left' | 'center' | 'right';
 }
 
 /** Palette hex int → canvas/CSS color string. */
@@ -1100,7 +1101,7 @@ export class HUD {
     });
   }
 
-  /** Short race-direction notice used by dual-seat interactions and honors. */
+  /** Short race-direction notice used by dual-seat interactions. */
   showTransientNotice(detail: string, title = '互动已触发'): void {
     this.enqueueImpact({
       kind: 'duo-interaction',
@@ -1110,6 +1111,26 @@ export class HUD {
       color: PALETTE.uiAccent,
       duration: 1.45,
       priority: 66,
+    });
+  }
+
+  showHonorTargetNotice(
+    racer: string,
+    title: string,
+    value: number,
+    precision: 'center' | 'edge',
+    kind: 'duck' | 'coin',
+    lane: 'left' | 'center' | 'right' = 'center',
+  ): void {
+    this.enqueueImpact({
+      kind: kind === 'coin' ? 'honor-coin' : 'honor-duck',
+      kicker: kind === 'coin' ? 'COIN PICKUP' : 'HONOR HIT',
+      title: `${title} +${value}`,
+      detail: `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 荣誉已记录`,
+      color: kind === 'coin' ? PALETTE.sunFlare : PALETTE.hullKai,
+      duration: kind === 'coin' ? 1.25 : 1.15,
+      priority: 70,
+      lane,
     });
   }
 
@@ -1729,6 +1750,7 @@ export class HUD {
     this.impactPriority = notice.priority;
     this.activeImpact = notice;
     this.impactEl.dataset.kind = notice.kind;
+    this.impactEl.dataset.lane = notice.lane ?? 'center';
     this.impactEl.style.setProperty('--impact', css(notice.color));
     this.impactEl.style.setProperty('--impact-duration', `${notice.duration}s`);
     this.impactKicker.textContent = notice.kicker;

@@ -3150,3 +3150,154 @@
 }
 .hud.team-hidden,
 .hud.team-hidden * { visibility: hidden !important; }
+
+/* Coin/duck honors are compact race pickups, not central combat impacts. The
+   world-space burst carries the spectacle; this card confirms score and owner
+   in the clear sky band without covering the route or touch controls. */
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-flash,
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-lines {
+  display: none;
+}
+
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy {
+  left: 50%;
+  right: auto;
+  top: max(62px, 8%);
+  width: min(470px, calc(100% - 320px));
+  max-width: none;
+  min-height: 88px;
+  padding: 11px 20px 12px 86px;
+  overflow: visible;
+  color: var(--text);
+  text-align: left;
+  background: rgba(7, 12, 35, 0.9);
+  border: 0;
+  border-left: 5px solid var(--impact);
+  border-bottom: 2px solid var(--impact);
+  box-shadow: 0 9px 24px rgba(4, 7, 20, 0.32);
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 13px, 100% 100%, 11px 100%, 0 calc(100% - 11px));
+  transform: translateX(-50%);
+}
+
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy::before {
+  content: '\2726';
+  position: absolute;
+  left: 18px;
+  top: 50%;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 3px solid #fff3b0;
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--sun);
+  box-shadow: 0 0 0 3px #a8660c, 4px 5px 0 var(--ink);
+  font: normal 950 25px/1 system-ui, sans-serif;
+  transform: translateY(-54%) rotate(-10deg);
+}
+
+.hud-impact[data-kind='honor-duck'] .hud-impact-copy::before {
+  content: '!';
+  color: #a8660c;
+}
+
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy::after {
+  content: '';
+  position: absolute;
+  right: 18px;
+  bottom: 8px;
+  width: 20px;
+  height: 2px;
+  background: var(--impact);
+  box-shadow: -27px 0 0 var(--impact), -48px 0 0 var(--impact);
+  opacity: 0.42;
+}
+
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-kicker {
+  color: var(--impact);
+  font: italic 950 13px/1 system-ui, sans-serif;
+  letter-spacing: 0;
+  text-shadow: none;
+  -webkit-text-stroke: 0;
+}
+
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-title {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-detail {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  color: #fff3b0;
+  font: normal 800 13px/1.15 system-ui, sans-serif;
+  text-shadow: none;
+  text-transform: none;
+}
+
+.hud-impact.on:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy {
+  animation: hud-honor-pickup var(--impact-duration, 1.25s) cubic-bezier(0.18, 1, 0.25, 1) both;
+}
+
+.hud.duo-split .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck'])[data-lane='left'] .hud-impact-copy {
+  left: 25%;
+  top: max(88px, 11%);
+  width: min(390px, calc(50% - 48px));
+}
+
+.hud.duo-split .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck'])[data-lane='right'] .hud-impact-copy {
+  left: 75%;
+  top: max(88px, 11%);
+  width: min(390px, calc(50% - 48px));
+}
+
+@keyframes hud-honor-pickup {
+  0% { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.82); }
+  16% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.04); }
+  28% { transform: translateX(-50%) scale(1); }
+  76% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-14px); }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy {
+    top: max(28px, calc(env(safe-area-inset-top) + 24px));
+    width: min(330px, calc(100% - 260px));
+    min-height: 68px;
+    padding: 8px 14px 9px 64px;
+    border-left-width: 4px;
+    box-shadow: 0 6px 16px rgba(4, 7, 20, 0.28);
+  }
+  .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy::before {
+    left: 13px;
+    width: 36px;
+    height: 36px;
+    border-width: 2px;
+    box-shadow: 0 0 0 2px #a8660c, 3px 3px 0 var(--ink);
+    font-size: 19px;
+  }
+  .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-kicker { font-size: 9px; }
+  .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-title {
+    margin-top: 3px;
+    font-size: 21px;
+  }
+  .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-detail {
+    margin-top: 4px;
+    font-size: 10px;
+  }
+  .hud.duo-split .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck'])[data-lane='left'] .hud-impact-copy,
+  .hud.duo-split .hud-impact:is([data-kind='honor-coin'], [data-kind='honor-duck'])[data-lane='right'] .hud-impact-copy {
+    top: max(86px, calc(env(safe-area-inset-top) + 82px));
+    width: min(300px, calc(50% - 34px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-impact.on:is([data-kind='honor-coin'], [data-kind='honor-duck']) .hud-impact-copy {
+    animation: none;
+  }
+}

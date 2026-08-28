@@ -1539,8 +1539,9 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
   for (const hit of hits) {
     honors.addTargetHit(hit);
     honorFxPoint.set(hit.x, hit.y, hit.z);
-    spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 9, hit.kind === 'duck' ? 7.2 : 5.2);
-    feathers.burst(honorFxPoint, hit.kind === 'duck' ? 36 : 14, hit.kind === 'duck' ? 10.5 : 7.4);
+    spray.burst(honorFxPoint, hit.kind === 'duck' ? 14 : 7, hit.kind === 'duck' ? 7.2 : 4.8);
+    if (hit.kind === 'duck') feathers.burst(honorFxPoint, 36, 10.5);
+    else honorTargets.presentHitFx(hit);
     if (!isHumanRacer(hit.racerId)) continue;
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
@@ -1559,9 +1560,13 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     } else {
       haptics.impact('collision-light', rumbleStrength, false);
     }
-    hud.showTransientNotice(
-      `${racer?.name ?? '选手'} · ${definition?.title ?? '荣誉目标'} +${hit.value}`,
-      hit.precision === 'center' ? '正面撞击' : '擦身撞击',
+    hud.showHonorTargetNotice(
+      racer?.name ?? '选手',
+      definition?.title ?? '荣誉目标',
+      hit.value,
+      hit.precision,
+      hit.kind,
+      isDuoMode() && hit.racerId < 2 ? hit.racerId === 0 ? 'left' : 'right' : 'center',
     );
     trackGameEvent('honor_award', {
       id: `target.${hit.kind}`,
@@ -4439,6 +4444,34 @@ function scenario(name: string): void {
         }
       }
       break;
+    case "honor-coin-hit": {
+      // A capture-only hit beat keeps the authored pickup readable: the camera
+      // watches the marker while the real boat crosses its collision radius,
+      // so the burst and the owner notice can be reviewed together.
+      advanceUntil(() => race.phase === "racing", 8);
+      for (let id = 1; id < race.racers.length; id++) race.racers[id].eliminated = true;
+      const target = honorTargets.debugTargets().find((candidate) => candidate.kind === 'coin');
+      if (!target) throw new Error('honor coin hit scenario has no coin target');
+      boats[0].teleport(
+        target.x - target.forwardX * 16,
+        target.z - target.forwardZ * 16,
+        Math.atan2(target.forwardX, target.forwardZ),
+      );
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => honorTargets.debugState().coinBursts > 0, 5, 1 / 60);
+      setHarnessInput(null);
+      const targetObject = honorTargets.object.getObjectByName(`honor-target-${target.index + 1}`);
+      if (targetObject) {
+        harnessCameraOverride = {
+          target: targetObject,
+          offset: [0, 3.8, -11.8],
+          lookAt: [0, 1.15, 0],
+          fov: 52,
+        };
+      }
+      loop.advance(0.22);
+      break;
+    }
     case "buoy-tumble-spin": {
       advanceUntil(() => race.phase === "racing", 8);
       loop.advance(1.5);
