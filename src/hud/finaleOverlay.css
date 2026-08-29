@@ -38,9 +38,14 @@
 .finale-primary small { color: rgba(244,254,255,.62); font: 800 9px/1 system-ui,sans-serif; letter-spacing:.08em; }
 .finale-primary strong { font: 900 25px/1 system-ui,sans-serif; }
 .finale-primary span { color:#ffcf4a; font:800 11px/1 system-ui,sans-serif; }
-.finale-utilities { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display:flex; gap:8px; }
-.finale-utilities button { min-width: 140px; min-height: 64px; padding: 10px 18px; color: rgba(244,254,255,.76); border-color: rgba(244,254,255,.38); background: rgba(8,13,42,.58); box-shadow: 0 3px 0 rgba(12,12,37,.48); font-size: 16px; }
-.finale-utilities [data-action='continue'] { min-width: 220px; border-width: 2px; color: #fff3ae; border-color: #ffcf4a; background: #16758a; font-size: 17px; }
+/* The next beat walks itself after a short countdown, so these are quiet
+   utilities: readable and tappable, never a slab that competes with the
+   dossier button or the certificate. */
+.finale-utilities { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex; gap: 8px; }
+.finale-utilities button { min-width: 0; min-height: 44px; padding: 9px 16px; color: rgba(244,254,255,.72); border-color: rgba(244,254,255,.26); background: rgba(8,13,42,.5); font-size: 13px; box-shadow: 0 2px 0 rgba(12,12,37,.42); }
+.finale-utilities [data-action='continue'] { min-width: 196px; color: #fff3ae; border-color: rgba(255,207,74,.5); font-size: 14px; }
+.finale-utilities [data-action='skip'] { color: rgba(244,254,255,.46); }
+.finale-utilities button:hover:not(:disabled) { color: #14122b; background: #f4feff; }
 .finale-actions button:disabled { opacity: .45; }
 .finale-actions button:focus-visible { outline: 3px solid #f4feff; outline-offset: 3px; }
 @media (max-height: 520px) {
@@ -57,10 +62,9 @@
   .finale-primary strong { font-size:21px; }
   /* Keep the next beat in the reading column on short touch screens. A
      fixed corner utility was too easy to miss or clip behind browser chrome. */
-  .finale-utilities { position: static; display:grid; grid-template-columns:minmax(0,1fr) minmax(154px,auto); width:min(390px,calc(100vw - 42px)); margin:8px auto 0; gap:6px; }
-  .finale-utilities button { min-width:0; min-height:56px; padding:7px 10px; font-size:13px; }
-  .finale-utilities [data-action='continue'] { order:-1; min-width:230px; color:#14122b; border-color:#ffcf4a; background:#ffcf4a; box-shadow:3px 3px 0 rgba(12,12,37,.54); font-size:14px; }
-  .finale-utilities [data-action='continue']:focus-visible { outline-color:#fff3ae; }
+  .finale-utilities { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(390px, calc(100vw - 42px)); margin: 8px auto 0; gap: 6px; }
+  .finale-utilities button { min-width: 0; min-height: 46px; padding: 7px 10px; font-size: 12px; }
+  .finale-utilities [data-action='continue'] { grid-column: 1 / -1; min-width: 0; color: #fff3ae; border-color: rgba(255,207,74,.55); background: rgba(8,13,42,.62); font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .finale-overlay * { animation: none !important; transition: none !important; }

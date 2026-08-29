@@ -301,7 +301,13 @@ const driverSelect = new DriverSelect(
   toggleDrivingCoach,
 );
 const openingShowcase = new OpeningShowcase(hudLayer, stage.camera, stage.renderer.domElement, boats, roster);
-const finale = new FinaleOverlay(hudLayer, continueAfterFinale, openExpansionGallery, openFinaleCapturePreview);
+const finale = new FinaleOverlay(
+  hudLayer,
+  continueAfterFinale,
+  openExpansionGallery,
+  openFinaleCapturePreview,
+  skipFinaleExtras,
+);
 const capturePreview = new CapturePreview(
   hudLayer,
   capture,
@@ -330,6 +336,9 @@ const expansionGallery = new ExpansionGallery(
     // Keep touch controls out of the result composition until a new run begins.
     mobileInput.setOverlayHidden(true);
     if (race.phase !== 'medal') {
+      // The certificate's countdown must start over: it was parked while the
+      // player was reading the gallery, not running out behind their back.
+      finale.resetAutoAdvance();
       if (honorReviewPending) finale.focusContinue();
       else finale.focusPrimary();
     }
@@ -1123,7 +1132,12 @@ function continueAfterHonorReview(): void {
   startNextRaceRound();
 }
 
-function continueAfterFinale(): void {
+/**
+ * Dismiss the certificate into the next result beat. `auto` means the
+ * countdown fired on its own, so the accolade wall is a pass-through stop
+ * rather than a menu.
+ */
+function continueAfterFinale(auto = false): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
   // The Final Station is the first reading beat. Only after it is dismissed do
   // we construct/show the accolade wall; no result layer can peek through the
@@ -1142,9 +1156,21 @@ function continueAfterFinale(): void {
     hud.setVisible(false);
     for (const entry of activeTowers()) entry.setVisible(false);
     mixer.setVisible(false);
-    if (shouldShowHonors) showHonorReview();
+    if (shouldShowHonors) showHonorReview(auto);
     return;
   }
+  startNextRaceRound();
+}
+
+/** Veteran shortcut: skip the dossier and the accolade wall, race the next round now. */
+function skipFinaleExtras(): void {
+  if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
+  honorReviewPending = false;
+  finalePresentation = false;
+  finaleElapsed = 0;
+  finale.hide();
+  input.clearTransient();
+  gamepadInput.clearTransient();
   startNextRaceRound();
 }
 
@@ -1164,6 +1190,9 @@ function setCaptureOverlayVisible(visible: boolean): void {
   captureOverlayVisible = visible;
   immersive.setPhase(visible ? 'presentation' : race.phase === 'ready' || race.phase === 'finished' ? 'ready' : 'active');
   mobileInput.setOverlayHidden(captureOverlayVisible || finalePresentation || expansionGallery.visible());
+  // Leaving the preview hands the certificate its full countdown again so a
+  // screenshot detour cannot silently burn the player's next-beat window.
+  if (!visible && finalePresentation) finale.resetAutoAdvance();
 }
 
 function restoreMobileImmersiveFromCaptureGesture(): void {
@@ -1680,7 +1709,7 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
   }
 }
 
-function showHonorReview(): void {
+function showHonorReview(autoEntered = false): void {
   if (honorsSettled) return;
   hud.setVisible(false);
   for (const entry of activeTowers()) entry.setVisible(false);
@@ -1750,6 +1779,7 @@ function showHonorReview(): void {
     summary,
     resultLabel,
     canContinue: race.phase === 'finished',
+    autoEntered,
     historyHonorScore: records.data.honorScore,
   });
 }
@@ -2163,7 +2193,7 @@ function step(dt: number, _t: number): void {
     mobileInput.consumeAnyPress();
     finaleElapsed += dt;
     const canContinue = finaleElapsed >= FINALE_MIN_READ_S;
-    finale.update(finaleElapsed, FINALE_REVEAL_S, canContinue);
+    finale.update(finaleElapsed, FINALE_REVEAL_S, canContinue, dt);
     updateFrozenPresentation(dt, 'finished', true);
     if (!expansionGallery.visible() && canContinue) {
       const focusLeft = input.consumePress('ArrowLeft') || input.consumePress('ArrowUp') || gamepadInput.consumeSelectLeft();
@@ -2953,6 +2983,7 @@ interface Harness {
   finalEligibilityCase(): Record<string, unknown>;
   postSetRankCase(): Record<string, unknown>;
   finaleHonorSequenceCase(leaveVisible?: boolean, testAutoContinue?: boolean): Record<string, unknown>;
+  finaleAutoFlowCase(): Record<string, unknown>;
   finalContinueRankCase(): Record<string, unknown>;
   singleHonorCase(): Record<string, unknown>;
   buoyState(): ReturnType<Course['buoyDebugStates']>;
@@ -3809,47 +3840,56 @@ function runPostSetRankCase(): Record<string, unknown> {
   }
 }
 
+/**
+ * Park the harness on a finished solo Final so the result beats can be driven
+ * frame by frame: seven flights banked, the certificate on screen, and the
+ * accolade wall still waiting behind it.
+ */
+function armHarnessFinale(): void {
+  appMode = 'independent';
+  resetRace();
+  race.setPlayerIds([0]);
+  startFreshCountdown();
+  advanceUntil(() => race.phase === 'racing', 8);
+  for (let id = 0; id < race.racers.length; id++) {
+    race.racers[id].place = id + 1;
+    race.racers[id].progress = id === 0 ? course.length : Math.max(0, course.length - id);
+    race.racers[id].finished = false;
+    race.racers[id].eliminated = false;
+  }
+  race.challengeResult = {
+    outcome: 'excellent',
+    reason: 'none',
+    gate: 0,
+    place: 1,
+    totalRacers: race.racers.length,
+    raceTime: 42.25,
+    flightsCleared: Math.max(7, course.flightRoutes.length),
+    leaderGapSeconds: 0,
+    leaderGapMeters: 0,
+    overtakes: 3,
+    excellentTotal: 1,
+    ordinaryNew: false,
+    manMedalEarned: true,
+    manMedalsTotal: 1,
+    bestFlights: Math.max(7, course.flightRoutes.length),
+    newBest: false,
+    failure: null,
+  };
+  // Mirror the live seven-flight state so this harness proves that the
+  // continuation countdown does not reset progression when the wall closes.
+  primaryBoat().state.flightsCleared = 7;
+  race.phase = 'finished';
+  race.finaleCompleted = true;
+  resultsShown = true;
+  beginFinalePresentation();
+}
+
 /** Verify the successful-result beats never overlap in the live presentation. */
 function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = false): Record<string, unknown> {
   const previousMode = appMode;
   try {
-    appMode = 'independent';
-    resetRace();
-    race.setPlayerIds([0]);
-    startFreshCountdown();
-    advanceUntil(() => race.phase === 'racing', 8);
-    for (let id = 0; id < race.racers.length; id++) {
-      race.racers[id].place = id + 1;
-      race.racers[id].progress = id === 0 ? course.length : Math.max(0, course.length - id);
-      race.racers[id].finished = false;
-      race.racers[id].eliminated = false;
-    }
-    race.challengeResult = {
-      outcome: 'excellent',
-      reason: 'none',
-      gate: 0,
-      place: 1,
-      totalRacers: race.racers.length,
-      raceTime: 42.25,
-      flightsCleared: Math.max(7, course.flightRoutes.length),
-      leaderGapSeconds: 0,
-      leaderGapMeters: 0,
-      overtakes: 3,
-      excellentTotal: 1,
-      ordinaryNew: false,
-      manMedalEarned: true,
-      manMedalsTotal: 1,
-      bestFlights: Math.max(7, course.flightRoutes.length),
-      newBest: false,
-      failure: null,
-    };
-    // Mirror the live seven-flight state so this harness proves that the
-    // continuation countdown does not reset progression when the wall closes.
-    primaryBoat().state.flightsCleared = 7;
-    race.phase = 'finished';
-    race.finaleCompleted = true;
-    resultsShown = true;
-    beginFinalePresentation();
+    armHarnessFinale();
     const mobileControlsHidden = !mobileInput.enabled || mobileInput.status().overlayHidden;
     const afterFinaleShow = {
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
@@ -3937,6 +3977,88 @@ function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = fal
       race.setPlayerIds(previousMode === 'duo' ? [0, 1] : [0]);
       harnessPlayerInput = null;
     }
+  }
+}
+
+/**
+ * The unattended result flow. A player who touches nothing must be carried from
+ * the certificate into the accolade wall and then back into the same run, so
+ * that wall keeps only the next-round countdown. The veteran shortcut has to
+ * skip both beats, and an explicit confirmation has to keep every exit.
+ */
+function runFinaleAutoFlowCase(): Record<string, unknown> {
+  const previousMode = appMode;
+  const wallButtons = () => ({
+    continueVisible: !(document.querySelector<HTMLElement>('.honor-review-continue')?.hidden ?? true),
+    retryHidden: document.querySelector<HTMLElement>('.honor-review-retry')?.hidden ?? false,
+    exitHidden: document.querySelector<HTMLElement>('.honor-review-exit')?.hidden ?? false,
+  });
+  try {
+    // 1. Nobody touches anything: the certificate walks itself into the wall.
+    armHarnessFinale();
+    loop.advance(FINALE_MIN_READ_S + 0.15);
+    const countdownLabel = document.querySelector<HTMLElement>('[data-action="continue"]')?.textContent?.trim() ?? '';
+    const skipVisible = !!document.querySelector<HTMLElement>('[data-action="skip"]');
+    // The quiet utility row has to stay readable and tappable on both frames,
+    // even now that it carries the veteran shortcut next to the next beat.
+    // Sizes come from the layout box: the copy block is mid-transition in the
+    // harness, and its scale would understate every button.
+    const utilityLayout = (() => {
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>('.finale-utilities button'));
+      const rects = nodes.map((node) => node.getBoundingClientRect());
+      const overlap = rects.some((a, i) => rects.some((b, j) => j > i &&
+        a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1));
+      return {
+        count: nodes.length,
+        overlap,
+        minHeight: Math.min(...nodes.map((node) => node.offsetHeight)),
+        minWidth: Math.min(...nodes.map((node) => node.offsetWidth)),
+        inViewport: rects.every((rect) => rect.left >= -1 && rect.right <= innerWidth + 1 &&
+          rect.top >= -1 && rect.bottom <= innerHeight + 1),
+      };
+    })();
+    loop.advance(5.1);
+    const autoEntered = {
+      finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      honorsVisible: honorHighlights.visible(),
+      ...wallButtons(),
+    };
+    loop.advance(4.9); // spotlight + cards
+    loop.advance(5.2); // the wall's own five-second countdown
+    const autoContinued = {
+      honorsVisible: honorHighlights.visible(),
+      racePhase: race.phase,
+      flightsCleared: primaryBoat().state.flightsCleared,
+    };
+
+    // 2. The veteran shortcut skips the dossier and the accolade wall entirely.
+    honorHighlights.hide();
+    armHarnessFinale();
+    loop.advance(FINALE_MIN_READ_S + 0.15);
+    document.querySelector<HTMLButtonElement>('[data-action="skip"]')?.click();
+    const skipped = {
+      finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      honorsVisible: honorHighlights.visible(),
+      racePhase: race.phase,
+      flightsCleared: primaryBoat().state.flightsCleared,
+    };
+
+    // 3. An explicit confirmation is a menu stop, so the exits stay.
+    armHarnessFinale();
+    loop.advance(FINALE_MIN_READ_S + 0.15);
+    document.querySelector<HTMLButtonElement>('[data-action="continue"]')?.click();
+    loop.advance(4.9);
+    const confirmed = {
+      honorsVisible: honorHighlights.visible(),
+      ...wallButtons(),
+    };
+    return { countdownLabel, skipVisible, utilityLayout, autoEntered, autoContinued, skipped, confirmed };
+  } finally {
+    honorHighlights.hide();
+    appMode = previousMode;
+    resetRace();
+    race.setPlayerIds(previousMode === 'duo' ? [0, 1] : [0]);
+    harnessPlayerInput = null;
   }
 }
 
@@ -4624,6 +4746,13 @@ function scenario(name: string): void {
       startMedalCeremony("ordinary", 3, 3);
       loop.advance(2);
       break;
+    case "finale-certificate":
+      // Capture-only scenario: leave the seven-flight certificate on screen
+      // with its countdown running so both frames can review the quiet
+      // utility row and the veteran shortcut.
+      armHarnessFinale();
+      loop.advance(FINALE_MIN_READ_S + 0.4);
+      break;
     case "finale-honors":
       // Capture-only scenario: leave the honor wall settled on screen so
       // desktop and 844x390 visual review can inspect the second result beat.
@@ -5186,6 +5315,7 @@ if (HARNESS) {
     finalEligibilityCase: runFinalEligibilityCase,
     postSetRankCase: runPostSetRankCase,
     finaleHonorSequenceCase: runFinaleHonorSequenceCase,
+    finaleAutoFlowCase: runFinaleAutoFlowCase,
     finalContinueRankCase: runFinalContinueRankCase,
     singleHonorCase: runSingleHonorCase,
     buoyState: () => course.buoyDebugStates(),

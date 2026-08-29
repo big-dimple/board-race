@@ -125,7 +125,7 @@
 玩法目录 -> 单人 -> READY -> opening -> countdown -> racing
        -> medal freeze -> resume countdown -> same run
        -> defeated -> focused failure review -> high-light review -> retry / READY
-       -> Final Station -> frozen finale -> explicit honor review -> next-round countdown / retry / 玩法目录
+       -> Final Station -> frozen finale -> auto honor review -> next-round countdown / retry / 玩法目录
 
 玩法目录 -> 双打 -> 按键入座 -> 双席选角 -> opening -> countdown -> racing
        -> one-seat eliminated -> surviving-seat guidance + interaction edges
@@ -212,14 +212,21 @@
   覆盖、透明度、动画和触发节奏保持不变。后处理 polar wind streak 与 air-brake bands 是独立效果。
 - 同一时刻只允许一个教育提示；碰撞、路线危险、勋章和 Final 表现拥有更高优先级。
 - 赛后结果是严格串行的冻结层：失败先由 HUD 失败回顾显示具体原因、米数 / 高度证据和下一次建议，
-  确认“看高光”后才挂载 `HonorHighlights`；成功结果先由 `FinaleOverlay` 播放七飞认证，玩家确认
-  “查看高光”后才挂载 `HonorHighlights`。两层不会同时可见，荣誉计时也不会
+  确认"看高光"后才挂载 `HonorHighlights`；成功结果先由 `FinaleOverlay` 播放七飞认证，再挂载
+  `HonorHighlights`。两层不会同时可见，荣誉计时也不会
   在终点演出期间偷跑。两个结果阶段都隐藏比赛 HUD、名次塔、混音与移动控制；荣誉墙使用不透底舞台，
   不让比赛画面与赛后信息混层。荣誉墙再播放一项 `PLAY OF THE RUN` 聚光，切入最多四张可选荣誉卡、
-  六人名次条、本局总分与累计 `honorScore`。成功结果默认聚焦“游戏尚未结束”，结算后启动 5 秒可见倒计时并
-  自动调用继续回调，玩家也可立即确认；继续动作调用 `Race.startFinalContinueCountdown()` 保留已完成飞行进度，再清理本轮荣誉账本和目标库存；“再来一局”
-  才走完整 `resetRace()`，退出回到玩法目录。最终冲线在 `HonorLedger` 写入稳定 id `finale.captain`，
+  六人名次条、本局总分与累计 `honorScore`。最终冲线在 `HonorLedger` 写入稳定 id `finale.captain`，
   并由 `RecordsStore.recordHonors()` 同步到历史 `honors` 与 `honorScore`。
+- 成功结算是**不打断的自动流程**，点击只是加速：七飞认证在可读后（`FINALE_MIN_READ_S`）启动 5 秒倒计时，
+  到点自己走进荣誉墙；荣誉墙结算后再启动 5 秒可见倒计时，自己调用继续回调回到同一场比赛。
+  两个倒计时都必须在按钮上显示剩余秒数，玩家也可以立刻点掉。"神秘资料片"和"预览截图"**冻结并重置**
+  认证页的倒计时——它们是主动阅读，不能让玩家回来时发现窗口已经烧完；荣誉墙播放期间不接受这类分支。
+  认证页另有"直接下一轮"：老手一键跳过资料片与高光，直接走 `startNextRaceRound()`。
+- 荣誉墙的出口按**进入方式**区分：倒计时把它推上台时（`autoEntered`）这场比赛还没结束，只保留
+  "游戏尚未结束"倒计时按钮，"再来一局"和"玩法目录"必须隐藏；玩家自己点进来的（以及失败结算）才保留
+  这两个出口。继续动作调用 `Race.startFinalContinueCountdown()` 保留已完成飞行进度，再清理本轮荣誉账本
+  和目标库存；"再来一局"才走完整 `resetRace()`，退出回到玩法目录。
 
 ## 渲染与美术合同
 

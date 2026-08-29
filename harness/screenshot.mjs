@@ -245,7 +245,7 @@ async function verifyMode(browser, mobile) {
     `${label}: honor wall DOM remained visible during the cinematic`);
   assert.equal(finaleSequence.afterFinaleShow.pending, true,
     `${label}: successful result did not queue its honor review`);
-  assert.equal(finaleSequence.afterFinaleShow.continueLabel, '查看高光',
+  assert.match(finaleSequence.afterFinaleShow.continueLabel, /查看高光/,
     `${label}: Final Station action does not explain the next result beat`);
   assert.equal(finaleSequence.afterFinaleShow.mobileControlsHidden, true,
     `${label}: mobile controls leaked into the Final Station presentation`);
@@ -318,6 +318,53 @@ async function verifyMode(browser, mobile) {
     `${label}: honor wall auto-continue did not enter the next-round countdown`);
   assert.equal(autoSequence.afterHonorContinue.flightsCleared, 7,
     `${label}: automatic next-round action reset the completed flight progress`);
+
+  const autoFlow = await page.evaluate(() => window.__harness.finaleAutoFlowCase());
+  assert.equal(autoFlow.skipVisible, true,
+    `${label}: the certificate lost its veteran skip action: ${JSON.stringify(autoFlow)}`);
+  assert.deepEqual(autoFlow.utilityLayout.overlap, false,
+    `${label}: the certificate utility buttons overlap each other: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.utilityLayout.count, 3,
+    `${label}: the certificate utility row lost an action: ${JSON.stringify(autoFlow)}`);
+  assert.ok(autoFlow.utilityLayout.minHeight >= 44,
+    `${label}: a certificate utility button is under the tap target: ${JSON.stringify(autoFlow)}`);
+  assert.ok(autoFlow.utilityLayout.minWidth >= 80,
+    `${label}: a certificate utility button is too narrow to read: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.utilityLayout.inViewport, true,
+    `${label}: a certificate utility button fell outside the frame: ${JSON.stringify(autoFlow)}`);
+  assert.match(autoFlow.countdownLabel, /查看高光.*[0-9]+\s*秒/,
+    `${label}: the certificate did not count itself down to the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.finaleVisible, false,
+    `${label}: the certificate did not walk itself into the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.honorsVisible, true,
+    `${label}: the unattended result flow stopped before the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.continueVisible, true,
+    `${label}: the auto-entered accolade wall lost its next-round action: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.retryHidden, true,
+    `${label}: the auto-entered accolade wall still offers 再来一局: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.exitHidden, true,
+    `${label}: the auto-entered accolade wall still offers 玩法目录: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoContinued.honorsVisible, false,
+    `${label}: the auto-entered accolade wall never returned to the run: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoContinued.racePhase, 'resume-countdown',
+    `${label}: the unattended result flow did not resume the same run: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoContinued.flightsCleared, 7,
+    `${label}: the unattended result flow reset the completed flight progress: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.skipped.honorsVisible, false,
+    `${label}: the veteran shortcut still mounted the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.skipped.finaleVisible, false,
+    `${label}: the veteran shortcut left the certificate on screen: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.skipped.racePhase, 'resume-countdown',
+    `${label}: the veteran shortcut did not start the next round: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.skipped.flightsCleared, 7,
+    `${label}: the veteran shortcut reset the completed flight progress: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.confirmed.honorsVisible, true,
+    `${label}: confirming the certificate did not open the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.confirmed.retryHidden, false,
+    `${label}: a confirmed accolade wall lost 再来一局: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.confirmed.exitHidden, false,
+    `${label}: a confirmed accolade wall lost 玩法目录: ${JSON.stringify(autoFlow)}`);
+  console.log(`${label} finale auto flow: countdown -> auto wall (next-round only) -> same run`);
 
   if (mobile) {
     const modeButton = page.locator('.mobile-mode');

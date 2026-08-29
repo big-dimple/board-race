@@ -2,6 +2,9 @@ import type { ChallengeResult } from '../contracts';
 import { FinaleCelebrationCanvas, type FinaleVisualState } from './finaleCelebration';
 import './finaleOverlay.css';
 
+/** Seconds the certificate waits before it walks itself into the accolade wall. */
+const FINALE_AUTO_ADVANCE_S = 5;
+
 export class FinaleOverlay {
   private readonly root: HTMLDivElement;
   private readonly place: HTMLDivElement;
@@ -10,11 +13,22 @@ export class FinaleOverlay {
   private readonly saveButton: HTMLButtonElement;
   private readonly continueButton: HTMLButtonElement;
   private readonly galleryButton: HTMLButtonElement;
+  private readonly skipButton: HTMLButtonElement;
   private readonly actionButtons: HTMLButtonElement[];
   private readonly celebration: FinaleCelebrationCanvas;
   private actionsReady = false;
+  private autoRemaining = 0;
+  private autoFired = false;
+  private autoDisplayedSecond = -1;
+  private continueLabel = '继续游戏';
 
-  constructor(parent: HTMLElement, onContinue: () => void, onGallery: () => void, onSave: () => void) {
+  constructor(
+    parent: HTMLElement,
+    private readonly onContinue: (auto: boolean) => void,
+    onGallery: () => void,
+    onSave: () => void,
+    private readonly onSkip: () => void,
+  ) {
     const root = document.createElement('div');
     root.className = 'finale-overlay';
     root.setAttribute('role', 'dialog');
@@ -39,6 +53,8 @@ export class FinaleOverlay {
           <div class="finale-utilities" aria-label="其他操作">
             <button type="button" data-action="save" disabled>截图生成中</button>
             <button type="button" data-action="continue">继续游戏</button>
+            <button type="button" data-action="skip" title="跳过资料片与高光，直接进入下一轮"
+              aria-label="直接下一轮，跳过资料片与高光">直接下一轮</button>
           </div>
         </div>
       </div>`;
@@ -50,9 +66,11 @@ export class FinaleOverlay {
     this.saveButton = root.querySelector('[data-action="save"]')!;
     this.continueButton = root.querySelector('[data-action="continue"]')!;
     this.galleryButton = root.querySelector('[data-action="gallery"]')!;
-    this.actionButtons = [this.galleryButton, this.saveButton, this.continueButton];
+    this.skipButton = root.querySelector('[data-action="skip"]')!;
+    this.actionButtons = [this.galleryButton, this.saveButton, this.continueButton, this.skipButton];
     this.celebration = new FinaleCelebrationCanvas(root.querySelector('.finale-visual')!);
-    this.continueButton.addEventListener('click', onContinue);
+    this.continueButton.addEventListener('click', () => this.onContinue(false));
+    this.skipButton.addEventListener('click', () => this.onSkip());
     this.galleryButton.addEventListener('click', onGallery);
     this.saveButton.addEventListener('click', onSave);
     root.addEventListener('keydown', (event) => {
@@ -77,16 +95,20 @@ export class FinaleOverlay {
     this.time.textContent = `本局 ${result.flightsCleared} 飞 · ${formatTime(result.raceTime)}`;
     this.actions.classList.remove('on');
     this.actionsReady = false;
+    this.autoRemaining = 0;
+    this.autoFired = false;
+    this.autoDisplayedSecond = -1;
+    this.continueLabel = continueLabel;
     this.saveButton.disabled = true;
     this.saveButton.textContent = '截图生成中';
-    this.continueButton.textContent = continueLabel;
+    this.renderContinueLabel();
     this.root.style.setProperty('--finale-progress', '0');
     this.root.classList.remove('impact', 'crown', 'hero', 'settled');
     this.celebration.reset();
     this.root.classList.add('on');
   }
 
-  update(elapsed: number, _duration: number, canContinue: boolean): void {
+  update(elapsed: number, _duration: number, canContinue: boolean, dt = 0): void {
     this.root.style.setProperty('--finale-progress', String(Math.max(0, Math.min(1, elapsed / 2.4))));
     const state = this.celebration.render(elapsed, canContinue);
     this.root.classList.toggle('impact', state.phase === 'impact');
@@ -97,8 +119,45 @@ export class FinaleOverlay {
     this.actions.classList.toggle('on', canContinue);
     if (canContinue && !this.actionsReady) {
       this.actionsReady = true;
+      this.resetAutoAdvance();
       this.focusPrimary();
     }
+    this.tickAutoAdvance(canContinue, dt);
+  }
+
+  /**
+   * Hand the certificate its full waiting window again. Returning from the
+   * dossier or the capture preview must not drop the player into a countdown
+   * that quietly ran dry while they were reading something else.
+   */
+  resetAutoAdvance(): void {
+    if (!this.actionsReady) return;
+    this.autoRemaining = FINALE_AUTO_ADVANCE_S;
+    this.autoFired = false;
+    this.autoDisplayedSecond = -1;
+    this.renderContinueLabel();
+  }
+
+  private tickAutoAdvance(canContinue: boolean, dt: number): void {
+    if (!canContinue || this.autoFired || this.autoRemaining <= 0) return;
+    this.autoRemaining = Math.max(0, this.autoRemaining - Math.max(0, dt));
+    this.renderContinueLabel();
+    if (this.autoRemaining > 0) return;
+    this.autoFired = true;
+    this.onContinue(true);
+  }
+
+  private renderContinueLabel(): void {
+    const seconds = this.actionsReady && !this.autoFired && this.autoRemaining > 0
+      ? Math.max(1, Math.ceil(this.autoRemaining))
+      : 0;
+    if (seconds === this.autoDisplayedSecond) return;
+    this.autoDisplayedSecond = seconds;
+    this.continueButton.textContent = seconds > 0 ? `${this.continueLabel} · ${seconds} 秒` : this.continueLabel;
+    this.continueButton.setAttribute(
+      'aria-label',
+      seconds > 0 ? `${this.continueLabel}，${seconds} 秒后自动继续` : this.continueLabel,
+    );
   }
 
   visualState(): FinaleVisualState { return this.celebration.visualState(); }
@@ -114,7 +173,11 @@ export class FinaleOverlay {
     this.root.classList.remove('on', 'impact', 'crown', 'hero', 'settled', 'reveal');
     this.actions.classList.remove('on');
     this.actionsReady = false;
-    this.continueButton.textContent = '继续游戏';
+    this.autoRemaining = 0;
+    this.autoFired = false;
+    this.autoDisplayedSecond = -1;
+    this.continueLabel = '继续游戏';
+    this.renderContinueLabel();
     this.celebration.reset();
   }
 

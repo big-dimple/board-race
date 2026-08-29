@@ -21,6 +21,12 @@ export interface HonorReviewPayload {
   resultLabel: string;
   /** The next-round action is only available after a successful Final. */
   canContinue: boolean;
+  /**
+   * True when the countdown carried the player here without a click. That run
+   * is still going, so the wall keeps only the next-round action; the exits
+   * stay for every other entry (an explicit confirmation or a failed run).
+   */
+  autoEntered: boolean;
   /** Persisted total shown beside this result for future server parity. */
   historyHonorScore: number;
 }
@@ -53,6 +59,7 @@ export class HonorHighlights {
   private autoContinueRemaining = 0;
   private autoContinueTriggered = false;
   private autoContinueDisplayedSecond = -1;
+  private autoOnly = false;
   private selected = 0;
   private phase: 'hidden' | 'spotlight' | 'cards' | 'settled' = 'hidden';
 
@@ -132,6 +139,7 @@ export class HonorHighlights {
     this.autoContinueRemaining = 0;
     this.autoContinueTriggered = false;
     this.autoContinueDisplayedSecond = -1;
+    this.autoOnly = false;
     this.selected = 0;
     this.phase = 'spotlight';
     this.root.dataset.mode = payload.mode;
@@ -145,9 +153,15 @@ export class HonorHighlights {
     this.renderStandings();
     this.renderSpotlight();
     this.renderCards();
+    // A run that is still going has no business offering "start over" or
+    // "leave": the countdown brought the player here, so only the next-round
+    // action stays on screen until it fires.
+    this.autoOnly = payload.autoEntered && payload.canContinue;
     this.continue.hidden = !payload.canContinue;
     this.continue.disabled = true;
     this.resetContinueLabel();
+    this.retry.hidden = this.autoOnly;
+    this.exit.hidden = this.autoOnly;
     this.retry.disabled = true;
     this.exit.disabled = true;
     this.root.setAttribute('aria-hidden', 'false');
@@ -183,9 +197,12 @@ export class HonorHighlights {
     this.autoContinueDisplayedSecond = -1;
     this.root.classList.remove('on', 'spotlight', 'cards', 'settled');
     this.root.setAttribute('aria-hidden', 'true');
+    this.autoOnly = false;
     this.continue.hidden = false;
     this.continue.disabled = true;
     this.resetContinueLabel();
+    this.retry.hidden = false;
+    this.exit.hidden = false;
     this.retry.disabled = true;
     this.exit.disabled = true;
   }
@@ -324,12 +341,14 @@ export class HonorHighlights {
     this.phase = 'settled';
     this.root.classList.add('settled');
     this.autoContinueRemaining = this.payload?.canContinue ? HONOR_AUTO_CONTINUE_S : 0;
-    this.hint.textContent = this.payload?.canContinue
-      ? '5 秒后自动回到赛道 · ← → 选择卡片 · ENTER 立即继续'
-      : '← → 选择卡片 · ENTER 再来一局';
+    this.hint.textContent = this.autoOnly
+      ? '5 秒后自动回到赛道 · ← → 浏览荣誉卡'
+      : this.payload?.canContinue
+        ? '5 秒后自动回到赛道 · ← → 选择卡片 · ENTER 立即继续'
+        : '← → 选择卡片 · ENTER 再来一局';
     this.continue.disabled = !this.payload?.canContinue;
-    this.retry.disabled = false;
-    this.exit.disabled = false;
+    this.retry.disabled = this.autoOnly;
+    this.exit.disabled = this.autoOnly;
     this.updateContinueLabel();
     this.focusPrimary();
   }
