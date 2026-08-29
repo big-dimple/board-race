@@ -1605,7 +1605,12 @@ function presentDuoElimination(id: number, failure: FlightFailureSnapshot): void
   boats[id].object.visible = false;
   wakes[id].setVisualScale(0);
   const racer = roster[id];
-  hud.showTransientNotice(`${racer?.name ?? `席位 ${id + 1}`} 暂离赛道 · 可用互动支援另一席`, '席位淘汰');
+  // The eliminated seat keeps its own screen, so its news belongs to its half.
+  hud.showTransientNotice(
+    `${racer?.name ?? `席位 ${id + 1}`} 暂离赛道 · 可用互动支援另一席`,
+    '席位淘汰',
+    id === 0 ? 'left' : 'right',
+  );
   trackGameEvent('duo_elimination', { racer: id, reason: failure.reason, at: race.raceTime });
 }
 
@@ -1615,9 +1620,14 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
   if (!actor || !target) return;
   const targetPipeline = event.targetId === 0 ? teamLeftPipeline : teamRightPipeline;
   const targetSide: 'left' | 'right' = event.targetId === 0 ? 'left' : 'right';
+  // The interaction lands on the other seat, so its warning has to show up in
+  // that seat's half. Routing every one of these to the left half made the
+  // survivor look untouched and the left screen look permanently harassed.
+  const effectLane: 'left' | 'right' = event.targetId === 0 ? 'left' : 'right';
+  const actorLane: 'left' | 'right' = event.actorId === 0 ? 'left' : 'right';
   if (!event.accepted) {
     const detail = event.reason === 'full-bank' ? '队友电池已满' : '当前不在安全援助窗口';
-    hud.showTransientNotice(`${actor.name} 的互动暂缓 · ${detail}`, '互动提示');
+    hud.showTransientNotice(`${actor.name} 的互动暂缓 · ${detail}`, '互动提示', actorLane);
     return;
   }
   if (event.phase === 'support' || event.phase === 'prank-launch') {
@@ -1634,19 +1644,19 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     audio.teamSpatialCue(targetSide, 'ready');
     localInput.rumble(duoDevices[event.actorId], 0.24, 0.72, 62);
     localInput.rumble(duoDevices[event.targetId], 0.16, 0.4, 42);
-    hud.showTransientNotice(`${actor.name} 送来援手 · ${target.name} 获得飞行电池`, '互动支援');
+    hud.showTransientNotice(`${actor.name} 送来援手 · ${target.name} 获得飞行电池`, '互动支援', effectLane);
     trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-launch') {
     audio.teamSpatialCue(targetSide, 'relay');
     localInput.rumble(duoDevices[event.actorId], 0.24, 0.44, 34);
-    hud.showTransientNotice(`${actor.name} 发射追踪鸭 · ${target.name} 注意浪花`, '互动预警');
+    hud.showTransientNotice(`${actor.name} 发射追踪鸭 · ${target.name} 注意浪花`, '互动预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
     audio.splash(0.85);
     targetPipeline.pulse('lost', 0.45);
     audio.teamSpatialCue(targetSide, 'impact');
     localInput.rumble(duoDevices[event.targetId], 0.48, 0.36, 48);
-    hud.showTransientNotice(`${actor.name} 掀起浪花 · ${target.name} 被轻轻推开`, '互动命中');
+    hud.showTransientNotice(`${actor.name} 掀起浪花 · ${target.name} 被轻轻推开`, '互动命中', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   }
 }
@@ -2466,7 +2476,10 @@ function step(dt: number, _t: number): void {
     if (flights >= 4) rivalDirector.releaseFormation();
     const pass = records.recordFlightPass(flights, roster[passedId]?.profileId ?? selectedDriverId);
     newBestThisRun ||= pass.newBest;
-    hud.showFlightPass(flights, pass.bestFlights, pass.newBest);
+    // Both seats fly, so a pass, a qualification, and a Final arm belong to the
+    // seat that earned them, not to whichever half the camera happens to own.
+    const passLane: 'left' | 'center' | 'right' = !duoMode ? 'center' : passedId === 0 ? 'left' : 'right';
+    hud.showFlightPass(flights, pass.bestFlights, pass.newBest, passLane);
     tower.announceFlight(flights, pass.bestFlights);
     if (flights === 3 && race.challengeTier === 'unqualified') {
       drivingCoach.markExpert();
@@ -2482,6 +2495,7 @@ function step(dt: number, _t: number): void {
           hud.showTransientNotice(
             `${roster[passedId]?.name ?? '选手'} 已获三飞资格 · 双打继续竞速`,
             '资格已记录',
+            passLane,
           );
         } else {
           startMedalCeremony(tier, qualification.manMedalsTotal, pass.bestFlights);
@@ -2490,7 +2504,7 @@ function step(dt: number, _t: number): void {
       }
     } else if (!harnessEndlessMode && flights > 0 && flights % course.flightRoutes.length === 0 && race.armFinale()) {
       course.armFinalStation();
-      hud.showFinalReady();
+      hud.showFinalReady(passLane);
       tower.announceFlight(flights, pass.bestFlights);
       pipeline.pulse('finish', 0.55);
       trackGameEvent('final_station_armed', { run: currentRun, flights, elapsed: race.raceTime });
@@ -3006,6 +3020,7 @@ interface Harness {
   duoGuidanceCase(): Record<string, unknown>;
   duoFeedbackCase(): Record<string, unknown>;
   duoImpactCase(): Record<string, unknown>;
+  duoNoticeCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
 }
 
@@ -5287,6 +5302,39 @@ function runDuoImpactCase(): Record<string, unknown> {
   return { cards, half: Math.round(window.innerWidth / 2) };
 }
 
+/**
+ * Split play has to hand each seat its own news. The right seat's own gate
+ * edge must raise a card in the right half, and a dual-seat interaction must
+ * warn the seat it actually lands on instead of always the left one.
+ */
+function runDuoNoticeCase(): Record<string, unknown> {
+  if (!isDuoMode() || race.phase !== 'racing') {
+    throw new Error('duo notice diagnostic requires an active dual race');
+  }
+  const cards = () => [...document.querySelectorAll<HTMLElement>('.hud-impact.on')].map((el) => ({
+    slot: el.dataset.slot ?? '',
+    lane: el.dataset.lane ?? '',
+  }));
+  hud.clearTransientNotices();
+  // Only the right seat crosses a gate: the card belongs to its half.
+  const rightSeat = boats[1];
+  rightSeat.state.flightRouteState = 'active';
+  rightSeat.state.flightGateProgress = 0;
+  hud.update(1 / 60, race, primaryBoat(), boats);
+  rightSeat.state.flightGateProgress = 1;
+  hud.update(1 / 60, race, primaryBoat(), boats);
+  const afterRightGate = cards();
+  // An interaction aimed at the right seat must warn the right seat's half,
+  // through the real presentation path rather than a hand-built lane.
+  hud.clearTransientNotices();
+  handleDuoInteraction({
+    actorId: 0, targetId: 1, action: 'prank', phase: 'prank-launch', accepted: true, chargesLeft: 2,
+  });
+  const afterRightInteraction = cards();
+  hud.clearTransientNotices();
+  return { afterRightGate, afterRightInteraction };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -5425,8 +5473,9 @@ if (HARNESS) {
       result: lastResultEnvelope,
     }),
     duoGuidanceCase: runDuoGuidanceCase,
-    duoFeedbackCase: runDuoFeedbackCase,
-    duoImpactCase: runDuoImpactCase,
+  duoFeedbackCase: runDuoFeedbackCase,
+  duoImpactCase: runDuoImpactCase,
+  duoNoticeCase: runDuoNoticeCase,
     duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

@@ -442,6 +442,19 @@ async function verifyGamepadSeating(page) {
     }
   }
 
+  // Every notice belongs to the seat it is about. The right seat's own gate
+  // edge used to raise nothing at all, and a prank aimed at the right seat
+  // still warned the left half, which read as "only the left seat gets hit".
+  const notices = await page.evaluate(() => window.__harness.duoNoticeCase());
+  assert.equal(notices.afterRightGate.length, 1,
+    `the right seat's own gate edge did not raise its card: ${JSON.stringify(notices)}`);
+  assert.equal(notices.afterRightGate[0]?.slot, 'b',
+    `the right seat's gate card landed in the wrong half: ${JSON.stringify(notices)}`);
+  assert.equal(notices.afterRightInteraction.length, 1,
+    `a targeted interaction raised no card: ${JSON.stringify(notices)}`);
+  assert.equal(notices.afterRightInteraction[0]?.slot, 'b',
+    `an interaction aimed at the right seat warned the left half: ${JSON.stringify(notices)}`);
+
   // Force both real boats through the first launch. This catches the former
   // right-seat failure where its mist branch was shared with the left camera
   // and vanished as soon as the two boats diverged.

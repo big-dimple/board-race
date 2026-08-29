@@ -277,9 +277,11 @@ export class HUD {
   private lastFlightPips = -1;
   private lastFlightCharges = 0;
   private lastFlightActive = false;
-  private lastFlightPhase = 'surface';
-  private lastFlightRouteState = 'idle';
-  private lastFlightGateProgress = 0;
+  // Split play runs every flight edge once per seat: the right half must not
+  // borrow the left half's spool, gate, and route news.
+  private readonly seatFlightPhase: string[] = ['surface', 'surface'];
+  private readonly seatFlightRouteState: string[] = ['idle', 'idle'];
+  private readonly seatFlightGateProgress: number[] = [0, 0];
   private lastDriftTier = 0;
   private hudTime = 0;
   private flightAlertTimer = 0;
@@ -625,6 +627,56 @@ export class HUD {
     this.coachEl.appendChild(this.coachClose);
   }
 
+  /** Spool, extension, gate, and route-clear edges for one seat's own card slot. */
+  private updateSeatFlightNotices(
+    race: RaceView,
+    boat: IBoat | undefined,
+    lane: ImpactNotice['lane'],
+    seat: number,
+  ): void {
+    if (!boat) return;
+    const st = boat.state;
+    if (race.phase === 'racing' && st.flightPhase !== this.seatFlightPhase[seat] && st.flightPhase === 'spool') {
+      const flightNumber = st.flightsCleared + 1;
+      this.enqueueImpact({
+        kind: 'flight-launch', kicker: flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`,
+        title: `第 ${flightNumber} 飞`, detail: '',
+        color: PALETTE.flight, duration: 0.7, priority: 75, lane,
+      });
+    }
+    if (race.phase === 'racing' && st.flightExtended) {
+      this.enqueueImpact({
+        kind: 'flight-extend', kicker: 'AIR CHARGE', title: '续航 +2.4 秒', detail: '稳住空刹 · 对准入弯',
+        color: PALETTE.flight, duration: 0.72, priority: 78, lane,
+      });
+    }
+    this.seatFlightPhase[seat] = st.flightPhase;
+
+    if (race.phase === 'racing' && st.flightGateProgress > this.seatFlightGateProgress[seat] &&
+        st.flightRouteState !== 'passed') {
+      const flightNumber = Math.max(1, st.flightsCleared);
+      this.enqueueImpact({
+        kind: 'gate', kicker: `FLIGHT ${flightNumber} / 3`, title: '通过', detail: '',
+        color: PALETTE.flight, duration: 0.7, priority: 50, lane,
+      });
+    }
+    this.seatFlightGateProgress[seat] = st.flightGateProgress;
+    if (race.phase === 'racing' && st.flightRouteState !== this.seatFlightRouteState[seat]) {
+      if (st.flightRouteState === 'passed') {
+        const flightNumber = st.flightsCleared;
+        if (flightNumber < 3) {
+          const title = flightNumber === 1 ? '第一飞，开局。' : '你已超过天下 80%的男人';
+          this.enqueueImpact({
+            kind: 'route-clear', kicker: `${flightNumber} / 3`, title,
+            detail: flightNumber === 2 ? '最后一飞，定级。' : '',
+            color: PALETTE.flight, duration: 1.1, priority: 60, lane,
+          });
+        }
+      }
+    }
+    this.seatFlightRouteState[seat] = st.flightRouteState;
+  }
+
   /**
    * Flight-corridor storm warning. Shares the wrong-way banner element; the
    * surface warnings it normally carries are forced to 'none' while airborne,
@@ -844,45 +896,14 @@ export class HUD {
       }
       this.powerPanel.classList.toggle('flying', flightActive);
     }
-    if (race.phase === 'racing' && st.flightPhase !== this.lastFlightPhase && st.flightPhase === 'spool') {
-      const flightNumber = st.flightsCleared + 1;
-      this.enqueueImpact({
-        kind: 'flight-launch', kicker: flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`,
-        title: `第 ${flightNumber} 飞`, detail: '',
-        color: PALETTE.flight, duration: 0.7, priority: 75,
-      });
+    // Every seat owns its own flight notices, so split play runs the whole
+    // edge set once per seat instead of only for the camera focus.
+    if (this.duoSplit) {
+      this.updateSeatFlightNotices(race, _all[0], 'left', 0);
+      this.updateSeatFlightNotices(race, _all[1], 'right', 1);
+    } else {
+      this.updateSeatFlightNotices(race, player, 'center', 0);
     }
-    if (race.phase === 'racing' && st.flightExtended) {
-      this.enqueueImpact({
-        kind: 'flight-extend', kicker: 'AIR CHARGE', title: '续航 +2.4 秒', detail: '稳住空刹 · 对准入弯',
-        color: PALETTE.flight, duration: 0.72, priority: 78,
-      });
-    }
-    this.lastFlightPhase = st.flightPhase;
-
-    if (race.phase === 'racing' && st.flightGateProgress > this.lastFlightGateProgress &&
-        st.flightRouteState !== 'passed') {
-      const flightNumber = Math.max(1, st.flightsCleared);
-      this.enqueueImpact({
-        kind: 'gate', kicker: `FLIGHT ${flightNumber} / 3`, title: '通过', detail: '',
-        color: PALETTE.flight, duration: 0.7, priority: 50,
-      });
-    }
-    this.lastFlightGateProgress = st.flightGateProgress;
-    if (race.phase === 'racing' && st.flightRouteState !== this.lastFlightRouteState) {
-      if (st.flightRouteState === 'passed') {
-        const flightNumber = st.flightsCleared;
-        if (flightNumber < 3) {
-          const title = flightNumber === 1 ? '第一飞，开局。' : '你已超过天下 80%的男人';
-          this.enqueueImpact({
-            kind: 'route-clear', kicker: `${flightNumber} / 3`, title,
-            detail: flightNumber === 2 ? '最后一飞，定级。' : '',
-            color: PALETTE.flight, duration: 1.1, priority: 60,
-          });
-        }
-      }
-    }
-    this.lastFlightRouteState = st.flightRouteState;
     if (st.flightDenied || st.flightRouteMiss) this.flightAlertTimer = 0.32;
     if (this.flightAlertTimer > 0) {
       this.flightAlertTimer -= dt;
@@ -1050,11 +1071,11 @@ export class HUD {
     this.medalCanvas.clear();
   }
 
-  showFinalReady(): void {
+  showFinalReady(lane: 'left' | 'center' | 'right' = 'center'): void {
     const brake = this.controlDevice === 'mobile' ? '按住「刹」回港刹车' : `按住 ${this.controlLabels.drift} 回港刹车`;
     this.enqueueImpact({
       kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '七飞完成 · 航线解除', detail: `${brake} · 穿过金色终点`,
-      color: PALETTE.sunFlare, duration: 2.1, priority: 96,
+      color: PALETTE.sunFlare, duration: 2.1, priority: 96, lane,
     });
   }
 
@@ -1123,8 +1144,8 @@ export class HUD {
     });
   }
 
-  /** Short race-direction notice used by dual-seat interactions. */
-  showTransientNotice(detail: string, title = '互动已触发'): void {
+  /** Short race-direction notice. In split play it belongs to one seat's card slot. */
+  showTransientNotice(detail: string, title = '互动已触发', lane: 'left' | 'center' | 'right' = 'center'): void {
     this.enqueueImpact({
       kind: 'duo-interaction',
       kicker: 'DUO PLAY',
@@ -1133,6 +1154,7 @@ export class HUD {
       color: PALETTE.uiAccent,
       duration: 1.45,
       priority: 66,
+      lane,
     });
   }
 
@@ -1160,13 +1182,13 @@ export class HUD {
     });
   }
 
-  showFlightPass(flights: number, best: number, newBest: boolean): void {
+  showFlightPass(flights: number, best: number, newBest: boolean, lane: 'left' | 'center' | 'right' = 'center'): void {
     this.setBestFlights(best, flights);
     if (flights <= 3) return;
     this.enqueueImpact({
       kind: 'flight-pass', kicker: newBest ? 'NEW BEST' : `FLIGHT ${flights}`,
       title: `第 ${flights} 飞通过`, detail: `本局 ${flights} 飞 · BEST ${best}`,
-      color: PALETTE.flight, duration: 0.75, priority: 58,
+      color: PALETTE.flight, duration: 0.75, priority: 58, lane,
     });
   }
 
