@@ -5068,6 +5068,21 @@ function runDuoGuidanceCase(): Record<string, unknown> {
       qualifiedIdleGuard.routeIndex !== -1 || qualifiedIdleGuard.failure !== 'none') {
     throw new Error(`qualified duo seat re-entered a route after Final armed: ${JSON.stringify(qualifiedIdleGuard)}`);
   }
+  // The same seat must still be able to fly on purpose. Qualifying retires the
+  // forced attempts, not the authored routes: give it a charge and let it take
+  // off again.
+  rightQualified.state.flightCharges = 1;
+  harnessBoatInputOverrides[1] = { throttle: 1, steer: 0, flightTrigger: true };
+  loop.advance(1 / 60);
+  harnessBoatInputOverrides[1] = { throttle: 1, steer: 0, flightTrigger: false };
+  loop.advance(3 / 60);
+  const qualifiedRelaunch = {
+    phase: rightQualified.state.flightPhase,
+    routeState: rightQualified.state.flightRouteState,
+    routeIndex: rightQualified.state.flightRouteIndex,
+    failure: rightQualified.state.flightFailure?.reason ?? 'none',
+    visibleRoutes: course.guidanceStatusFor(1).visibleRouteCount,
+  };
   harnessBoatInputOverrides[0] = null;
   harnessBoatInputOverrides[1] = null;
   render(16.7);
@@ -5082,6 +5097,7 @@ function runDuoGuidanceCase(): Record<string, unknown> {
     finalArmedRightFlight,
     finalArmedLeftFlight,
     qualifiedIdleGuard,
+    qualifiedRelaunch,
   };
 }
 

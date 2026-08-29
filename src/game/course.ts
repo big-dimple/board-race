@@ -2423,8 +2423,7 @@ export class Course implements ICourse {
         this.playerSurfaceU = surfaceU;
         this.playerPosition.copy(pos);
         this.playerFlightReady = st.flightCharges > 0;
-        const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length;
-        this.playerFlightIndex = finalApproach ? -1 : st.flightRouteIndex >= 0
+        this.playerFlightIndex = st.flightRouteIndex >= 0
           ? st.flightRouteIndex
           : st.flightRouteCursor % FLIGHT_ROUTES.length;
         this.playerFlightPressure = st.flightPressure;
@@ -2504,19 +2503,10 @@ export class Course implements ICourse {
           }
         }
       }
-      const finalQualifiedIdle = this.finalArmed && this.guidanceOwners.includes(id) &&
-        st.flightPhase === 'surface' && st.flightRouteState === 'idle' &&
-        st.flightsCleared >= FLIGHT_ROUTES.length &&
-        st.flightsCleared % FLIGHT_ROUTES.length === 0;
-      if (finalQualifiedIdle) {
-        // Every qualified human owns the Final approach until Race certifies
-        // the line. In duo, the non-primary seat can finish its recovery after
-        // the other seat arms Final; without this guard it would be mistaken
-        // for an eighth flight and enter a spurious no-launch failure.
-        prev.copy(pos);
-        this.flightPrevClearance[id] = st.flightClearance;
-        continue;
-      }
+      // A qualified seat is no longer parked. Earning the last flight mark used
+      // to strip its corridor and block every further launch until it crossed
+      // the portal; from here it simply keeps flying the authored routes and
+      // takes the portal whenever it chooses.
       const routeIndex = st.flightRouteIndex >= 0
         ? st.flightRouteIndex
         : st.flightRouteCursor % FLIGHT_ROUTES.length;
@@ -2630,7 +2620,12 @@ export class Course implements ICourse {
         }
       }
 
-      if (!flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
+      // A qualified racer has already cleared every authored route, so it is
+      // never shoved into an attempt it did not launch: cruising through the
+      // launch span after qualifying is free, it may still launch a real route
+      // whenever it wants, and the portal stays open to it.
+      const earnedEveryRoute = st.flightsCleared >= FLIGHT_ROUTES.length;
+      if (!earnedEveryRoute && !flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
           _routeSample.distance < SURFACE_ROUTE_FAIL_DISTANCE_M &&
           surfaceU >= def.gateUs[0] - FLIGHT_GATE_BYPASS_U) {
         boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed);
@@ -2835,14 +2830,11 @@ export class Course implements ICourse {
         : flightActive && st.flightRouteIndex >= 0
           ? st.flightRouteIndex
           : -1;
-      const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
-        recoverySlot < 0 && committedSlot < 0 && !flightActive;
       const slot = committedSlot >= 0
         ? committedSlot
         : recoverySlot >= 0
         ? recoverySlot
-        : finalApproach ? -1
-          : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
+        : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
       const def = FLIGHT_ROUTES[slot];
       if (def && (recoverySlot >= 0 ||
           st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
@@ -2985,10 +2977,7 @@ export class Course implements ICourse {
       : flightActive && st.flightRouteIndex >= 0
         ? st.flightRouteIndex
         : -1;
-    const finalApproach = this.finalArmed && st.flightsCleared >= FLIGHT_ROUTES.length &&
-      state.recoveryRoute < 0 && committedSlot < 0 && !flightActive;
-
-    if (!finalApproach && flightActive) {
+    if (flightActive) {
       // A new branch owns the right-seat layer atomically. Do not leave a
       // previous route's recovery ribbon competing with the new corridor.
       for (const entry of this.flightVisualsRight) {
@@ -3009,7 +2998,7 @@ export class Course implements ICourse {
       const launchRoute = FLIGHT_ROUTES[launchRouteIndex];
       const launchCueU = flightLaunchCueU(launchRoute);
       const launchDistance = (launchCueU * LAP_LENGTH - state.surfaceU * LAP_LENGTH + LAP_LENGTH) % LAP_LENGTH;
-      if (!finalApproach && launchDistance <= LAUNCH_GATE_PREVIEW_M) {
+      if (launchDistance <= LAUNCH_GATE_PREVIEW_M) {
         const armed = st.flightCharges > 0;
         state.launchGateState = armed ? 'armed' : 'unarmed';
         state.launchGateRouteIndex = launchRouteIndex;
@@ -3033,7 +3022,7 @@ export class Course implements ICourse {
         : primaryTurn && near.u >= primaryTurn.fromU && near.u <= primaryTurn.toU
           ? primaryTurn
           : null;
-      if (!finalApproach && activeTurn) {
+      if (activeTurn) {
         state.actionCue = 'turn';
         state.actionRouteIndex = routeIndex;
         state.actionDirection = activeTurn.direction;
@@ -3054,8 +3043,8 @@ export class Course implements ICourse {
       ? committedSlot
       : recoverySlot >= 0
         ? recoverySlot
-        : finalApproach ? -1 : routeIndex;
-    const showRoute = !finalApproach && Boolean(def) && (
+        : routeIndex;
+    const showRoute = Boolean(def) && (
       committedSlot >= 0 || recoverySlot >= 0 || st.flightRouteState !== 'idle' || flightActive ||
       (state.surfaceU >= flightGuideFromU(def!) && state.surfaceU <= def!.exitU + 0.01)
     );

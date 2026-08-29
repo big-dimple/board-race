@@ -471,13 +471,13 @@ async function verifyGamepadSeating(page) {
     `left seat was not airborne when the cross-seat Final case armed: ${JSON.stringify(guidance)}`);
   assert.ok(finalArmedLeft.activeRoute >= 0 && finalArmedLeft.visibleRoutes >= 1,
     `left airborne corridor was hidden after Final armed: ${JSON.stringify(guidance)}`);
-  const qualifiedIdle = guidance.qualifiedIdleGuard;
-  assert.deepEqual(qualifiedIdle, {
-    phase: 'surface',
-    routeState: 'idle',
-    routeIndex: -1,
-    failure: 'none',
-  }, `qualified right seat re-entered a phantom route after Final armed: ${JSON.stringify(guidance)}`);
+  // ...but it also must not be parked: qualifying retires the forced attempts,
+  // not the authored routes. With a charge it takes off again, corridor and all.
+  const relaunch = guidance.qualifiedRelaunch;
+  assert.notEqual(relaunch.routeState, 'failed',
+    `qualified seat was failed for flying again: ${JSON.stringify(guidance)}`);
+  assert.ok(relaunch.routeIndex >= 0 && relaunch.visibleRoutes >= 1,
+    `qualified seat could not fly another route: ${JSON.stringify(guidance)}`);
   const split = await sampleSplitCanvas(page);
   assert.ok(split.left.range > 24 && split.right.range > 24 && split.left.opaque > 800 && split.right.opaque > 800,
     `one split half rendered blank during dual flight: ${JSON.stringify(split)}`);

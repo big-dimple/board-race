@@ -743,15 +743,17 @@ export class Race implements RaceView {
   }
 
   /**
-   * May this racer cross the Final portal right now? Only true at the end of a
-   * set that cleared every authored route. Place sorting uses the latched
-   * `finalContender` flag instead, because this test is false again the moment
-   * the racer starts the next set's first route.
+   * Has this racer earned the right to take the Final portal? Clearing every
+   * authored route once is an achievement that stays earned: a qualified racer
+   * may keep flying and still cross the portal on a later lap. Requiring an
+   * exact set boundary instead locked the portal shut again the moment the
+   * racer cleared one more route. Place sorting uses the latched
+   * `finalContender` flag so a momentary set state never demotes a contender.
    */
   private hasFinalQualification(id: number): boolean {
     const routeCount = Math.max(1, this.course.flightRoutes.length);
     const cleared = this.boats[id].state.flightsCleared;
-    return Number.isInteger(cleared) && cleared >= routeCount && cleared % routeCount === 0;
+    return Number.isInteger(cleared) && cleared >= routeCount;
   }
 
   private finishAtFinal(racer: RacerState, crossingFraction: number, dt: number): void {
