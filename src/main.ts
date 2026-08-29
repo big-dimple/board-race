@@ -341,6 +341,14 @@ const localInput = new LocalMultiplayerInput();
 const gamepadInput = new GamepadInput();
 let activeInputDevice: CoachInputDevice = mobileInput.enabled ? 'mobile' : 'keyboard';
 const haptics = new Haptics(gamepadInput, () => activeInputDevice);
+// Split play gives the right seat its own coordinator so its cues fire on the
+// controller that player is holding, not on the primary seat's device.
+const hapticsRight = new Haptics(
+  gamepadInput,
+  () => (duoDevices[1].startsWith('gamepad:') ? 'gamepad' : 'keyboard'),
+  (strong, weak, durationMs) => localInput.rumble(duoDevices[1], strong, weak, durationMs),
+);
+const seatHaptics = [haptics, hapticsRight];
 let lastKeyboardActivity = input.activitySerial;
 let lastGamepadActivity = gamepadInput.activitySerial;
 let lastMobileActivity = mobileInput.activitySerial;
@@ -2474,7 +2482,6 @@ function step(dt: number, _t: number): void {
   // the primary seat is why the second player's gates, buffs and air-brake
   // snaps were completely silent while the first player heard all of them.
   const feedbackSeats = isDuoMode() ? DUO_FEEDBACK_SEATS : SOLO_FEEDBACK_SEATS;
-  const primarySeat = race.player().id;
   for (const seat of feedbackSeats) {
     const racer = race.racers[seat];
     if (!racer || racer.eliminated) continue;
@@ -2482,13 +2489,11 @@ function step(dt: number, _t: number): void {
     const edge = seatEdges[seat];
     const seatCamera = isDuoMode() ? (seat === 0 ? teamLeftCameraRig : teamRightCameraRig) : cameraRig;
     const seatPipeline = isDuoMode() ? (seat === 0 ? teamLeftPipeline : teamRightPipeline) : pipeline;
-    // Haptics still follow the primary seat's device; per-device rumble for
-    // every cue is a separate pass.
-    const primary = seat === primarySeat;
-    if (state.drifting && !edge.drifting && state.speed > 12 && primary) haptics.cue('drift-active');
+    const feedbackHaptics = seatHaptics[seat];
+    if (state.drifting && !edge.drifting && state.speed > 12) feedbackHaptics.cue('drift-active');
     if (state.driftReleaseReady && !edge.driftReleaseReady) {
       audio.driftReleaseReady();
-      if (primary) haptics.cue('drift-ready');
+      feedbackHaptics.cue('drift-ready');
     }
     if (state.flightCharges > edge.flightCharges) {
       audio.flightReady(state.flightCharges);
@@ -2496,26 +2501,26 @@ function step(dt: number, _t: number): void {
       seatPipeline.pulse('ready');
       const stockIntensity = 0.82 + 0.18 * Math.max(0, state.flightCharges - 1) /
         Math.max(1, MAX_FLIGHT_CHARGES - 1);
-      if (primary) haptics.cue('charge', stockIntensity);
+      feedbackHaptics.cue('charge', stockIntensity);
     }
     if (state.flightExtended) {
       audio.flightExtend();
       seatCamera.flightExtendKick();
       seatPipeline.pulse('ready', 0.68);
-      if (primary) haptics.cue('extend');
+      feedbackHaptics.cue('extend');
     }
     if (state.boosting && !edge.boosting) {
       seatPipeline.pulse('boost', 0.92);
-      if (primary) haptics.cue('boost');
+      feedbackHaptics.cue('boost');
     }
     if (state.flightPhase === 'spool' && edge.flightPhase !== 'spool') {
       seatPipeline.pulse('launch', 1.05);
-      if (primary) haptics.cue('launch');
+      feedbackHaptics.cue('launch');
     }
     const airBraking = state.flightPhase !== 'surface' && state.flightAirBrake > 0.28;
     if (airBraking && !edge.airBraking) {
       audio.airBrakeSnap();
-      if (primary) haptics.cue('air-brake');
+      feedbackHaptics.cue('air-brake');
     }
     if (state.flightGateProgress > edge.flightGateProgress) {
       const flightNumber = Math.max(1, state.flightsCleared);
@@ -2523,7 +2528,7 @@ function step(dt: number, _t: number): void {
       audio.flightGate(feedbackStep);
       seatCamera.flightGateKick(feedbackStep);
       seatPipeline.pulse('gate', flightNumber === 3 ? 0.72 : 0.4);
-      if (primary) haptics.cue('gate');
+      feedbackHaptics.cue('gate');
     }
     if (state.flightRouteState !== edge.flightRouteState) {
       if (state.flightRouteState === 'passed') {
@@ -2540,7 +2545,7 @@ function step(dt: number, _t: number): void {
     edge.airBraking = airBraking;
     edge.drifting = state.drifting;
     const seatTurnWarning = course.flightTurnWarning(seat);
-    if (seatTurnWarning && !edge.turnWarning && primary) haptics.cue('warning');
+    if (seatTurnWarning && !edge.turnWarning) feedbackHaptics.cue('warning');
     edge.turnWarning = seatTurnWarning;
   }
   const turnWarning = course.flightTurnWarning(focusBoat.id);
@@ -5112,15 +5117,20 @@ function runDuoFeedbackCase(): Record<string, unknown> {
   }
   const sample = (): number => Number(audio.debugState().activeOneShots);
   const before = sample();
+  const cuesBefore = seatHaptics.map((entry) => Number(entry.status().cueRequests));
   // Nudge only the right seat past a gate. The left seat keeps its state, so a
   // change in the one-shot count can only come from seat 1's own edge.
   boats[1].state.flightGateProgress += 1;
   loop.advance(1 / 60);
+  const cuesAfter = seatHaptics.map((entry) => Number(entry.status().cueRequests));
   return {
     before,
     after: sample(),
     rightGateProgress: boats[1].state.flightGateProgress,
     leftGateProgress: boats[0].state.flightGateProgress,
+    // The cue must reach the right seat's own coordinator and nobody else's.
+    rightCueDelta: cuesAfter[1] - cuesBefore[1],
+    leftCueDelta: cuesAfter[0] - cuesBefore[0],
   };
 }
 

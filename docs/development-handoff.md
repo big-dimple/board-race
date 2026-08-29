@@ -27,6 +27,11 @@
   冲线仍用瞬时集合边界判定，名次保护改用闩锁的 `finalContender`（完成过一整套就不再撤销），
   且激活期间危险计时与门 / 圈记账照旧暂停、距离照旧累计。回归用例 `postSetRankCase` 已进
   `verify:smoke`：撤回修复时它报 `place 1 -> 6`、进度 628 纹丝不动。
+- 触觉已按席位路由：`Haptics` 新增可选的 `rumbleSeat` 下发口，双打为右席建一个独立协调器
+  （`hapticsRight`，震 `duoDevices[1]`），每帧反馈里的 9 个 cue 全部走本席协调器，不再只震主玩家。
+  `Haptics.status()` 新增 `cueRequests`（请求数，与 `cueCount` 已播放数分开，键盘席位也能验路由）。
+  `verify:team` 增断言：右席自己的事件必须 `rightCueDelta >= 1` 且 `leftCueDelta === 0`。
+  反向验证（路由回主玩家）报 `rightCueDelta: 0, leftCueDelta: 1`。
 - 合格席不再被锁死（用户拍板）：清完一整套 `flightRoutes` 后，该艇**保留正常航道、起飞提示与起跳判定，
   想飞就飞、想冲门就冲门**。改动是 ① `hasFinalQualification` 从瞬时集合边界
   （`cleared % routeCount === 0`）改成成就（`cleared >= routeCount`），否则清掉第八门就把刚到手的门关死；

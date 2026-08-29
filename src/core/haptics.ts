@@ -80,14 +80,22 @@ export class Haptics {
   private readonly lastCueAt = new Map<HapticCue, number>();
   private cueCount = 0;
   private lastCue: HapticCue | '' = '';
+  /** Cues this coordinator was asked for, whether or not a device played them. */
+  private cueRequests = 0;
   private queuedImpacts = 0;
   private coalescedImpacts = 0;
   private droppedImpacts = 0;
   private lastLane: HapticLane | '' = '';
 
+  /**
+   * `rumbleSeat` targets one local device instead of the globally active pad.
+   * Split play gives every human seat its own coordinator so a cue fires on the
+   * controller that player is actually holding.
+   */
   constructor(
     private readonly gamepad: GamepadInput,
     private readonly activeDevice: () => HapticDevice,
+    private readonly rumbleSeat?: (strong: number, weak: number, durationMs: number) => boolean,
   ) {}
 
   get enabled(): boolean {
@@ -107,6 +115,7 @@ export class Haptics {
   }
 
   cue(cue: HapticCue, scale = 1): boolean {
+    this.cueRequests++;
     const profile = PROFILES[cue];
     if (profile.lane === 'impact') return this.impact(cue as PendingImpact['cue'], scale, false);
     return this.dispatch(cue, scale, profile.lane);
@@ -114,6 +123,7 @@ export class Haptics {
 
   /** Queue an impact behind a held drift/air-brake control pulse. */
   impact(cue: 'landing' | 'collision-light' | 'collision-heavy', scale = 1, controlHeld = false): boolean {
+    this.cueRequests++;
     if (!this.enabledValue || document.hidden) return false;
     const now = performance.now() / 1000;
     if (controlHeld || now < this.controlUntil) {
@@ -191,6 +201,7 @@ export class Haptics {
     return {
       enabled: this.enabledValue,
       cueCount: this.cueCount,
+      cueRequests: this.cueRequests,
       lastCue: this.lastCue,
       lastLane: this.lastLane,
       activeDevice: this.activeDevice(),
@@ -213,7 +224,9 @@ export class Haptics {
     const device = this.activeDevice();
     let played = false;
     if (device === 'gamepad') {
-      played = this.gamepad.rumble(profile.strong * amount, profile.weak * amount, profile.duration);
+      played = this.rumbleSeat
+        ? this.rumbleSeat(profile.strong * amount, profile.weak * amount, profile.duration)
+        : this.gamepad.rumble(profile.strong * amount, profile.weak * amount, profile.duration);
     } else if (device === 'mobile' && typeof navigator.vibrate === 'function') {
       try {
         played = navigator.vibrate(Math.max(1, Math.round(profile.mobileDuration * amount)));

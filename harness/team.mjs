@@ -424,6 +424,10 @@ async function verifyGamepadSeating(page) {
   const feedback = await page.evaluate(() => window.__harness.duoFeedbackCase());
   assert.ok(feedback.after > feedback.before,
     `the right seat's own event produced no audio: ${JSON.stringify(feedback)}`);
+  assert.ok(feedback.rightCueDelta >= 1,
+    `the right seat's own event never reached its haptics: ${JSON.stringify(feedback)}`);
+  assert.equal(feedback.leftCueDelta, 0,
+    `the right seat's event buzzed the other player's device: ${JSON.stringify(feedback)}`);
 
   // Each seat's impact card must render inside its own half: one shared card
   // sat on the seam and let either seat's notice evict the other's.
