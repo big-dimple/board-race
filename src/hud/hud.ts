@@ -107,6 +107,22 @@ export class HUD {
   setDuoSplit(visible: boolean): void {
     this.root.classList.toggle('duo-split', visible);
     this.duoSplit = visible;
+    // The second near-boat instrument only exists for a split race; leaving it
+    // in the DOM would park a dead widget over the solo frame.
+    this.driverPower[1].hidden = !visible;
+    if (!visible) {
+      this.seatCameras[0] = null;
+      this.seatCameras[1] = null;
+    }
+  }
+
+  /**
+   * Split play renders each seat through its own camera, so the near-boat
+   * instrument has to project through the same view it is drawn on top of.
+   */
+  setDuoSeatCameras(left: THREE.Camera, right: THREE.Camera): void {
+    this.seatCameras[0] = left;
+    this.seatCameras[1] = right;
   }
 
   // speedometer
@@ -120,18 +136,20 @@ export class HUD {
   private readonly posChip: HTMLDivElement;
   private readonly posGap: HTMLDivElement;
 
-  // boost / stored flight charges
+  // boost / stored flight charges. Split play builds one instrument per seat:
+  // the widget rides its own boat, so it needs its own camera and half-screen.
   private readonly powerPanel: HTMLDivElement;
-  private readonly driverPower: HTMLDivElement;
-  private readonly driverLeftRail: HTMLDivElement;
-  private readonly driverRightRail: HTMLDivElement;
-  private readonly driverLeftLabel: HTMLDivElement;
-  private readonly driverRightLabel: HTMLDivElement;
-  private readonly driverStocks: HTMLDivElement;
-  private readonly driverAnchor = new THREE.Vector3();
-  private driverAnchorX = 0;
-  private driverAnchorY = 0;
-  private driverPowerSide: -1 | 1 = 1;
+  private readonly driverPower: HTMLDivElement[] = [];
+  private readonly driverLeftRail: HTMLDivElement[] = [];
+  private readonly driverRightRail: HTMLDivElement[] = [];
+  private readonly driverLeftLabel: HTMLDivElement[] = [];
+  private readonly driverRightLabel: HTMLDivElement[] = [];
+  private readonly driverStocks: HTMLDivElement[] = [];
+  private readonly driverAnchor = [new THREE.Vector3(), new THREE.Vector3()];
+  private readonly driverAnchorX = [0, 0];
+  private readonly driverAnchorY = [0, 0];
+  private readonly driverPowerSide: (-1 | 1)[] = [1, 1];
+  private readonly seatCameras: (THREE.Camera | null)[] = [null, null];
   private readonly boostBar: HTMLDivElement;
   private readonly boostLabel: HTMLDivElement;
   private readonly boostSegEls: HTMLDivElement[] = [];
@@ -311,8 +329,11 @@ export class HUD {
     this.bestFlights = bestFlights;
     this.root = h('div', 'hud', container);
     const compactViewport = innerWidth <= 900 || innerHeight <= 520;
-    this.driverAnchorX = compactViewport ? innerWidth - 205 : innerWidth * 0.62;
-    this.driverAnchorY = compactViewport ? 130 : innerHeight * 0.56;
+    const halfViewport = Math.round(innerWidth / 2);
+    this.driverAnchorX[0] = compactViewport ? innerWidth - 205 : innerWidth * 0.62;
+    this.driverAnchorX[1] = compactViewport ? innerWidth - 205 : halfViewport + innerWidth * 0.31;
+    this.driverAnchorY[0] = compactViewport ? 130 : innerHeight * 0.56;
+    this.driverAnchorY[1] = compactViewport ? 130 : innerHeight * 0.56;
     // palette → CSS custom properties (single source of truth)
     const rs = this.root.style;
     rs.setProperty('--ink', PALETTE.inkCss);
@@ -387,14 +408,20 @@ export class HUD {
 
     // Near-boat driver instrument. It is deliberately transparent and compact:
     // the track remains the primary visual, while the two rails carry timing.
-    this.driverPower = h('div', 'hud-driver-power', this.root);
-    this.driverPower.setAttribute('aria-hidden', 'true');
-    this.driverLeftRail = h('div', 'hud-driver-rail hud-driver-rail-left', this.driverPower);
-    this.driverRightRail = h('div', 'hud-driver-rail hud-driver-rail-right', this.driverPower);
-    this.driverLeftLabel = h('div', 'hud-driver-label hud-driver-label-left', this.driverPower, '');
-    this.driverRightLabel = h('div', 'hud-driver-label hud-driver-label-right', this.driverPower, '');
-    this.driverStocks = h('div', 'hud-driver-stocks', this.driverPower);
-    for (let i = 0; i < MAX_FLIGHT_CHARGES; i++) h('i', 'hud-driver-stock', this.driverStocks);
+    // Both seats get one; solo play only ever reveals the first.
+    for (let seat = 0; seat < 2; seat++) {
+      const root = h('div', 'hud-driver-power', this.root);
+      root.dataset.seat = String(seat);
+      root.setAttribute('aria-hidden', 'true');
+      this.driverPower.push(root);
+      this.driverLeftRail.push(h('div', 'hud-driver-rail hud-driver-rail-left', root));
+      this.driverRightRail.push(h('div', 'hud-driver-rail hud-driver-rail-right', root));
+      this.driverLeftLabel.push(h('div', 'hud-driver-label hud-driver-label-left', root, ''));
+      this.driverRightLabel.push(h('div', 'hud-driver-label hud-driver-label-right', root, ''));
+      const stocks = h('div', 'hud-driver-stocks', root);
+      for (let i = 0; i < MAX_FLIGHT_CHARGES; i++) h('i', 'hud-driver-stock', stocks);
+      this.driverStocks.push(stocks);
+    }
 
     // ---- toasts / wrong way / countdown ----------------------------------------------
     this.toastBox = h('div', 'hud-toasts', this.root);
@@ -700,7 +727,7 @@ export class HUD {
   update(dt: number, race: RaceView, player: IBoat, _all: IBoat[]): void {
     const st = player.state;
     this.hudTime += dt;
-    this.updateDriverPower(dt, race, player);
+    this.updateDriverPower(dt, race, player, _all);
     this.updateFinalTarget(race.phase === 'racing');
     if (this.activeCoach) this.positionCoach(this.activeCoach.focus);
 
@@ -951,58 +978,78 @@ export class HUD {
 
   }
 
-  private updateDriverPower(dt: number, race: RaceView, player: IBoat): void {
+  private updateDriverPower(dt: number, race: RaceView, player: IBoat, all: readonly IBoat[]): void {
+    // Every seat reads its own boat through its own camera, so split play runs
+    // the instrument once per seat inside that seat's half of the frame.
+    const seats = this.duoSplit ? [all[0], all[1]] : [player];
+    for (let seat = 0; seat < seats.length; seat++) {
+      const boat = seats[seat];
+      if (boat) this.updateSeatDriverPower(dt, race, boat, seat, this.duoSplit);
+    }
+  }
+
+  private updateSeatDriverPower(dt: number, race: RaceView, player: IBoat, seat: number, split: boolean): void {
     const state = deriveAbilityHudState(player.state, this.course.finalStationArmed());
     const active = race.phase === 'racing' && state.showNearRail;
-    this.driverPower.classList.toggle('on', active);
-    this.driverPower.dataset.left = state.leftMode;
-    this.driverPower.dataset.flight = state.flightMode;
-    this.driverPower.dataset.urgency = state.urgency;
-    this.driverPower.style.setProperty('--driver-drift', String(state.boostCharge));
-    this.driverPower.style.setProperty('--driver-bank', String(state.driftBankProgress));
-    this.driverPower.style.setProperty('--driver-boost', String(state.boostRemaining));
-    this.driverPower.style.setProperty('--driver-flight', String(state.flightRemaining));
-    this.driverPower.style.setProperty('--driver-airbrake', String(state.flightAirBrake));
-    this.driverLeftRail.classList.toggle('on', active && state.leftMode !== 'idle');
+    const el = this.driverPower[seat];
+    el.classList.toggle('on', active);
+    el.dataset.left = state.leftMode;
+    el.dataset.flight = state.flightMode;
+    el.dataset.urgency = state.urgency;
+    el.style.setProperty('--driver-drift', String(state.boostCharge));
+    el.style.setProperty('--driver-bank', String(state.driftBankProgress));
+    el.style.setProperty('--driver-boost', String(state.boostRemaining));
+    el.style.setProperty('--driver-flight', String(state.flightRemaining));
+    el.style.setProperty('--driver-airbrake', String(state.flightAirBrake));
+    this.driverLeftRail[seat].classList.toggle('on', active && state.leftMode !== 'idle');
     // Stored cells are shown as diamonds; the continuous rail only appears
     // once an airborne envelope is actually consuming time.
-    this.driverRightRail.classList.toggle('on', active &&
+    this.driverRightRail[seat].classList.toggle('on', active &&
       (state.flightMode === 'active' || state.flightMode === 'extend' || state.flightMode === 'finish'));
-    this.driverLeftLabel.textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'BRAKE' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
-    this.driverRightLabel.textContent = state.flightMode === 'finish' ? 'GO' : state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
-    this.driverPower.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
-    this.driverPower.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
-    this.driverPower.classList.toggle('extend', state.flightMode === 'extend');
-    this.driverPower.classList.toggle('final', state.flightMode === 'finish');
-    for (let i = 0; i < this.driverStocks.children.length; i++) {
-      (this.driverStocks.children[i] as HTMLElement).classList.toggle('on', i < state.flightCharges);
+    this.driverLeftLabel[seat].textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'BRAKE' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
+    this.driverRightLabel[seat].textContent = state.flightMode === 'finish' ? 'GO' : state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
+    el.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
+    el.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
+    el.classList.toggle('extend', state.flightMode === 'extend');
+    el.classList.toggle('final', state.flightMode === 'finish');
+    const stocks = this.driverStocks[seat].children;
+    for (let i = 0; i < stocks.length; i++) {
+      (stocks[i] as HTMLElement).classList.toggle('on', i < state.flightCharges);
     }
 
     if (!active) return;
-    player.riderMount.getWorldPosition(this.driverAnchor);
-    this.driverAnchor.project(this.camera);
-    const riderX = (this.driverAnchor.x * 0.5 + 0.5) * innerWidth;
-    const riderY = (-this.driverAnchor.y * 0.5 + 0.5) * innerHeight;
-    const compact = innerWidth <= 900 || innerHeight <= 520;
-    const mobile = this.controlDevice === 'mobile';
+    // Split play renders two half-width views side by side, so the projection
+    // has to land inside this seat's own half instead of the whole window.
+    const halfWidth = Math.round(innerWidth / 2);
+    const viewLeft = split ? seat * halfWidth : 0;
+    const viewWidth = split ? halfWidth : innerWidth;
+    const camera = this.seatCameras[seat] ?? this.camera;
+    player.riderMount.getWorldPosition(this.driverAnchor[seat]);
+    this.driverAnchor[seat].project(camera);
+    const riderX = viewLeft + (this.driverAnchor[seat].x * 0.5 + 0.5) * viewWidth;
+    const riderY = (-this.driverAnchor[seat].y * 0.5 + 0.5) * innerHeight;
+    const compact = viewWidth <= 900 || innerHeight <= 520;
+    const mobile = this.controlDevice === 'mobile' && !split;
     if (!compact) {
       const sideDeadZone = 48;
-      if (riderX < innerWidth * 0.5 - sideDeadZone) this.driverPowerSide = 1;
-      else if (riderX > innerWidth * 0.5 + sideDeadZone) this.driverPowerSide = -1;
+      if (riderX < viewLeft + viewWidth * 0.5 - sideDeadZone) this.driverPowerSide[seat] = 1;
+      else if (riderX > viewLeft + viewWidth * 0.5 + sideDeadZone) this.driverPowerSide[seat] = -1;
     }
-    const targetX = mobile
-      ? Math.max(116, Math.min(innerWidth - 250, riderX + 132))
+    const localX = riderX - viewLeft;
+    const localTargetX = mobile
+      ? Math.max(116, Math.min(viewWidth - 250, localX + 132))
       : compact
-      ? Math.max(116, innerWidth - 205)
-      : Math.max(90, Math.min(innerWidth - 90, riderX + this.driverPowerSide * 150));
+        ? Math.max(116, viewWidth - 205)
+        : Math.max(90, Math.min(viewWidth - 90, localX + this.driverPowerSide[seat] * 150));
+    const targetX = viewLeft + localTargetX;
     const targetY = compact
       ? Math.max(104, Math.min(148, innerHeight * 0.34))
       : Math.max(innerHeight * 0.38, Math.min(innerHeight * 0.64, riderY + 18));
     const blend = 1 - Math.exp(-10 * Math.max(0, dt));
-    this.driverAnchorX += (targetX - this.driverAnchorX) * blend;
-    this.driverAnchorY += (targetY - this.driverAnchorY) * blend;
-    this.driverPower.style.setProperty('--driver-power-x', `${this.driverAnchorX}px`);
-    this.driverPower.style.setProperty('--driver-power-y', `${this.driverAnchorY}px`);
+    this.driverAnchorX[seat] += (targetX - this.driverAnchorX[seat]) * blend;
+    this.driverAnchorY[seat] += (targetY - this.driverAnchorY[seat]) * blend;
+    el.style.setProperty('--driver-power-x', `${this.driverAnchorX[seat]}px`);
+    el.style.setProperty('--driver-power-y', `${this.driverAnchorY[seat]}px`);
   }
 
   showBattle(event: RaceBattleEvent): void {
@@ -1465,14 +1512,14 @@ export class HUD {
       if (this.controlDevice === 'keyboard' && this.pcPrimerEl.classList.contains('on')) return this.pcPrimerKey;
       return this.coachControl;
     }
-    if (focus === 'drift-meter') return this.driverLeftRail;
-    if (focus === 'flight-stock') return this.driverStocks;
+    if (focus === 'drift-meter') return this.driverLeftRail[0];
+    if (focus === 'flight-stock') return this.driverStocks[0];
     if (focus === 'flight-control') {
       return this.controlDevice === 'mobile'
         ? document.querySelector('[data-mobile-action="flight"] span')
         : this.flightPromptKey;
     }
-    if (focus === 'flight-meter') return this.driverRightRail;
+    if (focus === 'flight-meter') return this.driverRightRail[0];
     if (this.controlDevice === 'mobile') {
       return document.querySelector('.mobile-tilt-meter') ?? document.querySelector('.mobile-steer-zones');
     }
@@ -1485,7 +1532,7 @@ export class HUD {
       : device === 'gamepad'
         ? { steer: '左摇杆', drift: 'X / LB / RB', flight: 'A' }
         : { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' });
-    if (device === 'mobile' && this.controlDevice !== 'mobile') this.driverAnchorX = innerWidth * 0.56;
+    if (device === 'mobile' && this.controlDevice !== 'mobile') this.driverAnchorX[0] = innerWidth * 0.56;
     this.controlDevice = device;
     this.controlLabels = controls;
     this.syncTurnWarningCopy('none');

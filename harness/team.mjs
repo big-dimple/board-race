@@ -455,6 +455,30 @@ async function verifyGamepadSeating(page) {
   assert.equal(notices.afterRightInteraction[0]?.slot, 'b',
     `an interaction aimed at the right seat warned the left half: ${JSON.stringify(notices)}`);
 
+  // Each seat needs its own near-boat instrument: the drift rail and the stored
+  // flight diamonds were hidden outright in split play, so nobody could read a
+  // bank or a charge without leaving their own half.
+  const driverPower = await page.evaluate(() => window.__harness.duoDriverPowerCase());
+  assert.equal(driverPower.widgets.length, 2,
+    `split play does not have one near-boat instrument per seat: ${JSON.stringify(driverPower)}`);
+  for (const widget of driverPower.widgets) {
+    assert.equal(widget.hidden, false,
+      `a seat's near-boat instrument is hidden: ${JSON.stringify(driverPower)}`);
+    assert.notEqual(widget.visibility, 'hidden',
+      `a seat's near-boat instrument is invisible in split play: ${JSON.stringify(driverPower)}`);
+    assert.equal(widget.on, true,
+      `a seat's near-boat instrument never turned on: ${JSON.stringify(driverPower)}`);
+    if (widget.seat === '1') {
+      assert.ok(widget.left >= driverPower.half - 66,
+        `the right seat's instrument is not inside the right view: ${JSON.stringify(driverPower)}`);
+      assert.equal(widget.lit, 3, `the right seat lost its own bank: ${JSON.stringify(driverPower)}`);
+    } else {
+      assert.ok(widget.right <= driverPower.half + 66,
+        `the left seat's instrument spilled into the right view: ${JSON.stringify(driverPower)}`);
+      assert.equal(widget.lit, 1, `the left seat lost its own bank: ${JSON.stringify(driverPower)}`);
+    }
+  }
+
   // Force both real boats through the first launch. This catches the former
   // right-seat failure where its mist branch was shared with the left camera
   // and vanished as soon as the two boats diverged.

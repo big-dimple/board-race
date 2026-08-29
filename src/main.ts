@@ -728,6 +728,7 @@ function startDuoRace(selection: DuoSelection): void {
   hud.setVisible(true);
   hud.setDuoControls(true, selection.left.deviceId, selection.right.deviceId);
   hud.setDuoSplit(true);
+  hud.setDuoSeatCameras(teamLeftCamera, teamRightCamera);
   applyTowerSeats();
   for (const entry of activeTowers()) entry.setVisible(true);
   mixer.setVisible(false);
@@ -3021,6 +3022,7 @@ interface Harness {
   duoFeedbackCase(): Record<string, unknown>;
   duoImpactCase(): Record<string, unknown>;
   duoNoticeCase(): Record<string, unknown>;
+  duoDriverPowerCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
 }
 
@@ -5335,6 +5337,34 @@ function runDuoNoticeCase(): Record<string, unknown> {
   return { afterRightGate, afterRightInteraction };
 }
 
+/**
+ * Split play gives each seat its own near-boat instrument: two widgets, each
+ * projecting through its own seat camera and staying inside its own half.
+ */
+function runDuoDriverPowerCase(): Record<string, unknown> {
+  if (!isDuoMode() || race.phase !== 'racing') {
+    throw new Error('duo driver power diagnostic requires an active dual race');
+  }
+  // Different banks so the two widgets cannot be mistaken for one shared one.
+  boats[0].state.flightCharges = 1;
+  boats[1].state.flightCharges = 3;
+  for (let i = 0; i < 90; i++) hud.update(1 / 60, race, primaryBoat(), boats);
+  const half = Math.round(window.innerWidth / 2);
+  const widgets = [...document.querySelectorAll<HTMLElement>('.hud-driver-power')].map((el) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      seat: el.dataset.seat ?? '',
+      hidden: el.hidden,
+      visibility: getComputedStyle(el).visibility,
+      on: el.classList.contains('on'),
+      left: Math.round(rect.left),
+      right: Math.round(rect.right),
+      lit: el.querySelectorAll('.hud-driver-stock.on').length,
+    };
+  });
+  return { half, widgets };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -5476,6 +5506,7 @@ if (HARNESS) {
   duoFeedbackCase: runDuoFeedbackCase,
   duoImpactCase: runDuoImpactCase,
   duoNoticeCase: runDuoNoticeCase,
+  duoDriverPowerCase: runDuoDriverPowerCase,
     duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

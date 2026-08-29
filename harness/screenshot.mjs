@@ -598,7 +598,8 @@ async function verifyMode(browser, mobile) {
 
   await stage(page, 'flight-ready');
   assert.equal(await page.locator('.hud-flight-token').count(), 3, `${label}: inventory rack is not capped at three`);
-  assert.equal(await page.locator('.hud-driver-stock').count(), 3, `${label}: near-boat inventory rack is not capped at three`);
+  assert.equal(await page.locator('.hud-driver-power:not([hidden]) .hud-driver-stock').count(), 3,
+    `${label}: near-boat inventory rack is not capped at three`);
   const driverPower = await elementRect(page, '.hud-driver-power.on');
   assert.ok(driverPower && (driverPower.right < viewport.width * 0.48 || driverPower.left > viewport.width * 0.52),
     `${label}: near-boat stock still covers the central rider lane: ${JSON.stringify(driverPower)}`);

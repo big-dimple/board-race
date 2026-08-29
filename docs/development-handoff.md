@@ -5,6 +5,13 @@
 
 ## 当前工作包
 
+- 双打艇边仪表已按席位各建一套（"每席一套表现层"第 5 步）：`.hud-driver-power` 由单节点改成两个
+  `data-seat` 节点，`updateSeatDriverPower()` 用 `setDuoSeatCameras(teamLeftCamera, teamRightCamera)`
+  给的席相机投影，并把 NDC 映射和左右钳制都收进本席那半屏（`viewLeft` / `viewWidth`）。原来双打是
+  CSS 直接 `visibility: hidden` 把整块藏掉，右席看不到自己的漂移蓄力槽和飞行菱形；即使放出来，
+  投影用的也是全屏主相机，位置必然错。回归用例 `duoDriverPowerCase` 已进 `verify:team`：断言两个
+  仪表都在、各自可见、各自落在自己半屏、各自显示本席的电池数（左 1 右 3）。反向验证：把隐藏规则
+  加回来报 `visibility: hidden`。单人不变（第二套 `hidden`，`.hud-driver-stock` 计数改按可见仪表统计）。
 - 双打提示卡已真正按席位发牌（"每席一套表现层"第 4 步）：飞行边沿（起跳 / 续航 / 过门 / 航线通过）
   从"只跟镜头焦点（主玩家）"改成双打跑两遍（`hud.updateSeatFlightNotices(race, boat, lane, seat)`），
   飞过几飞 / 七飞认证 / 三飞资格按挣到的席位路由；双打互动提示（支援 / 追踪鸭 / 浪花命中）改投
