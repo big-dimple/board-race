@@ -124,6 +124,23 @@ export class ExpansionGallery {
       else if (event.code === 'ArrowRight' || event.code === 'KeyD') this.move(1);
       else if (event.code === 'Escape') this.hide();
     });
+    this.preload();
+  }
+
+  preload(): void {
+    if (typeof window === 'undefined') return;
+    const loadAll = (): void => {
+      for (const page of PAGES) {
+        const img = new Image();
+        img.decoding = 'async';
+        img.src = page.image;
+      }
+    };
+    if ('requestIdleCallback' in window) {
+      (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(loadAll, { timeout: 4000 });
+    } else {
+      setTimeout(loadAll, 1500);
+    }
   }
 
   show(index = 0): void {
