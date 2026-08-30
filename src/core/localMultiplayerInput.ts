@@ -333,26 +333,18 @@ export class LocalMultiplayerInput {
     let drift = false;
     let flightTrigger = false;
     let rawSteer = 0;
-    let throttle = context.manualThrottle ? (context.autoForward ? 1 : 0) : 1;
+    let throttle = 1;
 
     if (id === 'keyboard-left') {
       left = this.keys.has('KeyA');
       right = this.keys.has('KeyD');
       drift = this.keys.has('ShiftLeft');
       flightTrigger = this.consumeAny(['Space']);
-      if (context.manualThrottle) {
-        const keyboardThrottle = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
-        throttle = context.autoForward && keyboardThrottle === 0 ? 1 : keyboardThrottle;
-      }
     } else if (id === 'keyboard-right') {
       left = this.keys.has('ArrowLeft') || this.keys.has('KeyJ');
       right = this.keys.has('ArrowRight') || this.keys.has('KeyL');
       drift = this.keys.has('Numpad0') || this.keys.has('KeyK') || this.keys.has('ShiftRight');
       flightTrigger = this.consumeAny(['NumpadEnter', 'KeyI']);
-      if (context.manualThrottle) {
-        const keyboardThrottle = (this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('ArrowDown') ? 1 : 0);
-        throttle = context.autoForward && keyboardThrottle === 0 ? 1 : keyboardThrottle;
-      }
     } else {
       const state = this.pads.get(gamepadIndex(id));
       if (!state) {
@@ -371,16 +363,6 @@ export class LocalMultiplayerInput {
         ((state.binding.source === 'standard' || state.binding.source === 'fallback') &&
           (Boolean(state.current.buttons[4]) || Boolean(state.current.buttons[5])));
       flightTrigger = padButtonEdge(state, state.binding.flightButton);
-      if (context.manualThrottle) {
-        const stickThrottle = stick.y;
-        const dpadThrottle = (state.current.buttons[12] ? 1 : 0) - (state.current.buttons[13] ? 1 : 0);
-        // Co-op movement is one left-stick vector: X steers, Y drives/reverses.
-        // The D-pad remains a digital fallback for pads without a usable stick.
-        const vectorThrottle = Math.abs(stickThrottle) >= Math.abs(dpadThrottle) ? stickThrottle : dpadThrottle;
-        // Neutral is the arcade auto-forward baseline. Any deliberate
-        // downward vector takes precedence and brakes/reverses continuously.
-        throttle = context.autoForward && Math.abs(vectorThrottle) < PAD_THROTTLE_NEUTRAL_ZONE ? 1 : vectorThrottle;
-      }
     }
 
     const target = rawSteer || (left ? -1 : right ? 1 : 0);

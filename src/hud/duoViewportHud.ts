@@ -71,7 +71,7 @@ export class DuoViewportHud {
       const state = seat.boat.state;
       this.stats[index].textContent = `${Math.max(0, Math.round(Math.abs(state.speed) * 3.6))} KM/H  ·  ${state.flightsCleared} 飞  ·  电池 ${state.flightCharges}`;
       const flightReady = !seat.racer.eliminated && state.flightPhase === 'surface' && state.flightCharges > 0;
-      const interactionKeys = seat.device.startsWith('手柄') ? 'B 支援 · Y 浪花' : index === 0 ? 'Q 支援 · E 浪花' : 'U 支援 · O 浪花';
+      const interactionKeys = seat.device.startsWith('手柄') ? 'B 支援 · Y 恶搞鸭' : index === 0 ? 'Q 支援 · E 恶搞鸭' : 'U 支援 · O 恶搞鸭';
       const cue = seat.guidance?.actionCue === 'launch'
         ? ' · 现在起飞'
         : seat.guidance?.actionCue === 'bank'
@@ -80,7 +80,7 @@ export class DuoViewportHud {
             ? ` · 向${seat.guidance.actionDirection === 'left' ? '左' : '右'}转`
             : '';
       this.status[index].textContent = seat.racer.eliminated
-        ? `观战幸存者 · ${interactionKeys} · ${seat.interaction?.charges ?? 0} 次`
+        ? `👻 幽灵整蛊 · ${interactionKeys} (余 ${seat.interaction?.charges ?? 0} 次)`
         : `${seat.device} · ${state.flightPhase === 'surface' ? '水面' : '飞行中'}${flightReady ? ' · 起飞就绪' : ''}${cue}`;
       side.classList.toggle('eliminated', seat.racer.eliminated);
     }

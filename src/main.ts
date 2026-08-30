@@ -1644,20 +1644,23 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     targetPipeline.pulse('ready', 0.72);
     audio.teamSpatialCue(targetSide, 'ready');
     localInput.rumble(duoDevices[event.actorId], 0.24, 0.72, 62);
-    localInput.rumble(duoDevices[event.targetId], 0.16, 0.4, 42);
-    hud.showTransientNotice(`${actor.name} 送来援手 · ${target.name} 获得飞行电池`, '互动支援', effectLane);
+    localInput.rumble(duoDevices[event.targetId], 0.36, 0.6, 54);
+    hud.showTransientNotice(`${actor.name} 灵魂援手 · ${target.name} 获得飞行电池！`, '互动支援', effectLane);
     trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-launch') {
     audio.teamSpatialCue(targetSide, 'relay');
-    localInput.rumble(duoDevices[event.actorId], 0.24, 0.44, 34);
-    hud.showTransientNotice(`${actor.name} 发射追踪鸭 · ${target.name} 注意浪花`, '互动预警', effectLane);
+    targetPipeline.pulse('lost', 0.35);
+    localInput.rumble(duoDevices[event.actorId], 0.42, 0.55, 48);
+    localInput.rumble(duoDevices[event.targetId], 0.28, 0.32, 36);
+    hud.showTransientNotice(`🚨 危险！${actor.name} 释放了【狂暴追魂鸭】· ${target.name} 准备避险！`, '队友背刺预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
-    audio.splash(0.85);
-    targetPipeline.pulse('lost', 0.45);
+    audio.splash(1.1);
+    targetPipeline.pulse('lost', 0.85);
     audio.teamSpatialCue(targetSide, 'impact');
-    localInput.rumble(duoDevices[event.targetId], 0.48, 0.36, 48);
-    hud.showTransientNotice(`${actor.name} 掀起浪花 · ${target.name} 被轻轻推开`, '互动命中', effectLane);
+    localInput.rumble(duoDevices[event.targetId], 0.72, 0.55, 64);
+    localInput.rumble(duoDevices[event.actorId], 0.35, 0.65, 42);
+    hud.showTransientNotice(`💥 狂暴鸭浪拍脸！${target.name} 被 ${actor.name} 掀翻推开！"你也给我下来！"`, '队友偷袭得手', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   }
 }
@@ -2303,7 +2306,7 @@ function step(dt: number, _t: number): void {
         const state = boats[id].state;
         duoPlayerInputs[id] = localInput.readBoat(duoDevices[id], dt, {
           flightActive: state.flightPhase !== 'surface',
-          manualThrottle: true,
+          manualThrottle: false,
           autoForward: true,
         });
       }
@@ -2794,7 +2797,8 @@ const renderDrawingSize = new THREE.Vector2();
 
 function render(frameMs: number): void {
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
-  if (appMode === 'team-play' || isDuoSplitPhase()) {
+  const splitFrame = appMode === 'team-play' || isDuoSplitPhase();
+  if (splitFrame) {
     renderTeamSplit();
   } else {
     applyHarnessCameraOverride();
@@ -2804,7 +2808,10 @@ function render(frameMs: number): void {
     pipeline.render();
     processCaptureQueue();
   }
-  stage.updatePerf(frameMs);
+  // Split play renders the frame twice inside one rAF budget. Without the view
+  // count the governor reads that as a slow machine and shaves resolution until
+  // both halves look soft.
+  stage.updatePerf(frameMs, splitFrame ? 2 : 1);
 }
 
 function renderTeamSplit(): void {
@@ -3023,6 +3030,7 @@ interface Harness {
   duoImpactCase(): Record<string, unknown>;
   duoNoticeCase(): Record<string, unknown>;
   duoDriverPowerCase(): Record<string, unknown>;
+  qualityGovernorCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
 }
 
@@ -5365,6 +5373,27 @@ function runDuoDriverPowerCase(): Record<string, unknown> {
   return { half, widgets };
 }
 
+/**
+ * Split play pays one rAF budget for two views. Feed the governor a sustained
+ * slow frame and it must stop well above the single-view floor, or both halves
+ * drift soft in exactly the scenes the player needs to read.
+ */
+function runQualityGovernorCase(): Record<string, unknown> {
+  const start = Number(stage.stats().pixelRatio);
+  stage.debugPerfFrames(24, 240, 1);
+  const soloFloor = Number(stage.stats().pixelRatio);
+  stage.pixelRatio = start;
+  stage.debugPerfFrames(24, 240, 2);
+  const splitFloor = Number(stage.stats().pixelRatio);
+  stage.pixelRatio = start;
+  return {
+    start: Math.round(start * 1000) / 1000,
+    soloFloor: Math.round(soloFloor * 1000) / 1000,
+    splitFloor: Math.round(splitFloor * 1000) / 1000,
+    minPixelRatio: Number(stage.stats().minPixelRatio),
+  };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -5507,6 +5536,7 @@ if (HARNESS) {
   duoImpactCase: runDuoImpactCase,
   duoNoticeCase: runDuoNoticeCase,
   duoDriverPowerCase: runDuoDriverPowerCase,
+  qualityGovernorCase: runQualityGovernorCase,
     duoEliminate: harnessDuoEliminate,
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

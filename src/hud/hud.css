@@ -2544,12 +2544,12 @@
   position: absolute;
   z-index: 1;
   left: 50%;
-  top: 1.5%;
-  width: min(430px, 38vw, 43vh);
+  top: clamp(24px, 6vh, 60px);
+  width: min(380px, 32vw, 36vh);
   height: auto;
   transform: translateX(-50%);
   object-fit: contain;
-  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.52));
+  filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 32px rgba(255, 207, 74, 0.22));
   pointer-events: none;
 }
 .hud-medal-ceremony.on .hud-medal-art {
@@ -2560,23 +2560,24 @@
   position: absolute;
   z-index: 2;
   left: 50%;
-  top: 52%;
+  top: clamp(340px, 43vh, 440px);
   width: min(760px, calc(100% - 40px));
   transform: translateX(-50%);
   text-align: center;
 }
 
-.hud-medal-kicker { color: var(--flight); font-size: 17px; }
+.hud-medal-kicker { color: var(--flight); font-size: 15px; letter-spacing: 0.08em; }
 .hud-medal-title {
-  margin-top: 7px;
+  margin-top: 6px;
   color: #ffcf4a;
-  font-size: 72px;
+  font-size: clamp(54px, 6.8vw, 76px);
   line-height: 1;
+  text-shadow: 0 4px 0 rgba(12, 12, 37, 0.88), 0 0 32px rgba(255, 207, 74, 0.5);
   animation: hud-medal-title-in 0.55s cubic-bezier(0.12, 1.45, 0.2, 1) both,
     hud-gold-shimmer 1.25s 0.65s ease-in-out infinite;
 }
-.hud-medal-count { margin-top: 8px; color: var(--text); font-size: 30px; }
-.hud-medal-tier { margin-top: 8px; color: var(--accent); font-size: 18px; }
+.hud-medal-count { margin-top: 6px; color: var(--text); font-size: 26px; }
+.hud-medal-tier { margin-top: 6px; color: var(--accent); font-size: 16px; }
 .hud-medal-next {
   max-height: 0;
   margin-top: 0;

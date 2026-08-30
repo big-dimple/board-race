@@ -19,6 +19,15 @@ const AUTO_DESKTOP_CLARITY_BUDGET = 3_200_000;
 const AUTO_DESKTOP_MAX_PIXEL_RATIO = 1.35;
 const AUTO_MOBILE_MAX_PIXEL_RATIO = 2.5;
 const AUTO_MOBILE_MIN_PIXEL_RATIO = 1;
+/**
+ * Split play pays for the same rAF budget twice: two cameras, two pipelines,
+ * one frame. The governor used to read the resulting frame time as a slow
+ * machine and kept shaving resolution until the picture went soft. Split views
+ * are small and full of readable detail, so they stop earlier and in smaller
+ * steps than a whole-screen view would.
+ */
+const SPLIT_MIN_PIXEL_RATIO = 1.0;
+const SPLIT_DOWNSCALE_STEP = 0.1;
 
 const PROFILES: Record<RenderQualityMode, RenderQualityProfile> = {
   auto: {
@@ -94,7 +103,9 @@ export class Stage {
     this.camera = new THREE.PerspectiveCamera(BASE_FOV, 1, 0.1, 6000);
     this.camera.position.set(0, 8, 20);
 
-    this.pixelRatio = this.baseBudgetRatio(initialSize.width, initialSize.height);
+    this.pixelRatio = this.desktopClarity
+      ? this.clarityCeilingRatio(initialSize.width, initialSize.height)
+      : this.baseBudgetRatio(initialSize.width, initialSize.height);
     this.lastBaseRatio = this.pixelRatio;
     const schedule = (): void => this.scheduleResize();
     window.addEventListener('resize', schedule, { passive: true });
@@ -110,16 +121,23 @@ export class Stage {
     cb(width, height, this.pixelRatio);
   }
 
-  updatePerf(frameMs: number): void {
+  /** `views` is how many cameras this frame rendered; split play renders two. */
+  updatePerf(frameMs: number, views = 1): void {
     if (document.hidden || frameMs <= 0 || frameMs >= 250) return;
+    const split = views > 1;
+    const floor = split
+      ? Math.max(this.effectiveMinPixelRatio, this.desktopClarity ? 1.0 : SPLIT_MIN_PIXEL_RATIO)
+      : this.effectiveMinPixelRatio;
     this.frameEma += (frameMs - this.frameEma) * 0.06;
     const dt = Math.min(0.1, frameMs / 1000);
     this.adjustmentCooldown = Math.max(0, this.adjustmentCooldown - dt);
 
-    if (this.frameEma > 20) {
+    const badThreshold = split ? 24 : 20;
+    const goodThreshold = split ? 20 : 18.2;
+    if (this.frameEma > badThreshold) {
       this.badFrameSeconds += dt;
       this.goodFrameSeconds = 0;
-    } else if (this.frameEma < 18.2) {
+    } else if (this.frameEma < goodThreshold) {
       this.goodFrameSeconds += dt;
       this.badFrameSeconds = 0;
     } else {
@@ -128,12 +146,12 @@ export class Stage {
     }
 
     if (this.adjustmentCooldown > 0) return;
-    if (this.badFrameSeconds >= 0.5 && this.pixelRatio > this.effectiveMinPixelRatio) {
-      this.pixelRatio = Math.max(this.effectiveMinPixelRatio, this.pixelRatio - 0.2);
+    if (this.badFrameSeconds >= 1.2 && this.pixelRatio > floor) {
+      this.pixelRatio = Math.max(floor, this.pixelRatio - (split ? SPLIT_DOWNSCALE_STEP : 0.2));
       this.badFrameSeconds = 0;
       this.adjustmentCooldown = 2;
       this.applySize();
-    } else if (this.goodFrameSeconds >= 4) {
+    } else if (this.goodFrameSeconds >= 3) {
       const { width, height } = this.viewportSize();
       const ceiling = this.clarityCeilingRatio(width, height);
       if (this.pixelRatio < ceiling) {
@@ -146,8 +164,8 @@ export class Stage {
   }
 
   /** Harness-only deterministic governor input; production uses measured rAF time. */
-  debugPerfFrames(frameMs: number, frames: number): void {
-    for (let i = 0; i < Math.max(0, frames); i++) this.updatePerf(frameMs);
+  debugPerfFrames(frameMs: number, frames: number, views = 1): void {
+    for (let i = 0; i < Math.max(0, frames); i++) this.updatePerf(frameMs, views);
   }
 
   private ratioForBudget(w: number, h: number, pixelBudget: number, maxPixelRatio: number): number {
@@ -219,6 +237,8 @@ export class Stage {
       basePixelBudget: this.quality.pixelBudget,
       clarityPixelBudget: this.desktopClarity ? AUTO_DESKTOP_CLARITY_BUDGET : this.quality.pixelBudget,
       clarityCeilingRatio: this.clarityCeilingRatio(w, h),
+      minPixelRatio: this.effectiveMinPixelRatio,
+      splitPixelFloor: Math.max(this.effectiveMinPixelRatio, SPLIT_MIN_PIXEL_RATIO),
       desktopClarity: this.desktopClarity ? 1 : 0,
       mobileClarity: this.mobileClarity ? 1 : 0,
       resizeCount: this.resizeCount,

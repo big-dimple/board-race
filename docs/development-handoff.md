@@ -5,6 +5,12 @@
 
 ## 当前工作包
 
+- **单人通关画面移动端按钮适配**：`FinaleOverlay`（`src/hud/finaleOverlay.css`）在 `@media (max-height: 520px)` 下针对横屏手机（844x390 / 667x375 等）进行紧凑化排版：标题与副标高度大幅压缩，操作按钮重构成横向双列自适应布局（左侧神秘资料片、右侧双排工具按钮：继续游戏、预览截图、直接下一轮），所有触控按钮高度均保证 $\ge 44\text{px}$ 且留足安全区，彻底解决移动端通关按钮超出屏幕底部被截断的问题。
+- **双人模式手柄/键盘操作模式改回自动前进**：`LocalMultiplayerInput`（`src/core/localMultiplayerInput.ts`）与 `src/main.ts` 去除双人模式下的手柄 Y 轴/十字键上下手动加减速与倒车，全面回归与单人模式一致的 `throttle = 1` 自动前进基线；左摇杆 X 轴与十字键左右负责转向，漂移与起飞按键机制保持不变。HUD 双人操作提示文案与 `harness/team.mjs` 测试断言同步更新。
+- **双人模式画面模糊与画质护栏修复**：`Stage`（`src/core/stage.ts`）在桌面端开启 `desktopClarity` 时，首帧直接以最高清晰度预算初始化；双人分屏模式下将桌面分辨率下限提升至 `1.0`（不再因分屏负载与瞬时卡顿降采样至 0.5 导致分屏单侧仅 480px 模糊），并将分屏每帧计算告知 `updatePerf(frameMs, 2)`，避免将正常的双相机渲染误判为 GPU 崩溃。
+- **淘汰玩家互动骚扰效果路由修复**：`DuoInteractionController`（`src/game/duoInteraction.ts`）修复了淘汰幽灵玩家按手柄发射追踪鸭时直接在停滞的坠毁旧坐标生成、导致因射程不足中途消散的问题；修改为在幸存者目标船尾 18 米处动态生成并以截击相对速度追踪，使幸存者右屏能清晰目视追踪鸭逼近并受到真实的波浪侧推冲击、镜头震动与手柄马达震感。
+- **隐藏向右小箭头 Bug 修复**：修复了 `driverSelect.css` 中 `<details>/<summary>` 未清除浏览器原生三角指示器产生的白色右箭头，以及 `teamExperience.css` 模式选择卡片未对齐 `.team-mode-duo` 类名的问题。
+
 - 双打艇边仪表已按席位各建一套（"每席一套表现层"第 5 步）：`.hud-driver-power` 由单节点改成两个
   `data-seat` 节点，`updateSeatDriverPower()` 用 `setDuoSeatCameras(teamLeftCamera, teamRightCamera)`
   给的席相机投影，并把 NDC 映射和左右钳制都收进本席那半屏（`viewLeft` / `viewWidth`）。原来双打是

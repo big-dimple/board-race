@@ -25,11 +25,11 @@ export interface DuoInteractionStatus {
 }
 
 const MAX_CHARGES = 3;
-const COOLDOWN_S = 4.2;
-const PRANK_IMPULSE = 0.82;
-const PRANK_SPEED = 28;
-const PRANK_LIFETIME_S = 1.35;
-const PRANK_HIT_RADIUS = 2.15;
+const COOLDOWN_S = 4.0;
+const PRANK_IMPULSE = 1.15;
+const PRANK_SPEED = 32;
+const PRANK_LIFETIME_S = 1.8;
+const PRANK_HIT_RADIUS = 2.4;
 const MAX_PROJECTILES = 3;
 
 /**
@@ -68,20 +68,25 @@ export class DuoInteractionController {
     this.object.name = 'duo-interaction-projectiles';
     const duckMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.sunFlare, toneMapped: false });
     const billMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.uiWarn, toneMapped: false });
-    const trailMaterial = new THREE.LineBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0.76, toneMapped: false });
-    const haloMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.foam, transparent: true, opacity: 0.78, toneMapped: false });
-    const duckGeometry = new THREE.SphereGeometry(0.62, 12, 8);
-    const billGeometry = new THREE.ConeGeometry(0.18, 0.42, 8);
-    const haloGeometry = new THREE.TorusGeometry(1.25, 0.1, 6, 24);
+    const crestMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.uiAccent, toneMapped: false });
+    const trailMaterial = new THREE.LineBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0.85, toneMapped: false });
+    const haloMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.uiWarn, transparent: true, opacity: 0.82, toneMapped: false });
+    const duckGeometry = new THREE.SphereGeometry(0.72, 12, 8);
+    const billGeometry = new THREE.ConeGeometry(0.22, 0.5, 8);
+    const crestGeometry = new THREE.ConeGeometry(0.18, 0.44, 4);
+    const haloGeometry = new THREE.TorusGeometry(1.4, 0.12, 6, 24);
     for (let index = 0; index < MAX_PROJECTILES; index++) {
       const group = new THREE.Group();
       group.name = `duo-interaction-duck-${index + 1}`;
       const duck = new THREE.Mesh(duckGeometry, duckMaterial);
-      duck.scale.set(1.1, 0.82, 1.22);
+      duck.scale.set(1.15, 0.88, 1.28);
       const bill = new THREE.Mesh(billGeometry, billMaterial);
       bill.rotation.x = Math.PI / 2;
-      bill.position.z = 0.66;
-      duck.add(bill);
+      bill.position.z = 0.72;
+      const crest = new THREE.Mesh(crestGeometry, crestMaterial);
+      crest.position.set(0, 0.62, -0.1);
+      crest.rotation.x = -0.3;
+      duck.add(bill, crest);
       const halo = new THREE.Mesh(haloGeometry, haloMaterial);
       halo.rotation.x = Math.PI / 2;
       const trailGeometry = new THREE.BufferGeometry();
@@ -159,23 +164,25 @@ export class DuoInteractionController {
         // control from a risky maneuver.
         const shot = this.projectileState.find((item) => !item.active);
         if (!shot) continue;
-        const origin = boats[actor].state.position;
-        const destination = targetBoat.state.position;
-        const dx = destination.x - origin.x;
-        const dz = destination.z - origin.z;
-        const distance = Math.hypot(dx, dz) || 1;
+        const heading = targetBoat.state.heading;
+        const forwardX = Math.sin(heading);
+        const forwardZ = Math.cos(heading);
+        const spawnDist = 18;
+        const spawnX = targetBoat.state.position.x - forwardX * spawnDist;
+        const spawnZ = targetBoat.state.position.z - forwardZ * spawnDist;
+        const chaseSpeed = Math.max(PRANK_SPEED, Math.abs(targetBoat.state.speed) + 16);
         shot.active = true;
         shot.actorId = actor;
         shot.targetId = target;
-        shot.x = origin.x;
-        shot.z = origin.z;
-        shot.vx = dx / distance * PRANK_SPEED;
-        shot.vz = dz / distance * PRANK_SPEED;
+        shot.x = spawnX;
+        shot.z = spawnZ;
+        shot.vx = forwardX * chaseSpeed;
+        shot.vz = forwardZ * chaseSpeed;
         shot.age = 0;
         const originY = targetBoat.state.position.y + 1.15;
-        shot.historyX.fill(origin.x);
+        shot.historyX.fill(spawnX);
         shot.historyY.fill(originY);
-        shot.historyZ.fill(origin.z);
+        shot.historyZ.fill(spawnZ);
         this.counts.prank++;
         this.consumeCharge(actor);
         emit({ actorId: actor, targetId: target, action, phase: 'prank-launch', accepted: true, chargesLeft: this.charges[actor] });
@@ -218,17 +225,18 @@ export class DuoInteractionController {
         this.projectileVisuals[index].group.visible = false;
         continue;
       }
+      const chaseSpeed = Math.max(PRANK_SPEED, Math.abs(targetBoat.state.speed) + 16);
       const dx = targetBoat.state.position.x - shot.x;
       const dz = targetBoat.state.position.z - shot.z;
       const distance = Math.hypot(dx, dz) || 1;
-      const desiredX = dx / distance * PRANK_SPEED;
-      const desiredZ = dz / distance * PRANK_SPEED;
-      const steer = Math.min(1, dt * 7.5);
+      const desiredX = dx / distance * chaseSpeed;
+      const desiredZ = dz / distance * chaseSpeed;
+      const steer = Math.min(1, dt * 8.5);
       shot.vx += (desiredX - shot.vx) * steer;
       shot.vz += (desiredZ - shot.vz) * steer;
-      const speed = Math.hypot(shot.vx, shot.vz) || PRANK_SPEED;
-      shot.vx *= PRANK_SPEED / speed;
-      shot.vz *= PRANK_SPEED / speed;
+      const speed = Math.hypot(shot.vx, shot.vz) || chaseSpeed;
+      shot.vx *= chaseSpeed / speed;
+      shot.vz *= chaseSpeed / speed;
       shot.x += shot.vx * dt;
       shot.z += shot.vz * dt;
       for (let history = 11; history > 0; history--) {

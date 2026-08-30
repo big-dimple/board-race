@@ -144,8 +144,8 @@ async function verifyKeyboardDuo(page) {
   assert.equal(await page.locator('.duo-viewport-hud.on').count(), 1);
   assert.ok(Number.isFinite(stateAtStart.leftCamera.x) && Number.isFinite(stateAtStart.rightCamera.x),
     `dual cameras are not initialized: ${JSON.stringify(stateAtStart)}`);
-  assert.match(stateAtStart.controls, /W \/ S/);
-  assert.match(stateAtStart.controls, /↑ \/ ↓/);
+  assert.match(stateAtStart.controls, /A \/ D/);
+  assert.match(stateAtStart.controls, /← \/ →/);
   assert.match(stateAtStart.controls, /起飞/);
   assert.doesNotMatch(stateAtStart.controls, /RT|LT/);
 
@@ -169,25 +169,26 @@ async function verifyKeyboardDuo(page) {
   await page.keyboard.down('KeyA');
   await advance(page, 0.45);
   await page.keyboard.up('KeyA');
-  await page.keyboard.up('KeyW');
   const leftDriven = await page.evaluate(() => window.__harness.duoState());
   assert.equal(leftDriven.splitScreen, true);
   assert.ok(leftDriven.racers[0].steer < -0.08,
     `left A did not steer the left boat: ${JSON.stringify(leftDriven)}`);
-  assert.ok(leftDriven.racers[0].throttle > 0.5,
-    `left W did not accelerate the left boat: ${JSON.stringify(leftDriven)}`);
+  assert.ok(leftDriven.racers[0].throttle > 0.8,
+    `left seat lost auto-forward baseline: ${JSON.stringify(leftDriven)}`);
   assert.ok(Math.abs(leftDriven.racers[1].steer) < 0.08,
     `left steering leaked into the right boat: ${JSON.stringify(leftDriven)}`);
 
-  // Down on the right seat is a brake/reverse vector, independent of the left seat.
-  await page.keyboard.down('ArrowDown');
+  // Right seat steers with arrow keys while preserving auto-forward baseline.
+  await page.keyboard.down('ArrowRight');
   await advance(page, 0.35);
-  await page.keyboard.up('ArrowDown');
-  const rightBraked = await page.evaluate(() => window.__harness.duoState());
-  assert.ok(rightBraked.racers[1].throttle < 0,
-    `right ArrowDown did not brake/reverse: ${JSON.stringify(rightBraked)}`);
-  assert.ok(rightBraked.racers[0].throttle > 0,
-    `right braking leaked into the left boat: ${JSON.stringify(rightBraked)}`);
+  await page.keyboard.up('ArrowRight');
+  const rightSteered = await page.evaluate(() => window.__harness.duoState());
+  assert.ok(rightSteered.racers[1].steer > 0.08,
+    `right ArrowRight did not steer: ${JSON.stringify(rightSteered)}`);
+  assert.ok(rightSteered.racers[1].throttle > 0.8,
+    `right seat lost auto-forward baseline: ${JSON.stringify(rightSteered)}`);
+  assert.ok(rightSteered.racers[0].throttle > 0.8,
+    `right input leaked into the left boat: ${JSON.stringify(rightSteered)}`);
 
   // Elimination promotes the survivor and leaves the eliminated device useful.
   await page.evaluate(() => window.__harness.duoEliminate(0));
@@ -332,10 +333,10 @@ async function verifyGamepadSeating(page) {
   assert.equal(state.phase, 'racing');
   assert.equal(state.deviceStatus[0].mappingSource, 'standard');
   assert.equal(state.deviceStatus[1].mappingSource, 'standard');
-  assert.ok(state.racers[0].steer < -0.45 && state.racers[0].throttle > 0.45,
-    `left diagonal did not map to steer + forward: ${JSON.stringify(state)}`);
-  assert.ok(state.racers[1].steer > 0.45 && state.racers[1].throttle < -0.45,
-    `right diagonal did not map to steer + brake: ${JSON.stringify(state)}`);
+  assert.ok(state.racers[0].steer < -0.45 && state.racers[0].throttle > 0.8,
+    `left stick X did not steer left with auto-forward: ${JSON.stringify(state)}`);
+  assert.ok(state.racers[1].steer > 0.45 && state.racers[1].throttle > 0.8,
+    `right stick X did not steer right with auto-forward: ${JSON.stringify(state)}`);
   assert.ok(Math.abs(state.racers[0].steer) > 0.45 && Math.abs(state.racers[1].steer) > 0.45,
     `one seat received an inaccurate stick vector: ${JSON.stringify(state)}`);
   await page.evaluate(() => {
@@ -350,7 +351,7 @@ async function verifyGamepadSeating(page) {
     `neutral stick did not restore auto-forward: ${JSON.stringify(neutralState)}`);
 
   // Real sticks carry a little Y noise while the player turns. That noise
-  // must not collapse the auto-forward baseline into a near-zero throttle.
+  // must not affect the auto-forward baseline.
   await page.evaluate(() => {
     window.__setPadAxis(1, 0, 0.72);
     window.__setPadAxis(1, 1, 0.08);
@@ -358,7 +359,7 @@ async function verifyGamepadSeating(page) {
   await advance(page, 0.18);
   const noisyTurn = await page.evaluate(() => window.__harness.duoState());
   assert.ok(noisyTurn.racers[1].steer > 0.5 && noisyTurn.racers[1].throttle > 0.8,
-    `right-seat turn noise became an unintended brake: ${JSON.stringify(noisyTurn)}`);
+    `right-seat turn noise degraded auto-forward: ${JSON.stringify(noisyTurn)}`);
   await page.evaluate(() => {
     window.__setPadAxis(1, 0, 0);
     window.__setPadAxis(1, 1, 0);
@@ -478,6 +479,18 @@ async function verifyGamepadSeating(page) {
       assert.equal(widget.lit, 1, `the left seat lost its own bank: ${JSON.stringify(driverPower)}`);
     }
   }
+
+  // Split play pays one rAF budget for two views, so the adaptive resolution
+  // governor has to stop well above the single-view floor. Otherwise a long
+  // dual run drifts soft and stays there, worst in the crowded Final Station.
+  const governor = await page.evaluate(() => window.__harness.qualityGovernorCase());
+  assert.ok(governor.soloFloor <= governor.minPixelRatio + 1e-6,
+    `a slow full-screen frame no longer reaches the quality floor: ${JSON.stringify(governor)}`);
+  assert.ok(governor.splitFloor >= 0.8 - 1e-6,
+    `the split governor shaved resolution past its floor: ${JSON.stringify(governor)}`);
+  assert.ok(governor.splitFloor > governor.soloFloor,
+    `split play is no longer judged as two views: ${JSON.stringify(governor)}`);
+  console.log(`resolution governor: solo floor ${governor.soloFloor} · split floor ${governor.splitFloor}`);
 
   // Force both real boats through the first launch. This catches the former
   // right-seat failure where its mist branch was shared with the left camera

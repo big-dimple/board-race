@@ -1162,10 +1162,10 @@ export class HUD {
     heading.textContent = `${label} · ${deviceLabel}`;
     const detail = document.createElement('span');
     detail.textContent = gamepad
-      ? '左摇杆：左右转向 · 上加速 · 下刹车　X 漂移 · A 起飞　B 支援 · Y 浪花'
+      ? '左摇杆 转向　X 漂移 · A 起飞　B 支援 · Y 浪花'
       : right
-        ? '← / → 转向 · ↑ / ↓ 加速/刹车　SHIFT / NUM0 漂移 · I / NUM↵ 起飞　U 支援 · O 浪花'
-        : 'A / D 转向 · W / S 加速/刹车　SHIFT 漂移 · SPACE 起飞　Q 支援 · E 浪花';
+        ? '← / → 转向　SHIFT / NUM0 漂移 · I / NUM↵ 起飞　U 支援 · O 浪花'
+        : 'A / D 转向　SHIFT 漂移 · SPACE 起飞　Q 支援 · E 浪花';
     el.append(heading, detail);
   }
 
