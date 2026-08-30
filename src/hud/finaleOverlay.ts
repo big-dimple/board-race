@@ -10,7 +10,6 @@ export class FinaleOverlay {
   private readonly place: HTMLDivElement;
   private readonly time: HTMLDivElement;
   private readonly actions: HTMLDivElement;
-  private readonly saveButton: HTMLButtonElement;
   private readonly continueButton: HTMLButtonElement;
   private readonly galleryButton: HTMLButtonElement;
   private readonly skipButton: HTMLButtonElement;
@@ -26,7 +25,7 @@ export class FinaleOverlay {
     parent: HTMLElement,
     private readonly onContinue: (auto: boolean) => void,
     onGallery: () => void,
-    onSave: () => void,
+    _onSave: () => void,
     private readonly onSkip: () => void,
   ) {
     const root = document.createElement('div');
@@ -36,6 +35,8 @@ export class FinaleOverlay {
     root.innerHTML = `
       <div class="finale-flare" aria-hidden="true"></div>
       <div class="finale-visual" aria-hidden="true"></div>
+      <button class="finale-skip" type="button" data-action="skip" title="跳过资料片与高光，直接进入下一轮"
+        aria-label="直接下一轮，跳过资料片与高光">直接下一轮 ➔</button>
       <div class="finale-copy">
         <div class="finale-kicker">FINAL STATION · SEVEN FLIGHTS</div>
         <div class="finale-title">七飞认证</div>
@@ -51,10 +52,7 @@ export class FinaleOverlay {
             <span>进入彩蛋画廊</span>
           </button>
           <div class="finale-utilities" aria-label="其他操作">
-            <button type="button" data-action="save" disabled>截图生成中</button>
             <button type="button" data-action="continue">继续游戏</button>
-            <button type="button" data-action="skip" title="跳过资料片与高光，直接进入下一轮"
-              aria-label="直接下一轮，跳过资料片与高光">直接下一轮</button>
           </div>
         </div>
       </div>`;
@@ -63,16 +61,14 @@ export class FinaleOverlay {
     this.place = root.querySelector('.finale-place')!;
     this.time = root.querySelector('.finale-time')!;
     this.actions = root.querySelector('.finale-actions')!;
-    this.saveButton = root.querySelector('[data-action="save"]')!;
     this.continueButton = root.querySelector('[data-action="continue"]')!;
     this.galleryButton = root.querySelector('[data-action="gallery"]')!;
     this.skipButton = root.querySelector('[data-action="skip"]')!;
-    this.actionButtons = [this.galleryButton, this.saveButton, this.continueButton, this.skipButton];
+    this.actionButtons = [this.galleryButton, this.continueButton, this.skipButton];
     this.celebration = new FinaleCelebrationCanvas(root.querySelector('.finale-visual')!);
     this.continueButton.addEventListener('click', () => this.onContinue(false));
     this.skipButton.addEventListener('click', () => this.onSkip());
     this.galleryButton.addEventListener('click', onGallery);
-    this.saveButton.addEventListener('click', onSave);
     root.addEventListener('keydown', (event) => {
       if (!this.actionsReady) return;
       if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
@@ -99,8 +95,6 @@ export class FinaleOverlay {
     this.autoFired = false;
     this.autoDisplayedSecond = -1;
     this.continueLabel = continueLabel;
-    this.saveButton.disabled = true;
-    this.saveButton.textContent = '截图生成中';
     this.renderContinueLabel();
     this.root.style.setProperty('--finale-progress', '0');
     this.root.classList.remove('impact', 'crown', 'hero', 'settled');
@@ -164,9 +158,8 @@ export class FinaleOverlay {
 
   getCaptureCanvas(): HTMLCanvasElement { return this.celebration.canvas; }
 
-  setCaptureReady(ready: boolean): void {
-    this.saveButton.disabled = !ready;
-    this.saveButton.textContent = ready ? '预览截图' : '截图生成中';
+  setCaptureReady(_ready: boolean): void {
+    // Screenshot button has been retired for cleaner UX
   }
 
   hide(): void {

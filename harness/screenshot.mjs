@@ -324,7 +324,7 @@ async function verifyMode(browser, mobile) {
     `${label}: the certificate lost its veteran skip action: ${JSON.stringify(autoFlow)}`);
   assert.deepEqual(autoFlow.utilityLayout.overlap, false,
     `${label}: the certificate utility buttons overlap each other: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.utilityLayout.count, 3,
+  assert.equal(autoFlow.utilityLayout.count, 2,
     `${label}: the certificate utility row lost an action: ${JSON.stringify(autoFlow)}`);
   assert.ok(autoFlow.utilityLayout.minHeight >= 44,
     `${label}: a certificate utility button is under the tap target: ${JSON.stringify(autoFlow)}`);

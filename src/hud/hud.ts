@@ -161,7 +161,7 @@ export class HUD {
   private readonly flightPromptEn: HTMLDivElement;
   private readonly flightPromptCn: HTMLDivElement;
   private readonly flightPromptRule: HTMLDivElement;
-  private flightPromptMode: 'hidden' | 'launch' | 'extend' | 'spent' = 'hidden';
+  private flightPromptMode: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' = 'hidden';
   private flightPromptDevice: 'keyboard' | 'gamepad' | 'mobile' = 'keyboard';
   private controlDevice: CoachInputDevice = 'keyboard';
   private controlLabels = { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
@@ -845,23 +845,22 @@ export class HUD {
     }
     const routeGuidance = this.course.guidanceStatus();
     if (st.flightCharges !== this.lastFlightCharges) {
-      const gained = st.flightCharges > this.lastFlightCharges && !flightActive;
       this.lastFlightCharges = st.flightCharges;
       this.flightChargeCount.textContent = `x${st.flightCharges}`;
       for (let i = 0; i < this.flightTokens.length; i++) {
         this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
         this.flightTokens[i].classList.toggle('active', flightActive && i < st.flightCharges);
       }
-      if (gained && race.phase === 'racing' && !this.duoSplit) {
-        this.showTransientNotice(`⚡ 漂移蓄力入库 · 飞行电池 +1 (库存 ${st.flightCharges})`, '蓄力入库');
-      }
     }
     const launchPromptUseful = this.shouldShowFlightPrompt('launch');
     const extendPromptUseful = this.shouldShowFlightPrompt('extend');
-    const launchPromptToken = launchPromptUseful &&
-        routeGuidance.actionCue === 'launch' && routeGuidance.actionRouteIndex >= 0 &&
-        !flightActive && st.flightCharges > 0
+    const inLaunchZone = launchPromptUseful && routeGuidance.actionCue === 'launch' && !flightActive && race.phase === 'racing';
+    const noChargeLaunch = inLaunchZone && st.flightCharges <= 0;
+    const armedLaunch = inLaunchZone && st.flightCharges > 0;
+    const launchPromptToken = armedLaunch && routeGuidance.actionRouteIndex >= 0
       ? `launch:${st.flightRouteCursor}:${routeGuidance.actionRouteIndex}`
+      : noChargeLaunch
+      ? `nocharge:${st.flightRouteCursor}:${routeGuidance.actionRouteIndex}`
       : '';
     const extensionPromptToken = extendPromptUseful && st.flightExtensionReady
       ? `extend:${st.flightRouteCursor}:${st.flightsCleared}`
@@ -880,12 +879,18 @@ export class HUD {
       void this.flightPrompt.offsetWidth;
       this.flightPrompt.classList.add('acquired');
     }
-    const availablePrompt: 'hidden' | 'launch' | 'extend' | 'spent' = this.flightPromptSpent
+    const availablePrompt: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' = this.flightPromptSpent
       ? 'spent'
       : extendPromptUseful && st.flightExtensionReady
       ? 'extend'
-      : launchPromptUseful && routeGuidance.actionCue === 'launch' && !flightActive && st.flightCharges > 0 ? 'launch' : 'hidden';
-    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' = this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
+      : armedLaunch
+      ? 'launch'
+      : noChargeLaunch
+      ? 'no-charge'
+      : 'hidden';
+    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' = inLaunchZone
+      ? availablePrompt
+      : this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
     const promptDevice = this.controlDevice;
     if (promptMode !== this.flightPromptMode || promptDevice !== this.flightPromptDevice) {
       this.flightPromptMode = promptMode;
@@ -893,7 +898,8 @@ export class HUD {
       this.flightPrompt.classList.toggle('on', promptMode !== 'hidden');
       this.flightPrompt.classList.toggle('extend', promptMode === 'extend');
       this.flightPrompt.classList.toggle('spent', promptMode === 'spent');
-      const key = promptDevice === 'mobile' ? (promptMode === 'launch' ? '飞' : '续') : this.controlLabels.flight;
+      this.flightPrompt.classList.toggle('no-charge', promptMode === 'no-charge');
+      const key = promptDevice === 'mobile' ? (promptMode === 'launch' ? '飞' : promptMode === 'no-charge' ? '!' : '续') : this.controlLabels.flight;
       if (promptMode === 'spent') {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'AIR CHARGE SPENT';
@@ -906,11 +912,16 @@ export class HUD {
         this.flightPromptRule.textContent = promptDevice === 'mobile'
           ? '本飞仅此 1 次续航'
           : '本飞仅此 1 次续航 · 最多用 2 格（起飞 1 + 续航 1）';
+      } else if (promptMode === 'no-charge') {
+        this.flightPromptKey.textContent = '!';
+        this.flightPromptEn.textContent = 'NEED DRIFT BATTERY';
+        this.flightPromptCn.textContent = '⚠️ 飞行电池不足';
+        this.flightPromptRule.textContent = '过弯按住漂移 · 越过黄线松手存入电池 ◇';
       } else {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'FLIGHT READY';
         this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「飞」起飞' : `按 ${key} 起飞`;
-        this.flightPromptRule.textContent = '起飞耗 1 格 · 空中最多再续 1 次';
+        this.flightPromptRule.textContent = '起飞耗 1 格 · 冲向光门点火升空';
       }
     }
     if (this.flightPromptHitTimer > 0) {

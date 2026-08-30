@@ -38,16 +38,40 @@
 .finale-primary small { color: rgba(244,254,255,.62); font: 800 9px/1 system-ui,sans-serif; letter-spacing:.08em; }
 .finale-primary strong { font: 900 25px/1 system-ui,sans-serif; }
 .finale-primary span { color:#ffcf4a; font:800 11px/1 system-ui,sans-serif; }
-/* The next beat walks itself after a short countdown, so these are quiet
-   utilities: readable and tappable, never a slab that competes with the
-   dossier button or the certificate. */
+
+.finale-skip {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  z-index: 10;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  color: rgba(244, 254, 255, 0.52);
+  background: rgba(8, 12, 32, 0.5);
+  border: 1px solid rgba(244, 254, 255, 0.22);
+  border-radius: 3px;
+  font: 800 13px/1 system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.finale-skip:hover {
+  color: #fff3ae;
+  background: rgba(18, 12, 42, 0.88);
+  border-color: rgba(255, 207, 74, 0.45);
+}
+
 .finale-utilities { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex; gap: 8px; }
 .finale-utilities button { min-width: 0; min-height: 44px; padding: 9px 16px; color: rgba(244,254,255,.72); border-color: rgba(244,254,255,.26); background: rgba(8,13,42,.5); font-size: 13px; box-shadow: 0 2px 0 rgba(12,12,37,.42); }
 .finale-utilities [data-action='continue'] { min-width: 196px; color: #fff3ae; border-color: rgba(255,207,74,.5); font-size: 14px; }
-.finale-utilities [data-action='skip'] { color: rgba(244,254,255,.46); }
 .finale-utilities button:hover:not(:disabled) { color: #14122b; background: #f4feff; }
 .finale-actions button:disabled { opacity: .45; }
 .finale-actions button:focus-visible { outline: 3px solid #f4feff; outline-offset: 3px; }
+
 @media (max-height: 520px) {
   .finale-overlay { padding: max(6px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   .finale-copy { width: min(880px, calc(100vw - 24px)); max-height: calc(100vh - 12px); margin-top: 0; padding: 4px 8px; }
@@ -57,14 +81,14 @@
   .finale-time { margin-top: 2px; font-size: 11px; }
   .finale-easter { margin-top: 6px; gap: 4px; max-width: 520px; }
   .finale-easter i { padding: 4px 2px; font-size: 8px; }
-  .finale-actions { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.35fr); gap: 8px; width: min(720px, calc(100vw - 32px)); margin: 8px auto 0; align-items: stretch; }
+  .finale-actions { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr); gap: 10px; width: min(620px, calc(100vw - 32px)); margin: 8px auto 0; align-items: stretch; }
   .finale-primary { width: 100% !important; min-height: 52px !important; padding: 6px 14px !important; gap: 2px; }
   .finale-primary small { font-size: 8px; }
   .finale-primary strong { font-size: 18px; }
   .finale-primary span { font-size: 10px; }
-  .finale-utilities { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; margin: 0; gap: 6px; }
-  .finale-utilities button { min-width: 0; min-height: 44px; padding: 6px 10px; font-size: 11px; }
-  .finale-utilities [data-action='continue'] { grid-column: 1 / -1; min-width: 0; min-height: 44px; color: #fff3ae; border-color: rgba(255,207,74,.55); background: rgba(8,13,42,.62); font-size: 13px; }
+  .finale-utilities { position: static; display: block; width: 100%; margin: 0; }
+  .finale-utilities button { width: 100%; min-height: 52px; padding: 6px 14px; font-size: 14px; }
+  .finale-utilities [data-action='continue'] { min-width: 0; min-height: 52px; color: #fff3ae; border-color: rgba(255,207,74,.6); background: rgba(18,12,42,.78); font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .finale-overlay * { animation: none !important; transition: none !important; }

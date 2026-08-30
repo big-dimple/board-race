@@ -4029,7 +4029,7 @@ function runFinaleAutoFlowCase(): Record<string, unknown> {
     // Sizes come from the layout box: the copy block is mid-transition in the
     // harness, and its scale would understate every button.
     const utilityLayout = (() => {
-      const nodes = Array.from(document.querySelectorAll<HTMLElement>('.finale-utilities button'));
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>('.finale-utilities button, .finale-skip'));
       const rects = nodes.map((node) => node.getBoundingClientRect());
       const overlap = rects.some((a, i) => rects.some((b, j) => j > i &&
         a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1));

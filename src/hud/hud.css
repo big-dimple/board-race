@@ -556,6 +556,15 @@
   animation: none;
 }
 
+.hud-flight-prompt.no-charge {
+  --prompt-color: #ffaa33;
+  box-shadow: 0 0 0 3px var(--ink), 8px 8px 0 var(--ink), 0 0 28px rgba(255, 170, 51, 0.35);
+}
+.hud-flight-prompt.no-charge .hud-keycap {
+  color: #ffaa33;
+  border-color: #ffaa33;
+}
+
 /* Decorative chrome must stay INSIDE the card: anything poking out (negative
    inset rings, outscaled flashes) inflates scrollWidth/scrollHeight and trips
    the desktop prompt fit contract. The acquire flash plays on the inner bar;
