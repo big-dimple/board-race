@@ -2418,25 +2418,25 @@ export class Course implements ICourse {
         const gateIndex = st.flightGateProgress;
         const gate = visual.gates[gateIndex];
         if (gate && flightActive) {
-          // Pre-plane pillar cylinder proximity check (prevents delayed death judgment)
+          // Tight physical pillar contact check (exact collision on geometry surface)
           const normalDist = (pos.x - gate.center.x) * gate.normal.x + (pos.z - gate.center.z) * gate.normal.z;
           const latDist = (pos.x - gate.center.x) * gate.right.x + (pos.z - gate.center.z) * gate.right.z;
           const lateralLimit = def.passHalfWidth;
-          const pillarRadius = 1.0;
-          const boatRadius = 1.25;
-          const contactRadius = pillarRadius + boatRadius; // 2.25m
+          const pillarRadius = 0.55;
+          const boatRadius = 1.05;
+          const contactRadius = pillarRadius + boatRadius; // 1.60m exact hull touch
 
-          const pillarLeftX = gate.center.x - gate.right.x * (lateralLimit + 0.52);
-          const pillarLeftZ = gate.center.z - gate.right.z * (lateralLimit + 0.52);
+          const pillarLeftX = gate.center.x - gate.right.x * (lateralLimit + 0.42);
+          const pillarLeftZ = gate.center.z - gate.right.z * (lateralLimit + 0.42);
           const distToLeftPillar = Math.hypot(pos.x - pillarLeftX, pos.z - pillarLeftZ);
 
-          const pillarRightX = gate.center.x + gate.right.x * (lateralLimit + 0.52);
-          const pillarRightZ = gate.center.z + gate.right.z * (lateralLimit + 0.52);
+          const pillarRightX = gate.center.x + gate.right.x * (lateralLimit + 0.42);
+          const pillarRightZ = gate.center.z + gate.right.z * (lateralLimit + 0.42);
           const distToRightPillar = Math.hypot(pos.x - pillarRightX, pos.z - pillarRightZ);
 
           const isOutside = Math.abs(latDist) > lateralLimit;
-          const hitPillarLeft = isOutside && normalDist > -2.8 && normalDist < 2.0 && distToLeftPillar <= contactRadius;
-          const hitPillarRight = isOutside && normalDist > -2.8 && normalDist < 2.0 && distToRightPillar <= contactRadius;
+          const hitPillarLeft = isOutside && normalDist > -1.1 && normalDist < 1.3 && distToLeftPillar <= contactRadius;
+          const hitPillarRight = isOutside && normalDist > -1.1 && normalDist < 1.3 && distToRightPillar <= contactRadius;
 
           if (hitPillarLeft || hitPillarRight) {
             const hitLeft = distToLeftPillar <= distToRightPillar;
@@ -2445,8 +2445,8 @@ export class Course implements ICourse {
             const pDist = hitLeft ? distToLeftPillar : distToRightPillar;
             const rebX = pDist > 1e-3 ? (pos.x - pX) / pDist : (hitLeft ? -gate.right.x : gate.right.x);
             const rebZ = pDist > 1e-3 ? (pos.z - pZ) / pDist : (hitLeft ? -gate.right.z : gate.right.z);
-            const bounceSpeed = Math.max(14, Math.abs(st.speed) * 0.55);
-            boat.applyCollisionResponse(rebX * 0.35, rebZ * 0.35, rebX * bounceSpeed, rebZ * bounceSpeed);
+            const bounceSpeed = Math.max(18, Math.abs(st.speed) * 0.72);
+            boat.applyCollisionResponse(rebX * 0.55, rebZ * 0.55, rebX * bounceSpeed, rebZ * bounceSpeed);
 
             const reason = hitLeft ? 'gate_left' : 'gate_right';
             this.flightDebug[id] = `pillar-hit:f${routeIndex + 1}:${reason}`;
