@@ -432,10 +432,8 @@ function targetMarker(color: number): TargetMarker {
   const core = new THREE.Mesh(new THREE.CircleGeometry(6.8, 40), coreMaterial);
   core.rotation.x = -Math.PI / 2;
   core.position.y = -0.03;
-  const arrow = new THREE.Mesh(new THREE.ConeGeometry(1.15, 3.5, 4), arrowMaterial);
-  arrow.position.y = 5.6;
-  arrow.rotation.x = Math.PI;
-  energy.add(core, ring, arrow);
+  const arrow = new THREE.Mesh(new THREE.BufferGeometry(), arrowMaterial);
+  energy.add(core, ring);
   energy.traverse((child) => child.layers.enable(LAYER_ENERGY));
 
   const guideBeamMaterial = energyMaterial(color, 0);

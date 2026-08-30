@@ -1008,31 +1008,27 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       void main() {
         float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
         float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
-        float forwardVisible = 1.0 - smoothstep(145.0, 170.0, ahead);
+        float forwardVisible = 1.0 - smoothstep(220.0, 260.0, ahead);
         float trailingVisible = 1.0 - smoothstep(${SURFACE_GUIDE_TAIL_FADE_START_M.toFixed(1)}, ${SURFACE_GUIDE_TAIL_FADE_END_M.toFixed(1)}, behind);
         float trailingSide = 1.0 - step(0.5 * uLapLength, behind);
         float distanceVisible = mix(forwardVisible, trailingVisible, trailingSide);
-        float visible = 1.0;
-        visible *= distanceVisible;
-        // Keep the exact ownership interval, but feather both ends over a few
-        // metres so the green route dissolves into the water rather than snaps.
-        float guideMask = step(uMaskStart, vS) * step(vS, uMaskEnd);
+        float visible = distanceVisible;
+        // Keep the water route clearly readable without completely erasing the track
         float guideMaskSoft = smoothstep(uMaskStart - uMaskFeather, uMaskStart + uMaskFeather, vS) *
           (1.0 - smoothstep(uMaskEnd - uMaskFeather, uMaskEnd + uMaskFeather, vS));
-        visible *= 1.0 - uGuideActive * guideMaskSoft;
-        float launchMask = step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
+        visible *= mix(1.0, 0.55, uGuideActive * guideMaskSoft);
         float launchMaskSoft = smoothstep(uLaunchGateS - uMaskFeather, uLaunchGateS + uMaskFeather, vS) *
           (1.0 - smoothstep(uLaunchGateEndS - uMaskFeather, uLaunchGateEndS + uMaskFeather, vS));
-        visible *= 1.0 - uLaunchGateActive * launchMaskSoft;
+        visible *= mix(1.0, 0.65, uLaunchGateActive * launchMaskSoft);
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
-        float packetPhase = fract(vS / 21.0 - uTime * 0.42);
+        float packetPhase = fract(vS / 21.0 - uTime * 0.55);
         float packet = smoothstep(0.04, 0.2, packetPhase) *
           (1.0 - smoothstep(0.66, 0.94, packetPhase));
         float drift = sin(vS * 0.19 - uTime * 1.7) * 0.025;
         float flowA = 1.0 - smoothstep(0.018, 0.066, abs(vSide - (0.22 + drift)));
         float flowB = 1.0 - smoothstep(0.018, 0.066, abs(vSide - (-0.22 - drift)));
-        float flow = max(flowA, flowB) * (0.42 + packet * 0.58);
+        float flow = max(flowA, flowB) * (0.48 + packet * 0.52);
         // The route is a wake laid over the water, not a painted lane. Keep
         // enough body for long-range navigation, then carve it into moving
         // translucent pockets so the wave texture remains the hero surface.
@@ -1040,16 +1036,16 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
           0.16 * sin(vS * 0.77 + uTime * 0.62 - vSide * 5.4) +
           0.08 * sin(vS * 1.43 - uTime * 1.9);
         float waterPocket = smoothstep(0.28, 0.78, current);
-        float centerVeil = (1.0 - smoothstep(0.08, 0.62, side)) * (0.34 + waterPocket * 0.66);
+        float centerVeil = (1.0 - smoothstep(0.08, 0.62, side)) * (0.38 + waterPocket * 0.62);
         float navSpine = 1.0 - smoothstep(0.04, 0.12, side);
-        float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} * (0.48 + waterPocket * 0.52) + packet * 0.035);
-        float alpha = veil + centerVeil * 0.045 + navSpine * (0.34 + packet * 0.06) + flow * 0.26;
-        float localFade = 1.0 - smoothstep(140.0, 170.0, ahead) * 0.18;
-        float fade = (vDist < 220.0 ? 1.0 : 0.78) * localFade;
-        vec3 col = mix(uColor, uFoam, 0.24 + navSpine * 0.22 + flow * 0.34 + packet * 0.08);
+        float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} * (0.55 + waterPocket * 0.45) + packet * 0.04);
+        float alpha = veil + centerVeil * 0.06 + navSpine * (0.42 + packet * 0.08) + flow * 0.32;
+        float localFade = 1.0 - smoothstep(200.0, 250.0, ahead) * 0.15;
+        float fade = (vDist < 260.0 ? 1.0 : 0.82) * localFade;
+        vec3 col = mix(uColor, uFoam, 0.32 + navSpine * 0.28 + flow * 0.36 + packet * 0.1);
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
-        alpha = min(alpha, ${SURFACE_GUIDE_PEAK_ALPHA.toFixed(2)});
+        alpha = min(alpha, 0.78);
         alpha *= visible * step(0.008, alpha);
         gl_FragColor = vec4(col, alpha);
       }
@@ -3894,31 +3890,7 @@ export class Course implements ICourse {
       );
       anchor.position.z = 0.42;
       gateGroup.add(beamSpine, beam, beamCore, surfaceLock, lockBeam, anchor);
-      if (def.navigation?.locatorU !== undefined && Math.abs(def.navigation.locatorU - u) < 0.012) {
-        const locatorMaterial = new THREE.MeshBasicMaterial({
-          color: FLIGHT_ROUTE_MARKER_COLOR,
-          transparent: true,
-          opacity: 0.95,
-          depthTest: false,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          toneMapped: false,
-        });
-        const locatorStem = new THREE.Mesh(beamGeo, locatorMaterial);
-        locatorStem.name = `${def.id}-locator-stem`;
-        locatorStem.position.set(0, gateHalfHeight + 2.25, 0.46);
-        locatorStem.scale.set(0.12, 2.7, 0.12);
-        const locator = new THREE.Mesh(new THREE.RingGeometry(1.14, 1.5, 4), locatorMaterial);
-        locator.name = `${def.id}-locator-diamond`;
-        locator.position.set(0, gateHalfHeight + 4.7, 0.48);
-        locator.rotation.z = Math.PI * 0.25;
-        locator.renderOrder = 8;
-        gateGroup.add(locatorStem, locator);
-      }
       gateGroup.traverse((o) => o.layers.enable(LAYER_ENERGY));
-      gateGroup.traverse((o) => {
-        if (o.name.startsWith(`${def.id}-locator-`)) o.layers.disable(LAYER_ENERGY);
-      });
       surfaceLock.layers.disable(LAYER_ENERGY);
       beamCore.layers.disable(LAYER_ENERGY);
       for (const core of corePillars) core.layers.disable(LAYER_ENERGY);
@@ -4051,78 +4023,15 @@ export class Course implements ICourse {
         ? new THREE.Vector3().subVectors(path[i + 1], path[i]).setY(0).normalize()
         : postureDirection;
       root.quaternion.setFromUnitVectors(forward, direction);
-      if (bankDirection !== 0) root.rotateZ(bankDirection * THREE.MathUtils.degToRad(7 + i * 6));
-      const ink = new THREE.MeshBasicMaterial({
-        color: PALETTE.ink,
-        transparent: true,
-        opacity: 0.86,
-        depthTest: false,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      });
-      const energy = new THREE.MeshBasicMaterial({
-        color: PALETTE.sunFlare,
-        transparent: true,
-        opacity: 0.78,
-        depthTest: false,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      });
-      const inkRing = new THREE.Mesh(inkGeometry, ink);
-      inkRing.renderOrder = 7;
-      const energyRing = new THREE.Mesh(energyGeometry, energy);
-      energyRing.position.z = 0.035;
-      energyRing.renderOrder = 8;
-      energyRing.layers.enable(LAYER_ENERGY);
-      root.add(inkRing, energyRing);
-
-      let postureInk: THREE.MeshBasicMaterial | null = null;
-      let postureFill: THREE.MeshBasicMaterial | null = null;
-      if (turnDirection !== 'none' && i > 0) {
-        postureInk = new THREE.MeshBasicMaterial({
-          color: PALETTE.ink,
-          transparent: true,
-          opacity: 0.84,
-          depthTest: false,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          toneMapped: false,
-        });
-        postureFill = new THREE.MeshBasicMaterial({
-          color: PALETTE.foam,
-          transparent: true,
-          opacity: 0.9,
-          depthTest: false,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          toneMapped: false,
-        });
-        // The diamond root follows local +Z and local +X is port/left.
-        // Mirroring X therefore points right-turn posture toward starboard.
-        const postureSign = turnDirection === 'left' ? 1 : -1;
-        const postureInkMesh = new THREE.Mesh(postureGeometry, postureInk);
-        postureInkMesh.name = `${def.id}-launch-posture-ink-${i}`;
-        postureInkMesh.position.z = 0.055;
-        postureInkMesh.scale.set(postureSign * 0.66, 0.66, 0.66);
-        postureInkMesh.renderOrder = 9;
-        const postureFillMesh = new THREE.Mesh(postureGeometry, postureFill);
-        postureFillMesh.name = `${def.id}-launch-posture-${i}`;
-        postureFillMesh.position.z = 0.075;
-        postureFillMesh.scale.set(postureSign * 0.52, 0.52, 0.52);
-        postureFillMesh.renderOrder = 10;
-        postureFillMesh.layers.enable(LAYER_ENERGY);
-        root.add(postureInkMesh, postureFillMesh);
-      }
+      const ink = new THREE.MeshBasicMaterial({ color: PALETTE.ink, transparent: true, opacity: 0 });
+      const energy = new THREE.MeshBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0 });
       root.position.set(path[i].x, clearances[i], path[i].z);
-      group.add(root);
       diamonds.push({
         root,
         ink,
         energy,
-        postureInk,
-        postureFill,
+        postureInk: null,
+        postureFill: null,
         x: path[i].x,
         z: path[i].z,
         clearance: clearances[i],
@@ -4133,25 +4042,10 @@ export class Course implements ICourse {
     const packetMaterial = new THREE.MeshBasicMaterial({
       color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
-      opacity: 0.9,
-      depthTest: false,
-      depthWrite: false,
-      toneMapped: false,
+      opacity: 0,
     });
-    // These are directional packets, not generic sparkles: their forward
-    // motion makes the required launch posture legible before takeoff.
-    const packetGeometry = makeOpenChevronGeometry(0);
-    packetGeometry.rotateY(-Math.PI / 2);
-    packetGeometry.scale(0.62, 0.62, 0.62);
     const packets: THREE.Mesh[] = [];
-    for (let i = 0; i < 3; i++) {
-      const packet = new THREE.Mesh(packetGeometry, packetMaterial);
-      packet.name = `${def.id}-launch-energy-packet-${i + 1}`;
-      packet.renderOrder = 9;
-      packet.layers.enable(LAYER_ENERGY);
-      group.add(packet);
-      packets.push(packet);
-    }
+    group.visible = false;
     assignPresentationLayers(group, guideLayer);
     return { group, diamonds, packets, packetMaterial, deploy: 0 };
   }

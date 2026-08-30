@@ -5,6 +5,18 @@
 
 ## 当前工作包
 
+- **金币拾取立体声空间化与晶莹和弦升级 + 超强长程磁吸（Coin Audio Spatial Panning & 34m Suction Magnet）**：
+  1. `AudioSystem`（`src/audio/audio.ts`）重构金币拾取音效为四音阶晶莹清脆和弦（523Hz 击打底音 + B5/E6/G#6/C7 晶莹泛音）配合音乐引擎智能瞬态避让，并引入 Web Audio `StereoPannerNode` 空间声相支持；`src/main.ts` 根据双人分屏席位下发声相（左席 -0.45 / 右席 +0.45），彻底解决右屏听不见金币拾取音效的问题！
+  2. `HonorTargetSystem`（`src/game/honors.ts`）磁吸范围由 18m 大幅强化至 **34m 长程磁吸** 与 **14m 全向近接磁吸**，飞行吸入速率提升至 0.26s 且自转速率提升至 36 rad/s，金币如飞燕还巢般流畅吸入座舱驾驶员头部！
+- **彻底根治全场景所有残留白色三角、菱形与指示箭头（Complete Root-Cause Eradication of All White Triangles & Chevrons）**：
+  1. `Course`（`src/game/course.ts`）全面移除了在起飞跳台处添加的 `diamonds`（带白色 `postureFill` 偏航翼片）、`packets`（`makeOpenChevronGeometry` 开口三角箭头）以及光门柱顶菱形几何体（`locator-diamond`），彻底还给玩家 100% 纯净通透的海面与天际雾桥！
+  2. `teamCourseVisuals.ts`（`src/game/teamCourseVisuals.ts`）移除工位上的 `ConeGeometry` 箭头。
+- **第四门飞跃着水路线引导全面强化与水面绿线持续高亮（Gate 4 Landing Guidance & Continuous Surface Ribbon）**：
+  1. `Course`（`src/game/course.ts`）在 `buildRibbonMaterial` 中去除了以往起飞与飞行期间对水面绿线的强制遮罩抹除，水面翡翠流光赛道缎带全程清晰连贯；前向可视距离扩展至 260m，弯道流光脉冲更加鲜明！
+  2. `Hud`（`src/hud/hud.ts`）在飞跃第 4 门通过时立即呈现 `➡️ 右切入弯 ➔ 迎战第 5 飞` 明确转向指引，让玩家着水后顺畅切入右转大弯心迎接第 5 飞！
+- **淘汰席位“飞毛腿在途的聚变打击”战术 CRT 监控视频与导弹外观超绝拉风升级（Scud-B Hypersonic Video & Military Mesh Refinement）**：
+  1. `DuoInteractionController`（`src/game/duoInteraction.ts`）将飞毛腿导弹飞行速度提升至 82m/s 超音速拦截，3D 模型增加红外寻的头、前置鸭翼、双重马赫超音速震波环与白炽尾焰；
+  2. `duoViewportHud`（`src/hud/duoViewportHud.ts` / `src/hud/duoViewportHud.css`）在淘汰席屏幕直接播放高燃战术 CRT 监控视频（`.duo-tactical-feed`），带超音速径向流光线、红光警报频闪、`[MACH 3.8]` 极速拦截遥测、动态雷达锁定与核爆直击闪光白化，将整蛊与双人竞技喜剧效果拉满！
 - **双人模式淘汰席 Y 键飞毛腿导弹骚扰 + 75% 命中率 + 720° 空中旋转 + 战术 CRT 监控视频（Scud-B Harassment & Tactical CRT Feed）**：
   1. `DuoInteractionController`（`src/game/duoInteraction.ts`）重构 Y 键恶搞投射物为真实质感【飞毛腿战术导弹（Scud-B）】3D 模型（草绿弹体、深红战斗部整流锥、4 枚三角稳定翼面、尾喷管与火光烟圈），每局限制发射 7 枚。
   2. 命中判定升级为 75% 致命命中率与 25% 擦身而过分支。

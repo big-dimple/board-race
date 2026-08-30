@@ -78,11 +78,12 @@ export class DuoViewportHud {
           <div class="duo-tactical-sweep"></div>
           <div class="duo-tactical-reticle"></div>
           <div class="duo-tactical-missile-icon">▲ SCUD-B</div>
+          <div class="duo-tactical-speedlines"></div>
         </div>
         <div class="duo-tactical-info">
-          <div class="duo-tactical-line">▶ 状态: <span class="blink-red">末端制导点火中 [75% HIT]</span></div>
-          <div class="duo-tactical-line">▶ 目标: ${targetName} 艇尾截击</div>
-          <div class="duo-tactical-line">▶ 预计: 720° 空中爆破杂耍</div>
+          <div class="duo-tactical-line"><span class="blink-red">🔴 极速拦截 [MACH 3.8]</span> · 75% 命中率</div>
+          <div class="duo-tactical-line">▶ 目标: ${targetName} 尾流锁定中</div>
+          <div class="duo-tactical-line" style="color: #ffd020;">▶ 惯性弹道: 720° 空中爆破旋转</div>
         </div>
       `;
     }
@@ -99,23 +100,23 @@ export class DuoViewportHud {
         body.innerHTML = `
           <div class="duo-tactical-blast">💥 DIRECT HIT 💥</div>
           <div class="duo-tactical-info">
-            <div class="duo-tactical-line" style="color: #ffd020; font-weight: 900;">▶ 聚变打击命中！目标 720° 翻滚轰飞！</div>
-            <div class="duo-tactical-line">▶ 喜剧效果达成 · 惯性空爆完成</div>
+            <div class="duo-tactical-line" style="color: #ffd020; font-weight: 900;">▶ 聚变打击精准命中！目标 720° 轰飞！</div>
+            <div class="duo-tactical-line" style="color: #ff3d7f;">▶ 气球爆炸式旋转 · 喜剧效果满上加满！</div>
           </div>
         `;
       } else {
         body.innerHTML = `
           <div class="duo-tactical-blast" style="color: #00f0ff;">💨 TARGET EVADED 💨</div>
           <div class="duo-tactical-info">
-            <div class="duo-tactical-line" style="color: #00f0ff;">▶ 飞毛腿描边！75%命中率脱靶！</div>
-            <div class="duo-tactical-line">▶ 目标侥幸逃生 · 下发继续装填</div>
+            <div class="duo-tactical-line" style="color: #00f0ff;">▶ 飞毛腿高速描边！25% 脱靶概率触发！</div>
+            <div class="duo-tactical-line">▶ 目标侥幸逃脱 · 下发飞毛腿装填中</div>
           </div>
         `;
       }
     }
     this.tacticalTimers[actorIndex] = window.setTimeout(() => {
       feed.classList.remove('on', 'detonation-hit', 'detonation-miss');
-    }, 2400);
+    }, 2800);
   }
 
   update(seats: readonly [DuoViewportSeat, DuoViewportSeat], visible: boolean): void {

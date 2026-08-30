@@ -499,53 +499,90 @@ export class GameAudio {
 
   /**
    * Classic arcade sparkling crystal-chime coin pickup.
-   * Pure, punchy dual-tone chime (B5 -> E6) with clean harmonic brilliance.
+   * High-contrast, punchy 4-note sparkling arpeggio with spatial stereo panning.
    */
-  coinCollect(streak = 0): void {
+  coinCollect(streak = 0, pan = 0): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
-    if (this.activeOneShots + 4 >= this.maxOneShots) return;
+    if (this.activeOneShots + 6 >= this.maxOneShots) return;
     const t0 = c.currentTime;
     this.traceEvent('coin-collect', 1 + Math.min(streak, 6) * 0.05);
 
-    // Note 1 (snappy attack pip): B5 (987.77 Hz)
+    // Spatial panner for duo split-screen routing (left / right screen)
+    let dest: AudioNode = this.eventBus;
+    let pannerNode: StereoPannerNode | null = null;
+    if (typeof c.createStereoPanner === 'function' && Math.abs(pan) > 0.01) {
+      pannerNode = c.createStereoPanner();
+      pannerNode.pan.setValueAtTime(Math.max(-0.85, Math.min(0.85, pan)), t0);
+      pannerNode.connect(this.eventBus);
+      dest = pannerNode;
+    }
+
+    const streakPitch = Math.min(streak, 5) * 60;
+
+    // 0. Resonant low-mid metallic clink body (523 Hz -> 587 Hz)
+    const o0 = c.createOscillator();
+    o0.type = 'triangle';
+    o0.frequency.setValueAtTime(523.25 + streakPitch * 0.5, t0);
+    const g0 = c.createGain();
+    g0.gain.setValueAtTime(0, t0);
+    g0.gain.linearRampToValueAtTime(0.55, t0 + 0.002);
+    g0.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+    o0.connect(g0);
+    g0.connect(dest);
+    this.trackOneShot(o0, [g0], t0, t0 + 0.07);
+
+    // 1. Note 1 (snappy attack pip): B5 (987.77 Hz) -> C6 (1046.5 Hz)
     const o1 = c.createOscillator();
     o1.type = 'sine';
-    o1.frequency.setValueAtTime(987.77, t0);
+    o1.frequency.setValueAtTime(987.77 + streakPitch, t0);
     const g1 = c.createGain();
     g1.gain.setValueAtTime(0, t0);
-    g1.gain.linearRampToValueAtTime(0.35, t0 + 0.002);
-    g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.045);
+    g1.gain.linearRampToValueAtTime(0.65, t0 + 0.002);
+    g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.07);
     o1.connect(g1);
-    g1.connect(this.eventBus);
-    this.trackOneShot(o1, [g1], t0, t0 + 0.06);
+    g1.connect(dest);
+    this.trackOneShot(o1, [g1], t0, t0 + 0.08);
 
-    // Note 2 (bright ringing bell): E6 (1318.5 Hz)
-    const t1 = t0 + 0.032;
+    // 2. Note 2 (bright ringing bell): E6 (1318.5 Hz)
+    const t1 = t0 + 0.028;
     const o2 = c.createOscillator();
     o2.type = 'sine';
-    o2.frequency.setValueAtTime(1318.51, t1);
+    o2.frequency.setValueAtTime(1318.51 + streakPitch, t1);
     const g2 = c.createGain();
     g2.gain.setValueAtTime(0, t1);
-    g2.gain.linearRampToValueAtTime(0.42, t1 + 0.003);
-    g2.gain.exponentialRampToValueAtTime(0.001, t1 + 0.28);
+    g2.gain.linearRampToValueAtTime(0.72, t1 + 0.003);
+    g2.gain.exponentialRampToValueAtTime(0.001, t1 + 0.32);
     o2.connect(g2);
-    g2.connect(this.eventBus);
-    this.trackOneShot(o2, [g2], t1, t1 + 0.3);
+    g2.connect(dest);
+    this.trackOneShot(o2, [g2], t1, t1 + 0.35);
 
-    // Soft high metallic ping overtone (E7 / 2637 Hz)
+    // 3. Note 3 (high radiant chime): G#6 (1661.2 Hz) / A6 (1760 Hz)
+    const t2 = t0 + 0.056;
     const o3 = c.createOscillator();
     o3.type = 'triangle';
-    o3.frequency.setValueAtTime(2637.0, t1);
+    o3.frequency.setValueAtTime(1661.22 + streakPitch * 1.2, t2);
     const g3 = c.createGain();
-    g3.gain.setValueAtTime(0, t1);
-    g3.gain.linearRampToValueAtTime(0.12, t1 + 0.003);
-    g3.gain.exponentialRampToValueAtTime(0.001, t1 + 0.12);
+    g3.gain.setValueAtTime(0, t2);
+    g3.gain.linearRampToValueAtTime(0.58, t2 + 0.003);
+    g3.gain.exponentialRampToValueAtTime(0.001, t2 + 0.38);
     o3.connect(g3);
-    g3.connect(this.eventBus);
-    this.trackOneShot(o3, [g3], t1, t1 + 0.15);
+    g3.connect(dest);
+    this.trackOneShot(o3, [g3], t2, t2 + 0.40);
 
-    this.duckMusic(0.88, 0.06);
+    // 4. Soft sparkling crystal harmonic overtones (C7 2093 Hz / E7 2637 Hz)
+    const o4 = c.createOscillator();
+    o4.type = 'sine';
+    o4.frequency.setValueAtTime(2637.0 + streakPitch * 1.5, t1);
+    const g4 = c.createGain();
+    g4.gain.setValueAtTime(0, t1);
+    g4.gain.linearRampToValueAtTime(0.28, t1 + 0.003);
+    g4.gain.exponentialRampToValueAtTime(0.001, t1 + 0.22);
+    o4.connect(g4);
+    g4.connect(dest);
+    this.trackOneShot(o4, [g4], t1, t1 + 0.25);
+
+    this.duckMusic(0.75, 0.08);
   }
 
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */

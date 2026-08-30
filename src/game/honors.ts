@@ -326,21 +326,21 @@ export class HonorTargetSystem {
       if (target.flySlot >= 0) {
         const flyingBoat = boats[target.flySlot];
         if (flyingBoat) {
-          target.flyT = Math.min(1, target.flyT + dt / 0.32);
+          target.flyT = Math.min(1, target.flyT + dt / 0.26);
           const tVal = target.flyT;
           const easeT = tVal * tVal * (3 - 2 * tVal);
           const headX = flyingBoat.state.position.x;
           const headY = flyingBoat.state.position.y + 1.25;
           const headZ = flyingBoat.state.position.z;
           const midX = (target.flyStartX + headX) * 0.5;
-          const midY = Math.max(target.flyStartY, headY) + 2.2;
+          const midY = Math.max(target.flyStartY, headY) + 2.6;
           const midZ = (target.flyStartZ + headZ) * 0.5;
           const inv = 1 - easeT;
           target.group.position.x = inv * inv * target.flyStartX + 2 * inv * easeT * midX + easeT * easeT * headX;
           target.group.position.y = inv * inv * target.flyStartY + 2 * inv * easeT * midY + easeT * easeT * headY;
           target.group.position.z = inv * inv * target.flyStartZ + 2 * inv * easeT * midZ + easeT * easeT * headZ;
-          target.emblem.rotation.y += dt * 18.0;
-          target.group.scale.setScalar(Math.max(0.01, (idlePulse + target.pulse * 0.3) * (1 - easeT * 0.55)));
+          target.emblem.rotation.y += dt * 36.0;
+          target.group.scale.setScalar(Math.max(0.01, (idlePulse + target.pulse * 0.4) * (1 - easeT * 0.52)));
 
           // When coin completes flight arc and reaches the player cockpit
           if (tVal >= 1 && (target.hitMask & (1 << target.flySlot)) === 0) {
@@ -348,7 +348,7 @@ export class HonorTargetSystem {
             const bit = 1 << slot;
             target.hitMask |= bit;
             target.activeMask &= ~bit;
-            target.pulse = 1.35;
+            target.pulse = 1.45;
             const event = this.eventPool[this.eventCursor++ % this.eventPool.length];
             event.targetId = targetIndex;
             event.kind = target.kind;
@@ -388,7 +388,7 @@ export class HonorTargetSystem {
         const dz = state.position.z - target.z;
         const distanceSq = dx * dx + dz * dz;
         const valid = (Math.abs(state.speed) >= 4 || state.airborne) &&
-          Math.abs(state.position.y - target.y) <= 7.2;
+          Math.abs(state.position.y - target.y) <= 8.5;
 
         // Lateral distance to the authored coin trajectory line
         const forwardAlign = Math.sin(state.heading) * target.forwardX + Math.cos(state.heading) * target.forwardZ;
@@ -402,14 +402,19 @@ export class HonorTargetSystem {
           target.bestAt[slot] = time;
         }
 
-        // Long-range magnetic attraction (18m approach when heading toward the coin)
+        // Long-range high-authority magnetic attraction (up to 34m approach & 14m omni proximity)
         const toTargetX = target.x - state.position.x;
         const toTargetZ = target.z - state.position.z;
         const boatDirX = Math.sin(state.heading);
         const boatDirZ = Math.cos(state.heading);
         const dotHeading = (toTargetX * boatDirX + toTargetZ * boatDirZ) / (Math.hypot(toTargetX, toTargetZ) || 1);
 
-        if (valid && distanceSq <= 18.0 * 18.0 && dotHeading > 0.15) {
+        const inMagneticField = valid && (
+          (distanceSq <= 34.0 * 34.0 && dotHeading > -0.25) ||
+          distanceSq <= 14.0 * 14.0
+        );
+
+        if (inMagneticField) {
           if (target.flySlot < 0 && (target.hitMask & bit) === 0) {
             target.flySlot = boat.id;
             target.flyT = 0;
@@ -421,7 +426,7 @@ export class HonorTargetSystem {
 
         const inChallenge = valid && distanceSq <= TARGET_RADIUS * TARGET_RADIUS;
         if (inChallenge) {
-          target.pulse = Math.max(target.pulse, 0.28);
+          target.pulse = Math.max(target.pulse, 0.35);
           // If boat is directly inside contact zone and hasn't started flying yet
           if (target.flySlot < 0 && (target.hitMask & bit) === 0) {
             target.flySlot = boat.id;

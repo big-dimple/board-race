@@ -1723,7 +1723,8 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     }
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
-    audio.coinCollect(streakStep);
+    const pan = isDuoMode() && hit.racerId < 2 ? (hit.racerId === 0 ? -0.45 : 0.45) : 0;
+    audio.coinCollect(streakStep, pan);
     const targetPipeline = isDuoMode() && hit.racerId < 2
       ? hit.racerId === 0 ? teamLeftPipeline : teamRightPipeline
       : pipeline;

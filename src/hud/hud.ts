@@ -698,6 +698,12 @@ export class HUD {
             detail: flightNumber === 2 ? '最后一飞，定级。' : '',
             color: PALETTE.flight, duration: 1.1, priority: 60, lane,
           });
+        } else if (flightNumber === 4) {
+          this.enqueueImpact({
+            kind: 'route-clear', kicker: 'FLIGHT 4 CLEARED', title: '右切入弯 ➔ 迎战第 5 飞',
+            detail: '水面右转大弯心 · 对准第 5 飞天轨',
+            color: PALETTE.flight, duration: 1.5, priority: 65, lane,
+          });
         }
       }
     }
