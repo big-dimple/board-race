@@ -1520,29 +1520,41 @@ function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
   return geometry;
 }
 
-function makeCyberFlightWingGeometry(scale = 1.0, depth = 0): THREE.BufferGeometry {
+function makeCyberFlightWingGeometry(scale = 1.0, depth = 0.28): THREE.BufferGeometry {
   const s = scale;
-  const points = [
-    // Center Skyward Arrow (pointing UP)
-    0, 1.25 * s, depth,   -0.42 * s, 0.45 * s, depth,   0, 0.65 * s, depth,
-    0, 1.25 * s, depth,    0, 0.65 * s, depth,          0.42 * s, 0.45 * s, depth,
-    // Left Wing Upper Blade (swept up and out)
-    -0.42 * s, 0.65 * s, depth,  -2.1 * s, 1.45 * s, depth,  -1.35 * s, 0.55 * s, depth,
-    -0.42 * s, 0.65 * s, depth,  -1.35 * s, 0.55 * s, depth,  -0.35 * s, 0.15 * s, depth,
-    // Left Wing Lower Blade
-    -0.35 * s, 0.15 * s, depth,  -1.75 * s, 0.85 * s, depth,  -1.15 * s, 0.12 * s, depth,
-    -0.35 * s, 0.15 * s, depth,  -1.15 * s, 0.12 * s, depth,  -0.25 * s, -0.35 * s, depth,
-    // Right Wing Upper Blade (symmetric)
-    0.42 * s, 0.65 * s, depth,   1.35 * s, 0.55 * s, depth,   2.1 * s, 1.45 * s, depth,
-    0.42 * s, 0.65 * s, depth,   0.35 * s, 0.15 * s, depth,   1.35 * s, 0.55 * s, depth,
-    // Right Wing Lower Blade (symmetric)
-    0.35 * s, 0.15 * s, depth,   1.15 * s, 0.12 * s, depth,   1.75 * s, 0.85 * s, depth,
-    0.35 * s, 0.15 * s, depth,   0.25 * s, -0.35 * s, depth,  1.15 * s, 0.12 * s, depth,
-  ];
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-  geometry.computeVertexNormals();
-  return geometry;
+  const shape = new THREE.Shape();
+  // Swept aerodynamic wings with central skyward thrust chevron
+  shape.moveTo(0, 1.45 * s);
+  shape.lineTo(0.46 * s, 0.6 * s);
+  shape.lineTo(1.48 * s, 0.72 * s);
+  shape.lineTo(2.45 * s, 1.62 * s); // Right upper wingtip
+  shape.lineTo(2.22 * s, 0.78 * s);
+  shape.lineTo(1.92 * s, 0.98 * s); // Right lower wingtip
+  shape.lineTo(1.28 * s, 0.16 * s);
+  shape.lineTo(0.36 * s, 0.2 * s);
+  shape.lineTo(0, -0.38 * s); // Center bottom notch
+  shape.lineTo(-0.36 * s, 0.2 * s);
+  shape.lineTo(-1.28 * s, 0.16 * s);
+  shape.lineTo(-1.92 * s, 0.98 * s); // Left lower wingtip
+  shape.lineTo(-2.22 * s, 0.78 * s);
+  shape.lineTo(-2.45 * s, 1.62 * s); // Left upper wingtip
+  shape.lineTo(-1.48 * s, 0.72 * s);
+  shape.lineTo(-0.46 * s, 0.6 * s);
+  shape.closePath();
+
+  const actualDepth = Math.max(0.08, depth * s);
+  const extrudeSettings: THREE.ExtrudeGeometryOptions = {
+    depth: actualDepth,
+    bevelEnabled: true,
+    bevelSegments: 1,
+    bevelSize: 0.04 * s,
+    bevelThickness: 0.04 * s,
+    curveSegments: 1,
+  };
+  const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+  geo.translate(0, 0, -actualDepth * 0.5);
+  geo.computeVertexNormals();
+  return geo;
 }
 
 /**
@@ -4418,9 +4430,17 @@ export class Course implements ICourse {
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
     group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);
 
-    const inkGeometry = makeCyberFlightWingGeometry(1.12, 0);
-    const energyGeometry = makeCyberFlightWingGeometry(0.9, 0.04);
-    const postureGeometry = makeCyberFlightWingGeometry(0.78, 0.06);
+    const inkGeometry = makeCyberFlightWingGeometry(1.32, 0.28);
+    const energyGeometry = makeCyberFlightWingGeometry(1.08, 0.34);
+    const postureGeometry = makeCyberFlightWingGeometry(0.88, 0.38);
+    const pylonGeometry = new THREE.CylinderGeometry(0.14, 0.18, 3.2, 8);
+    const pylonMaterial = createToonMaterial({
+      color: PALETTE.ink,
+      emissive: PALETTE.flight,
+      emissiveIntensity: 0.45,
+      rimColor: PALETTE.sunFlare,
+      rimStrength: 0.75,
+    });
     const diamonds: LaunchGateDiamond[] = [];
     const forward = new THREE.Vector3(0, 0, 1);
     const waveWeights = [1, 0.42, 0];
@@ -4438,7 +4458,7 @@ export class Course implements ICourse {
       const ink = new THREE.MeshBasicMaterial({
         color: PALETTE.ink,
         transparent: true,
-        opacity: 0.86,
+        opacity: 0.88,
         depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -4447,7 +4467,7 @@ export class Course implements ICourse {
       const energy = new THREE.MeshBasicMaterial({
         color: PALETTE.sunFlare,
         transparent: true,
-        opacity: 0.78,
+        opacity: 0.82,
         depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -4459,7 +4479,14 @@ export class Course implements ICourse {
       energyRing.position.z = 0.035;
       energyRing.renderOrder = 8;
       energyRing.layers.enable(LAYER_ENERGY);
-      root.add(inkRing, energyRing);
+
+      // Side energy pylons
+      const leftPylon = new THREE.Mesh(pylonGeometry, pylonMaterial);
+      leftPylon.position.set(-3.2, 0.2, 0);
+      const rightPylon = new THREE.Mesh(pylonGeometry, pylonMaterial);
+      rightPylon.position.set(3.2, 0.2, 0);
+      root.add(inkRing, energyRing, leftPylon, rightPylon);
+
       let postureInk: THREE.MeshBasicMaterial | null = null;
       let postureFill: THREE.MeshBasicMaterial | null = null;
       if (turnDirection !== 'none' && i > 0) {
@@ -4609,11 +4636,13 @@ export class Course implements ICourse {
     arrows.name = 'surface-guide-chevrons';
     arrows.frustumCulled = false;
     arrows.renderOrder = 3;
+    arrows.visible = false;
     arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     const arrowInk = new THREE.InstancedMesh(arrowGeo, arrowInkMat, SURFACE_GUIDE_ARROW_COUNT);
     arrowInk.name = 'surface-guide-chevron-ink';
     arrowInk.frustumCulled = false;
     arrowInk.renderOrder = 2;
+    arrowInk.visible = false;
     arrowInk.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < SURFACE_GUIDE_ARROW_COUNT; i++) {
       arrows.setMatrixAt(i, _hiddenRecoveryArrow);

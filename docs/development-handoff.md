@@ -5,9 +5,10 @@
 
 ## 当前工作包
 
-- **3D 极简纯金金币与动态磁吸飞跃吸收（Iconic 3D Gold Coin & Magnetic Flying Arc Absorption）**：`HonorTargetSystem`（`src/game/honors.ts`）彻底重构水面金币道具。剔除原先厚重复杂的木桩桅杆与浮标配件，打造纯净精致、双面立体星芒浮雕的 3D 黄金金币，垂直立于水面以 `3.8 rad/s` 优雅自转并伴随波浪浮沉。当船只逼近金币时，金币激活动态磁吸飞跃，以优美贝塞尔抛物线飞升加速吸入驾驶员头顶并绽放金色星尘爆炸，成就感与解压爽快感拉满！且 100% 严守水面高度，绝不在空中布设金币，杜绝起飞误解。
+- **远端白色三角指示箭头彻底清除（Complete Removal of Far-Horizon White Chevrons）**：`Course`（`src/game/course.ts`）全面隐藏并清理了原先在水面远方离散生成的 `surfaceGuideArrows` / `surfaceGuideArrowInk` 实例，彻底拔除了困扰已久的在 30~150m 远景开阔海面上显现的浮动白色孤立三角箭头 Bug，赛道引导完全依托平滑贴浪的动态波浪主线，视野极致纯净。
+- **起飞前 3D 机械跃升跳台与立体光翼跃升门（Solid 3D Cyber Launch Jump Pad & Swept Wings）**：`Course`（`src/game/course.ts`）重构 `makeCyberFlightWingGeometry` 与 `buildLaunchGateVisual`。将起飞跳台从平淡的 2D 三角形升级为具备机械厚度与倒角切削的 3D 实心跃空展翼结构（Extruded 3D Aero Wings），并配备两侧双立柱高能光子导引柱（Energy Pylons），沿起飞抛物线 1.4m $\rightarrow$ 4m $\rightarrow$ 6.3m 拔地而起，直观呈现如商业大作般的 3D 冲天发射台心智。
+- **3D 黄金金币前置远距磁吸与精准吸收（Long-Range Magnetic Coin Arc & Head Absorption）**：`HonorTargetSystem`（`src/game/honors.ts`）升级磁吸感应区至 18m 远距动态捕捉，并在船只逼近时以 0.32s 优雅贝塞尔抛物线从水面腾空飞跃进驾驶员座舱头顶，金币尺寸放大至 1.05m 直径并配备双层璀璨光晕，判定与动画完全精准解耦，带来强烈的飞跃吸入成就感！
 - **清脆晶莹的硬币收集双音音效（Crystal Dual-Tone Coin Chime）**：`AudioSystem`（`src/audio/audio.ts`）全面升级 `coinCollect(streak)`。彻底剔除了原先导致“过头闷响”的 220Hz 低频重音，采用纯净高频双音晶莹铃音（E6 1318.5Hz $\rightarrow$ E7 2637Hz），伴随极短金属清脆敲击瞬态与高频星光余音，连击时按和弦阶梯升调，行云流水如风铃般悦耳！
-- **3D 冲天飞行光翼（Cyber Aero Flight Wings）**：`Course`（`src/game/course.ts`）彻底废弃原先抽象平淡且令人困惑的 2D 大菱形，升级为具有科技流线感的 3D 悬浮冲天光翼（Swept Cyber Flight Wings & Skyward Chevrons）。双层硬朗机械边框（Ink Edge）与高亮流光内芯（Energy Core）结合，沿起飞抛物线呈 18° 仰角向天空阶梯展开（高度 1.4m $\rightarrow$ 4m $\rightarrow$ 6.3m），形成极为震撼直观的“展翅冲天跳台”心智。
 - **7 条天际雾桥航道永久存在（Persistent Skyways & Cloud Mist Bridges）**：`Course`（`src/game/course.ts`）重构航道渲染可见性，废弃以往单航线排他隐藏策略。群岛上空的 7 道空中雾桥与穿云光门永久驻留于世界之中，未激活航线呈现通透纯净的“天际云轨”环境质感，当前航线则注入耀眼金色能量流。飞跃光门后回头看，浮空天轨依然巍峨伫立，空间纵深与世界观宏大感倍增。
 - **AI 飞行 100% 全量合规化（AI 100% Skybound Compliance）**：`AI`（`src/game/ai.ts`）强化起飞意愿与蓄能时机判定，确保所有 AI 艇在起飞跳台 100% 点火升空与玩家在云端咬尾竞技，彻底杜绝以往偶尔在水面空门下方“滑水作弊”导致的露馅出戏感。
 - **通关画面按钮极致精简与隐蔽下一轮（Finale Overlay Streamlining & Discreet Fast-Forward）**：`FinaleOverlay`（`src/hud/finaleOverlay.ts` / `src/hud/finaleOverlay.css`）彻底剔除了冗余鸡肋的“截图生成中 / 预览截图”按钮；将老手专用“直接下一轮 ➔”重构成右上角半透明低调实用工具按钮（确保 $\ge 44\text{px}$ 且不抢夺视觉焦点）；主视觉只保留双核大按钮：左侧金色大卡“神秘资料片”（进入 7 大彩蛋画廊）、右侧半透明倒计时大按钮“继续游戏 / 查看高光（5s）”。在横屏手机（844x390）与桌面端呈现端庄大气、对称均衡的清爽视觉。

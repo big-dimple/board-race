@@ -161,6 +161,9 @@ interface HonorTargetVisual {
   activeMask: number;
   flySlot: number;
   flyT: number;
+  flyStartX: number;
+  flyStartY: number;
+  flyStartZ: number;
   bestDistanceSq: Float32Array;
   bestForwardAlign: Float32Array;
   bestX: Float32Array;
@@ -232,9 +235,13 @@ export class HonorTargetSystem {
       target.pulse = 0;
       target.flySlot = -1;
       target.flyT = 0;
+      target.flyStartX = target.x;
+      target.flyStartY = target.y;
+      target.flyStartZ = target.z;
       target.bestDistanceSq.fill(Infinity);
       target.bestForwardAlign.fill(-1);
       target.group.visible = true;
+      target.group.position.set(target.x, target.y, target.z);
       target.group.scale.setScalar(1);
     }
     for (const burst of this.coinBursts) {
@@ -265,7 +272,9 @@ export class HonorTargetSystem {
       target.pulse = Math.max(0, target.pulse - dt * 2.4);
       const bob = Math.sin(target.phase * 1.7) * TARGET_BOB_AMPLITUDE;
       target.y = waterHeight(target.x, target.z, time) + TARGET_BASE_Y + bob;
-      target.group.position.y = target.y;
+      if (target.flySlot < 0) {
+        target.group.position.y = target.y;
+      }
       const swayX = Math.sin(target.phase * 0.83) * 0.055;
       const swayZ = Math.cos(target.phase * 0.71) * 0.075;
       target.group.rotation.x = swayX;
@@ -293,7 +302,7 @@ export class HonorTargetSystem {
       // The halo breathes against the idle pulse so the marker never reads as
       // a static decal at chase distance.
       const halo = 1 + Math.sin(target.phase * 1.9) * 0.09 + target.pulse * 0.5;
-      target.halo.scale.set(2.9 * halo, 2.9 * halo, 1);
+      target.halo.scale.set(3.4 * halo, 3.4 * halo, 1);
 
       const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
       target.group.scale.setScalar(idlePulse + target.pulse * 0.2);
@@ -302,21 +311,48 @@ export class HonorTargetSystem {
       if (target.flySlot >= 0) {
         const flyingBoat = boats[target.flySlot];
         if (flyingBoat) {
-          target.flyT = Math.min(1, target.flyT + dt / 0.18);
+          target.flyT = Math.min(1, target.flyT + dt / 0.32);
           const tVal = target.flyT;
           const easeT = tVal * tVal * (3 - 2 * tVal);
           const headX = flyingBoat.state.position.x;
           const headY = flyingBoat.state.position.y + 1.25;
           const headZ = flyingBoat.state.position.z;
-          const midX = (target.x + headX) * 0.5;
-          const midY = Math.max(target.y, headY) + 1.3;
-          const midZ = (target.z + headZ) * 0.5;
+          const midX = (target.flyStartX + headX) * 0.5;
+          const midY = Math.max(target.flyStartY, headY) + 2.2;
+          const midZ = (target.flyStartZ + headZ) * 0.5;
           const inv = 1 - easeT;
-          target.group.position.x = inv * inv * target.x + 2 * inv * easeT * midX + easeT * easeT * headX;
-          target.group.position.y = inv * inv * target.y + 2 * inv * easeT * midY + easeT * easeT * headY;
-          target.group.position.z = inv * inv * target.z + 2 * inv * easeT * midZ + easeT * easeT * headZ;
-          target.emblem.rotation.y += dt * 22.0;
-          target.group.scale.setScalar(Math.max(0.01, (idlePulse + target.pulse * 0.2) * (1 - easeT * 0.6)));
+          target.group.position.x = inv * inv * target.flyStartX + 2 * inv * easeT * midX + easeT * easeT * headX;
+          target.group.position.y = inv * inv * target.flyStartY + 2 * inv * easeT * midY + easeT * easeT * headY;
+          target.group.position.z = inv * inv * target.flyStartZ + 2 * inv * easeT * midZ + easeT * easeT * headZ;
+          target.emblem.rotation.y += dt * 18.0;
+          target.group.scale.setScalar(Math.max(0.01, (idlePulse + target.pulse * 0.3) * (1 - easeT * 0.55)));
+
+          // When coin completes flight arc and reaches the player cockpit
+          if (tVal >= 1 && (target.hitMask & (1 << target.flySlot)) === 0) {
+            const slot = target.flySlot;
+            const bit = 1 << slot;
+            target.hitMask |= bit;
+            target.activeMask &= ~bit;
+            target.pulse = 1.35;
+            const event = this.eventPool[this.eventCursor++ % this.eventPool.length];
+            event.targetId = targetIndex;
+            event.kind = target.kind;
+            event.racerId = flyingBoat.id;
+            event.value = HONOR_DEFINITIONS[`target.${target.kind}`]?.value ?? 100;
+            event.at = target.bestAt[slot] || time;
+            event.x = headX;
+            event.y = headY;
+            event.z = headZ;
+            const isCenter = target.bestDistanceSq[slot] <= TARGET_CENTER_RADIUS * TARGET_CENTER_RADIUS;
+            event.precision = isCenter ? 'center' : 'edge';
+            out.push(event);
+            this.hitCount++;
+            if (event.precision === 'center') this.centerHitCount++;
+            else this.edgeHitCount++;
+            target.group.visible = false;
+            target.bestDistanceSq[slot] = Infinity;
+            target.bestForwardAlign[slot] = -1;
+          }
         }
       }
 
@@ -338,50 +374,48 @@ export class HonorTargetSystem {
         const distanceSq = dx * dx + dz * dz;
         const valid = (Math.abs(state.speed) >= 4 || state.airborne) &&
           Math.abs(state.position.y - target.y) <= 7.2;
+
+        // Lateral distance to the authored coin trajectory line
+        const forwardAlign = Math.sin(state.heading) * target.forwardX + Math.cos(state.heading) * target.forwardZ;
+        const lateralDist = Math.abs((state.position.x - target.x) * target.forwardZ - (state.position.z - target.z) * target.forwardX);
+        if (target.bestDistanceSq[slot] === Infinity || lateralDist * lateralDist < target.bestDistanceSq[slot]) {
+          target.bestDistanceSq[slot] = lateralDist * lateralDist;
+          target.bestForwardAlign[slot] = forwardAlign;
+          target.bestX[slot] = state.position.x;
+          target.bestY[slot] = state.position.y + 0.4;
+          target.bestZ[slot] = state.position.z;
+          target.bestAt[slot] = time;
+        }
+
+        // Long-range magnetic attraction (18m approach when heading toward the coin)
+        const toTargetX = target.x - state.position.x;
+        const toTargetZ = target.z - state.position.z;
+        const boatDirX = Math.sin(state.heading);
+        const boatDirZ = Math.cos(state.heading);
+        const dotHeading = (toTargetX * boatDirX + toTargetZ * boatDirZ) / (Math.hypot(toTargetX, toTargetZ) || 1);
+
+        if (valid && distanceSq <= 18.0 * 18.0 && dotHeading > 0.15) {
+          if (target.flySlot < 0 && (target.hitMask & bit) === 0) {
+            target.flySlot = boat.id;
+            target.flyT = 0;
+            target.flyStartX = target.x;
+            target.flyStartY = target.y;
+            target.flyStartZ = target.z;
+          }
+        }
+
         const inChallenge = valid && distanceSq <= TARGET_RADIUS * TARGET_RADIUS;
         if (inChallenge) {
-          const forwardAlign = Math.sin(state.heading) * target.forwardX + Math.cos(state.heading) * target.forwardZ;
-          if ((target.activeMask & bit) === 0 || distanceSq < target.bestDistanceSq[slot]) {
-            target.activeMask |= bit;
-            target.bestDistanceSq[slot] = distanceSq;
-            target.bestForwardAlign[slot] = forwardAlign;
-            target.bestX[slot] = state.position.x;
-            target.bestY[slot] = state.position.y + 0.4;
-            target.bestZ[slot] = state.position.z;
-            target.bestAt[slot] = time;
-          }
           target.pulse = Math.max(target.pulse, 0.28);
-          continue;
+          // If boat is directly inside contact zone and hasn't started flying yet
+          if (target.flySlot < 0 && (target.hitMask & bit) === 0) {
+            target.flySlot = boat.id;
+            target.flyT = 0;
+            target.flyStartX = target.x;
+            target.flyStartY = target.y;
+            target.flyStartZ = target.z;
+          }
         }
-        if ((target.activeMask & bit) === 0) continue;
-
-        // Resolve after the boat exits the outer circle. The old one-frame
-        // trigger rewarded the first edge contact, making a genuine centre
-        // line indistinguishable from a graze.
-        target.activeMask &= ~bit;
-        target.hitMask |= bit;
-        target.pulse = 1.25;
-        target.flySlot = boat.id;
-        target.flyT = 0;
-        const event = this.eventPool[this.eventCursor++ % this.eventPool.length];
-        event.targetId = targetIndex;
-        event.kind = target.kind;
-        event.racerId = boat.id;
-        event.value = HONOR_DEFINITIONS[`target.${target.kind}`]?.value ?? 100;
-        event.at = target.bestAt[slot];
-        event.x = target.bestX[slot];
-        event.y = target.bestY[slot];
-        event.z = target.bestZ[slot];
-        event.precision = target.bestDistanceSq[slot] <= TARGET_CENTER_RADIUS * TARGET_CENTER_RADIUS &&
-          target.bestForwardAlign[slot] >= TARGET_MIN_FORWARD_ALIGN
-          ? 'center'
-          : 'edge';
-        out.push(event);
-        this.hitCount++;
-        if (event.precision === 'center') this.centerHitCount++;
-        else this.edgeHitCount++;
-        target.bestDistanceSq[slot] = Infinity;
-        target.bestForwardAlign[slot] = -1;
       }
     }
   }
@@ -653,21 +687,21 @@ export class HonorTargetSystem {
       }
     }
     // Streamlined iconic 3D Gold Coin with embossed star crest and beveled rim
-    const coinCoreGeometry = new THREE.CylinderGeometry(0.85, 0.85, 0.22, 32);
+    const coinCoreGeometry = new THREE.CylinderGeometry(1.05, 1.05, 0.26, 32);
     coinCoreGeometry.rotateX(Math.PI / 2);
-    const coinFaceGeometry = new THREE.CylinderGeometry(0.72, 0.72, 0.05, 32);
+    const coinFaceGeometry = new THREE.CylinderGeometry(0.88, 0.88, 0.06, 32);
     coinFaceGeometry.rotateX(Math.PI / 2);
-    const coinRimGeometry = new THREE.TorusGeometry(0.78, 0.08, 8, 32);
-    const coinGrooveGeometry = new THREE.TorusGeometry(0.58, 0.025, 6, 28);
-    const coinHighlightGeometry = new THREE.TorusGeometry(0.68, 0.035, 6, 18, Math.PI * 0.6);
-    const coinStampGeometry = new THREE.ShapeGeometry(radialShape(8, (index) => index % 2 === 0 ? 0.44 : 0.18));
-    const coinStampHubGeometry = new THREE.CircleGeometry(0.12, 14);
-    const coinMiniGeometry = new THREE.CylinderGeometry(0.16, 0.16, 0.05, 12);
+    const coinRimGeometry = new THREE.TorusGeometry(0.96, 0.09, 8, 32);
+    const coinGrooveGeometry = new THREE.TorusGeometry(0.72, 0.03, 6, 28);
+    const coinHighlightGeometry = new THREE.TorusGeometry(0.82, 0.04, 6, 18, Math.PI * 0.6);
+    const coinStampGeometry = new THREE.ShapeGeometry(radialShape(8, (index) => index % 2 === 0 ? 0.54 : 0.22));
+    const coinStampHubGeometry = new THREE.CircleGeometry(0.15, 14);
+    const coinMiniGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.06, 12);
     coinMiniGeometry.rotateX(Math.PI / 2);
-    const coinGlintGeometry = new THREE.OctahedronGeometry(0.2, 0);
+    const coinGlintGeometry = new THREE.OctahedronGeometry(0.25, 0);
 
     // Flat foam annulus pinned to the live water plane.
-    const waterlineGeometry = new THREE.RingGeometry(0.85, 1.45, 24, 1);
+    const waterlineGeometry = new THREE.RingGeometry(1.05, 1.85, 24, 1);
     waterlineGeometry.rotateX(-Math.PI / 2);
 
     const beamMaterial = createToonMaterial({
@@ -773,7 +807,7 @@ export class HonorTargetSystem {
       emblem.add(coin);
 
       for (const side of [-1, 1]) {
-        const faceZ = side * 0.11;
+        const faceZ = side * 0.13;
         const face = new THREE.Mesh(coinFaceGeometry, coinFaceMaterial);
         face.name = 'honor-coin-face';
         face.position.z = faceZ;
@@ -782,32 +816,32 @@ export class HonorTargetSystem {
 
         const rim = new THREE.Mesh(coinRimGeometry, coinRimMaterial);
         rim.name = 'honor-coin-rim';
-        rim.position.z = side * 0.115;
+        rim.position.z = side * 0.135;
         emblem.add(rim);
 
         const groove = new THREE.Mesh(coinGrooveGeometry, coinStampMaterial);
         groove.name = 'honor-coin-groove';
-        groove.position.z = side * 0.118;
+        groove.position.z = side * 0.138;
         groove.userData.noOutline = true;
         emblem.add(groove);
 
         const stamp = new THREE.Mesh(coinStampGeometry, coinStampMaterial);
         stamp.name = 'honor-coin-stamp';
-        stamp.position.z = side * 0.122;
+        stamp.position.z = side * 0.142;
         if (side < 0) stamp.rotation.y = Math.PI;
         stamp.userData.noOutline = true;
         emblem.add(stamp);
 
         const stampHub = new THREE.Mesh(coinStampHubGeometry, coinRimMaterial);
         stampHub.name = 'honor-coin-stamp-hub';
-        stampHub.position.z = side * 0.125;
+        stampHub.position.z = side * 0.145;
         if (side < 0) stampHub.rotation.y = Math.PI;
         stampHub.userData.noOutline = true;
         emblem.add(stampHub);
 
         const highlight = new THREE.Mesh(coinHighlightGeometry, coinHighlightMaterial);
         highlight.name = 'honor-coin-highlight';
-        highlight.position.z = side * 0.128;
+        highlight.position.z = side * 0.148;
         highlight.rotation.z = side > 0 ? 0.56 : -2.58;
         if (side < 0) highlight.rotation.y = Math.PI;
         highlight.userData.noOutline = true;
@@ -815,7 +849,7 @@ export class HonorTargetSystem {
       }
 
       // Float coin cleanly above the water
-      emblem.position.set(0, 0.48, 0);
+      emblem.position.set(0, 0.52, 0);
       emblem.scale.setScalar(1.0);
       group.add(emblem);
 
@@ -844,15 +878,15 @@ export class HonorTargetSystem {
         map: coinTextures().spark,
         color: PALETTE.sunFlare,
         transparent: true,
-        opacity: 0.44,
+        opacity: 0.52,
         blending: THREE.AdditiveBlending,
         depthTest: false,
         depthWrite: false,
         toneMapped: false,
       }));
       halo.name = 'honor-halo';
-      halo.scale.set(2.4, 2.4, 1);
-      halo.position.y = 0.48;
+      halo.scale.set(3.8, 3.8, 1);
+      halo.position.y = 0.52;
       halo.renderOrder = 8;
       halo.userData.noInk = true;
       halo.userData.noOutline = true;
@@ -872,7 +906,7 @@ export class HonorTargetSystem {
         orb.name = isCoinChip ? 'honor-orbit-coin' : 'honor-coin-glint';
         orb.userData.noOutline = true;
         const angle = orbitIndex * (Math.PI * 2 / orbitCount);
-        orb.position.set(Math.cos(angle) * 1.5, 0.48 + Math.sin(angle * 1.3) * 0.22, Math.sin(angle) * 1.5);
+        orb.position.set(Math.cos(angle) * 2.0, 0.52 + Math.sin(angle * 1.3) * 0.28, Math.sin(angle) * 2.0);
         orbit.add(orb);
       }
       group.add(orbit);
@@ -900,6 +934,9 @@ export class HonorTargetSystem {
         activeMask: 0,
         flySlot: -1,
         flyT: 0,
+        flyStartX: x,
+        flyStartY: group.position.y,
+        flyStartZ: z,
         bestDistanceSq: Float32Array.from({ length: MAX_TARGET_RACERS }, () => Infinity),
         bestForwardAlign: Float32Array.from({ length: MAX_TARGET_RACERS }, () => -1),
         bestX: new Float32Array(MAX_TARGET_RACERS),
