@@ -23,7 +23,6 @@ import { Haptics } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
 import { ImmersiveModeController } from './core/immersiveMode';
 import { Ocean } from './water/ocean';
-import { SeaDecor } from './water/seaDecor';
 import { LighthouseLandmark } from './water/lighthouse';
 import { WakeRibbon } from './water/wake';
 import { SpraySystem } from './water/spray';
@@ -134,8 +133,6 @@ const ocean = new Ocean({
   quality: stage.quality.mode,
 });
 stage.scene.add(ocean.object);
-const seaDecor = new SeaDecor(stage.quality.mode);
-stage.scene.add(seaDecor.object);
 const lighthouse = new LighthouseLandmark();
 stage.scene.add(lighthouse.object);
 
@@ -615,7 +612,6 @@ function queueFreshStart(): void {
   // presentation is still holding input before the countdown.
   immersive.setPhase('active');
   openingShowcase.start(OPENING_SHOWCASE_S);
-  seaDecor.setOpening(true);
   ocean.setOpeningIntensity(1);
   sky.setOpeningIntensity(1);
   // The opening owns the whole visual stage; keep the READY sound utility
@@ -1045,7 +1041,6 @@ function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
   freshStartPending = false;
   openingShowcase.stop();
-  seaDecor.setOpening(false);
   ocean.setOpeningIntensity(0);
   sky.setOpeningIntensity(0);
   driverSelect.setLaunchPending(false);
@@ -1354,7 +1349,6 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
     applyHarnessCameraOverride();
     ocean.update(presentationTime, stage.camera.position);
     sky.update(presentationTime, stage.camera.position);
-    seaDecor.update(presentationTime, stage.camera.position);
     course.update(dt, presentationTime);
     // The race step returns early here, so without this the riders freeze in
     // their driving pose. Keep breathing and secondary motion running through
@@ -1371,7 +1365,6 @@ function resetRace(): void {
   harnessCameraOverride = null;
   freshStartPending = false;
   openingShowcase.stop();
-  seaDecor.setOpening(false);
   ocean.setOpeningIntensity(0);
   sky.setOpeningIntensity(0);
   driverSelect.setLaunchPending(false);
@@ -1880,7 +1873,6 @@ function updateFrontDoor(dt: number, t: number): void {
   applyHarnessCameraOverride();
   ocean.update(presentationTime, stage.camera.position);
   sky.update(presentationTime, stage.camera.position);
-  seaDecor.update(presentationTime, stage.camera.position);
   for (const boat of boats) boat.syncSurfacePresentation(presentationTime);
   for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, presentationTime);
   openingShowcase.update(dt);
@@ -2274,7 +2266,6 @@ function step(dt: number, _t: number): void {
     const readySceneTime = openingShowcase.active ? presentationTime : worldTime;
     ocean.update(readySceneTime, stage.camera.position);
     sky.update(readySceneTime, stage.camera.position);
-    seaDecor.update(readySceneTime, stage.camera.position);
     for (const boat of boats) boat.syncSurfacePresentation(readySceneTime);
     for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, readySceneTime);
     openingShowcase.update(dt);
@@ -2302,7 +2293,6 @@ function step(dt: number, _t: number): void {
       applyHarnessCameraOverride();
       ocean.update(worldTime, stage.camera.position);
       sky.update(worldTime, stage.camera.position);
-      seaDecor.update(worldTime, stage.camera.position);
       for (const boat of boats) boat.syncSurfacePresentation(worldTime);
       for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime);
       course.update(0, worldTime);
@@ -2759,7 +2749,6 @@ function step(dt: number, _t: number): void {
   applyHarnessCameraOverride();
   ocean.update(worldTime, stage.camera.position);
   sky.update(worldTime, stage.camera.position);
-  seaDecor.update(worldTime, stage.camera.position);
   course.update(dt, worldTime);
   for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
   spray.update(dt, worldTime);
@@ -2908,7 +2897,6 @@ function renderTeamSplit(): void {
   ocean.setResolution(halfWidth, drawing.y, teamLeftCamera.fov);
   ocean.update(worldTime, teamLeftCamera.position);
   sky.update(worldTime, teamLeftCamera.position);
-  seaDecor.update(worldTime, teamLeftCamera.position);
   const left = teamLeftPipeline.renderToTexture();
 
   ocean.uniforms.uDepthTex.value = teamRightPrePass.depthTexture;
@@ -2916,7 +2904,6 @@ function renderTeamSplit(): void {
   ocean.setResolution(halfWidth, drawing.y, teamRightCamera.fov);
   ocean.update(worldTime, teamRightCamera.position);
   sky.update(worldTime, teamRightCamera.position);
-  seaDecor.update(worldTime, teamRightCamera.position);
   const right = teamRightPipeline.renderToTexture();
 
   splitScreen.render(left, right);
@@ -4826,7 +4813,6 @@ function scenario(name: string): void {
     }
     case "opening-showcase":
       openingShowcase.start(OPENING_SHOWCASE_S);
-      seaDecor.setOpening(true);
       ocean.setOpeningIntensity(1);
       sky.setOpeningIntensity(1);
       driverSelect.setLaunchPending(true);

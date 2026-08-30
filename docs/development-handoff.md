@@ -31,8 +31,8 @@
   2. `Course`（`src/game/course.ts`）彻底修复光门支架因随切线旋转导致的“柱子斜插海水违背物理学”问题：光门重构为悬浮式高科技气动门框拱门（`gateHalfHeight = 1.9m`, `pillarHeight = 5.6m`），双侧能量立柱完美贴合拱门边界，彻底剔除任何斜插海水的畸变支柱；
   3. `Boat`（`src/game/boat.ts`）与 `contracts.ts` 动力学参数适配：垂直加速度弹性阻尼调整为 `flightAccelMax: 72`，爬升/下潜时间曲线优化（`flightAscend: 0.52s`, `flightDescend: 0.78s`），确保起飞腾空与着水入水如丝般顺滑；
   4. `CameraRig`（`src/game/chaseCamera.ts`）与 `AudioSystem`（`src/audio/audio.ts`）：下俯角增益优化至 `FLIGHT_LOOK_GAIN = 0.54`，FOV 呼吸区间微调至 `[78..84]`，高空镜头拉远后距控制在 `1.2m` 内，彻底避免船身遮挡前方光门与入水点，视觉与听觉体验全面封板。
-- **中远景白色三角转向切入客观运行态证据文档导出（Objective Evidence Report Exported to /tmp）**：
-  将渲染场景树、`sea-decor-sails`（4 边形 `ConeGeometry` 纯白材质、环形分布 $R \in [96\text{m}, 240\text{m}]$ 随相机偏航旋转切入视野）的客观代码事实与坐标计算导出至 `/tmp/white_triangles_runtime_evidence.md`。
+- **中远景白色三角与暗色鸟群视觉层已移除（Remote Sea Decor Removal）**：
+  `SeaDecor` 原本生成的 `sea-decor-sails` 白色四分段圆锥和 `sea-decor-birds` 暗色鸟群均为无 gameplay 依赖的视觉装饰，现已连同装饰节点、资源和每帧更新调用一并删除；运行态证据仍保留在 `/tmp/white_triangles_runtime_evidence.md` 作为根因记录。
 - **金币拾取立体声空间化与晶莹和弦升级 + 超强长程磁吸（Coin Audio Spatial Panning & 34m Suction Magnet）**：
   1. `AudioSystem`（`src/audio/audio.ts`）重构金币拾取音效为四音阶晶莹清脆和弦（523Hz 击打底音 + B5/E6/G#6/C7 晶莹泛音）配合音乐引擎智能瞬态避让，并引入 Web Audio `StereoPannerNode` 空间声相支持；`src/main.ts` 根据双人分屏席位下发声相（左席 -0.45 / 右席 +0.45），彻底解决右屏听不见金币拾取音效的问题！
   2. `HonorTargetSystem`（`src/game/honors.ts`）磁吸范围由 18m 大幅强化至 **34m 长程磁吸** 与 **14m 全向近接磁吸**，飞行吸入速率提升至 0.26s 且自转速率提升至 36 rad/s，金币如飞燕还巢般流畅吸入座舱驾驶员头部！

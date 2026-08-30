@@ -17,7 +17,6 @@ export const PALETTE = {
   skyHorizon: 0xaef4ff,
   sunCore: 0xfff3b0,
   sunFlare: 0xffd23f,
-  cloudBody: 0xffffff,
   cloudShade: 0xb8e0f5,
   cloudRim: 0xffd9a0,
 
