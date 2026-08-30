@@ -920,8 +920,8 @@ export class HUD {
       } else {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'FLIGHT READY';
-        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「飞」起飞' : `按 ${key} 起飞`;
-        this.flightPromptRule.textContent = '起飞耗 1 格 · 冲向光门点火升空';
+        this.flightPromptCn.textContent = promptDevice === 'mobile' ? '点「飞」提前起飞！' : `按 ${key} 提前起飞！`;
+        this.flightPromptRule.textContent = '看到白雾桥提前点火 · 提早入轨避免错失航道';
       }
     }
     if (this.flightPromptHitTimer > 0) {

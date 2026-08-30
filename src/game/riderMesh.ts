@@ -477,115 +477,157 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Failed to get 2d context for face texture canvas');
 
-  // clearRect first: transparent pixels reveal the skin ellipsoid underneath
   ctx.clearRect(0, 0, 256, 256);
 
-  const hairColorHex = hexToString(look.hair);
-
-  const driverEyeGradients: Record<string, { top: string; bottom: string }> = {
-    sol: { top: '#a83c10', bottom: '#f59638' },
-    tide: { top: '#164878', bottom: '#3ca8d8' },
-    axle: { top: '#422818', bottom: '#7a5238' },
-    reef: { top: '#781c10', bottom: '#c84428' },
-    kai: { top: '#1c2038', bottom: '#485888' },
-    jinx: { top: '#481864', bottom: '#883ca8' },
+  const driverVisorThemes: Record<string, {
+    primary: string;
+    secondary: string;
+    glow: string;
+    hudLine: string;
+    browHex: string;
+  }> = {
+    sol: { primary: '#ffd020', secondary: '#ff7700', glow: 'rgba(255, 208, 32, 0.65)', hudLine: '#fff4b8', browHex: '#ffaa00' },
+    tide: { primary: '#00f0ff', secondary: '#0077ff', glow: 'rgba(0, 240, 255, 0.65)', hudLine: '#b8f8ff', browHex: '#00c8ff' },
+    axle: { primary: '#39ff88', secondary: '#00b040', glow: 'rgba(57, 255, 136, 0.65)', hudLine: '#c4ffdf', browHex: '#00e676' },
+    reef: { primary: '#ff3d7f', secondary: '#c50042', glow: 'rgba(255, 61, 127, 0.65)', hudLine: '#ffb3ca', browHex: '#ff1744' },
+    kai: { primary: '#448aff', secondary: '#0d47a1', glow: 'rgba(68, 138, 255, 0.65)', hudLine: '#c2dcff', browHex: '#2979ff' },
+    jinx: { primary: '#d500f9', secondary: '#7b1fa2', glow: 'rgba(213, 0, 249, 0.65)', hudLine: '#f6c4ff', browHex: '#e040fb' },
   };
-  const eyeColors = driverEyeGradients[driverId] ?? { top: '#2c2234', bottom: hairColorHex };
+  const theme = driverVisorThemes[driverId] ?? {
+    primary: '#00f0ff',
+    secondary: '#0055cc',
+    glow: 'rgba(0, 240, 255, 0.6)',
+    hudLine: '#ffffff',
+    browHex: hexToString(look.hair),
+  };
 
-  // Stable face anchors keep the expression centered on the curved patch.
-  for (const cx of [78, 178]) {
-    const cy = 112;
-
-    // Sclera (Eye White): width 58, height 27
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, 29, 13.5, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-
-    // Clip iris within sclera
-    ctx.clip();
-
-    // Iris: radius 18
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, 18, 18, 0, 0, Math.PI * 2);
-    const irisGrad = ctx.createLinearGradient(cx, cy - 18, cx, cy + 18);
-    irisGrad.addColorStop(0, eyeColors.top);
-    irisGrad.addColorStop(1, eyeColors.bottom);
-    ctx.fillStyle = irisGrad;
-    ctx.fill();
-
-    // Pupil: radius 8
-    ctx.beginPath();
-    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#100c16';
-    ctx.fill();
-
-    // Double catchlights at +/- 6px
-    ctx.beginPath();
-    ctx.arc(cx - 6, cy - 6, 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(cx + 6, cy + 5, 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-
-    ctx.restore();
-
-    // Upper lid: 4px
-    ctx.beginPath();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#181420';
-    ctx.lineCap = 'round';
-    ctx.moveTo(cx - 30, cy - 2);
-    ctx.quadraticCurveTo(cx, cy - 18, cx + 30, cy - 2);
-    ctx.stroke();
-
-    // Lower lid: 2px
-    ctx.beginPath();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#2d2438';
-    ctx.lineCap = 'round';
-    ctx.moveTo(cx - 18, cy + 13);
-    ctx.quadraticCurveTo(cx, cy + 16, cx + 18, cy + 13);
-    ctx.stroke();
-  }
-
-  // Brows at y = 84, styled using look.hair tint
-  // Left brow
+  // 1. Aerodynamic Visor Body Contour
+  ctx.save();
   ctx.beginPath();
-  ctx.lineWidth = 4.5;
-  ctx.strokeStyle = hairColorHex;
-  ctx.lineCap = 'round';
-  ctx.moveTo(78 - 28, 90);
-  ctx.quadraticCurveTo(78 - 4, 80, 78 + 28, 86);
-  ctx.stroke();
+  ctx.moveTo(34, 92);
+  ctx.quadraticCurveTo(128, 68, 222, 92);
+  ctx.quadraticCurveTo(236, 126, 218, 154);
+  ctx.quadraticCurveTo(128, 178, 38, 154);
+  ctx.quadraticCurveTo(20, 126, 34, 92);
+  ctx.closePath();
 
-  // Right brow
-  ctx.beginPath();
-  ctx.lineWidth = 4.5;
-  ctx.strokeStyle = hairColorHex;
-  ctx.lineCap = 'round';
-  ctx.moveTo(178 - 28, 86);
-  ctx.quadraticCurveTo(178 + 4, 80, 178 + 28, 90);
-  ctx.stroke();
-
-  // Nose point at (128, 139)
-  ctx.beginPath();
-  ctx.fillStyle = '#7a4230';
-  ctx.arc(128, 139, 2.5, 0, Math.PI * 2);
+  // Deep obsidian to team-tinted gloss gradient
+  const visorGrad = ctx.createLinearGradient(128, 70, 128, 176);
+  visorGrad.addColorStop(0, '#0a0d1a');
+  visorGrad.addColorStop(0.35, '#12182e');
+  visorGrad.addColorStop(0.78, theme.secondary);
+  visorGrad.addColorStop(1, theme.primary);
+  ctx.fillStyle = visorGrad;
   ctx.fill();
 
-  // Mouth baseline at y = 157
-  ctx.beginPath();
-  ctx.lineWidth = 3.2;
-  ctx.strokeStyle = '#682820';
-  ctx.lineCap = 'round';
-  ctx.moveTo(112, 157);
-  ctx.quadraticCurveTo(128, 163, 144, 157);
+  // Visor outer ink border
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#060814';
   ctx.stroke();
+  ctx.restore();
+
+  // 2. Holographic HUD Reticle & Cyber Telemetry
+  ctx.save();
+  ctx.strokeStyle = theme.hudLine;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = theme.glow;
+  ctx.shadowBlur = 8;
+
+  // Left & right eye HUD brackets [  ]
+  for (const cx of [82, 174]) {
+    const cy = 120;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, -Math.PI * 0.4, Math.PI * 0.4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, Math.PI * 0.6, Math.PI * 1.4);
+    ctx.stroke();
+    // Center micro dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = theme.hudLine;
+    ctx.fill();
+  }
+
+  // Horizon HUD scanline
+  ctx.beginPath();
+  ctx.moveTo(108, 120);
+  ctx.lineTo(148, 120);
+  ctx.stroke();
+
+  // Micro chevron marks << >>
+  ctx.beginPath();
+  ctx.moveTo(52, 116);
+  ctx.lineTo(46, 120);
+  ctx.lineTo(52, 124);
+  ctx.moveTo(204, 116);
+  ctx.lineTo(210, 120);
+  ctx.lineTo(204, 124);
+  ctx.stroke();
+  ctx.restore();
+
+  // 3. Specular Curved Glass Highlight Streak
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(48, 98);
+  ctx.quadraticCurveTo(128, 76, 208, 98);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Secondary lower glint
+  ctx.beginPath();
+  ctx.moveTo(58, 108);
+  ctx.quadraticCurveTo(96, 92, 128, 92);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.stroke();
+  ctx.restore();
+
+  // 4. Upper Cyber Brow Housing Strip with Neon LED
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(30, 88);
+  ctx.quadraticCurveTo(128, 64, 226, 88);
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = '#181b2e';
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Glowing center status LED
+  ctx.beginPath();
+  ctx.arc(128, 74, 4, 0, Math.PI * 2);
+  ctx.fillStyle = theme.browHex;
+  ctx.shadowColor = theme.primary;
+  ctx.shadowBlur = 12;
+  ctx.fill();
+  ctx.restore();
+
+  // 5. Lower Aerodynamic Chin Respirator / Collar Shield
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(86, 192);
+  ctx.lineTo(128, 218);
+  ctx.lineTo(170, 192);
+  ctx.lineTo(154, 178);
+  ctx.lineTo(102, 178);
+  ctx.closePath();
+  ctx.fillStyle = '#101424';
+  ctx.fill();
+  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = '#060814';
+  ctx.stroke();
+
+  // Aero vent slots
+  ctx.strokeStyle = theme.primary;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(112, 190);
+  ctx.lineTo(128, 202);
+  ctx.lineTo(144, 190);
+  ctx.stroke();
+  ctx.restore();
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -602,10 +644,10 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
   const uvs: number[] = [];
   const indices: number[] = [];
 
-  const xmin = -0.066;
-  const xmax = 0.066;
-  const ymin = 0.048;
-  const ymax = 0.144;
+  const xmin = -0.070;
+  const xmax = 0.070;
+  const ymin = 0.040;
+  const ymax = 0.150;
 
   const numCols = 8;
   const numRows = 6;
@@ -613,7 +655,7 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
   for (let row = 0; row < numRows; row++) {
     const tY = row / (numRows - 1);
     const y = ymin + tY * (ymax - ymin);
-    const v = tY;
+    const v = 1 - tY;
     for (let col = 0; col < numCols; col++) {
       const tX = col / (numCols - 1);
       const x = xmin + tX * (xmax - xmin);

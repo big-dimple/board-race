@@ -45,9 +45,9 @@ export class KickstartGuide {
           <div class="kickstart-guide-card">
             <div class="kickstart-guide-badge">3</div>
             <div class="kickstart-guide-icon">🚀</div>
-            <strong class="kickstart-guide-card-title">抵门点火飞天</strong>
-            <div class="kickstart-guide-key kickstart-key-flight">按 SPACE 起飞</div>
-            <p class="kickstart-guide-card-copy">冲向起飞区按键点火！空中穿环续航，连通 7 道航线夺冠！</p>
+            <strong class="kickstart-guide-card-title">见雾提早起飞</strong>
+            <div class="kickstart-guide-key kickstart-key-flight">按 SPACE 提前起飞</div>
+            <p class="kickstart-guide-card-copy">看到白雾桥立即提前按键起飞！提早入轨对准航道，飞晚容易错失天轨坠海！</p>
           </div>
         </div>
         <div class="kickstart-guide-footer">
@@ -103,15 +103,15 @@ export class KickstartGuide {
     if (device === 'gamepad') {
       this.steerKey.textContent = '左摇杆 转向';
       this.driftKey.textContent = '按住 X 漂移';
-      this.flightKey.textContent = '按 A 起飞';
+      this.flightKey.textContent = '按 A 提前起飞';
     } else if (device === 'mobile') {
       this.steerKey.textContent = '左手 左右转向';
       this.driftKey.textContent = '右手 按住【漂】';
-      this.flightKey.textContent = '右手 点按【飞】';
+      this.flightKey.textContent = '右手 点按【飞】提前起飞';
     } else {
       this.steerKey.textContent = 'A / D · ← / →';
       this.driftKey.textContent = '按住 SHIFT 漂移';
-      this.flightKey.textContent = '按 SPACE 起飞';
+      this.flightKey.textContent = '按 SPACE 提前起飞';
     }
   }
 

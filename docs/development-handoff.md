@@ -5,7 +5,9 @@
 
 ## 当前工作包
 
-- **PC 版男人勋章界面比例与超大气势按钮（Grand Desktop Macho Medal Layout & Epic Action Buttons）**：`hud.css`（`src/hud/hud.css`）深度优化桌面端男人勋章颁奖界面的纵向排版与字号层级。将大奖章与文本内容区以黄金比例平铺于视口中央与中下区域，放大 Kicker 副标（`16px`）、大标题（`58px~84px`）、大数字计数（`28px`），操作大按钮全面升级为超大气势规格（`250px × 64px`，`22px` 粗黑体 + 金黄/霓虹双色微光悬停缩放特效），底部配以呼吸光影底标，彻底消除 PC 屏幕下方空白空旷感，营造顶奢荣耀殿堂仪式感！
+- **高科技赛博竞速风镜与全息战术目镜（High-Tech Cyber Aerodynamic Visors & Holographic HUD）**：`riderMesh`（`src/game/riderMesh.ts`）重构全体赛艇驾驶员（主角与全量 AI）的面部结构。全面告别以往低精度卡通五官贴图的粗糙感，为 6 大车手专属定制空气动力学赛博竞速风镜（Cyber Aerodynamic Visor），配备深邃渐变琉璃镜片、专属车队色彩发光 LED、曲面高光反光条、全息 HUD 战术准星与下颚微型气动滤网，呈现纯正未来街机大作级的炫酷质感！
+- **新手引导与全场景起飞时机重磅强化（Early Flight Timing Emphasized Across All Prompts）**：`KickstartGuide`（`src/hud/kickstartGuide.ts`）与 `Hud`（`src/hud/hud.ts`）全面强化起飞时机文案，强调“见雾提早起飞 / 点按【飞】提前起飞！”并预警“提早入轨避免错失航道坠海”，彻底杜绝新手飞晚冲出空轨的挫败感！
+- **移动端猛男颁奖画面四键隐藏与猛男大字超绝强化（Mobile Medal Touch Controls Hidden & Giant 「猛男」 Title）**：`hud.css`（`src/hud/hud.css`）在猛男勋章典礼开启时彻底隐藏移动端左转向/右转向/漂移/起飞 4 个触摸按键，全屏纯净沉浸；PC 桌面端「猛男」大字尺寸大幅放大至 `clamp(72px, 8.8vw, 108px)` 极粗大黑体，配合细腻鎏金呼吸闪光与 `250px × 64px` 超大气势按钮，荣耀仪式感拉满！
 - **起飞跳台大菱形与所有多余装饰彻底去除（Complete Removal of Launch Diamonds & Pure Mist Bridge Flight）**：`Course`（`src/game/course.ts`）彻底关闭了起飞跳台处的大菱形光环模型与所有多余的浮空装饰物。水面起飞区域 100% 还原为无遮挡纯净海面，由玩家凭肉眼观察白色的天际雾桥航道自主决定提前点火起飞！
 - **经典纯净 3D 黄金硬币与清脆 Bling 铃音（Classic Pure 3D Gold Coin & Snappy Crisp Chime）**：`HonorTargetSystem`（`src/game/honors.ts`）剔除所有繁琐杂乱的浮动环绕小币，回归单枚优雅自转的经典 3D 纯金大硬币；`AudioSystem`（`src/audio/audio.ts`）全面重构拾取音效为经典街机纯净双音晶莹铃音（B5 987.8Hz $\rightarrow$ E6 1318.5Hz），配合金属高频轻灵余音与 18m 弧线吸入座舱动画，干脆利落、欢快清爽！
 - **彻底清除所有离散引导与航路恢复白色三角箭头（Complete Purge of Stray White Triangles & Recovery Arrows）**：`Course`（`src/game/course.ts`）全面禁用了在通过各飞行门（尤其是第 7 门通过后）以及水面远端离散生成并随船只转向机械偏转的 `recoveryArrows` / `surfaceGuideArrows` 实例，彻底清除了在远端海天视野中孤立出现的白色三角箭头 Bug，赛道与空轨指引 100% 依托平滑纯净的流光缎带。

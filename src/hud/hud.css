@@ -2585,10 +2585,11 @@
 .hud-medal-title {
   margin-top: 8px;
   color: #ffcf4a;
-  font-size: clamp(58px, 7.2vw, 84px);
+  font-size: clamp(72px, 8.8vw, 108px);
   font-weight: 900;
+  letter-spacing: 0.04em;
   line-height: 1;
-  text-shadow: 0 4px 0 rgba(12, 12, 37, 0.95), 0 0 36px rgba(255, 207, 74, 0.6);
+  text-shadow: 0 4px 0 rgba(12, 12, 37, 0.95), 0 0 42px rgba(255, 207, 74, 0.7);
   animation: hud-medal-title-in 0.55s cubic-bezier(0.12, 1.45, 0.2, 1) both,
     hud-gold-shimmer 1.25s 0.65s ease-in-out infinite;
 }
@@ -2674,11 +2675,15 @@
 .hud.medal-on > :not(.hud-medal-ceremony):not(.hud-interruption) { opacity: 0; }
 .hud.interrupted > .hud-interruption { opacity: 1; }
 
+body:has(.hud-medal-ceremony.on) .mobile-controls,
+.hud.medal-on ~ .mobile-controls {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 @media (pointer:coarse) and (orientation:landscape) {
-  /* Keep the authored medal controls clickable while letting the visible
-     thumb zones underneath accept steering/drift holds for the resume. */
-  .hud-medal-ceremony { pointer-events:none; }
-  .hud-medal-continue { pointer-events:auto; }
+  .hud-medal-ceremony { pointer-events: auto; }
 }
 
 @keyframes hud-medal-title-in {
