@@ -1520,78 +1520,17 @@ function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
   return geometry;
 }
 
-let _flightGlyphTexture: THREE.CanvasTexture | null = null;
-function getFlightGlyphTexture(): THREE.CanvasTexture {
-  if (_flightGlyphTexture) return _flightGlyphTexture;
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, 256, 256);
-
-  // Outer neon radial aura
-  const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 124);
-  grad.addColorStop(0, 'rgba(0, 240, 255, 0.45)');
-  grad.addColorStop(0.65, 'rgba(0, 160, 255, 0.2)');
-  grad.addColorStop(1, 'rgba(0, 60, 200, 0)');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(128, 128, 124, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Cyber hexagonal ring
-  ctx.strokeStyle = '#00f0ff';
-  ctx.lineWidth = 6;
-  ctx.shadowColor = '#00e1ff';
-  ctx.shadowBlur = 16;
-  ctx.beginPath();
-  for (let i = 0; i < 6; i++) {
-    const angle = (i * Math.PI) / 3;
-    const x = 128 + Math.cos(angle) * 106;
-    const y = 128 + Math.sin(angle) * 106;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  ctx.stroke();
-
-  // Bold "飞" calligraphy with glowing energy
-  ctx.font = '900 132px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
-  ctx.shadowColor = '#ffd020';
-  ctx.shadowBlur = 24;
-  ctx.fillText('飞', 128, 118);
-
-  // Subtitle "FLY 🚀"
-  ctx.font = 'bold 26px sans-serif';
-  ctx.fillStyle = '#ffe040';
-  ctx.shadowColor = '#ff9900';
-  ctx.shadowBlur = 12;
-  ctx.fillText('FLY 🚀', 128, 196);
-
-  _flightGlyphTexture = new THREE.CanvasTexture(canvas);
-  _flightGlyphTexture.needsUpdate = true;
-  return _flightGlyphTexture;
-}
-
 function makeCyberFlightWingGeometry(scale = 1.0, depth = 0): THREE.BufferGeometry {
   const s = scale;
-  // Slender open launch diamond ring
   const points = [
-    // Top to right
-    0, 1.85 * s, depth,   1.95 * s, 0, depth,   1.75 * s, 0, depth,
-    0, 1.85 * s, depth,   1.75 * s, 0, depth,   0, 1.65 * s, depth,
-    // Right to bottom
-    1.95 * s, 0, depth,   0, -0.6 * s, depth,   0, -0.4 * s, depth,
-    1.95 * s, 0, depth,   0, -0.4 * s, depth,   1.75 * s, 0, depth,
-    // Bottom to left
-    0, -0.6 * s, depth,  -1.95 * s, 0, depth,  -1.75 * s, 0, depth,
-    0, -0.6 * s, depth,  -1.75 * s, 0, depth,   0, -0.4 * s, depth,
-    // Left to top
-    -1.95 * s, 0, depth,  0, 1.85 * s, depth,   0, 1.65 * s, depth,
-    -1.95 * s, 0, depth,  0, 1.65 * s, depth,  -1.75 * s, 0, depth,
+    0, 1.4 * s, depth,   1.4 * s, 0, depth,   1.2 * s, 0, depth,
+    0, 1.4 * s, depth,   1.2 * s, 0, depth,   0, 1.2 * s, depth,
+    1.4 * s, 0, depth,   0, -1.4 * s, depth,  0, -1.2 * s, depth,
+    1.4 * s, 0, depth,   0, -1.2 * s, depth,  1.2 * s, 0, depth,
+    0, -1.4 * s, depth, -1.4 * s, 0, depth,  -1.2 * s, 0, depth,
+    0, -1.4 * s, depth, -1.2 * s, 0, depth,   0, -1.2 * s, depth,
+    -1.4 * s, 0, depth,  0, 1.4 * s, depth,   0, 1.2 * s, depth,
+    -1.4 * s, 0, depth,  0, 1.2 * s, depth,  -1.2 * s, 0, depth,
   ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
@@ -4472,19 +4411,9 @@ export class Course implements ICourse {
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
     group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);
 
-    const inkGeometry = makeCyberFlightWingGeometry(1.22, 0);
-    const energyGeometry = makeCyberFlightWingGeometry(1.02, 0.04);
-    const postureGeometry = makeCyberFlightWingGeometry(0.82, 0.06);
-    const glyphGeo = new THREE.PlaneGeometry(2.6, 2.6);
-    const glyphMat = new THREE.MeshBasicMaterial({
-      map: getFlightGlyphTexture(),
-      transparent: true,
-      opacity: 0.96,
-      side: THREE.DoubleSide,
-      depthTest: false,
-      depthWrite: false,
-      toneMapped: false,
-    });
+    const inkGeometry = makeCyberFlightWingGeometry(1.12, 0);
+    const energyGeometry = makeCyberFlightWingGeometry(0.9, 0.04);
+    const postureGeometry = makeCyberFlightWingGeometry(0.78, 0.06);
     const diamonds: LaunchGateDiamond[] = [];
     const forward = new THREE.Vector3(0, 0, 1);
     const waveWeights = [1, 0.42, 0];
@@ -4502,7 +4431,7 @@ export class Course implements ICourse {
       const ink = new THREE.MeshBasicMaterial({
         color: PALETTE.ink,
         transparent: true,
-        opacity: 0.88,
+        opacity: 0.86,
         depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -4511,7 +4440,7 @@ export class Course implements ICourse {
       const energy = new THREE.MeshBasicMaterial({
         color: PALETTE.sunFlare,
         transparent: true,
-        opacity: 0.82,
+        opacity: 0.78,
         depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -4523,17 +4452,7 @@ export class Course implements ICourse {
       energyRing.position.z = 0.035;
       energyRing.renderOrder = 8;
       energyRing.layers.enable(LAYER_ENERGY);
-
-      // Flanking glowing "飞" soaring badges on left and right sides
-      const leftGlyph = new THREE.Mesh(glyphGeo, glyphMat);
-      leftGlyph.position.set(-3.6, 0.6, 0);
-      leftGlyph.renderOrder = 9;
-      leftGlyph.layers.enable(LAYER_ENERGY);
-      const rightGlyph = new THREE.Mesh(glyphGeo, glyphMat);
-      rightGlyph.position.set(3.6, 0.6, 0);
-      rightGlyph.renderOrder = 9;
-      rightGlyph.layers.enable(LAYER_ENERGY);
-      root.add(inkRing, energyRing, leftGlyph, rightGlyph);
+      root.add(inkRing, energyRing);
 
       let postureInk: THREE.MeshBasicMaterial | null = null;
       let postureFill: THREE.MeshBasicMaterial | null = null;

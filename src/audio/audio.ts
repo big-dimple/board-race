@@ -498,76 +498,54 @@ export class GameAudio {
   }
 
   /**
-   * Sparkling crystal-chime coin pickup.
-   * High-register crystalline dual-tone arpeggio (E6 -> E7) with harmonic
-   * shimmer and ascending pentatonic pitch on streak combos.
+   * Classic arcade sparkling crystal-chime coin pickup.
+   * Pure, punchy dual-tone chime (B5 -> E6) with clean harmonic brilliance.
    */
   coinCollect(streak = 0): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
-    if (this.activeOneShots + 6 >= this.maxOneShots) return;
+    if (this.activeOneShots + 4 >= this.maxOneShots) return;
     const t0 = c.currentTime;
     this.traceEvent('coin-collect', 1 + Math.min(streak, 6) * 0.05);
 
-    // Ascending pitch ladder: whole-step pentatonic scale per streak combo.
-    const ladder = Math.pow(2, ((streak % 8) * 2) / 12);
-
-    // Note 1 (sparkle attack): E6 (1318.5 Hz)
+    // Note 1 (snappy attack pip): B5 (987.77 Hz)
     const o1 = c.createOscillator();
     o1.type = 'sine';
-    o1.frequency.setValueAtTime(1318.5 * ladder, t0);
+    o1.frequency.setValueAtTime(987.77, t0);
     const g1 = c.createGain();
     g1.gain.setValueAtTime(0, t0);
-    g1.gain.linearRampToValueAtTime(0.32, t0 + 0.003);
-    g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+    g1.gain.linearRampToValueAtTime(0.35, t0 + 0.002);
+    g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.045);
     o1.connect(g1);
     g1.connect(this.eventBus);
-    this.trackOneShot(o1, [g1], t0, t0 + 0.08);
+    this.trackOneShot(o1, [g1], t0, t0 + 0.06);
 
-    // Note 2 (crystal sustain chime): E7 (2637.0 Hz)
-    const t1 = t0 + 0.025;
+    // Note 2 (bright ringing bell): E6 (1318.5 Hz)
+    const t1 = t0 + 0.032;
     const o2 = c.createOscillator();
     o2.type = 'sine';
-    o2.frequency.setValueAtTime(2637.0 * ladder, t1);
+    o2.frequency.setValueAtTime(1318.51, t1);
     const g2 = c.createGain();
     g2.gain.setValueAtTime(0, t1);
-    g2.gain.linearRampToValueAtTime(0.38, t1 + 0.004);
-    g2.gain.exponentialRampToValueAtTime(0.001, t1 + 0.38);
+    g2.gain.linearRampToValueAtTime(0.42, t1 + 0.003);
+    g2.gain.exponentialRampToValueAtTime(0.001, t1 + 0.28);
     o2.connect(g2);
     g2.connect(this.eventBus);
-    this.trackOneShot(o2, [g2], t1, t1 + 0.4);
+    this.trackOneShot(o2, [g2], t1, t1 + 0.3);
 
-    // Shimmer overtone (B7 / 3951 Hz)
+    // Soft high metallic ping overtone (E7 / 2637 Hz)
     const o3 = c.createOscillator();
-    o3.type = 'sine';
-    o3.frequency.setValueAtTime(3951.0 * ladder, t1);
+    o3.type = 'triangle';
+    o3.frequency.setValueAtTime(2637.0, t1);
     const g3 = c.createGain();
     g3.gain.setValueAtTime(0, t1);
-    g3.gain.linearRampToValueAtTime(0.14, t1 + 0.004);
-    g3.gain.exponentialRampToValueAtTime(0.001, t1 + 0.18);
+    g3.gain.linearRampToValueAtTime(0.12, t1 + 0.003);
+    g3.gain.exponentialRampToValueAtTime(0.001, t1 + 0.12);
     o3.connect(g3);
     g3.connect(this.eventBus);
-    this.trackOneShot(o3, [g3], t1, t1 + 0.2);
+    this.trackOneShot(o3, [g3], t1, t1 + 0.15);
 
-    // High-register metallic sparkle clink transient
-    if (this.noiseBuf) {
-      const burstNoise = c.createBufferSource();
-      burstNoise.buffer = this.noiseBuf;
-      const bp = c.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(6800, t0);
-      bp.frequency.exponentialRampToValueAtTime(3200, t0 + 0.04);
-      bp.Q.value = 2.4;
-      const burstGain = c.createGain();
-      burstGain.gain.setValueAtTime(0.32, t0);
-      burstGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.045);
-      burstNoise.connect(bp);
-      bp.connect(burstGain);
-      burstGain.connect(this.eventBus);
-      this.trackOneShot(burstNoise, [bp, burstGain], t0, t0 + 0.06);
-    }
-
-    this.duckMusic(0.85, 0.08);
+    this.duckMusic(0.88, 0.06);
   }
 
   /** rpm 0..1, throttle 0..1, boosting adds a bright octave layer. */

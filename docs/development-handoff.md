@@ -5,11 +5,10 @@
 
 ## 当前工作包
 
+- **PC 版男人勋章界面比例与下半屏布局优化（Desktop Macho Medal Ceremony Layout & Typography Polish）**：`hud.css`（`src/hud/hud.css`）深度优化桌面端男人勋章颁奖界面的纵向排版与字号层级。将大奖章与文本内容区以黄金比例平铺于视口中央与中下区域，放大 Kicker 副标（`16px`）、大标题（`58px~84px`）、大数字计数（`28px`）与动作大按钮（`196px × 52px`），底部添加呼吸光影底标，彻底消除 PC 屏幕下方大片空白与空旷感，营造端庄厚重的荣耀殿堂仪式感！
+- **经典纯净 3D 黄金硬币与清脆 Bling 铃音（Classic Pure 3D Gold Coin & Snappy Crisp Chime）**：`HonorTargetSystem`（`src/game/honors.ts`）剔除所有繁琐杂乱的浮动环绕小币，回归单枚优雅自转的经典 3D 纯金大硬币；`AudioSystem`（`src/audio/audio.ts`）全面重构拾取音效为经典街机纯净双音晶莹铃音（B5 987.8Hz $\rightarrow$ E6 1318.5Hz），配合金属高频轻灵余音与 18m 弧线吸入座舱动画，干脆利落、欢快清爽！
+- **起飞跳台完全清空多余装饰（Clean & Pristine Skyway Takeoff Corridor）**：`Course`（`src/game/course.ts`）完全清除了起飞点所有多余的临时文字光标与翅膀装饰，保持赛道与云轨起飞视线 100% 纯净通透，等待后续全新设计。
 - **彻底清除所有离散引导与航路恢复白色三角箭头（Complete Purge of Stray White Triangles & Recovery Arrows）**：`Course`（`src/game/course.ts`）全面禁用了在通过各飞行门（尤其是第 7 门通过后）以及水面远端离散生成并随船只转向机械偏转的 `recoveryArrows` / `surfaceGuideArrows` 实例，彻底清除了在远端海天视野中孤立出现的白色三角箭头 Bug，赛道与空轨指引 100% 依托平滑纯净的流光缎带。
-- **起飞跳台左右双翼「飞」字腾空光标与通透云轨发射台（Twin Soaring 「飞」 Flight Badges & Open Launch Arch）**：`Course`（`src/game/course.ts`）剔除了阻塞中央视线的厚重机械翅膀，在雾桥起飞点两侧部署高辨识度的赛博发光「飞」字悬浮动力光标（Twin Soaring 「飞」 Badges），正中保留轻盈通透的飞行导引环与冲天光束，视野开阔通透，起飞时机一目了然。
-- **高难度弯道金币群簇与多音阶连环吸收爆点（Apex Coin Clusters & Melodic Arpeggio Cascades）**：`HonorTargetSystem`（`src/game/honors.ts`）在急弯与走线精妙处（$u = 0.33, 0.607, 0.882$ 等）部署 6 币环绕的金色财富群簇，赛艇切入弯心时多枚金币以连贯抛物线依次飞跃吸入座舱，连续触发星尘爆炸与多阶清脆升调铃音，带来极致爽快的解压爆点体验！确保全部金币实景建模可见，杜绝幽灵金币。
-- **3D 黄金金币前置远距磁吸与精准吸收（Long-Range Magnetic Coin Arc & Head Absorption）**：`HonorTargetSystem`（`src/game/honors.ts`）升级磁吸感应区至 18m 远距动态捕捉，并在船只逼近时以 0.32s 优雅贝塞尔抛物线从水面腾空飞跃进驾驶员座舱头顶，金币尺寸放大至 1.05m 直径并配备双层璀璨光晕，判定与动画完全精准解耦，带来强烈的飞跃吸入成就感！
-- **清脆晶莹的硬币收集双音音效（Crystal Dual-Tone Coin Chime）**：`AudioSystem`（`src/audio/audio.ts`）全面升级 `coinCollect(streak)`。彻底剔除了原先导致“过头闷响”的 220Hz 低频重音，采用纯净高频双音晶莹铃音（E6 1318.5Hz $\rightarrow$ E7 2637Hz），伴随极短金属清脆敲击瞬态与高频星光余音，连击时按和弦阶梯升调，行云流水如风铃般悦耳！
 - **7 条天际雾桥航道永久存在（Persistent Skyways & Cloud Mist Bridges）**：`Course`（`src/game/course.ts`）重构航道渲染可见性，废弃以往单航线排他隐藏策略。群岛上空的 7 道空中雾桥与穿云光门永久驻留于世界之中，未激活航线呈现通透纯净的“天际云轨”环境质感，当前航线则注入耀眼金色能量流。飞跃光门后回头看，浮空天轨依然巍峨伫立，空间纵深与世界观宏大感倍增。
 - **AI 飞行 100% 全量合规化（AI 100% Skybound Compliance）**：`AI`（`src/game/ai.ts`）强化起飞意愿与蓄能时机判定，确保所有 AI 艇在起飞跳台 100% 点火升空与玩家在云端咬尾竞技，彻底杜绝以往偶尔在水面空门下方“滑水作弊”导致的露馅出戏感。
 - **通关画面按钮极致精简与隐蔽下一轮（Finale Overlay Streamlining & Discreet Fast-Forward）**：`FinaleOverlay`（`src/hud/finaleOverlay.ts` / `src/hud/finaleOverlay.css`）彻底剔除了冗余鸡肋的“截图生成中 / 预览截图”按钮；将老手专用“直接下一轮 ➔”重构成右上角半透明低调实用工具按钮（确保 $\ge 44\text{px}$ 且不抢夺视觉焦点）；主视觉只保留双核大按钮：左侧金色大卡“神秘资料片”（进入 7 大彩蛋画廊）、右侧半透明倒计时大按钮“继续游戏 / 查看高光（5s）”。在横屏手机（844x390）与桌面端呈现端庄大气、对称均衡的清爽视觉。
