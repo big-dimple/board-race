@@ -159,6 +159,8 @@ interface HonorTargetVisual {
   pulse: number;
   hitMask: number;
   activeMask: number;
+  flySlot: number;
+  flyT: number;
   bestDistanceSq: Float32Array;
   bestForwardAlign: Float32Array;
   bestX: Float32Array;
@@ -228,6 +230,8 @@ export class HonorTargetSystem {
       target.hitMask = 0;
       target.activeMask = 0;
       target.pulse = 0;
+      target.flySlot = -1;
+      target.flyT = 0;
       target.bestDistanceSq.fill(Infinity);
       target.bestForwardAlign.fill(-1);
       target.group.visible = true;
@@ -268,13 +272,13 @@ export class HonorTargetSystem {
       target.group.rotation.z = swayZ;
       // A struck coin turns on its own mint axis and presents its faces
       // slowly. The old three-axis wobble read as a dangling souvenir.
-      target.emblem.rotation.z = this.coinSpin;
-      target.emblem.rotation.y += dt * COIN_PRESENT_RATE;
+      target.emblem.rotation.y += dt * 3.8;
+      target.emblem.rotation.z = 0;
       target.emblem.rotation.x = 0;
       target.float.rotation.z = Math.sin(target.phase * 0.92) * 0.14;
       target.floatFoam.rotation.z = Math.cos(target.phase * 0.86) * 0.12;
       target.floatFoam.position.y = WATERLINE_Y + 0.06 + Math.sin(target.phase * 1.7) * 0.05;
-      target.orbit.rotation.y -= dt * 1.6;
+      target.orbit.rotation.y -= dt * 2.8;
 
       // The waterline foam must stay welded to the live surface even though
       // the mast above it sways. Cancel the parent sway, then tip the ring by
@@ -293,6 +297,29 @@ export class HonorTargetSystem {
 
       const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
       target.group.scale.setScalar(idlePulse + target.pulse * 0.2);
+
+      // Magnetic collection arc: smoothly leap into the boat driver's head
+      if (target.flySlot >= 0) {
+        const flyingBoat = boats[target.flySlot];
+        if (flyingBoat) {
+          target.flyT = Math.min(1, target.flyT + dt / 0.18);
+          const tVal = target.flyT;
+          const easeT = tVal * tVal * (3 - 2 * tVal);
+          const headX = flyingBoat.state.position.x;
+          const headY = flyingBoat.state.position.y + 1.25;
+          const headZ = flyingBoat.state.position.z;
+          const midX = (target.x + headX) * 0.5;
+          const midY = Math.max(target.y, headY) + 1.3;
+          const midZ = (target.z + headZ) * 0.5;
+          const inv = 1 - easeT;
+          target.group.position.x = inv * inv * target.x + 2 * inv * easeT * midX + easeT * easeT * headX;
+          target.group.position.y = inv * inv * target.y + 2 * inv * easeT * midY + easeT * easeT * headY;
+          target.group.position.z = inv * inv * target.z + 2 * inv * easeT * midZ + easeT * easeT * headZ;
+          target.emblem.rotation.y += dt * 22.0;
+          target.group.scale.setScalar(Math.max(0.01, (idlePulse + target.pulse * 0.2) * (1 - easeT * 0.6)));
+        }
+      }
+
       if (!detect) continue;
 
       for (const boat of boats) {
@@ -334,6 +361,8 @@ export class HonorTargetSystem {
         target.activeMask &= ~bit;
         target.hitMask |= bit;
         target.pulse = 1.25;
+        target.flySlot = boat.id;
+        target.flyT = 0;
         const event = this.eventPool[this.eventCursor++ % this.eventPool.length];
         event.targetId = targetIndex;
         event.kind = target.kind;
@@ -623,61 +652,24 @@ export class HonorTargetSystem {
         throw new Error(`honor coin is inside the start/finish buffer at u=${spec.u}`);
       }
     }
-    // The coin uses one broad silhouette and a few large minted shapes. The
-    // subtly milled edge catches motion, while the compass face stays readable
-    // at chase-camera size instead of collapsing into a plastic yellow disc.
-    const coinEdgeShape = radialShape(64, (index) => index % 4 < 2 ? 1.34 : 1.28);
-    const coinCoreGeometry = new THREE.ExtrudeGeometry(coinEdgeShape, {
-      depth: 0.34,
-      steps: 1,
-      bevelEnabled: true,
-      bevelSegments: 1,
-      bevelSize: 0.035,
-      bevelThickness: 0.035,
-      curveSegments: 1,
-    });
-    coinCoreGeometry.translate(0, 0, -0.17);
-    const coinFaceGeometry = new THREE.CylinderGeometry(1.12, 1.12, 0.075, 32);
+    // Streamlined iconic 3D Gold Coin with embossed star crest and beveled rim
+    const coinCoreGeometry = new THREE.CylinderGeometry(0.85, 0.85, 0.22, 32);
+    coinCoreGeometry.rotateX(Math.PI / 2);
+    const coinFaceGeometry = new THREE.CylinderGeometry(0.72, 0.72, 0.05, 32);
     coinFaceGeometry.rotateX(Math.PI / 2);
-    const coinRimGeometry = new THREE.TorusGeometry(1.06, 0.12, 8, 32);
-    const coinGrooveGeometry = new THREE.TorusGeometry(0.78, 0.035, 6, 28);
-    const coinHighlightGeometry = new THREE.TorusGeometry(0.9, 0.045, 6, 18, Math.PI * 0.58);
-    const coinStampGeometry = new THREE.ShapeGeometry(radialShape(16, (index) => {
-      if (index % 4 === 0) return 0.67;
-      if (index % 2 === 0) return 0.46;
-      return 0.19;
-    }));
-    const coinStampHubGeometry = new THREE.CircleGeometry(0.17, 14);
-    const coinMiniGeometry = new THREE.CylinderGeometry(0.23, 0.23, 0.08, 12);
+    const coinRimGeometry = new THREE.TorusGeometry(0.78, 0.08, 8, 32);
+    const coinGrooveGeometry = new THREE.TorusGeometry(0.58, 0.025, 6, 28);
+    const coinHighlightGeometry = new THREE.TorusGeometry(0.68, 0.035, 6, 18, Math.PI * 0.6);
+    const coinStampGeometry = new THREE.ShapeGeometry(radialShape(8, (index) => index % 2 === 0 ? 0.44 : 0.18));
+    const coinStampHubGeometry = new THREE.CircleGeometry(0.12, 14);
+    const coinMiniGeometry = new THREE.CylinderGeometry(0.16, 0.16, 0.05, 12);
     coinMiniGeometry.rotateX(Math.PI / 2);
-    const coinGlintGeometry = new THREE.OctahedronGeometry(0.25, 0);
-    // The mast and pennant are deliberately chunky. They make each optional
-    // target read as a real water marker from the chase camera instead of a
-    // tiny floating UI glyph. A horizontal pennant cannot be confused with
-    // the vertical diamond used by the flight launch cue.
-    const mastGeometry = new THREE.CylinderGeometry(0.1, 0.16, 2.55, 8);
-    const pennantGeometry = new THREE.BoxGeometry(1.65, 0.62, 0.14);
-    const beaconGeometry = new THREE.SphereGeometry(0.25, 10, 8);
-    const stemGeometry = new THREE.CylinderGeometry(0.1, 0.16, 1.55, 8);
-    // The float is a lathed buoy profile: a tight stem at the top flaring out
-    // to a wide, rounded waterline skirt. A plain cylinder reads as a stacked
-    // paper disc the moment the camera gets close enough to see the waterline.
-    const floatGeometry = new THREE.LatheGeometry([
-      new THREE.Vector2(0.0, 0.2),
-      new THREE.Vector2(0.92, 0.2),
-      new THREE.Vector2(1.16, 0.13),
-      new THREE.Vector2(1.3, -0.04),
-      new THREE.Vector2(1.34, -0.26),
-      new THREE.Vector2(1.26, -0.44),
-      new THREE.Vector2(0.98, -0.56),
-      new THREE.Vector2(0.0, -0.6),
-    ], 20);
-    const floatFoamGeometry = new THREE.TorusGeometry(1.24, 0.09, 6, 28);
-    // A flat foam annulus pinned to the live water plane. This is the single
-    // cue that welds the buoy into the surface instead of hovering over it.
-    const waterlineGeometry = new THREE.RingGeometry(1.04, 1.92, 28, 1);
+    const coinGlintGeometry = new THREE.OctahedronGeometry(0.2, 0);
+
+    // Flat foam annulus pinned to the live water plane.
+    const waterlineGeometry = new THREE.RingGeometry(0.85, 1.45, 24, 1);
     waterlineGeometry.rotateX(-Math.PI / 2);
-    const inkMaterial = createToonMaterial({ color: PALETTE.ink });
+
     const beamMaterial = createToonMaterial({
       color: PALETTE.foam,
       emissive: PALETTE.flight,
@@ -693,21 +685,19 @@ export class HonorTargetSystem {
       rimStrength: 0.4,
     });
     // The milled outer band is where the coin actually reads as struck metal:
-    // full anisotropic sweep, 64 lobes matching the 64 authored serrations, and
-    // a deep gold that stays saturated in shade.
+    // full anisotropic sweep, 48 lobes, and deep gold that stays saturated in shade.
     const coinEdgeMaterial = createCoinMaterial({
       color: PALETTE.sunFlare,
       deep: 0xa8660c,
       milled: 1,
-      lobes: 64,
+      lobes: 48,
       specColor: PALETTE.sparkle,
       spec1: 0.86,
       rimColor: PALETTE.sunCore,
       rimStrength: 0.42,
       rimThreshold: 0.6,
     });
-    // The face is polished but not milled. It keeps a faint sweep so the whole
-    // disc turns as one object.
+    // The face is polished with a gleaming golden sheen.
     const coinFaceMaterial = createCoinMaterial({
       color: PALETTE.sunCore,
       deep: 0xd9a12a,
@@ -723,15 +713,14 @@ export class HonorTargetSystem {
       color: 0xffdc63,
       deep: 0xb0760f,
       milled: 0.72,
-      lobes: 40,
+      lobes: 32,
       specColor: PALETTE.sparkle,
       spec1: 0.88,
       rimColor: PALETTE.sunCore,
       rimStrength: 0.46,
       rimThreshold: 0.56,
     });
-    // The stamp is recessed: darker than the face with almost no specular, so
-    // the compass reads as pressed into the metal rather than printed on it.
+    // The stamp is recessed: darker than the face with almost no specular.
     const coinStampMaterial = createCoinMaterial({
       color: 0x8c5a08,
       deep: 0x4d3006,
@@ -742,7 +731,6 @@ export class HonorTargetSystem {
       rimStrength: 0.22,
       rimThreshold: 0.7,
     });
-    // The chamfer highlight is cream, never gold — a minted edge catches sky.
     const coinHighlightMaterial = createCoinMaterial({
       color: PALETTE.foam,
       deep: PALETTE.sunCore,
@@ -756,7 +744,7 @@ export class HonorTargetSystem {
     const waterlineMaterial = new THREE.MeshBasicMaterial({
       color: PALETTE.foam,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.42,
       depthWrite: false,
       toneMapped: false,
       side: THREE.DoubleSide,
@@ -776,86 +764,70 @@ export class HonorTargetSystem {
       group.name = `honor-target-${index + 1}`;
       group.position.set(x, waterHeight(x, z, 0) + TARGET_BASE_Y, z);
       const heading = Math.atan2(tangent.x, tangent.z);
-      // Every target is a solid, named prop. There is no hole to mistake for a
-      // jump gate and no hidden center-line resource rule.
       group.rotation.y = heading;
+
       const emblem = new THREE.Group();
       emblem.name = `honor-emblem-${spec.kind}`;
       const coin = new THREE.Mesh(coinCoreGeometry, coinEdgeMaterial);
       coin.name = 'honor-coin-core';
       emblem.add(coin);
+
       for (const side of [-1, 1]) {
-        const faceZ = side * 0.21;
+        const faceZ = side * 0.11;
         const face = new THREE.Mesh(coinFaceGeometry, coinFaceMaterial);
         face.name = 'honor-coin-face';
         face.position.z = faceZ;
         face.userData.noOutline = true;
         emblem.add(face);
+
         const rim = new THREE.Mesh(coinRimGeometry, coinRimMaterial);
         rim.name = 'honor-coin-rim';
-        rim.position.z = side * 0.255;
+        rim.position.z = side * 0.115;
         emblem.add(rim);
 
         const groove = new THREE.Mesh(coinGrooveGeometry, coinStampMaterial);
         groove.name = 'honor-coin-groove';
-        groove.position.z = side * 0.269;
+        groove.position.z = side * 0.118;
         groove.userData.noOutline = true;
         emblem.add(groove);
 
         const stamp = new THREE.Mesh(coinStampGeometry, coinStampMaterial);
         stamp.name = 'honor-coin-stamp';
-        stamp.position.z = side * 0.276;
+        stamp.position.z = side * 0.122;
         if (side < 0) stamp.rotation.y = Math.PI;
         stamp.userData.noOutline = true;
         emblem.add(stamp);
 
         const stampHub = new THREE.Mesh(coinStampHubGeometry, coinRimMaterial);
         stampHub.name = 'honor-coin-stamp-hub';
-        stampHub.position.z = side * 0.281;
+        stampHub.position.z = side * 0.125;
         if (side < 0) stampHub.rotation.y = Math.PI;
         stampHub.userData.noOutline = true;
         emblem.add(stampHub);
 
         const highlight = new THREE.Mesh(coinHighlightGeometry, coinHighlightMaterial);
         highlight.name = 'honor-coin-highlight';
-        highlight.position.z = side * 0.286;
+        highlight.position.z = side * 0.128;
         highlight.rotation.z = side > 0 ? 0.56 : -2.58;
         if (side < 0) highlight.rotation.y = Math.PI;
         highlight.userData.noOutline = true;
         emblem.add(highlight);
       }
-      // Keep the collision/root at the live water plane while raising the
-      // authored emblem onto its mast. The float remains the visual anchor;
-      // nothing here is an airborne trigger or a hidden energy station.
-      emblem.position.set(0, 1.02, 0);
-      emblem.scale.setScalar(1.18);
+
+      // Float coin cleanly above the water
+      emblem.position.set(0, 0.48, 0);
+      emblem.scale.setScalar(1.0);
       group.add(emblem);
 
-      // A chunky float and foam collar make the target physically legible at
-      // a glance. The stem terminates in the float instead of disappearing
-      // into an empty water surface.
-      const mast = new THREE.Mesh(mastGeometry, inkMaterial);
-      mast.name = 'honor-signal-mast';
-      mast.position.y = 0.62;
-      group.add(mast);
-      const pennant = new THREE.Mesh(pennantGeometry, coinRimMaterial);
-      pennant.name = 'honor-signal-pennant';
-      pennant.position.set(0.7, 1.65, -0.04);
-      pennant.userData.noOutline = true;
-      group.add(pennant);
-      const beacon = new THREE.Mesh(beaconGeometry, beamMaterial);
-      beacon.name = 'honor-signal-beacon';
-      beacon.position.y = 1.98;
-      group.add(beacon);
-
-      const float = new THREE.Mesh(floatGeometry, floatMaterial);
+      // Lightweight underwater keel anchor
+      const float = new THREE.Mesh(coinMiniGeometry, floatMaterial);
       float.name = 'honor-float';
-      float.position.y = -0.34;
+      float.position.y = -0.22;
+      float.visible = false;
       group.add(float);
-      const floatFoam = new THREE.Mesh(floatFoamGeometry, beamMaterial);
+      const floatFoam = new THREE.Mesh(coinMiniGeometry, beamMaterial);
       floatFoam.name = 'honor-float-foam';
-      floatFoam.rotation.x = Math.PI / 2;
-      floatFoam.position.y = WATERLINE_Y + 0.06;
+      floatFoam.visible = false;
       group.add(floatFoam);
 
       const waterline = new THREE.Mesh(waterlineGeometry, waterlineMaterial);
@@ -867,10 +839,7 @@ export class HonorTargetSystem {
       waterline.layers.set(0);
       group.add(waterline);
 
-      // An additive bloom behind the marker. At chase distance the coin alone
-      // is a few pixels; this is what makes it read as a premium pickup from
-      // far enough away that the player can still choose the detour line.
-      // Sprites billboard per camera, so both duo windows get it correct.
+      // Golden ambient halo sprite
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({
         map: coinTextures().spark,
         color: PALETTE.sunFlare,
@@ -882,24 +851,15 @@ export class HonorTargetSystem {
         toneMapped: false,
       }));
       halo.name = 'honor-halo';
-      halo.scale.set(2.9, 2.9, 1);
-      halo.position.y = 1.02;
+      halo.scale.set(2.4, 2.4, 1);
+      halo.position.y = 0.48;
       halo.renderOrder = 8;
       halo.userData.noInk = true;
       halo.userData.noOutline = true;
       halo.layers.set(0);
       group.add(halo);
 
-      const stem = new THREE.Mesh(stemGeometry, inkMaterial);
-      stem.name = 'honor-stem';
-      stem.position.y = -0.08;
-      group.add(stem);
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, 1.55, 6), beamMaterial);
-      beam.name = 'honor-beam';
-      beam.position.y = -0.42;
-      beam.userData.noOutline = true;
-      group.add(beam);
-
+      // Orbiting sparkle particles
       const orbit = new THREE.Group();
       orbit.name = 'honor-orbit';
       const orbitCount = 4;
@@ -912,12 +872,12 @@ export class HonorTargetSystem {
         orb.name = isCoinChip ? 'honor-orbit-coin' : 'honor-coin-glint';
         orb.userData.noOutline = true;
         const angle = orbitIndex * (Math.PI * 2 / orbitCount);
-        orb.position.set(Math.cos(angle) * 2.15, 1.02 + Math.sin(angle * 1.3) * 0.32, Math.sin(angle) * 2.15);
+        orb.position.set(Math.cos(angle) * 1.5, 0.48 + Math.sin(angle * 1.3) * 0.22, Math.sin(angle) * 1.5);
         orbit.add(orb);
       }
       group.add(orbit);
 
-      addOutline(group, { width: 0.72 });
+      addOutline(group, { width: 0.65 });
       markInk(group);
       this.object.add(group);
       this.targets.push({
@@ -938,6 +898,8 @@ export class HonorTargetSystem {
         pulse: 0,
         hitMask: 0,
         activeMask: 0,
+        flySlot: -1,
+        flyT: 0,
         bestDistanceSq: Float32Array.from({ length: MAX_TARGET_RACERS }, () => Infinity),
         bestForwardAlign: Float32Array.from({ length: MAX_TARGET_RACERS }, () => -1),
         bestX: new Float32Array(MAX_TARGET_RACERS),

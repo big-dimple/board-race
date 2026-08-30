@@ -5,6 +5,8 @@
 
 ## 当前工作包
 
+- **3D 极简纯金金币与动态磁吸飞跃吸收（Iconic 3D Gold Coin & Magnetic Flying Arc Absorption）**：`HonorTargetSystem`（`src/game/honors.ts`）彻底重构水面金币道具。剔除原先厚重复杂的木桩桅杆与浮标配件，打造纯净精致、双面立体星芒浮雕的 3D 黄金金币，垂直立于水面以 `3.8 rad/s` 优雅自转并伴随波浪浮沉。当船只逼近金币时，金币激活动态磁吸飞跃，以优美贝塞尔抛物线飞升加速吸入驾驶员头顶并绽放金色星尘爆炸，成就感与解压爽快感拉满！且 100% 严守水面高度，绝不在空中布设金币，杜绝起飞误解。
+- **清脆晶莹的硬币收集双音音效（Crystal Dual-Tone Coin Chime）**：`AudioSystem`（`src/audio/audio.ts`）全面升级 `coinCollect(streak)`。彻底剔除了原先导致“过头闷响”的 220Hz 低频重音，采用纯净高频双音晶莹铃音（E6 1318.5Hz $\rightarrow$ E7 2637Hz），伴随极短金属清脆敲击瞬态与高频星光余音，连击时按和弦阶梯升调，行云流水如风铃般悦耳！
 - **3D 冲天飞行光翼（Cyber Aero Flight Wings）**：`Course`（`src/game/course.ts`）彻底废弃原先抽象平淡且令人困惑的 2D 大菱形，升级为具有科技流线感的 3D 悬浮冲天光翼（Swept Cyber Flight Wings & Skyward Chevrons）。双层硬朗机械边框（Ink Edge）与高亮流光内芯（Energy Core）结合，沿起飞抛物线呈 18° 仰角向天空阶梯展开（高度 1.4m $\rightarrow$ 4m $\rightarrow$ 6.3m），形成极为震撼直观的“展翅冲天跳台”心智。
 - **7 条天际雾桥航道永久存在（Persistent Skyways & Cloud Mist Bridges）**：`Course`（`src/game/course.ts`）重构航道渲染可见性，废弃以往单航线排他隐藏策略。群岛上空的 7 道空中雾桥与穿云光门永久驻留于世界之中，未激活航线呈现通透纯净的“天际云轨”环境质感，当前航线则注入耀眼金色能量流。飞跃光门后回头看，浮空天轨依然巍峨伫立，空间纵深与世界观宏大感倍增。
 - **AI 飞行 100% 全量合规化（AI 100% Skybound Compliance）**：`AI`（`src/game/ai.ts`）强化起飞意愿与蓄能时机判定，确保所有 AI 艇在起飞跳台 100% 点火升空与玩家在云端咬尾竞技，彻底杜绝以往偶尔在水面空门下方“滑水作弊”导致的露馅出戏感。
