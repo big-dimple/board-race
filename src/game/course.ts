@@ -1520,12 +1520,24 @@ function makeOpenChevronGeometry(depth = 0): THREE.BufferGeometry {
   return geometry;
 }
 
-function makeVerticalChevronGeometry(depth = 0): THREE.BufferGeometry {
+function makeCyberFlightWingGeometry(scale = 1.0, depth = 0): THREE.BufferGeometry {
+  const s = scale;
   const points = [
-    -1.12, 0.82, depth, -0.86, 1.08, depth, 0.34, 0.13, depth,
-    -1.12, 0.82, depth, 0.34, 0.13, depth, 0.06, -0.1, depth,
-    -1.12, -0.82, depth, 0.06, 0.1, depth, 0.34, -0.13, depth,
-    -1.12, -0.82, depth, 0.34, -0.13, depth, -0.86, -1.08, depth,
+    // Center Skyward Arrow (pointing UP)
+    0, 1.25 * s, depth,   -0.42 * s, 0.45 * s, depth,   0, 0.65 * s, depth,
+    0, 1.25 * s, depth,    0, 0.65 * s, depth,          0.42 * s, 0.45 * s, depth,
+    // Left Wing Upper Blade (swept up and out)
+    -0.42 * s, 0.65 * s, depth,  -2.1 * s, 1.45 * s, depth,  -1.35 * s, 0.55 * s, depth,
+    -0.42 * s, 0.65 * s, depth,  -1.35 * s, 0.55 * s, depth,  -0.35 * s, 0.15 * s, depth,
+    // Left Wing Lower Blade
+    -0.35 * s, 0.15 * s, depth,  -1.75 * s, 0.85 * s, depth,  -1.15 * s, 0.12 * s, depth,
+    -0.35 * s, 0.15 * s, depth,  -1.15 * s, 0.12 * s, depth,  -0.25 * s, -0.35 * s, depth,
+    // Right Wing Upper Blade (symmetric)
+    0.42 * s, 0.65 * s, depth,   1.35 * s, 0.55 * s, depth,   2.1 * s, 1.45 * s, depth,
+    0.42 * s, 0.65 * s, depth,   0.35 * s, 0.15 * s, depth,   1.35 * s, 0.55 * s, depth,
+    // Right Wing Lower Blade (symmetric)
+    0.35 * s, 0.15 * s, depth,   1.15 * s, 0.12 * s, depth,   1.75 * s, 0.85 * s, depth,
+    0.35 * s, 0.15 * s, depth,   0.25 * s, -0.35 * s, depth,  1.15 * s, 0.12 * s, depth,
   ];
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
@@ -2845,12 +2857,12 @@ export class Course implements ICourse {
     if (next !== this.activeGuideRoute) {
       for (let i = 0; i < this.flightVisuals.length; i++) {
         const visual = this.flightVisuals[i];
-        visual.group.visible = i === next;
+        visual.group.visible = true;
         if (i !== next) {
           visual.deployActive = false;
           visual.deployTime = 0;
           for (const gate of visual.gates) {
-            gate.deploy = 0;
+            gate.deploy = 1;
             gate.pulse = 0;
             gate.cleared = false;
             gate.group.visible = true;
@@ -3077,16 +3089,15 @@ export class Course implements ICourse {
     for (let routeIndex = 0; routeIndex < visuals.length; routeIndex++) {
       const visual = visuals[routeIndex];
       const upcoming = routeIndex === next;
+      visual.group.visible = true;
       if (!upcoming) {
-        visual.group.visible = false;
         visual.deployActive = false;
         visual.deployTime = 0;
         visual.recoverySurfaceBlend = 0;
-        continue;
+      } else {
+        visual.deployActive = true;
+        visual.deployTime = Math.min(2, visual.deployTime + dt);
       }
-      visual.group.visible = true;
-      visual.deployActive = true;
-      visual.deployTime = Math.min(2, visual.deployTime + dt);
       const warn = state.warnRoute === routeIndex ? Math.min(1, state.warn * 4) : 0;
       visual.ribbon.uniforms.uTime.value = state.flowTime;
       visual.curtain.uniforms.uTime.value = state.flowTime;
@@ -3427,7 +3438,7 @@ export class Course implements ICourse {
         gate.center.z = gate.baseCenter.z + gate.right.z * offset;
         gate.group.position.x = gate.center.x;
         gate.group.position.z = gate.center.z;
-        const raw = Math.max(0, Math.min(1, (visual.deployTime - i * 0.12) / 0.5));
+        const raw = upcoming ? Math.max(0, Math.min(1, (visual.deployTime - i * 0.12) / 0.5)) : 1;
         gate.deploy = raw * raw * (3 - 2 * raw);
         const surface = waterHeight(gate.center.x, gate.center.z, t);
         const submerged = surface - gate.halfHeight - 2.8;
@@ -4407,9 +4418,9 @@ export class Course implements ICourse {
       sum + Math.hypot(point.x - path[index].x, point.z - path[index].z), 0);
     group.userData.launchVectorHeadingDeltaDeg = THREE.MathUtils.radToDeg(headingDelta);
 
-    const inkGeometry = new THREE.RingGeometry(0.72, 1.12, 4);
-    const energyGeometry = new THREE.RingGeometry(0.68, 1.02, 4);
-    const postureGeometry = makeVerticalChevronGeometry(0);
+    const inkGeometry = makeCyberFlightWingGeometry(1.12, 0);
+    const energyGeometry = makeCyberFlightWingGeometry(0.9, 0.04);
+    const postureGeometry = makeCyberFlightWingGeometry(0.78, 0.06);
     const diamonds: LaunchGateDiamond[] = [];
     const forward = new THREE.Vector3(0, 0, 1);
     const waveWeights = [1, 0.42, 0];

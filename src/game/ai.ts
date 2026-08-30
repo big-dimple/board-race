@@ -370,11 +370,10 @@ export class AIController {
       ? protectedApproachU
       : upcomingRoute.launchFromU - 0.006)) {
       this.flightWindowSeen = true;
-      this.flightWantsRoute = this.personality !== 'erratic' || me.state.flightRouteCursor < 2 || this.rng() < 0.9;
+      this.flightWantsRoute = true;
     }
     const launchThresholdU = formationActive ? protectedLaunchU : upcomingRoute.launchFromU;
     const launchNow =
-      this.flightWantsRoute &&
       me.state.flightCharges > 0 &&
       me.state.flightPhase === 'surface' &&
       myU >= launchThresholdU &&

@@ -5,6 +5,9 @@
 
 ## 当前工作包
 
+- **3D 冲天飞行光翼（Cyber Aero Flight Wings）**：`Course`（`src/game/course.ts`）彻底废弃原先抽象平淡且令人困惑的 2D 大菱形，升级为具有科技流线感的 3D 悬浮冲天光翼（Swept Cyber Flight Wings & Skyward Chevrons）。双层硬朗机械边框（Ink Edge）与高亮流光内芯（Energy Core）结合，沿起飞抛物线呈 18° 仰角向天空阶梯展开（高度 1.4m $\rightarrow$ 4m $\rightarrow$ 6.3m），形成极为震撼直观的“展翅冲天跳台”心智。
+- **7 条天际雾桥航道永久存在（Persistent Skyways & Cloud Mist Bridges）**：`Course`（`src/game/course.ts`）重构航道渲染可见性，废弃以往单航线排他隐藏策略。群岛上空的 7 道空中雾桥与穿云光门永久驻留于世界之中，未激活航线呈现通透纯净的“天际云轨”环境质感，当前航线则注入耀眼金色能量流。飞跃光门后回头看，浮空天轨依然巍峨伫立，空间纵深与世界观宏大感倍增。
+- **AI 飞行 100% 全量合规化（AI 100% Skybound Compliance）**：`AI`（`src/game/ai.ts`）强化起飞意愿与蓄能时机判定，确保所有 AI 艇在起飞跳台 100% 点火升空与玩家在云端咬尾竞技，彻底杜绝以往偶尔在水面空门下方“滑水作弊”导致的露馅出戏感。
 - **通关画面按钮极致精简与隐蔽下一轮（Finale Overlay Streamlining & Discreet Fast-Forward）**：`FinaleOverlay`（`src/hud/finaleOverlay.ts` / `src/hud/finaleOverlay.css`）彻底剔除了冗余鸡肋的“截图生成中 / 预览截图”按钮；将老手专用“直接下一轮 ➔”重构成右上角半透明低调实用工具按钮（确保 $\ge 44\text{px}$ 且不抢夺视觉焦点）；主视觉只保留双核大按钮：左侧金色大卡“神秘资料片”（进入 7 大彩蛋画廊）、右侧半透明倒计时大按钮“继续游戏 / 查看高光（5s）”。在横屏手机（844x390）与桌面端呈现端庄大气、对称均衡的清爽视觉。
 - **日常漂移中央视线遮挡彻底清理（Clean Drift Horizon）**：`Hud`（`src/hud/hud.ts`）彻底移除了日常水面漂移越过黄线松手时在屏幕正中央触发的 `showTransientNotice`（硬编码 `DUO PLAY` 且阻挡前方赛道航线）；保留船尾爆发脉冲、清脆入库音效、艇边发光菱形与左上角电池计数 `x1`，彻底还给玩家 100% 纯净开阔的前方弯道视野。
 - **起飞窗口全程常驻指引与无电教学预警（Persistent Launch Prompt & No-Battery Warning）**：`Hud`（`src/hud/hud.ts`）彻底根治了以往起飞提示在逼近跳台前 2 秒被定时器提前熄灭导致玩家在临界点“误以为直接开过去”的元凶 Bug。只要处于起飞逼近区，`🚀 按 SPACE 起飞`（手柄 `按 A 起飞` / 手机 `点「飞」起飞`）全程坚挺常驻直到穿门；若玩家 0 电池逼近跳台，HUD 立即呈现黄色预警 `⚠️ 飞行电池不足 · 过弯按住漂移 · 越过黄线松手存入电池 ◇`，形成清晰明确的动作-收益闭环。
