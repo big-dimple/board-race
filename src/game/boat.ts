@@ -94,14 +94,14 @@ const TUNING = {
 
   // -- earned anti-grav flight --
   flightSpool: 0.12,
-  flightAscend: 0.62,
+  flightAscend: 0.52,
   flightCruise: 5.10,
   flightExtension: 2.40,
-  flightDescend: 0.88,
-  flightClearance: 20.0,  // hull-root height above the live mean water surface
+  flightDescend: 0.78,
+  flightClearance: 8.5,  // hull-root height above the live mean water surface
   flightLandingLead: 0.45, // counter moving-wave lag so the landing envelope seats cleanly
   flightOmega: 9,        // critically damped vertical target tracking
-  flightAccelMax: 120,   // m/s², keeps elevated launch responsive and smooth
+  flightAccelMax: 72,    // m/s², smooth elevated climb without snappy overshoot
   flightDriveAccel: 22,
   flightDriveGain: 3.2,
   flightHardCap: 50,
@@ -2684,7 +2684,7 @@ export class Boat implements IBoat {
 
     const desiredY = surfaceY + targetClearance;
     if (firstFlightFrame) this.flightDesiredYPrev = desiredY;
-    const rawTargetVy = clamp((desiredY - this.flightDesiredYPrev) / Math.max(1e-4, dt), -42, 42);
+    const rawTargetVy = clamp((desiredY - this.flightDesiredYPrev) / Math.max(1e-4, dt), -24, 24);
     this.flightTargetVy += (rawTargetVy - this.flightTargetVy) * (1 - Math.exp(-18 * dt));
     this.flightDesiredYPrev = desiredY;
     const w = TUNING.flightOmega;

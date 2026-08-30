@@ -21,8 +21,8 @@ import { BASE_FOV } from '../core/stage';
 const V_MAX = 34; // speed (m/s) that maps to max FOV
 const MAX_FOV = 74; // FOV at V_MAX
 const BOOST_FOV = 7; // the old Space payout now opens a visible speed tunnel
-const FLIGHT_FOV = [79, 81, 83, 84, 85, 86, 88] as const;
-const FOV_HARD_MAX = 88;
+const FLIGHT_FOV = [78, 79, 80, 81, 82, 83, 84] as const;
+const FOV_HARD_MAX = 86;
 const FOV_RATE = 6; // /s base FOV smoothing
 const BOOST_IN = 14; // /s boost FOV attack (fast in)
 const BOOST_OUT = 1.8; // /s boost FOV release (slow out)
@@ -35,7 +35,7 @@ const SPRING_DAMP = 11; // slightly under critical (2*sqrt(K) ≈ 15.2)
 const FLIGHT_SPRING_K = 32; // slower vertical follow makes the lift readable
 const FLIGHT_SPRING_DAMP = 9;
 const FLIGHT_CAMERA_DROP = 0.85; // reveal the lift emitters without losing the horizon
-const FLIGHT_LOOK_GAIN = 0.68;
+const FLIGHT_LOOK_GAIN = 0.54;
 const FLIGHT_BLEND_RATE = 6;
 const ACCEL_LAG = 0.24; // extra hang-back meters per m/s² of longG
 const ACCEL_LAG_MAX = 2.2;
@@ -383,7 +383,7 @@ export class CameraRig {
         ? 1
         : HEAVE_KEEP + (1 - HEAVE_KEEP) * this.flightBlend;
       const camBaseY = this.heaveAnchor + (frameY - this.heaveAnchor) * heaveKeep;
-      const altitudeBack = Math.min(2.4, Math.max(0, st.flightClearance - 5.0) * 0.08);
+      const altitudeBack = Math.min(1.2, Math.max(0, st.flightClearance - 4.5) * 0.08);
       target.set(
         frameX - fx * (dist + frameBack + altitudeBack) + fz * driftSide,
         camBaseY + this.chaseUp - this.flightBlend * FLIGHT_CAMERA_DROP - this.impactDip,

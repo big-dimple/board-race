@@ -5,19 +5,19 @@
 
 ## 当前工作包
 
-- **天际雾桥整体高度梯级提升至 15m–35m 与空中漫游系统重构（Skyway Elevation Overhaul: 15m–35m Tiered Flight Routes）**：
-  1. `Course`（`src/game/course.ts`）将全部 7 条飞行空轨由以往统一的 4.5m 贴水低空高架，重构为梯级攀升的壮阔天轨系统：
-     - 第 1 飞：**15.0m**（入门体验型空中大跳）
-     - 第 2 飞：**24.0m**（壮阔群岛全景大反弯，鸟瞰海面群艇）
-     - 第 3 飞：**18.0m**（空中连续 S 弯侧切）
-     - 第 4 飞：**25.0m**（跨海长程云端漫游）
-     - 第 5 飞：**28.0m**（大半径高速天轨回旋）
-     - 第 6 飞：**32.0m**（飞越中央海岛山巅山脊）
-     - 第 7 飞：**35.0m**（傲视 32m 巨型灯塔光柱，直冲积雨云海巅峰漫游）
-  2. `Boat`（`src/game/boat.ts`）与 `IBoat`（`src/contracts.ts`）引入动态 `flightTargetClearance`，爬升加速度上限提升至 `flightAccelMax: 120`，起飞爬升与着水俯冲时间优化（`flightAscend: 0.62s`, `flightDescend: 0.88s`），确保 60Hz 物理刚体平滑起跳、云端巡航与入水抛物线，杜绝高空失速与生硬顿挫；
-  3. `Course`（`src/game/course.ts`）升级光门为海面拔地而起的巨型穿云光柱，支撑立柱从高空光门一路扎入海面水体（$Y = 0$），世界纵深与建筑气势磅礴；
-  4. `CameraRig`（`src/game/chaseCamera.ts`）引入高空自适应后拉拉远（`altitudeBack`）与下俯角补偿（`FLIGHT_LOOK_GAIN = 0.68`），配合 FOV 动态呼吸扩展（`FLIGHT_FOV = [79..88]`），呈现如《马力欧卡丁车 8》与《F-Zero GX》般的震撼鹰眼鸟瞰海天视效；
-  5. `AudioSystem`（`src/audio/audio.ts`）高度归一化扩展至 35.0m，7 条空轨分配独立高空泛音层。
+- **天际雾桥高度黄金区间调优（6.8m–10.5m）与光门支架物理学重构（Skyway Elevation Sweet-Spot Calibration & Aero-Gantry Fix）**：
+  1. `Course`（`src/game/course.ts`）将 7 条飞行空轨高度由 35m 极端高度调优回调至体验绝佳的 **6.8m–10.5m 黄金空域区间**（约为原始 4.5m 的 1.5x–2.3x）：
+     - 第 1 飞：**6.8m**（轻盈大跳，视野极度通透）
+     - 第 2 飞：**8.2m–8.8m**（海岛大反弯，水面绿线与弯心一览无余）
+     - 第 3 飞：**7.5m–8.0m**（S 弯空域侧切）
+     - 第 4 飞：**8.5m–9.2m**（跨海长程飞行，着水点清晰可辨）
+     - 第 5 飞：**9.2m–9.8m**（大弧度天轨回旋）
+     - 第 6 飞：**8.8m–9.5m**（海岛山脊飞掠）
+     - 第 7 飞：**9.8m–10.5m**（终点巅峰翱翔）
+     既保留了快艇冲上云端飞翔的爽快感，又确保车手在空中能**百分百看清水面绿线、后续下坡俯冲角度与弯心走向**，操作预判极度清晰舒适！
+  2. `Course`（`src/game/course.ts`）彻底修复光门支架因随切线旋转导致的“柱子斜插海水违背物理学”问题：光门重构为悬浮式高科技气动门框拱门（`gateHalfHeight = 1.9m`, `pillarHeight = 5.6m`），双侧能量立柱完美贴合拱门边界，彻底剔除任何斜插海水的畸变支柱；
+  3. `Boat`（`src/game/boat.ts`）与 `contracts.ts` 动力学参数适配：垂直加速度弹性阻尼调整为 `flightAccelMax: 72`，爬升/下潜时间曲线优化（`flightAscend: 0.52s`, `flightDescend: 0.78s`），确保起飞腾空与着水入水如丝般顺滑；
+  4. `CameraRig`（`src/game/chaseCamera.ts`）与 `AudioSystem`（`src/audio/audio.ts`）：下俯角增益优化至 `FLIGHT_LOOK_GAIN = 0.54`，FOV 呼吸区间微调至 `[78..84]`，高空镜头拉远后距控制在 `1.2m` 内，彻底避免船身遮挡前方光门与入水点，视觉与听觉体验全面封板。
 - **中远景白色三角转向切入客观运行态证据文档导出（Objective Evidence Report Exported to /tmp）**：
   将渲染场景树、`sea-decor-sails`（4 边形 `ConeGeometry` 纯白材质、环形分布 $R \in [96\text{m}, 240\text{m}]$ 随相机偏航旋转切入视野）的客观代码事实与坐标计算导出至 `/tmp/white_triangles_runtime_evidence.md`。
 - **金币拾取立体声空间化与晶莹和弦升级 + 超强长程磁吸（Coin Audio Spatial Panning & 34m Suction Magnet）**：

@@ -648,7 +648,7 @@ export class GameAudio {
     const t = c.currentTime;
     const n = clamp01(thrust);
     this.flightPressure = clamp01(pressure);
-    this.flightClearance = clamp01(clearance / 35.0);
+    this.flightClearance = clamp01(clearance / 10.5);
     this.flightAirBrake = clamp01(airBrake);
     this.flightSteer = Math.max(-1, Math.min(1, steer));
     const index = Math.max(0, Math.min(6, Math.floor(flightIndex)));
