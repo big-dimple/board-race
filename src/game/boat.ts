@@ -67,8 +67,10 @@ const TUNING = {
   yawDamp: 9,            // 1/s approach rate of yaw rate → target
 
   // -- drift / boost --
+  driftLatGMax: 19.5,    // boosted lateral-G authority during surface drift for crisp apex cutting
+  driftYawRateMax: 2.85, // boosted yaw authority during surface drift
   driftGripMul: 0.45,    // lateral grip × this while drifting (−55%)
-  driftYawDampMul: 0.5,  // yaw damping × this while drifting (looser rotation)
+  driftYawDampMul: 1.0,  // responsive yaw damping while drifting
   driftScrub: 0.1,       // 1/s extra forward speed scrub while drifting (slight — not a brake)
   driftMinSpeed: 12,     // m/s — below this, drifting builds no charge
   driftChargeTime: 1.05, // s of held drift for a full 0→1 charge
@@ -1460,10 +1462,12 @@ export class Boat implements IBoat {
     // reversed in reverse
     const speedAbs = Math.abs(vF);
     const steeringMul = flightWasActive ? this.handling.airControl : this.handling.steering;
-    const latGMax = (TUNING.latGMax + (TUNING.airBrakeLatG - TUNING.latGMax) * this.airBrakeFx) * steeringMul;
+    const baseLatG = surfaceDrift ? TUNING.driftLatGMax : TUNING.latGMax;
+    const latGMax = (baseLatG + (TUNING.airBrakeLatG - baseLatG) * this.airBrakeFx) * steeringMul;
     const gCap = latGMax / Math.max(speedAbs, 0.5);
     const authority = Math.min(speedAbs / TUNING.steerFullSpeed, 1) * (vF < 0 ? -1 : 1);
-    const yawTarget = -steer * Math.min(TUNING.yawRateMax * steeringMul, gCap) * authority;
+    const maxYawRate = (surfaceDrift ? TUNING.driftYawRateMax : TUNING.yawRateMax) * steeringMul;
+    const yawTarget = -steer * Math.min(maxYawRate, gCap) * authority;
     const baseYawDamp = TUNING.yawDamp + (TUNING.airBrakeYawDamp - TUNING.yawDamp) * this.airBrakeFx;
     const driftYawCut = surfaceDrift ? TUNING.driftYawDampMul + (1 - TUNING.driftYawDampMul) * this.airBrakeFx : 1;
     const yawDamp = baseYawDamp * driftYawCut;

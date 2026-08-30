@@ -845,11 +845,15 @@ export class HUD {
     }
     const routeGuidance = this.course.guidanceStatus();
     if (st.flightCharges !== this.lastFlightCharges) {
+      const gained = st.flightCharges > this.lastFlightCharges && !flightActive;
       this.lastFlightCharges = st.flightCharges;
       this.flightChargeCount.textContent = `x${st.flightCharges}`;
       for (let i = 0; i < this.flightTokens.length; i++) {
         this.flightTokens[i].classList.toggle('ready', i < st.flightCharges);
         this.flightTokens[i].classList.toggle('active', flightActive && i < st.flightCharges);
+      }
+      if (gained && race.phase === 'racing' && !this.duoSplit) {
+        this.showTransientNotice(`⚡ 漂移蓄力入库 · 飞行电池 +1 (库存 ${st.flightCharges})`, '蓄力入库');
       }
     }
     const launchPromptUseful = this.shouldShowFlightPrompt('launch');

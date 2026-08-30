@@ -1,0 +1,213 @@
+.kickstart-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  background: rgba(4, 7, 20, 0.94);
+  color: #f4feff;
+  font-family: 'Arial Black', Impact, system-ui, sans-serif;
+  letter-spacing: 0;
+  box-sizing: border-box;
+  pointer-events: auto;
+  isolation: isolate;
+}
+
+.kickstart-guide.on {
+  display: flex;
+  animation: kickstart-fade-in 0.22s ease-out;
+}
+
+.kickstart-guide-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(940px, 94vw);
+  max-height: calc(100vh - 24px);
+  padding: clamp(16px, 3.2vh, 28px) clamp(16px, 3vw, 36px);
+  background: linear-gradient(180deg, rgba(14, 22, 54, 0.96), rgba(8, 12, 32, 0.98));
+  border: 2px solid #55e7ff;
+  border-top-width: 6px;
+  border-radius: 4px;
+  box-shadow: 0 0 32px rgba(85, 231, 255, 0.22), 0 16px 40px rgba(0, 0, 0, 0.7);
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.kickstart-guide-header {
+  margin-bottom: clamp(10px, 2vh, 18px);
+}
+
+.kickstart-guide-kicker {
+  display: inline-block;
+  color: #55e7ff;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  font-family: system-ui, sans-serif;
+  font-weight: 900;
+}
+
+.kickstart-guide-title {
+  margin: 4px 0 2px;
+  color: #fff3ae;
+  font-size: clamp(28px, 4.8vh, 44px);
+  line-height: 1;
+  text-shadow: 0 3px 0 rgba(12, 12, 37, 0.88), 0 0 24px rgba(255, 207, 74, 0.4);
+}
+
+.kickstart-guide-subtitle {
+  margin: 0;
+  color: rgba(244, 254, 255, 0.72);
+  font: 700 13px/1.2 system-ui, sans-serif;
+}
+
+.kickstart-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(8px, 1.6vw, 16px);
+  width: 100%;
+  margin-bottom: clamp(12px, 2.4vh, 20px);
+}
+
+.kickstart-guide-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(12px, 2vh, 18px) clamp(10px, 1.4vw, 14px);
+  background: rgba(18, 28, 64, 0.72);
+  border: 1px solid rgba(85, 231, 255, 0.35);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.kickstart-guide-card:hover {
+  border-color: #ffcf4a;
+  transform: translateY(-2px);
+}
+
+.kickstart-guide-badge {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  background: #ffcf4a;
+  color: #0c0c25;
+  font-size: 13px;
+  font-weight: 950;
+  border-radius: 50%;
+}
+
+.kickstart-guide-icon {
+  font-size: clamp(28px, 4.5vh, 40px);
+  line-height: 1;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+
+.kickstart-guide-card-title {
+  color: #ffcf4a;
+  font-size: clamp(16px, 2.4vh, 20px);
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.kickstart-guide-key {
+  display: inline-block;
+  padding: 4px 10px;
+  margin-bottom: 8px;
+  background: rgba(6, 10, 28, 0.88);
+  border: 1px solid #55e7ff;
+  border-radius: 3px;
+  color: #55e7ff;
+  font: 900 12px/1 system-ui, sans-serif;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.kickstart-guide-card-copy {
+  margin: 0;
+  color: rgba(244, 254, 255, 0.82);
+  font: 600 12px/1.38 system-ui, sans-serif;
+  text-align: center;
+}
+
+.kickstart-guide-footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.kickstart-guide-start {
+  min-width: 210px;
+  min-height: 48px;
+  padding: 8px 28px;
+  background: #101b38;
+  color: #fff3ae;
+  border: 2px solid #ffcf4a;
+  border-left-width: 6px;
+  border-radius: 2px;
+  font: italic 900 17px/1 'Arial Black', Impact, sans-serif;
+  box-shadow: 0 0 24px rgba(255, 207, 74, 0.22);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.12s linear, transform 0.12s ease;
+}
+
+.kickstart-guide-start:hover {
+  background: #182a56;
+  transform: scale(1.03);
+}
+
+.kickstart-guide-start:active {
+  transform: scale(0.97);
+}
+
+.kickstart-guide-start:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+@media (max-height: 520px) {
+  .kickstart-guide-inner {
+    padding: 8px 16px 10px;
+    width: min(860px, 96vw);
+  }
+  .kickstart-guide-header {
+    margin-bottom: 6px;
+  }
+  .kickstart-guide-kicker { font-size: 9px; }
+  .kickstart-guide-title { font-size: 24px; }
+  .kickstart-guide-subtitle { font-size: 11px; }
+  .kickstart-guide-grid {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .kickstart-guide-card {
+    padding: 6px 8px;
+  }
+  .kickstart-guide-badge {
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+    top: 4px;
+    left: 6px;
+  }
+  .kickstart-guide-icon { font-size: 22px; margin-bottom: 3px; }
+  .kickstart-guide-card-title { font-size: 14px; margin-bottom: 3px; }
+  .kickstart-guide-key { padding: 2px 6px; font-size: 10px; margin-bottom: 4px; }
+  .kickstart-guide-card-copy { font-size: 10px; line-height: 1.25; }
+  .kickstart-guide-start { min-height: 40px; font-size: 14px; padding: 6px 20px; }
+}
+
+@keyframes kickstart-fade-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}

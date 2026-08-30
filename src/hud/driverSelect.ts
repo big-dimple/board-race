@@ -1,9 +1,11 @@
 import type { DriverProfile } from '../game/racers';
 import { DRIVER_PROFILES, driverProfile } from '../game/racers';
+import { KickstartGuide } from './kickstartGuide';
 import './driverSelect.css';
 
 export class DriverSelect {
   readonly root: HTMLDivElement;
+  readonly kickstartGuide: KickstartGuide;
   private readonly mobileBackdrop: HTMLImageElement;
   private readonly portrait: HTMLImageElement;
   private readonly portraitIncoming: HTMLImageElement;
@@ -201,20 +203,29 @@ export class DriverSelect {
     carousel.addEventListener('pointercancel', () => { this.carouselPointerId = null; });
 
     const footer = element('div', 'driver-select-footer', this.root);
+    this.kickstartGuide = new KickstartGuide(this.root);
     this.coachButton = element('button', 'driver-coach-button', footer);
     this.coachButton.type = 'button';
-    this.coachButton.title = '驾驶标注与进阶规则';
-    this.coachButton.setAttribute('aria-label', '打开驾驶标注与进阶规则');
+    this.coachButton.title = '3步极速上手指南';
+    this.coachButton.setAttribute('aria-label', '打开3步极速上手指南');
     this.coachButton.setAttribute('aria-expanded', 'false');
     this.coachButton.textContent = '?';
     this.coachButton.addEventListener('click', () => {
-      const open = !this.coachPanel.classList.contains('on');
-      this.coachPanel.classList.toggle('on', open);
-      this.coachButton.setAttribute('aria-expanded', String(open));
+      this.kickstartGuide.show();
     });
     this.startButton = element('button', 'driver-select-go', footer, 'GO · 签约出发');
     this.startButton.type = 'button';
-    this.startButton.addEventListener('click', onStart);
+    this.startButton.addEventListener('click', () => {
+      const isHarness = typeof window !== 'undefined' && (
+        window.location.search.includes('harness=1') ||
+        Boolean((window as unknown as { __harness?: unknown }).__harness)
+      );
+      if (!isHarness && !this.kickstartGuide.hasSeen()) {
+        this.kickstartGuide.show(onStart);
+      } else {
+        onStart();
+      }
+    });
     this.controllerStatus = element('div', 'driver-controller-status', footer);
     this.controllerStatus.setAttribute('role', 'status');
     this.controllerStatus.setAttribute('aria-live', 'polite');
@@ -258,6 +269,7 @@ export class DriverSelect {
 
   updateControllerStatus(status: Record<string, number | string | boolean>): void {
     const connected = status.connected === true;
+    this.kickstartGuide.updateDevice(connected ? 'gamepad' : ('ontouchstart' in window || navigator.maxTouchPoints > 0) ? 'mobile' : 'keyboard');
     this.controllerStatus.classList.toggle('on', connected);
     this.controllerStatus.classList.toggle('calibrating', Boolean(status.calibrationStep));
     if (!connected) {
