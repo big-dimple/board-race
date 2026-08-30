@@ -24,13 +24,33 @@ export interface DuoInteractionStatus {
   actorId: number;
 }
 
+export interface ActiveMissileInfo {
+  active: boolean;
+  position: THREE.Vector3;
+  direction: THREE.Vector3;
+  velocity: THREE.Vector3;
+  speed: number;
+  age: number;
+  actorId: number;
+  targetId: number;
+  isDwell: boolean;
+}
+
 const MAX_CHARGES = 7;
 const COOLDOWN_S = 3.5;
 const PRANK_IMPULSE = 2.4;
-const PRANK_SPEED = 82;
-const PRANK_LIFETIME_S = 2.6;
+const PRANK_SPEED = 45;
+const PRANK_LIFETIME_S = 4.8;
 const PRANK_HIT_RADIUS = 3.4;
 const MAX_PROJECTILES = 4;
+
+// Lighthouse reef launch complex position coordinates
+const LAUNCH_PADS = [
+  { x: 106.2, y: 1.85, z: 186.5, angle: -0.42 },
+  { x: 108.6, y: 1.95, z: 185.0, angle: -0.15 },
+  { x: 111.4, y: 1.95, z: 185.0, angle: 0.15 },
+  { x: 113.8, y: 1.85, z: 186.5, angle: 0.42 },
+] as const;
 
 const _missileDir = new THREE.Vector3();
 const _forwardZ = new THREE.Vector3(0, 0, 1);
@@ -38,11 +58,12 @@ const _forwardZ = new THREE.Vector3(0, 0, 1);
 /**
  * A deterministic post-elimination role. It never writes to BoatInput: the
  * eliminated player's device emits a separate edge, safely hands off a flight
- * cell, or launches a realistic Scud tactical missile with 75% hit rate that
- * launches the survivor into a 720° comical airborne tumble along its inertia vector.
+ * cell, or launches a realistic Scud tactical missile with 90% hit rate from
+ * the lighthouse missile complex that launches the survivor into a 720° comical airborne tumble.
  */
 export class DuoInteractionController {
   readonly object: THREE.Group;
+  private readonly launchComplexGroup: THREE.Group;
   private readonly cooldown = [0, 0];
   private readonly charges = [MAX_CHARGES, MAX_CHARGES];
   private readonly counts = { support: 0, prank: 0 };
@@ -58,8 +79,11 @@ export class DuoInteractionController {
     y: 0,
     z: 0,
     vx: 0,
+    vy: 0,
     vz: 0,
     age: 0,
+    isDwell: false,
+    dwellTimer: 0,
     historyX: new Float32Array(16),
     historyY: new Float32Array(16),
     historyZ: new Float32Array(16),
@@ -71,6 +95,18 @@ export class DuoInteractionController {
     flameCore: THREE.Mesh;
     smokeRing: THREE.Mesh;
   }> = [];
+
+  private readonly activeMissileScratch: ActiveMissileInfo = {
+    active: false,
+    position: new THREE.Vector3(),
+    direction: new THREE.Vector3(),
+    velocity: new THREE.Vector3(),
+    speed: 0,
+    age: 0,
+    actorId: -1,
+    targetId: -1,
+    isDwell: false,
+  };
 
   constructor() {
     this.object = new THREE.Group();
@@ -84,6 +120,8 @@ export class DuoInteractionController {
     const bandMat = new THREE.MeshBasicMaterial({ color: 0xffd020, toneMapped: false }); // Hazard yellow caution band
     const blackBandMat = new THREE.MeshBasicMaterial({ color: 0x111111, toneMapped: false });
     const nozzleMat = new THREE.MeshBasicMaterial({ color: 0x222222, toneMapped: false });
+    const gantryMat = new THREE.MeshBasicMaterial({ color: 0x2c333a, toneMapped: false }); // Gantry frame steel
+    const padBaseMat = new THREE.MeshBasicMaterial({ color: 0x181d22, toneMapped: false }); // Concrete pad
     const flameCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.98, toneMapped: false });
     const flameMat = new THREE.MeshBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0.88, toneMapped: false });
     const trailMat = new THREE.LineBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.88, toneMapped: false });
@@ -112,10 +150,7 @@ export class DuoInteractionController {
     flameGeo.rotateX(-Math.PI / 2);
     const ringGeo = new THREE.TorusGeometry(0.95, 0.09, 6, 16);
 
-    for (let index = 0; index < MAX_PROJECTILES; index++) {
-      const group = new THREE.Group();
-      group.name = `duo-interaction-scud-${index + 1}`;
-
+    const buildScudModel = (includePlume: boolean): { group: THREE.Group; flame?: THREE.Mesh; flameCore?: THREE.Mesh } => {
       const missileMeshGroup = new THREE.Group();
       missileMeshGroup.name = 'scud-body';
 
@@ -133,7 +168,6 @@ export class DuoInteractionController {
       const nozzle = new THREE.Mesh(nozzleGeo, nozzleMat);
       nozzle.position.z = -1.45;
 
-      // 4 mid canards
       for (let c = 0; c < 4; c++) {
         const canard = new THREE.Mesh(canardGeo, finMat);
         canard.position.z = 0.45;
@@ -143,7 +177,6 @@ export class DuoInteractionController {
         missileMeshGroup.add(canard);
       }
 
-      // 4 rear stabilization delta tail fins
       for (let f = 0; f < 4; f++) {
         const fin = new THREE.Mesh(finGeo, finMat);
         fin.position.z = -1.05;
@@ -153,12 +186,74 @@ export class DuoInteractionController {
         missileMeshGroup.add(fin);
       }
 
-      const flameCore = new THREE.Mesh(flameCoreGeo, flameCoreMat);
-      flameCore.position.z = -2.15;
-      const flame = new THREE.Mesh(flameGeo, flameMat);
-      flame.position.z = -2.55;
+      missileMeshGroup.add(fuselage, warhead, seeker, bandYellow, bandBlack, nozzle);
 
-      missileMeshGroup.add(fuselage, warhead, seeker, bandYellow, bandBlack, nozzle, flameCore, flame);
+      let flameMesh: THREE.Mesh | undefined;
+      let flameCoreMesh: THREE.Mesh | undefined;
+      if (includePlume) {
+        flameCoreMesh = new THREE.Mesh(flameCoreGeo, flameCoreMat);
+        flameCoreMesh.position.z = -2.15;
+        flameMesh = new THREE.Mesh(flameGeo, flameMat);
+        flameMesh.position.z = -2.55;
+        missileMeshGroup.add(flameCoreMesh, flameMesh);
+      }
+
+      return { group: missileMeshGroup, flame: flameMesh, flameCore: flameCoreMesh };
+    };
+
+    // Construct static launch gantry battery at lighthouse reef base
+    this.launchComplexGroup = new THREE.Group();
+    this.launchComplexGroup.name = 'scud-launch-complex';
+
+    const padBoxGeo = new THREE.BoxGeometry(1.4, 0.35, 2.4);
+    const railGeo = new THREE.BoxGeometry(0.18, 0.22, 3.4);
+    const strutGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.4, 6);
+
+    for (let p = 0; p < LAUNCH_PADS.length; p++) {
+      const padInfo = LAUNCH_PADS[p];
+      const padGroup = new THREE.Group();
+      padGroup.name = `scud-launch-pad-${p + 1}`;
+      padGroup.position.set(padInfo.x, padInfo.y, padInfo.z);
+      padGroup.rotation.y = padInfo.angle;
+
+      const padBase = new THREE.Mesh(padBoxGeo, padBaseMat);
+      padBase.position.y = 0.17;
+      padGroup.add(padBase);
+
+      const gantryRail = new THREE.Group();
+      gantryRail.position.set(0, 0.45, -0.2);
+      gantryRail.rotation.x = -Math.PI * 0.32; // Elevated ~58 deg launch angle
+
+      const railBeamLeft = new THREE.Mesh(railGeo, gantryMat);
+      railBeamLeft.position.x = -0.32;
+      const railBeamRight = new THREE.Mesh(railGeo, gantryMat);
+      railBeamRight.position.x = 0.32;
+      gantryRail.add(railBeamLeft, railBeamRight);
+
+      const strutLeft = new THREE.Mesh(strutGeo, gantryMat);
+      strutLeft.position.set(-0.35, -0.4, -0.6);
+      strutLeft.rotation.x = 0.4;
+      const strutRight = new THREE.Mesh(strutGeo, gantryMat);
+      strutRight.position.set(0.35, -0.4, -0.6);
+      strutRight.rotation.x = 0.4;
+      padGroup.add(strutLeft, strutRight);
+
+      // Parked static Scud missile on launch rail
+      const staticScud = buildScudModel(false);
+      staticScud.group.position.set(0, 0.22, 0.3);
+      gantryRail.add(staticScud.group);
+
+      padGroup.add(gantryRail);
+      this.launchComplexGroup.add(padGroup);
+    }
+    this.object.add(this.launchComplexGroup);
+
+    // Active in-flight missile visual projectiles
+    for (let index = 0; index < MAX_PROJECTILES; index++) {
+      const group = new THREE.Group();
+      group.name = `duo-interaction-scud-${index + 1}`;
+
+      const { group: missileMeshGroup, flame, flameCore } = buildScudModel(true);
 
       const smokeRing = new THREE.Mesh(ringGeo, smokeRingMat);
       smokeRing.rotation.x = Math.PI / 2;
@@ -171,7 +266,7 @@ export class DuoInteractionController {
       group.add(trail, smokeRing, missileMeshGroup);
       group.visible = false;
       this.object.add(group);
-      this.projectileVisuals.push({ group, trail, flame, flameCore, smokeRing });
+      this.projectileVisuals.push({ group, trail, flame: flame!, flameCore: flameCore!, smokeRing });
     }
   }
 
@@ -188,12 +283,30 @@ export class DuoInteractionController {
       state.actorId = -1;
       state.targetId = -1;
       state.age = 0;
+      state.isDwell = false;
+      state.dwellTimer = 0;
       this.projectileVisuals[i].group.visible = false;
       this.projectileState[i].historyX.fill(0);
       this.projectileState[i].historyY.fill(0);
       this.projectileState[i].historyZ.fill(0);
     }
     for (let i = 0; i < 2; i++) this.syncStatus(i, false);
+  }
+
+  getActiveMissileInfo(actorId?: number): ActiveMissileInfo | null {
+    const shot = this.projectileState.find((item) => item.active && (actorId === undefined || item.actorId === actorId));
+    if (!shot) return null;
+    this.activeMissileScratch.active = true;
+    this.activeMissileScratch.position.set(shot.x, shot.y, shot.z);
+    const speed = Math.hypot(shot.vx, shot.vy, shot.vz) || 1;
+    this.activeMissileScratch.direction.set(shot.vx / speed, shot.vy / speed, shot.vz / speed);
+    this.activeMissileScratch.velocity.set(shot.vx, shot.vy, shot.vz);
+    this.activeMissileScratch.speed = speed;
+    this.activeMissileScratch.age = shot.age;
+    this.activeMissileScratch.actorId = shot.actorId;
+    this.activeMissileScratch.targetId = shot.targetId;
+    this.activeMissileScratch.isDwell = shot.isDwell;
+    return this.activeMissileScratch;
   }
 
   update(
@@ -218,9 +331,6 @@ export class DuoInteractionController {
       const action: DuoInteractionAction = edges.support ? 'support' : 'prank';
       const targetBoat = boats[target];
       if (action === 'support') {
-        // Support is deliberately a resource hand-off, never a speed change.
-        // A full bank or a flight/landing window must not make the survivor
-        // miss a gate because a spectator pressed a button.
         if (!isSafeSurfaceWindow(targetBoat)) {
           emit({ actorId: actor, targetId: target, action, phase: 'blocked', accepted: false, chargesLeft: this.charges[actor], reason: 'unsafe-window' });
           continue;
@@ -233,31 +343,39 @@ export class DuoInteractionController {
         this.consumeCharge(actor);
         emit({ actorId: actor, targetId: target, action, phase: 'support', accepted: true, chargesLeft: this.charges[actor] });
       } else {
-        // A spectator may always launch the duck. The projectile is harmless
-        // during flight / landing and only applies its nudge if it reaches a
-        // stable surface window, so timing stays interactive without stealing
-        // control from a risky maneuver.
         const shot = this.projectileState.find((item) => !item.active);
         if (!shot) continue;
-        const heading = targetBoat.state.heading;
-        const forwardX = Math.sin(heading);
-        const forwardZ = Math.cos(heading);
-        const spawnDist = 18;
-        const spawnX = targetBoat.state.position.x - forwardX * spawnDist;
-        const spawnZ = targetBoat.state.position.z - forwardZ * spawnDist;
-        const chaseSpeed = Math.max(PRANK_SPEED, Math.abs(targetBoat.state.speed) + 16);
+
+        // Launch from the lighthouse missile complex on the reef platform
+        const padIndex = this.counts.prank % LAUNCH_PADS.length;
+        const pad = LAUNCH_PADS[padIndex];
+        const spawnX = pad.x;
+        const spawnY = pad.y + 0.8;
+        const spawnZ = pad.z;
+
+        // Calculate initial launch direction climbing from gantry
+        const launchAngle = pad.angle;
+        const initVx = Math.sin(launchAngle) * 18;
+        const initVy = 26;
+        const initVz = -Math.cos(launchAngle) * 18;
+
         shot.active = true;
         shot.actorId = actor;
         shot.targetId = target;
         shot.x = spawnX;
+        shot.y = spawnY;
         shot.z = spawnZ;
-        shot.vx = forwardX * chaseSpeed;
-        shot.vz = forwardZ * chaseSpeed;
+        shot.vx = initVx;
+        shot.vy = initVy;
+        shot.vz = initVz;
         shot.age = 0;
-        const originY = targetBoat.state.position.y + 1.15;
+        shot.isDwell = false;
+        shot.dwellTimer = 0;
+
         shot.historyX.fill(spawnX);
-        shot.historyY.fill(originY);
+        shot.historyY.fill(spawnY);
         shot.historyZ.fill(spawnZ);
+
         this.counts.prank++;
         this.consumeCharge(actor);
         emit({ actorId: actor, targetId: target, action, phase: 'prank-launch', accepted: true, chargesLeft: this.charges[actor] });
@@ -292,6 +410,18 @@ export class DuoInteractionController {
         this.projectileVisuals[index].group.visible = false;
         continue;
       }
+
+      // If in post-impact dwell, countdown before releasing projectile
+      if (shot.isDwell) {
+        shot.dwellTimer -= dt;
+        this.projectileVisuals[index].group.visible = false;
+        if (shot.dwellTimer <= 0) {
+          shot.active = false;
+          shot.isDwell = false;
+        }
+        continue;
+      }
+
       shot.age += dt;
       const targetBoat = boats[shot.targetId];
       const targetState = racers[shot.targetId];
@@ -300,32 +430,59 @@ export class DuoInteractionController {
         this.projectileVisuals[index].group.visible = false;
         continue;
       }
-      const chaseSpeed = Math.max(PRANK_SPEED, Math.abs(targetBoat.state.speed) + 16);
-      const dx = targetBoat.state.position.x - shot.x;
-      const dz = targetBoat.state.position.z - shot.z;
-      const distance = Math.hypot(dx, dz) || 1;
-      const desiredX = dx / distance * chaseSpeed;
-      const desiredZ = dz / distance * chaseSpeed;
-      const steer = Math.min(1, dt * 8.5);
-      shot.vx += (desiredX - shot.vx) * steer;
-      shot.vz += (desiredZ - shot.vz) * steer;
-      const speed = Math.hypot(shot.vx, shot.vz) || chaseSpeed;
-      shot.vx *= chaseSpeed / speed;
-      shot.vz *= chaseSpeed / speed;
+
+      const tx = targetBoat.state.position.x;
+      const ty = targetBoat.state.position.y + 0.8;
+      const tz = targetBoat.state.position.z;
+
+      const dx = tx - shot.x;
+      const dy = ty - shot.y;
+      const dz = tz - shot.z;
+      const distance = Math.hypot(dx, dy, dz) || 1;
+
+      // Proportional homing guidance towards survivor boat
+      if (shot.age < 0.65) {
+        // Initial ignition climb phase from lighthouse battery
+        shot.vy += (-9.8 + 28.0) * dt;
+        const horizDist = Math.hypot(dx, dz) || 1;
+        const steer = dt * 3.5;
+        shot.vx += ((dx / horizDist) * PRANK_SPEED - shot.vx) * steer;
+        shot.vz += ((dz / horizDist) * PRANK_SPEED - shot.vz) * steer;
+      } else {
+        // Homing cruise phase at PRANK_SPEED (45 m/s)
+        const desiredX = (dx / distance) * PRANK_SPEED;
+        const desiredY = (dy / distance) * PRANK_SPEED;
+        const desiredZ = (dz / distance) * PRANK_SPEED;
+        const steer = Math.min(1, dt * 5.2);
+        shot.vx += (desiredX - shot.vx) * steer;
+        shot.vy += (desiredY - shot.vy) * steer;
+        shot.vz += (desiredZ - shot.vz) * steer;
+
+        const currentSpeed = Math.hypot(shot.vx, shot.vy, shot.vz) || PRANK_SPEED;
+        shot.vx *= PRANK_SPEED / currentSpeed;
+        shot.vy *= PRANK_SPEED / currentSpeed;
+        shot.vz *= PRANK_SPEED / currentSpeed;
+      }
+
       shot.x += shot.vx * dt;
+      shot.y += shot.vy * dt;
       shot.z += shot.vz * dt;
-      for (let history = 11; history > 0; history--) {
+
+      for (let history = 15; history > 0; history--) {
         shot.historyX[history] = shot.historyX[history - 1];
         shot.historyY[history] = shot.historyY[history - 1];
         shot.historyZ[history] = shot.historyZ[history - 1];
       }
       shot.historyX[0] = shot.x;
-      shot.historyY[0] = targetBoat.state.position.y + 1.15 + Math.sin(shot.age * 11) * 0.3;
+      shot.historyY[0] = shot.y;
       shot.historyZ[0] = shot.z;
-      const hitDistance = Math.hypot(targetBoat.state.position.x - shot.x, targetBoat.state.position.z - shot.z);
-      if (hitDistance <= PRANK_HIT_RADIUS) {
+
+      const hitDistHoriz = Math.hypot(targetBoat.state.position.x - shot.x, targetBoat.state.position.z - shot.z);
+      const hitDistVert = Math.abs(targetBoat.state.position.y - shot.y);
+      if (hitDistHoriz <= PRANK_HIT_RADIUS && hitDistVert <= 3.8) {
         if (isSafeSurfaceWindow(targetBoat)) {
-          const isHit = Math.random() < 0.75;
+          // 90% Lethal Hit Rate
+          const isHit = Math.random() < 0.90;
           if (isHit) {
             const heading = targetBoat.state.heading;
             const forwardX = Math.sin(heading) * PRANK_IMPULSE;
@@ -335,11 +492,16 @@ export class DuoInteractionController {
             const sideZ = sideSign * -Math.sin(heading) * 1.2;
             targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 9.0);
             emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
+            shot.isDwell = true;
+            shot.dwellTimer = 0.5; // 0.5s dwell for dramatic explosion viewing
           } else {
             emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
+            shot.isDwell = true;
+            shot.dwellTimer = 0.5;
           }
+        } else {
+          shot.active = false;
         }
-        shot.active = false;
       }
       this.syncProjectileVisual(index, shot);
     }
@@ -347,14 +509,13 @@ export class DuoInteractionController {
 
   private syncProjectileVisual(index: number, shot: (typeof this.projectileState)[number]): void {
     const visual = this.projectileVisuals[index];
-    visual.group.visible = shot.active;
-    if (!shot.active) return;
-    visual.group.position.set(shot.x, shot.historyY[0], shot.z);
+    visual.group.visible = shot.active && !shot.isDwell;
+    if (!shot.active || shot.isDwell) return;
+    visual.group.position.set(shot.x, shot.y, shot.z);
 
-    // Orient missile directly along velocity vector in world space
-    const speed = Math.hypot(shot.vx, shot.vz) || 1;
-    const dy = shot.historyY[0] - shot.historyY[1];
-    _missileDir.set(shot.vx / speed, Math.max(-0.6, Math.min(0.6, dy * 2)), shot.vz / speed).normalize();
+    // Orient missile directly along 3D velocity vector in world space
+    const speed = Math.hypot(shot.vx, shot.vy, shot.vz) || 1;
+    _missileDir.set(shot.vx / speed, shot.vy / speed, shot.vz / speed).normalize();
     visual.group.quaternion.setFromUnitVectors(_forwardZ, _missileDir);
 
     // Dynamic flame scale pulsing
@@ -368,17 +529,17 @@ export class DuoInteractionController {
       0.9 + Math.sin(shot.age * 40) * 0.2,
       1.0 + Math.sin(shot.age * 50) * 0.3,
     );
-    visual.smokeRing.scale.setScalar(1 + (shot.age % 0.3) * 3);
-    visual.smokeRing.position.z = -1.6 - (shot.age % 0.3) * 2;
+    visual.smokeRing.scale.setScalar(1 + (shot.age % 0.25) * 4);
+    visual.smokeRing.position.z = -1.6 - (shot.age % 0.25) * 3;
 
     const positions = visual.trail.geometry.getAttribute('position') as THREE.BufferAttribute;
     for (let history = 0; history < 16; history++) {
       const fade = 1 - history / 16;
-      const swirl = 0.45 * fade * (0.2 + (history / 16) * 0.8);
+      const swirl = 0.38 * fade * (0.2 + (history / 16) * 0.8);
       const swirlPhase = shot.age * 12 - history * 0.65;
       positions.setXYZ(history,
         shot.historyX[history] - shot.x + Math.cos(swirlPhase) * swirl,
-        (shot.historyY[history] - shot.historyY[0]) * fade,
+        shot.historyY[history] - shot.y,
         shot.historyZ[history] - shot.z + Math.sin(swirlPhase) * swirl,
       );
     }
@@ -386,8 +547,6 @@ export class DuoInteractionController {
   }
 
   private syncStatus(actor: number, available: boolean): void {
-    // Match the public readiness flag to the same cooldown gate used by the
-    // simulation; an edge during cooldown is intentionally ignored.
     this.status[actor].available = available && this.cooldown[actor] <= 0 && this.charges[actor] > 0;
     this.status[actor].cooldown = this.cooldown[actor];
     this.status[actor].charges = this.charges[actor];

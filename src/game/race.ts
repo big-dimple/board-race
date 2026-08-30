@@ -65,7 +65,7 @@ const SURFACE_CONTINUITY_MAX_STEP_M = 4;
 /** Arc-search slack for lateral motion and table interpolation around a physical step. */
 const SURFACE_PROJECTION_SLACK_M = 2;
 /** A wrong-way banner is corrective; ignoring it for this long is terminal. */
-const WRONG_WAY_FAIL_HOLD_S = 2.4;
+const WRONG_WAY_FAIL_HOLD_S = 15;
 const BATTLE_ARM_M = 0.75;
 const BATTLE_CROSS_M = 0.25;
 const BATTLE_MIN_REL_SPEED = 0.5;
@@ -227,6 +227,29 @@ export class Race implements RaceView {
       route: this.prevRoute[id] ?? 'surface',
       resynced: this.resynced[id] ?? false,
     };
+  }
+
+  /** Seconds remaining before a wrong-way failure triggers for racer id. */
+  getWrongWayRemaining(id: number): number {
+    return Math.max(0, WRONG_WAY_FAIL_HOLD_S - (this.wrongT[id] ?? 0));
+  }
+
+  /** Seconds remaining before an off-course failure triggers for racer id. */
+  getOffCourseRemaining(id: number): number {
+    return Math.max(0, OFF_COURSE_FAIL_HOLD_S - (this.offCourseT[id] ?? 0));
+  }
+
+  /** Seconds remaining for current course warning (0 if none). */
+  getCourseWarningRemaining(id: number): number {
+    const r = this.racers.find((item) => item.id === id);
+    if (!r || r.courseWarning === 'none') return 0;
+    if (r.courseWarning === 'wrong_way') return this.getWrongWayRemaining(id);
+    if (r.courseWarning === 'off_course') return this.getOffCourseRemaining(id);
+    return 0;
+  }
+
+  getWrongWayHoldTime(id: number): number {
+    return this.wrongT[id] ?? 0;
   }
 
   setDefinitions(definitions: readonly RacerDefinition[]): void {
@@ -621,9 +644,10 @@ export class Race implements RaceView {
       if (!r.finished && !r.eliminated) {
         r.progress = this.windowedProgress(id);
 
-        if (!validatesSurface) {
-          // Airborne and authored merge-recovery motion is legitimate by
-          // construction. Neither warning timer may preload before handoff.
+        const isLegitFlight = boat.state.flightRouteState === 'active' && du >= 0;
+
+        if (isLegitFlight) {
+          // Legit flight along active authored route: clear warning clocks.
           this.wrongT[id] = 0;
           this.offCourseT[id] = 0;
           this.setCourseWarning(r, 'none');
@@ -661,8 +685,10 @@ export class Race implements RaceView {
             this.wrongT[id] += dt;
             if (this.wrongT[id] >= WRONG_WAY_HOLD) this.setCourseWarning(r, 'wrong_way');
           } else {
-            this.wrongT[id] = 0;
-            if (!offCourse || id !== this.primaryPlayerId) this.setCourseWarning(r, 'none');
+            this.wrongT[id] = Math.max(0, this.wrongT[id] - dt * 2.5);
+            if (this.wrongT[id] < WRONG_WAY_HOLD && r.courseWarning === 'wrong_way') {
+              this.setCourseWarning(r, offCourse && id === this.primaryPlayerId ? 'off_course' : 'none');
+            }
           }
           if (this.playerIds.includes(id) && this.offCourseT[id] >= OFF_COURSE_FAIL_HOLD_S) {
             const failure = this.surfaceFailure(id, 'off_course', _sample.distance);

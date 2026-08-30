@@ -229,12 +229,60 @@ export class HonorTargetSystem {
   private coinBurstCursor = 0;
   private coinBurstCount = 0;
   private coinSpin = 0;
+  private coinEdgeMat?: THREE.ShaderMaterial;
+  private coinFaceMat?: THREE.ShaderMaterial;
+  private coinRimMat?: THREE.ShaderMaterial;
+  private coinStampMat?: THREE.ShaderMaterial;
+  private coinHighlightMat?: THREE.ShaderMaterial;
+  private waterlineMat?: THREE.MeshBasicMaterial;
+  private timeOfDayBlend = 0;
+  private readonly colZero = new THREE.Color(0x000000);
+  private readonly colFaceEmissive = new THREE.Color(0xffb81c);
+  private readonly colEdgeEmissive = new THREE.Color(0xff9900);
+  private readonly colRimEmissive = new THREE.Color(0xffd700);
+  private readonly colStampEmissive = new THREE.Color(0xd47a00);
+  private readonly colHighlightEmissive = new THREE.Color(0xfffae0);
+  private readonly colShadowFloorDay = new THREE.Color(0x3a2a08);
+  private readonly colShadowFloorNight = new THREE.Color(0x8a5e10);
 
   constructor(private readonly course: ICourse) {
     this.object = new THREE.Group();
     this.object.name = 'honor-targets';
     this.buildTargets();
     this.buildCoinBursts();
+  }
+
+  setTimeOfDay(tod: 'day' | 'night', blend?: number): void {
+    const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
+    const clamped = Math.max(0, Math.min(1, b));
+    this.timeOfDayBlend = clamped;
+
+    if (this.coinFaceMat) {
+      (this.coinFaceMat.uniforms.uEmissive.value as THREE.Color).lerpColors(this.colZero, this.colFaceEmissive, clamped);
+      this.coinFaceMat.uniforms.uEmissiveIntensity.value = THREE.MathUtils.lerp(0.0, 0.95, clamped);
+      (this.coinFaceMat.uniforms.uShadowFloor.value as THREE.Color).lerpColors(this.colShadowFloorDay, this.colShadowFloorNight, clamped);
+    }
+    if (this.coinEdgeMat) {
+      (this.coinEdgeMat.uniforms.uEmissive.value as THREE.Color).lerpColors(this.colZero, this.colEdgeEmissive, clamped);
+      this.coinEdgeMat.uniforms.uEmissiveIntensity.value = THREE.MathUtils.lerp(0.0, 1.05, clamped);
+      (this.coinEdgeMat.uniforms.uShadowFloor.value as THREE.Color).lerpColors(this.colShadowFloorDay, this.colShadowFloorNight, clamped);
+    }
+    if (this.coinRimMat) {
+      (this.coinRimMat.uniforms.uEmissive.value as THREE.Color).lerpColors(this.colZero, this.colRimEmissive, clamped);
+      this.coinRimMat.uniforms.uEmissiveIntensity.value = THREE.MathUtils.lerp(0.0, 1.15, clamped);
+      (this.coinRimMat.uniforms.uShadowFloor.value as THREE.Color).lerpColors(this.colShadowFloorDay, this.colShadowFloorNight, clamped);
+    }
+    if (this.coinStampMat) {
+      (this.coinStampMat.uniforms.uEmissive.value as THREE.Color).lerpColors(this.colZero, this.colStampEmissive, clamped);
+      this.coinStampMat.uniforms.uEmissiveIntensity.value = THREE.MathUtils.lerp(0.0, 0.75, clamped);
+    }
+    if (this.coinHighlightMat) {
+      (this.coinHighlightMat.uniforms.uEmissive.value as THREE.Color).lerpColors(this.colZero, this.colHighlightEmissive, clamped);
+      this.coinHighlightMat.uniforms.uEmissiveIntensity.value = THREE.MathUtils.lerp(0.0, 1.35, clamped);
+    }
+    if (this.waterlineMat) {
+      this.waterlineMat.opacity = THREE.MathUtils.lerp(0.42, 0.75, clamped);
+    }
   }
 
   reset(): void {
@@ -316,10 +364,12 @@ export class HonorTargetSystem {
 
       // The halo breathes against the idle pulse so the marker never reads as
       // a static decal at chase distance.
-      const halo = 1 + Math.sin(target.phase * 1.9) * 0.09 + target.pulse * 0.5;
-      target.halo.scale.set(3.4 * halo, 3.4 * halo, 1);
+      const haloBase = THREE.MathUtils.lerp(3.4, 4.8, this.timeOfDayBlend);
+      const haloPulse = 1 + Math.sin(target.phase * 1.9) * (0.09 + this.timeOfDayBlend * 0.06) + target.pulse * 0.5;
+      target.halo.scale.set(haloBase * haloPulse, haloBase * haloPulse, 1);
+      (target.halo.material as THREE.SpriteMaterial).opacity = THREE.MathUtils.lerp(0.52, 0.88, this.timeOfDayBlend);
 
-      const idlePulse = 1 + Math.sin(target.phase * 2.1) * 0.035;
+      const idlePulse = 1 + Math.sin(target.phase * 2.1) * (0.035 + this.timeOfDayBlend * 0.025);
       target.group.scale.setScalar(idlePulse + target.pulse * 0.2);
 
       // Magnetic collection arc: smoothly leap into the boat driver's head
@@ -341,6 +391,10 @@ export class HonorTargetSystem {
           target.group.position.z = inv * inv * target.flyStartZ + 2 * inv * easeT * midZ + easeT * easeT * headZ;
           target.emblem.rotation.y += dt * 36.0;
           target.group.scale.setScalar(Math.max(0.01, (idlePulse + target.pulse * 0.4) * (1 - easeT * 0.52)));
+
+          const starlightHalo = THREE.MathUtils.lerp(1.0, 1.6, this.timeOfDayBlend);
+          target.halo.scale.set(haloBase * haloPulse * starlightHalo, haloBase * haloPulse * starlightHalo, 1);
+          (target.halo.material as THREE.SpriteMaterial).opacity = THREE.MathUtils.lerp(0.52, 0.95, this.timeOfDayBlend);
 
           // When coin completes flight arc and reaches the player cockpit
           if (tVal >= 1 && (target.hitMask & (1 << target.flySlot)) === 0) {
@@ -803,6 +857,13 @@ export class HonorTargetSystem {
       toneMapped: false,
       side: THREE.DoubleSide,
     });
+
+    this.coinEdgeMat = coinEdgeMaterial;
+    this.coinFaceMat = coinFaceMaterial;
+    this.coinRimMat = coinRimMaterial;
+    this.coinStampMat = coinStampMaterial;
+    this.coinHighlightMat = coinHighlightMaterial;
+    this.waterlineMat = waterlineMaterial;
 
     for (let index = 0; index < TARGET_LAYOUT.length; index++) {
       const spec = TARGET_LAYOUT[index];

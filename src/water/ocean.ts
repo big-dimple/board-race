@@ -41,8 +41,12 @@
 
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
+import { NIGHT_PALETTE } from '../core/nightPalette';
+import type { TimeOfDay } from '../core/timeOfDay';
 import type { RenderQualityMode } from '../core/stage';
 import { WAVES_GLSL, MAX_AMPLITUDE } from './waves';
+import { setToonTimeOfDay } from '../cel/toonMaterial';
+import { setLighthouseTimeOfDay } from './lighthouse';
 
 // ------------------------------------------------------- geometry layout ----
 
@@ -243,6 +247,7 @@ uniform vec3 uColorSkyMid;
 uniform vec3 uColorSkyZenith;
 uniform vec3 uColorSunWarm;
 uniform vec3 uSunDir;
+uniform float uNightBlend;
 
 varying vec2 vOrigXZ;
 varying float vViewZ;
@@ -477,7 +482,12 @@ void main() {
     (1.0 + uOpeningArt * 0.1);
   whitecap = smoothstep(0.012, 0.14, whitecap) * 0.78;
   whitecap *= 1.0 - smoothstep(190.0, 390.0, dist);
-  col = mix(col, uColorFoam, clamp(whitecap, 0.0, 0.9));
+  vec3 foamColor = uColorFoam;
+  // Bioluminescent cyan-blue tint on wave crests at night
+  foamColor = mix(foamColor, vec3(0.35, 0.96, 0.88), uNightBlend * 0.5);
+  col = mix(col, foamColor, clamp(whitecap, 0.0, 0.9));
+  // Subtle self-luminous emission on night whitecaps
+  col += vec3(0.10, 0.75, 0.70) * (whitecap * uNightBlend * 0.38);
 
   // --- 5. hull/buoy foam collar: biased depth difference vs the prepass ---
   // For a visible ocean fragment, any ink solid at this pixel is BEHIND the
@@ -503,12 +513,20 @@ void main() {
       float tqR = floor(uTime * uFoamRingFps);
       float ch = hash12(floor(vOrigXZ / uRingChunk) + tqR * 0.317);
       float edgeF = (gap - uRingContact) / max(uFoamRingWidth - uRingContact, 1e-3);
-      if (ch > uFoamRingBreak + edgeF * 0.15) col = uColorFoam;
+      if (ch > uFoamRingBreak + edgeF * 0.15) {
+        vec3 hullFoam = mix(uColorFoam, vec3(0.38, 1.0, 0.92), uNightBlend * 0.7);
+        col = hullFoam;
+        col += vec3(0.15, 0.88, 0.82) * (uNightBlend * 0.45);
+      }
     } else if (gap > 0.0 && gap < uFoamRingWidth + uFoamRingOuter) {
       // sparse outer flecks, same chunk grid, offset phase
       float tqR = floor(uTime * uFoamRingFps);
       float ch = hash12(floor(vOrigXZ / uRingChunk + 7.7) + tqR * 0.41);
-      if (ch > 0.84) col = mix(col, uColorFoam, 0.85);
+      if (ch > 0.84) {
+        vec3 fleckCol = mix(col, uColorFoam, 0.85);
+        fleckCol += vec3(0.12, 0.78, 0.74) * (uNightBlend * 0.35);
+        col = fleckCol;
+      }
     }
   }
 
@@ -532,6 +550,28 @@ export class Ocean {
   readonly uniforms: Record<string, THREE.IUniform>;
 
   private readonly mesh: THREE.Mesh;
+
+  private readonly dayDeep = new THREE.Color(PALETTE.waterDeep);
+  private readonly dayMid = new THREE.Color(PALETTE.waterMid).lerp(new THREE.Color(PALETTE.waterDeep), 0.4);
+  private readonly dayCrest = new THREE.Color(PALETTE.waterCrest).lerp(new THREE.Color(PALETTE.waterMid), 0.65);
+  private readonly dayFoam = new THREE.Color(PALETTE.foam);
+  private readonly daySparkle = new THREE.Color(PALETTE.sparkle);
+  private readonly dayHorizon = new THREE.Color(PALETTE.skyHorizon);
+  private readonly daySkyMid = new THREE.Color(PALETTE.skyMid);
+  private readonly daySkyZenith = new THREE.Color(PALETTE.skyZenith);
+  private readonly daySunWarm = new THREE.Color(1.0, 0.88, 0.62);
+  private readonly daySunDir = new THREE.Vector3(PALETTE.sunDir[0], PALETTE.sunDir[1], PALETTE.sunDir[2]).normalize();
+
+  private readonly nightDeep = new THREE.Color(NIGHT_PALETTE.waterDeep);
+  private readonly nightMid = new THREE.Color(NIGHT_PALETTE.waterMid);
+  private readonly nightCrest = new THREE.Color(NIGHT_PALETTE.waterCrest);
+  private readonly nightFoam = new THREE.Color(NIGHT_PALETTE.foam);
+  private readonly nightSparkle = new THREE.Color(NIGHT_PALETTE.sparkle);
+  private readonly nightHorizon = new THREE.Color(NIGHT_PALETTE.skyHorizon);
+  private readonly nightSkyMid = new THREE.Color(NIGHT_PALETTE.skyMid);
+  private readonly nightSkyZenith = new THREE.Color(NIGHT_PALETTE.skyZenith);
+  private readonly nightSunWarm = new THREE.Color(NIGHT_PALETTE.sunWarm);
+  private readonly nightSunDir = new THREE.Vector3(NIGHT_PALETTE.moonDir[0], NIGHT_PALETTE.moonDir[1], NIGHT_PALETTE.moonDir[2]).normalize();
 
   constructor(opts: {
     depthTexture: THREE.Texture;
@@ -608,6 +648,7 @@ export class Ocean {
       // wash so the water lane reads as the accent, never green over cyan.
       uColorSunWarm: { value: new THREE.Color(1.0, 0.88, 0.62) },
       uSunDir: { value: new THREE.Vector3(sun[0], sun[1], sun[2]).normalize() },
+      uNightBlend: { value: 0.0 },
     };
 
     const material = new THREE.ShaderMaterial({
@@ -645,6 +686,26 @@ export class Ocean {
       this.uniforms.uPixelScale.value =
         (2 * Math.tan((fovYDegrees * Math.PI) / 360)) / deviceH;
     }
+  }
+
+  setTimeOfDay(tod: TimeOfDay, blend?: number): void {
+    const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
+    const clamped = Math.max(0, Math.min(1, b));
+
+    (this.uniforms.uNightBlend.value as number) = clamped;
+    (this.uniforms.uColorDeep.value as THREE.Color).lerpColors(this.dayDeep, this.nightDeep, clamped);
+    (this.uniforms.uColorMid.value as THREE.Color).lerpColors(this.dayMid, this.nightMid, clamped);
+    (this.uniforms.uColorCrest.value as THREE.Color).lerpColors(this.dayCrest, this.nightCrest, clamped);
+    (this.uniforms.uColorFoam.value as THREE.Color).lerpColors(this.dayFoam, this.nightFoam, clamped);
+    (this.uniforms.uColorSparkle.value as THREE.Color).lerpColors(this.daySparkle, this.nightSparkle, clamped);
+    (this.uniforms.uColorHorizon.value as THREE.Color).lerpColors(this.dayHorizon, this.nightHorizon, clamped);
+    (this.uniforms.uColorSkyMid.value as THREE.Color).lerpColors(this.daySkyMid, this.nightSkyMid, clamped);
+    (this.uniforms.uColorSkyZenith.value as THREE.Color).lerpColors(this.daySkyZenith, this.nightSkyZenith, clamped);
+    (this.uniforms.uColorSunWarm.value as THREE.Color).lerpColors(this.daySunWarm, this.nightSunWarm, clamped);
+    (this.uniforms.uSunDir.value as THREE.Vector3).lerpVectors(this.daySunDir, this.nightSunDir, clamped).normalize();
+
+    setToonTimeOfDay(tod, clamped);
+    setLighthouseTimeOfDay(tod, clamped);
   }
 
   setOpeningIntensity(value: number): void {

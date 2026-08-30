@@ -304,6 +304,7 @@ export class HUD {
   private hudTime = 0;
   private flightAlertTimer = 0;
   private lastCourseWarning: CourseWarning = 'none';
+  private lastCourseWarningText = '';
   private corridorStage = 0;
   private lastCountdown = -1;
   private cdVisible = false;
@@ -721,7 +722,12 @@ export class HUD {
     this.corridorStage = stage;
     this.root.classList.toggle('corridor-critical', stage === 2);
     if (stage === 0) {
-      if (this.lastCourseWarning === 'none') this.wrongWayEl.classList.remove('on');
+      if (this.lastCourseWarning === 'none') {
+        this.wrongWayEl.classList.remove('on');
+      } else {
+        if (this.lastCourseWarningText) this.wrongWayEl.textContent = this.lastCourseWarningText;
+        this.wrongWayEl.classList.add('on');
+      }
       return;
     }
     this.wrongWayEl.textContent = stage === 1
@@ -782,12 +788,23 @@ export class HUD {
           : (me.place === 1 ? '优秀资格' : '优秀资格丢失');
       this.finalLapEl.classList.toggle('qualified', excellent || me.place === 1);
       this.finalLapEl.classList.toggle('lost', !excellent && me.place !== 1);
-      if (me.courseWarning !== this.lastCourseWarning) {
-        this.lastCourseWarning = me.courseWarning;
-        this.wrongWayEl.textContent = me.courseWarning === 'off_course'
-          ? '偏离航线 · 回到绿色引导'
-          : '方向反了 · 掉头';
-        this.wrongWayEl.classList.toggle('on', me.courseWarning !== 'none');
+      if (this.corridorStage === 0) {
+        let warningText = '';
+        if (me.courseWarning === 'wrong_way') {
+          const remainingS = (race as any).getWrongWayRemaining?.(me.id) ?? (race as any).getCourseWarningRemaining?.(me.id) ?? 15;
+          const sec = Math.max(1, Math.ceil(remainingS));
+          warningText = `⚠️ 逆向行驶 · 请掉头 (${sec}s)`;
+        } else if (me.courseWarning === 'off_course') {
+          const remainingS = (race as any).getOffCourseRemaining?.(me.id) ?? (race as any).getCourseWarningRemaining?.(me.id) ?? 15;
+          const sec = Math.max(1, Math.ceil(remainingS));
+          warningText = `⚠️ 偏离航线 · 回到绿色引导 (${sec}s)`;
+        }
+        if (me.courseWarning !== this.lastCourseWarning || warningText !== this.lastCourseWarningText) {
+          this.lastCourseWarning = me.courseWarning;
+          this.lastCourseWarningText = warningText;
+          if (warningText) this.wrongWayEl.textContent = warningText;
+          this.wrongWayEl.classList.toggle('on', me.courseWarning !== 'none');
+        }
       }
     }
     if (this.finalLapTimer > 0) this.finalLapTimer = Math.max(0, this.finalLapTimer - dt);

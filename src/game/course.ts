@@ -720,6 +720,8 @@ function makeStartGantryVisuals(): {
   towerMaterial: THREE.Material;
   bannerFront: THREE.Group;
   bannerBack: THREE.Group;
+  bannerAccentMaterial: THREE.Material;
+  bannerFoamMaterial: THREE.Material;
 } {
   const foamMat = createToonMaterial({ color: PALETTE.foam, emissive: PALETTE.foam, emissiveIntensity: 0.12 });
   const inkMat = createToonMaterial({ color: PALETTE.ink });
@@ -813,7 +815,7 @@ function makeStartGantryVisuals(): {
   bannerFront.add(letters);
   bannerFront.name = 'start-banner-front';
   bannerBack.name = 'start-banner-back';
-  return { towerMaterial: foamMat, bannerFront, bannerBack };
+  return { towerMaterial: foamMat, bannerFront, bannerBack, bannerAccentMaterial: accentMat, bannerFoamMaterial: foamMat };
 }
 
 /** Pink low-altitude lock: the open mist aperture only exists above this field. */
@@ -959,6 +961,8 @@ function createSurfaceGuideUniforms() {
     uLaunchGateS: { value: 0 },
     uLaunchGateEndS: { value: 0 },
     uMaskFeather: { value: SURFACE_GUIDE_MASK_FEATHER_M },
+    uNightBlend: { value: 0 },
+    uEmissiveFloor: { value: 1.0 },
   };
 }
 
@@ -1002,6 +1006,8 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       uniform float uLaunchGateS;
       uniform float uLaunchGateEndS;
       uniform float uMaskFeather;
+      uniform float uNightBlend;
+      uniform float uEmissiveFloor;
       varying float vS;
       varying float vSide;
       varying float vDist;
@@ -1022,7 +1028,8 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         visible *= mix(1.0, 0.65, uLaunchGateActive * launchMaskSoft);
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
-        float packetPhase = fract(vS / 21.0 - uTime * 0.55);
+        float pulseSpeed = mix(0.55, 0.85, uNightBlend);
+        float packetPhase = fract(vS / 21.0 - uTime * pulseSpeed);
         float packet = smoothstep(0.04, 0.2, packetPhase) *
           (1.0 - smoothstep(0.66, 0.94, packetPhase));
         float drift = sin(vS * 0.19 - uTime * 1.7) * 0.025;
@@ -1039,13 +1046,15 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float centerVeil = (1.0 - smoothstep(0.08, 0.62, side)) * (0.38 + waterPocket * 0.62);
         float navSpine = 1.0 - smoothstep(0.04, 0.12, side);
         float veil = softEdge * (${SURFACE_GUIDE_BASE_ALPHA.toFixed(3)} * (0.55 + waterPocket * 0.45) + packet * 0.04);
-        float alpha = veil + centerVeil * 0.06 + navSpine * (0.42 + packet * 0.08) + flow * 0.32;
+        float nightPulse = mix(1.0, 1.45, uNightBlend);
+        float alpha = veil + centerVeil * (0.06 * nightPulse) + navSpine * (0.42 + packet * 0.08) * nightPulse + flow * (0.32 * nightPulse);
         float localFade = 1.0 - smoothstep(200.0, 250.0, ahead) * 0.15;
         float fade = (vDist < 260.0 ? 1.0 : 0.82) * localFade;
         vec3 col = mix(uColor, uFoam, 0.32 + navSpine * 0.28 + flow * 0.36 + packet * 0.1);
+        col *= uEmissiveFloor;
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
-        alpha = min(alpha, 0.78);
+        alpha = min(alpha, 0.82);
         alpha *= visible * step(0.008, alpha);
         gl_FragColor = vec4(col, alpha);
       }
@@ -1456,6 +1465,15 @@ export class Course implements ICourse {
   private readonly capturedGuidance = makeGuidancePresentationState();
   private presentationTime = 0;
   private guidanceStatusOwnerId = 0;
+  private timeOfDayBlend = 0;
+  private checkpointConeMat?: THREE.Material;
+  private checkpointFoamRingMat?: THREE.Material;
+  private startTowerAccentMat?: THREE.Material;
+  private startTowerCapMat?: THREE.Material;
+  private startBannerAccentMat?: THREE.Material;
+  private startBannerFoamMat?: THREE.Material;
+  private duckYellowMat?: THREE.Material;
+  private duckBeakMat?: THREE.Material;
 
   constructor() {
     this.object = new THREE.Group();
@@ -1474,6 +1492,63 @@ export class Course implements ICourse {
     this.pointAt(0, this.finalPortalCenter);
     this.tangentAt(0, this.finalPortalForward);
     this.finalPortalRight.set(this.finalPortalForward.z, 0, -this.finalPortalForward.x).normalize();
+  }
+
+  setTimeOfDay(tod: 'day' | 'night', blend?: number): void {
+    const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
+    const clamped = Math.max(0, Math.min(1, b));
+    this.timeOfDayBlend = clamped;
+
+    this.ribbonMat.uniforms.uNightBlend.value = clamped;
+    this.ribbonMat.uniforms.uEmissiveFloor.value = THREE.MathUtils.lerp(1.0, 1.8, clamped);
+
+    for (const visuals of [this.flightVisuals, this.flightVisualsRight]) {
+      if (!visuals) continue;
+      for (const visual of visuals) {
+        if (visual.ribbon.uniforms.uNightBlend) {
+          visual.ribbon.uniforms.uNightBlend.value = clamped;
+        }
+        if (visual.ribbon.uniforms.uEmissiveFloor) {
+          visual.ribbon.uniforms.uEmissiveFloor.value = THREE.MathUtils.lerp(1.0, 1.45, clamped);
+        }
+        if (visual.curtain.uniforms.uNightBlend) {
+          visual.curtain.uniforms.uNightBlend.value = clamped;
+        }
+      }
+    }
+
+    if (this.checkpointConeMat && 'emissiveIntensity' in this.checkpointConeMat) {
+      (this.checkpointConeMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.5, 1.8, clamped);
+    }
+    if (this.checkpointFoamRingMat && 'emissiveIntensity' in this.checkpointFoamRingMat) {
+      (this.checkpointFoamRingMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.4, 1.0, clamped);
+    }
+    if (this.startTowerAccentMat && 'emissiveIntensity' in this.startTowerAccentMat) {
+      (this.startTowerAccentMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.28, 1.2, clamped);
+    }
+    if (this.startTowerCapMat && 'emissiveIntensity' in this.startTowerCapMat) {
+      (this.startTowerCapMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.5, 1.6, clamped);
+    }
+    if (this.startBannerAccentMat && 'emissiveIntensity' in this.startBannerAccentMat) {
+      (this.startBannerAccentMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.28, 1.2, clamped);
+    }
+    if (this.startBannerFoamMat && 'emissiveIntensity' in this.startBannerFoamMat) {
+      (this.startBannerFoamMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.12, 0.75, clamped);
+    }
+    if (this.duckYellowMat && 'emissiveIntensity' in this.duckYellowMat) {
+      (this.duckYellowMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.42, 0.95, clamped);
+    }
+    if (this.duckBeakMat && 'emissiveIntensity' in this.duckBeakMat) {
+      (this.duckBeakMat as unknown as { emissiveIntensity: number }).emissiveIntensity =
+        THREE.MathUtils.lerp(0.45, 1.0, clamped);
+    }
   }
 
   /** Compatibility setter for independent mode. */
@@ -2209,7 +2284,7 @@ export class Course implements ICourse {
         this.playerFlightPressure = st.flightPressure;
         const targetGate = this.flightVisuals[this.playerFlightIndex]?.gates[st.flightGateProgress];
         this.playerTargetGateDistance = targetGate ? targetGate.center.distanceTo(pos) : -1;
-        if (acceptedLaunch && !this.finalArmed) {
+        if (acceptedLaunch) {
           const committedRoute = st.flightRouteCursor % FLIGHT_ROUTES.length;
           this.playerLaunchCommittedRoute = committedRoute;
           this.playerLaunchCommittedU = surfaceU;
@@ -2251,7 +2326,7 @@ export class Course implements ICourse {
 
       const jump = prev.distanceToSquared(pos) > 60 * 60;
       const flightActive = st.flightPhase !== 'surface';
-      if (id === this.guidanceBoatId && !this.finalArmed) {
+      if (id === this.guidanceBoatId) {
         if (flightActive && this.playerLaunchCommittedRoute >= 0) {
           this.playerLaunchGateState = 'committed';
           this.playerLaunchGateRouteIndex = this.playerLaunchCommittedRoute;
@@ -2300,8 +2375,11 @@ export class Course implements ICourse {
       const def = runtime.def;
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
+      const routeDeployActive = routeIndex === 0
+        ? (surfaceU >= 0.98 || surfaceU <= def.exitU + 0.01)
+        : (surfaceU >= flightGuideFromU(def) && surfaceU <= def.exitU + 0.01);
       if (id === this.guidanceBoatId && (flightActive || st.flightRouteState !== 'idle' ||
-          (surfaceU >= flightGuideFromU(def) && surfaceU <= def.exitU + 0.01))) visual.deployActive = true;
+          routeDeployActive)) visual.deployActive = true;
       this.flightTurnWarn[id] = flightActive && st.flightRouteState === 'active' &&
         near.u >= def.turnWarningFromU && near.u <= def.turnWarningToU;
       const primaryTurn = def.navigation?.turn;
@@ -2311,7 +2389,7 @@ export class Course implements ICourse {
         : primaryTurn && near.u >= primaryTurn.fromU && near.u <= primaryTurn.toU
           ? primaryTurn
           : null;
-      if (id === this.guidanceBoatId && !this.finalArmed && activeTurn &&
+      if (id === this.guidanceBoatId && activeTurn &&
           flightActive && st.flightRouteState === 'active') {
         this.playerActionCue = 'turn';
         this.playerActionRouteIndex = routeIndex;
@@ -2663,9 +2741,12 @@ export class Course implements ICourse {
         ? recoverySlot
         : st.flightRouteIndex >= 0 ? st.flightRouteIndex : st.flightRouteCursor % FLIGHT_ROUTES.length;
       const def = FLIGHT_ROUTES[slot];
+      const routeActive = slot === 0
+        ? (this.playerSurfaceU >= 0.98 || this.playerSurfaceU <= def.exitU + 0.01)
+        : (this.playerSurfaceU >= flightGuideFromU(def) && this.playerSurfaceU <= def.exitU + 0.01);
       if (def && (recoverySlot >= 0 ||
           st.flightRouteState !== 'idle' || st.flightPhase !== 'surface' ||
-          (this.playerSurfaceU >= flightGuideFromU(def) && this.playerSurfaceU <= def.exitU + 0.01))) {
+          routeActive)) {
         next = slot;
       }
     }
@@ -2871,9 +2952,12 @@ export class Course implements ICourse {
       : recoverySlot >= 0
         ? recoverySlot
         : routeIndex;
+    const routeActive = slot === 0
+      ? (state.surfaceU >= 0.98 || state.surfaceU <= def!.exitU + 0.01)
+      : (state.surfaceU >= flightGuideFromU(def!) && state.surfaceU <= def!.exitU + 0.01);
     const showRoute = Boolean(def) && (
       committedSlot >= 0 || recoverySlot >= 0 || st.flightRouteState !== 'idle' || flightActive ||
-      (state.surfaceU >= flightGuideFromU(def!) && state.surfaceU <= def!.exitU + 0.01)
+      routeActive
     );
     state.activeGuideRoute = showRoute ? slot : -1;
     state.targetGateDistance = -1;
@@ -3100,16 +3184,17 @@ export class Course implements ICourse {
         0.24 + blend * (0.76 + burst * 0.32 + cross * 0.08),
         1 + burst * 0.08 + cross * 0.025,
       );
-      const pulse = 0.82 + Math.sin(t * (this.finalCelebrating ? 8.5 : 3.2)) *
-        (this.finalCelebrating ? 0.28 : 0.18) + burst * 0.22 + cross * 0.2;
+      const pulse = (0.82 + Math.sin(t * (this.finalCelebrating ? 8.5 : 3.2)) *
+        (this.finalCelebrating ? 0.28 : 0.18) + burst * 0.22 + cross * 0.2) * (1 + this.timeOfDayBlend * 0.45);
       this.finalStation.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
         const material = object.material as THREE.MeshBasicMaterial;
         const baseOpacity = Number(object.userData.finalBaseOpacity ?? 0);
-        if (baseOpacity > 0) material.opacity = baseOpacity * blend * pulse;
+        if (baseOpacity > 0) material.opacity = Math.min(1.0, baseOpacity * blend * pulse);
         const particle = Number(object.userData.finalParticle ?? -1);
         if (particle >= 0) {
-          object.position.y = 1.2 + ((t * (1.5 + particle * 0.035) + particle * 1.17) % 10.5);
+          const speedMult = 1 + this.timeOfDayBlend * 0.35;
+          object.position.y = 1.2 + ((t * ((1.5 + particle * 0.035) * speedMult) + particle * 1.17) % 10.5);
           object.rotation.y = t * (0.9 + particle * 0.04);
           const drift = Math.sin(t * 1.7 + particle * 2.1) * 0.28;
           object.position.z = drift;
@@ -3179,12 +3264,12 @@ export class Course implements ICourse {
         const distance = upcoming ? gate.center.distanceTo(this.playerPosition) : 0;
         const far = Math.max(0, Math.min(1, (distance - 70) / 150));
         const smoothFar = far * far * (3 - 2 * far);
-        const anchorScale = 1 + smoothFar * 0.75;
+        const anchorScale = 1 + smoothFar * (0.75 + this.timeOfDayBlend * 0.25);
         gate.anchor.scale.setScalar(anchorScale);
         if (upcoming) this.playerTargetAnchorScale = anchorScale;
         gate.anchor.rotation.z = this.flightFlowTime * 0.18;
-        (gate.anchor.material as THREE.MeshBasicMaterial).opacity =
-          0.68 + Math.sin(this.flightFlowTime * 3.4) * 0.12;
+        const anchorAlpha = (0.68 + Math.sin(this.flightFlowTime * 3.4) * 0.12) * (1 + this.timeOfDayBlend * 0.32);
+        (gate.anchor.material as THREE.MeshBasicMaterial).opacity = Math.min(1.0, anchorAlpha);
       }
     }
     this.updateSecondaryPresentation(dt, t);
@@ -3491,6 +3576,8 @@ export class Course implements ICourse {
         uFarEnd: { value: FLIGHT_GUIDE_FAR_END_M },
         // Warm color belongs to the authored chevrons, never the whole route.
         uTurnTintMax: { value: 0.14 },
+        uNightBlend: { value: 0 },
+        uEmissiveFloor: { value: 1.0 },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
@@ -3540,6 +3627,8 @@ export class Course implements ICourse {
         uniform float uFarStart;
         uniform float uFarEnd;
         uniform float uTurnTintMax;
+        uniform float uNightBlend;
+        uniform float uEmissiveFloor;
         varying vec2 vUv;
         varying float vViewDepth;
         void main() {
@@ -3595,9 +3684,10 @@ export class Course implements ICourse {
             sin(vUv.y * 47.0 + uTime * 9.0);
           mistBreak *= 1.0 - max(distress * 0.6, stormDeep) * (0.28 + 0.5 * shred);
           float scan = step(0.78, fract(vUv.y * 22.0 - uTime * 0.8));
-          vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12);
-          vec3 edgeColor = uFlight;
-          vec3 flowColor = uFlight;
+          vec3 nightMist = mix(vec3(1.0), vec3(1.42, 1.38, 1.25), uNightBlend);
+          vec3 panelColor = mix(uFlightDeep, uFlight, 0.34 + panelCell * 0.12) * nightMist;
+          vec3 edgeColor = uFlight * nightMist;
+          vec3 flowColor = uFlight * nightMist;
           vec3 color = panelColor;
           color = mix(color, edgeColor, edgeBand * (0.72 + farBoost * 0.16));
           color = mix(color, flowColor, flow * (0.76 + farBoost * 0.14));
@@ -3605,6 +3695,7 @@ export class Course implements ICourse {
           float brakeInk = turnZone * (0.32 + packet * 0.14);
           float turnTint = min(uTurnTintMax, brakeInk * 0.34 + uTurn * turnZone * 0.06);
           color = mix(color, uTurnColor, turnTint);
+          color *= uEmissiveFloor;
           float stormWarn = distress * (0.55 + 0.45 * sin(uTime * 16.0)) *
             (0.16 + 0.62 * (edgeBand + inkEdge)) +
             stormDeep * 0.3 * (0.5 + 0.5 * sin(uTime * 20.0));
@@ -3660,7 +3751,7 @@ export class Course implements ICourse {
           float endpointDistance = min(vUv.y, 1.0 - vUv.y);
           float endpointFade = smoothstep(0.0, ${FLIGHT_GUIDE_ENDPOINT_TAPER_F.toFixed(3)}, endpointDistance);
           float endpointAlpha = mix(${FLIGHT_GUIDE_ENDPOINT_MIN_ALPHA.toFixed(2)}, 1.0, endpointFade);
-          gl_FragColor = vec4(color, min(alpha * endpointAlpha, 0.82));
+          gl_FragColor = vec4(color, min(alpha * endpointAlpha, 0.88));
         }
       `,
       transparent: true,
@@ -3716,6 +3807,7 @@ export class Course implements ICourse {
       uniforms: {
         uTime: { value: 0 },
         uColor: { value: new THREE.Color().setHex(FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace) },
+        uNightBlend: { value: 0 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -3727,6 +3819,7 @@ export class Course implements ICourse {
       fragmentShader: /* glsl */ `
         uniform float uTime;
         uniform vec3 uColor;
+        uniform float uNightBlend;
         varying vec2 vUv;
         void main() {
           float vFade = smoothstep(0.0, 0.06, vUv.y) * (1.0 - smoothstep(0.12, 1.0, vUv.y));
@@ -3734,7 +3827,9 @@ export class Course implements ICourse {
           float pulse = pow(fract(vUv.x * 16.0 - uTime * 1.35), 1.7);
           float filament = 0.72 + 0.28 * sin(vUv.y * 24.0 + vUv.x * 34.0 - uTime * 2.1);
           float alpha = vFade * endFade * filament * (0.1 + pulse * 0.24);
-          gl_FragColor = vec4(uColor, alpha);
+          alpha *= mix(1.0, 1.45, uNightBlend);
+          vec3 col = uColor * mix(1.0, 1.35, uNightBlend);
+          gl_FragColor = vec4(col, alpha);
         }
       `,
       transparent: true,
@@ -4186,6 +4281,7 @@ export class Course implements ICourse {
       emissive: PALETTE.hullReef,
       emissiveIntensity: 0.5,
     });
+    this.checkpointConeMat = coneMat;
     // float collar: deep ink-blue (ink lightened 70% toward waterDeep) —
     // the old near-black read as a void disc / distant black lump
     const floatBlue = new THREE.Color()
@@ -4200,22 +4296,27 @@ export class Course implements ICourse {
       emissiveIntensity: 0.4,
     });
     foamRingMat.side = THREE.DoubleSide;
+    this.checkpointFoamRingMat = foamRingMat;
     // START/FINISH uses pure geometry for its towers, panel and lettering.
     // This avoids a first-load mobile GPU race that could upload CanvasTexture
     // data as black until the page was refreshed.
     const startVisuals = makeStartGantryVisuals();
     const towerMat = startVisuals.towerMaterial;
+    this.startBannerFoamMat = startVisuals.bannerFoamMaterial;
+    this.startBannerAccentMat = startVisuals.bannerAccentMaterial;
     const towerBandMat = createToonMaterial({ color: PALETTE.ink });
     const towerAccentMat = createToonMaterial({
       color: PALETTE.uiAccent,
       emissive: PALETTE.uiAccent,
       emissiveIntensity: 0.28,
     });
+    this.startTowerAccentMat = towerAccentMat;
     const towerCapMat = createToonMaterial({
       color: PALETTE.hullPlayer,
       emissive: PALETTE.hullPlayer,
       emissiveIntensity: 0.5,
     });
+    this.startTowerCapMat = towerCapMat;
     // Keep the proven striped checkpoint silhouette; the duck is the only comedy layer.
     const floatGeo = new THREE.TorusGeometry(0.88, 0.3, 10, 20);
     floatGeo.rotateX(Math.PI / 2);
@@ -4228,11 +4329,13 @@ export class Course implements ICourse {
       emissive: PALETTE.hullKai,
       emissiveIntensity: 0.42,
     });
+    this.duckYellowMat = duckYellowMat;
     const duckBeakMat = createToonMaterial({
       color: PALETTE.hullPlayer,
       emissive: PALETTE.hullPlayer,
       emissiveIntensity: 0.45,
     });
+    this.duckBeakMat = duckBeakMat;
     const tetherMat = createToonMaterial({ color: PALETTE.ink });
 
     // Ducky balloon geometry parts with eyes, knot and wing feathers.

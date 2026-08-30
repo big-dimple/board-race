@@ -14,8 +14,10 @@
  */
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
+import { NIGHT_PALETTE } from '../core/nightPalette';
+import type { TimeOfDay } from '../core/timeOfDay';
 
-/** The ONE light direction: world space, pointing TOWARD the sun. Shared by sky, water spec and every toon material. */
+/** The ONE light direction: world space, pointing TOWARD the sun/moon. Shared by sky, water spec and every toon material. */
 export const SUN_DIR: THREE.Vector3 = new THREE.Vector3(
   PALETTE.sunDir[0],
   PALETTE.sunDir[1],
@@ -46,6 +48,40 @@ export interface ToonOptions {
 /** Palette hex → THREE.Color with NO color-space conversion (verbatim to screen, see header). */
 function flat(hex: number): THREE.Color {
   return new THREE.Color().setHex(hex, THREE.NoColorSpace);
+}
+
+const daySunDir = new THREE.Vector3(PALETTE.sunDir[0], PALETTE.sunDir[1], PALETTE.sunDir[2]).normalize();
+const nightMoonDir = new THREE.Vector3(NIGHT_PALETTE.moonDir[0], NIGHT_PALETTE.moonDir[1], NIGHT_PALETTE.moonDir[2]).normalize();
+
+const sharedSunDir = SUN_DIR;
+const sharedSkyMid = flat(PALETTE.skyMid);
+const sharedShadowFloor = flat(0x1e1b3a);
+const sharedUpTintColor = flat(PALETTE.skyHorizon);
+const sharedFogColor = flat(PALETTE.skyHorizon);
+const sharedNightBlend = { value: 0.0 };
+
+const daySkyMid = flat(PALETTE.skyMid);
+const nightSkyMid = flat(NIGHT_PALETTE.skyMid);
+const dayShadowFloor = flat(0x1e1b3a);
+const nightShadowFloor = flat(0x14223d); // rich dark navy floor, preserves character hair & boat details
+const dayUpTintColor = flat(PALETTE.skyHorizon);
+const nightUpTintColor = flat(0x2a4e78);
+const dayFogColor = flat(PALETTE.skyHorizon);
+const nightFogColor = flat(NIGHT_PALETTE.skyHorizon);
+
+export function setToonTimeOfDay(tod: TimeOfDay, blend?: number): void {
+  const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
+  const clamped = Math.max(0, Math.min(1, b));
+  sharedNightBlend.value = clamped;
+  sharedSunDir.lerpVectors(daySunDir, nightMoonDir, clamped).normalize();
+  sharedSkyMid.lerpColors(daySkyMid, nightSkyMid, clamped);
+  sharedShadowFloor.lerpColors(dayShadowFloor, nightShadowFloor, clamped);
+  sharedUpTintColor.lerpColors(dayUpTintColor, nightUpTintColor, clamped);
+  sharedFogColor.lerpColors(dayFogColor, nightFogColor, clamped);
+}
+
+export function updateToonTimeOfDay(tod: TimeOfDay, blend?: number): void {
+  setToonTimeOfDay(tod, blend);
 }
 
 const vertexShader = /* glsl */ `
@@ -100,6 +136,7 @@ uniform vec3 uFogColor;         // palette.skyHorizon
 uniform float uFogBand1;        // distance (m) of the first fog step
 uniform float uFogBand2;        // distance (m) of the second fog step
 uniform float uFogStrength;     // overall fog multiplier
+uniform float uNightBlend;      // 0.0 = day, 1.0 = night
 
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
@@ -134,44 +171,51 @@ void main() {
   #ifdef USE_VERTEX_COLOR
   albedo *= vVertexColor;
   #endif
-  vec3 shadowAlbedo = albedo * mix(vec3(1.0), uSkyMid, uShadowTint);
+  float shadowTintEffective = mix(uShadowTint, 0.55, uNightBlend);
+  vec3 shadowAlbedo = albedo * mix(vec3(1.0), uSkyMid, shadowTintEffective);
+
+  // Night ambient base lift: ensures character skin, hair & boat silhouettes
+  // maintain vivid contrast and color identity without turning muddy.
+  shadowAlbedo += albedo * vec3(0.06, 0.10, 0.16) * uNightBlend;
+
   vec3 color = mix(shadowAlbedo, albedo, band);
 
   // ------------------------------------------------------------------
   // MATCAP-ISH UP TINT — one hard step on upward-facing normals, faking
   // the sky bounce a matcap would give. Flat and graphic, strength subtle.
   // ------------------------------------------------------------------
-  float up = step(0.72, N.y) * uUpTint;
+  float up = step(mix(0.72, 0.65, uNightBlend), N.y) * (uUpTint + 0.04 * uNightBlend);
   color = mix(color, uUpTintColor, up);
 
   // ------------------------------------------------------------------
-  // SHADOW FLOOR — hard per-channel clamp at a dark indigo minimum.
+  // SHADOW FLOOR — hard per-channel clamp at a dark indigo/navy minimum.
   // Nothing toon-shaded may render as a dead black void: even the darkest
-  // darkest band on the darkest albedo (ink) keeps a readable hue. Clamping
-  // the already-quantized color preserves the hard band edges; only albedos
-  // darker than the floor are touched. Ink OUTLINES (separate shader) are
-  // intentionally exempt and may go darker.
+  // band on the darkest albedo (ink) keeps a readable hue.
   // ------------------------------------------------------------------
   color = max(color, uShadowFloor);
 
   // ------------------------------------------------------------------
   // BANDED SPECULAR — Blinn half-vector through two hard thresholds:
   // a broad band plus a tighter hot core. Crisp cartoon highlight SHAPES
-  // with zero smooth falloff. This replaces any environment reflection.
+  // with zero smooth falloff.
   // ------------------------------------------------------------------
   vec3 H = normalize(L + V);
   float spec = pow(max(dot(N, H), 0.0), uSpecPower);
   float specBand = step(uSpecThreshold, spec) * 0.45
                  + step(uSpecThreshold2, spec) * 0.55;
-  color += uSpecColor * specBand;
+  vec3 specColorEffective = mix(uSpecColor, vec3(0.82, 0.94, 1.0), uNightBlend * 0.5);
+  color += specColorEffective * specBand;
 
   // ------------------------------------------------------------------
   // FRESNEL RIM — pow(1 - NdotV, rimPower) through a hard step.
-  // Silhouettes pop against the water.
+  // In night mode: enhanced cold-cyan moonlight rim lighting.
   // ------------------------------------------------------------------
-  float fresnel = pow(1.0 - max(dot(N, V), 0.0), uRimPower);
-  float rim = step(uRimThreshold, fresnel) * uRimStrength;
-  color += uRimColor * rim;
+  float fresnel = pow(1.0 - max(dot(N, V), 0.0), mix(uRimPower, 2.2, uNightBlend));
+  float rimThresh = mix(uRimThreshold, 0.50, uNightBlend);
+  float rim = step(rimThresh, fresnel) * (uRimStrength + 0.35 * uNightBlend);
+  vec3 nightRimHue = vec3(0.42, 0.92, 1.0); // cold cyan rim
+  vec3 effectiveRimColor = mix(uRimColor, nightRimHue, uNightBlend * 0.85);
+  color += effectiveRimColor * rim;
 
   // ------------------------------------------------------------------
   // EMISSIVE — flat add (boost glows, gate lights, etc).
@@ -202,11 +246,11 @@ export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
     vertexColors: opts.vertexColors ?? false,
     uniforms: {
       uColor: { value: flat(opts.color) },
-      uSunDir: { value: SUN_DIR },
-      uSkyMid: { value: flat(PALETTE.skyMid) },
+      uSunDir: { value: sharedSunDir },
+      uSkyMid: { value: sharedSkyMid },
       uShadowTint: { value: 0.42 },
       // Deep indigo, verbatim to screen: the darkest any toon surface renders.
-      uShadowFloor: { value: flat(0x1e1b3a) },
+      uShadowFloor: { value: sharedShadowFloor },
       uRimColor: { value: flat(opts.rimColor ?? PALETTE.sparkle) },
       uRimStrength: { value: (opts.rimStrength ?? 0.9) * 0.82 },
       uRimPower: { value: opts.rimPower ?? 2.6 },
@@ -217,12 +261,13 @@ export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
       uSpecThreshold2: { value: 0.995 },
       uEmissive: { value: flat(opts.emissive ?? 0x000000) },
       uEmissiveIntensity: { value: opts.emissiveIntensity ?? 1.0 },
-      uUpTintColor: { value: flat(PALETTE.skyHorizon) },
+      uUpTintColor: { value: sharedUpTintColor },
       uUpTint: { value: 0.096 },
-      uFogColor: { value: flat(PALETTE.skyHorizon) },
+      uFogColor: { value: sharedFogColor },
       uFogBand1: { value: 260.0 },
       uFogBand2: { value: 760.0 },
       uFogStrength: { value: 1.0 },
+      uNightBlend: sharedNightBlend,
     },
     vertexShader,
     fragmentShader,

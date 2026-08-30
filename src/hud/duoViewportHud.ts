@@ -81,7 +81,7 @@ export class DuoViewportHud {
           <div class="duo-tactical-speedlines"></div>
         </div>
         <div class="duo-tactical-info">
-          <div class="duo-tactical-line"><span class="blink-red">🔴 极速拦截 [MACH 3.8]</span> · 75% 命中率</div>
+          <div class="duo-tactical-line"><span class="blink-red">🔴 极速拦截 [MACH 3.8]</span> · 90% 致命锁定</div>
           <div class="duo-tactical-line">▶ 目标: ${targetName} 尾流锁定中</div>
           <div class="duo-tactical-line" style="color: #ffd020;">▶ 惯性弹道: 720° 空中爆破旋转</div>
         </div>
@@ -108,7 +108,7 @@ export class DuoViewportHud {
         body.innerHTML = `
           <div class="duo-tactical-blast" style="color: #00f0ff;">💨 TARGET EVADED 💨</div>
           <div class="duo-tactical-info">
-            <div class="duo-tactical-line" style="color: #00f0ff;">▶ 飞毛腿高速描边！25% 脱靶概率触发！</div>
+            <div class="duo-tactical-line" style="color: #00f0ff;">▶ 飞毛腿高速描边！10% 擦身脱靶概率触发！</div>
             <div class="duo-tactical-line">▶ 目标侥幸逃脱 · 下发飞毛腿装填中</div>
           </div>
         `;

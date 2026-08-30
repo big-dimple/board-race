@@ -4,6 +4,8 @@ import { addOutline } from '../cel/outline';
 import { createToonMaterial } from '../cel/toonMaterial';
 import { markInk } from '../contracts';
 import { PALETTE } from '../core/palette';
+import { NIGHT_PALETTE } from '../core/nightPalette';
+import type { TimeOfDay } from '../core/timeOfDay';
 
 const WORLD_X = 110;
 const WORLD_Z = 190;
@@ -19,6 +21,12 @@ export interface LighthouseDebugState {
   daylightBeam: boolean;
   solidMeshes: number;
   effectMeshes: number;
+}
+
+const activeLighthouses = new Set<LighthouseLandmark>();
+
+export function setLighthouseTimeOfDay(tod: TimeOfDay, blend?: number): void {
+  activeLighthouses.forEach((lh) => lh.setTimeOfDay(tod, blend));
 }
 
 function prepareGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry {
@@ -155,9 +163,103 @@ function makeNavyGeometry(): THREE.BufferGeometry {
   return mergeParts(parts);
 }
 
-/** Fixed daylight landmark. It owns no route, collision, race state, or scan beam. */
+function makeSearchlightBeamGeometry(): THREE.BufferGeometry {
+  const length = 260.0;
+  const radiusTop = 0.8;
+  const radiusBottom = 32.0;
+  const geo = new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 24, 8, true);
+  // Extend forward from apex (0, 0, 0) along +Z, tilted down slightly (~0.11 rad / 6.3 deg)
+  geo.translate(0, -length / 2, 0);
+  geo.rotateX(-Math.PI / 2 + 0.11);
+  return geo;
+}
+
+const beamVertexShader = /* glsl */ `
+varying vec2 vUv;
+varying vec3 vWorldPos;
+
+void main() {
+  vUv = uv;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+
+const beamFragmentShader = /* glsl */ `
+uniform float uTime;
+uniform float uBlend;
+uniform vec3 uColorCore;
+uniform vec3 uColorHalo;
+
+varying vec2 vUv;
+varying vec3 vWorldPos;
+
+void main() {
+  if (uBlend <= 0.001) discard;
+  // In CylinderGeometry, uv.y goes 1.0 (top/apex) -> 0.0 (bottom/tip)
+  float tAxis = 1.0 - vUv.y; // 0.0 at lantern apex -> 1.0 at distant tip
+
+  // Axial falloff: bright and dense near lantern room, long smooth taper into night
+  float apexRamp = smoothstep(0.0, 0.025, tAxis);
+  float tipTaper = 1.0 - smoothstep(0.52, 1.0, tAxis);
+  float axial = apexRamp * tipTaper;
+
+  // Circumferential radial soft profile
+  float radial = abs(fract(vUv.x * 2.0) - 0.5) * 2.0;
+  float radialSoft = smoothstep(0.0, 1.0, radial);
+
+  // Subtle atmospheric dust stream
+  float dust = 0.85 + 0.15 * sin(tAxis * 32.0 - uTime * 2.2 + vUv.x * 12.0);
+
+  float intensity = axial * (0.65 + 0.35 * radialSoft) * dust * uBlend * 0.52;
+  vec3 col = mix(uColorHalo, uColorCore, pow(clamp(1.0 - tAxis, 0.0, 1.0), 0.6));
+  gl_FragColor = vec4(col * intensity, 1.0);
+}
+`;
+
+const coreVertexShader = /* glsl */ `
+varying vec3 vNormal;
+varying vec3 vViewPos;
+
+void main() {
+  vNormal = normalize(normalMatrix * normal);
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vViewPos = mv.xyz;
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+const coreFragmentShader = /* glsl */ `
+uniform float uBlend;
+uniform vec3 uGlowColor;
+
+varying vec3 vNormal;
+varying vec3 vViewPos;
+
+void main() {
+  if (uBlend <= 0.001) discard;
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(-vViewPos);
+  float fresnel = max(dot(N, V), 0.0);
+  float core = pow(fresnel, 1.4);
+  vec3 col = uGlowColor * (1.6 + core * 2.2) * uBlend;
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/** Fixed landmark with 360° volumetric night searchlight beam. */
 export class LighthouseLandmark {
   readonly object: THREE.Group;
+
+  private readonly beamAnchor: THREE.Group;
+  private readonly beamMesh: THREE.Mesh;
+  private readonly beamMaterial: THREE.ShaderMaterial;
+  private readonly lanternCoreMesh: THREE.Mesh;
+  private readonly lanternCoreMaterial: THREE.ShaderMaterial;
+
+  private _blend = 0.0;
+  private _lastTime = 0.0;
 
   constructor() {
     this.object = new THREE.Group();
@@ -225,6 +327,96 @@ export class LighthouseLandmark {
     glass.userData.noOutline = true;
     glass.layers.set(0);
     this.object.add(glass);
+
+    // --- Night Mode: Volumetric Sweeping Searchlight Beam & Golden Core ---
+    this.beamAnchor = new THREE.Group();
+    this.beamAnchor.name = 'lighthouse-beam-anchor';
+    this.beamAnchor.position.set(0, 27.76, 0);
+    this.beamAnchor.visible = false;
+
+    this.beamMaterial = new THREE.ShaderMaterial({
+      name: 'LighthouseVolumetricBeam',
+      uniforms: {
+        uTime: { value: 0 },
+        uBlend: { value: 0 },
+        uColorCore: { value: new THREE.Color(1.0, 0.94, 0.72) }, // warm incandescent gold
+        uColorHalo: { value: new THREE.Color(1.0, 0.72, 0.28) }, // amber halo
+      },
+      vertexShader: beamVertexShader,
+      fragmentShader: beamFragmentShader,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+
+    this.beamMesh = new THREE.Mesh(makeSearchlightBeamGeometry(), this.beamMaterial);
+    this.beamMesh.name = 'lighthouse-searchlight-beam';
+    this.beamMesh.userData.noInk = true;
+    this.beamMesh.userData.noOutline = true;
+    this.beamMesh.layers.set(0);
+    this.beamAnchor.add(this.beamMesh);
+
+    this.lanternCoreMaterial = new THREE.ShaderMaterial({
+      name: 'LighthouseLanternCore',
+      uniforms: {
+        uBlend: { value: 0 },
+        uGlowColor: { value: new THREE.Color(1.0, 0.88, 0.42) },
+      },
+      vertexShader: coreVertexShader,
+      fragmentShader: coreFragmentShader,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      toneMapped: false,
+    });
+
+    this.lanternCoreMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1.1, 16, 12),
+      this.lanternCoreMaterial,
+    );
+    this.lanternCoreMesh.name = 'lighthouse-lantern-glow-core';
+    this.lanternCoreMesh.position.set(0, 27.76, 0);
+    this.lanternCoreMesh.userData.noInk = true;
+    this.lanternCoreMesh.userData.noOutline = true;
+    this.lanternCoreMesh.layers.set(0);
+    this.lanternCoreMesh.visible = false;
+
+    this.object.add(this.beamAnchor);
+    this.object.add(this.lanternCoreMesh);
+
+    // Auto-update hook in render loop to ensure smooth continuous sweeping rotation
+    this.object.onBeforeRender = () => {
+      if (this._blend > 0) {
+        const now = performance.now() * 0.001;
+        const t = this._lastTime > 0 ? this._lastTime : now;
+        this.beamAnchor.rotation.y = t * 0.32;
+        this.beamMaterial.uniforms.uTime.value = t;
+      }
+    };
+
+    activeLighthouses.add(this);
+  }
+
+  setTimeOfDay(tod: TimeOfDay, blend?: number): void {
+    const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
+    this._blend = Math.max(0, Math.min(1, b));
+
+    const isNightActive = this._blend > 0.001;
+    this.beamAnchor.visible = isNightActive;
+    this.lanternCoreMesh.visible = isNightActive;
+    this.beamMaterial.uniforms.uBlend.value = this._blend;
+    this.lanternCoreMaterial.uniforms.uBlend.value = this._blend;
+  }
+
+  update(dt: number, t: number): void {
+    this._lastTime = t;
+    if (this._blend > 0.001) {
+      this.beamAnchor.rotation.y = t * 0.32;
+      this.beamMaterial.uniforms.uTime.value = t;
+    }
   }
 
   debugState(): LighthouseDebugState {

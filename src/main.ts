@@ -22,6 +22,8 @@ import { GamepadInput } from './core/gamepadInput';
 import { Haptics } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
 import { ImmersiveModeController } from './core/immersiveMode';
+import { TimeOfDayManager, type TimeOfDay } from './core/timeOfDay';
+import { NIGHT_PALETTE } from './core/nightPalette';
 import { Ocean } from './water/ocean';
 import { LighthouseLandmark } from './water/lighthouse';
 import { WakeRibbon } from './water/wake';
@@ -115,6 +117,7 @@ const params = new URLSearchParams(location.search);
 const HARNESS = import.meta.env.DEV && params.has('harness');
 const DESKTOP_DRIVER_STAGE = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
 const harnessEndlessMode = HARNESS;
+const timeOfDayManager = new TimeOfDayManager(params.get('tod'));
 type AppMode = 'front-door' | 'independent' | 'duo' | 'team-play';
 let appMode: AppMode = 'front-door';
 
@@ -133,6 +136,8 @@ const ocean = new Ocean({
   quality: stage.quality.mode,
 });
 stage.scene.add(ocean.object);
+sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
 const lighthouse = new LighthouseLandmark();
 stage.scene.add(lighthouse.object);
 
@@ -151,6 +156,8 @@ const course = new Course();
 stage.scene.add(course.object);
 const honorTargets = new HonorTargetSystem(course);
 stage.scene.add(honorTargets.object);
+course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
 const records = new RecordsStore();
 const drivingCoach = new DrivingCoach(records.data.coach, (progress) => records.saveCoach(progress));
 const pcControlPrimer = new PcControlPrimer();
@@ -1090,6 +1097,11 @@ function startResumeCountdown(): void {
 /** Resume the same run after the accolade wall without resetting flight progress. */
 function startNextRaceRound(): void {
   if (!race.startFinalContinueCountdown()) return;
+  timeOfDayManager.nextRound();
+  sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   // The result wall is a round boundary. Persisted records stay cumulative,
   // while the next round gets a fresh local ledger and target inventory.
   honors.reset(boats.length);
@@ -1367,6 +1379,11 @@ function resetRace(): void {
   openingShowcase.stop();
   ocean.setOpeningIntensity(0);
   sky.setOpeningIntensity(0);
+  timeOfDayManager.reset();
+  sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   driverSelect.setLaunchPending(false);
   retryLessonActive = false;
   retryLessonToHonorReview = false;
@@ -1589,13 +1606,39 @@ function updateDuoViewportHud(): void {
 function updateRaceCamera(dt: number, t: number, focus = primaryBoat()): void {
   if (isDuoMode()) {
     cameraRig.update(dt, focus, t);
-    // An eliminated seat becomes a spectator window instead of freezing on
-    // its last wake. It follows the surviving human, so the player can read
-    // every support hand-off and dodgeable duck launch they caused.
-    const leftFocus = race.racers[0]?.eliminated ? boats[1] : boats[0];
-    const rightFocus = race.racers[1]?.eliminated ? boats[0] : boats[1];
-    teamLeftCameraRig.update(dt, leftFocus, t);
-    teamRightCameraRig.update(dt, rightFocus, t);
+    const leftEliminated = Boolean(race.racers[0]?.eliminated);
+    const rightEliminated = Boolean(race.racers[1]?.eliminated);
+
+    const leftMissile = leftEliminated ? duoInteractions.getActiveMissileInfo(0) : null;
+    const rightMissile = rightEliminated ? duoInteractions.getActiveMissileInfo(1) : null;
+
+    if (leftMissile && leftMissile.active) {
+      teamLeftCameraRig.updateMissileChase(
+        dt,
+        leftMissile.position,
+        leftMissile.direction,
+        boats[1].state.position,
+        t,
+        leftMissile.isDwell,
+      );
+    } else {
+      const leftFocus = leftEliminated ? boats[1] : boats[0];
+      teamLeftCameraRig.update(dt, leftFocus, t);
+    }
+
+    if (rightMissile && rightMissile.active) {
+      teamRightCameraRig.updateMissileChase(
+        dt,
+        rightMissile.position,
+        rightMissile.direction,
+        boats[0].state.position,
+        t,
+        rightMissile.isDwell,
+      );
+    } else {
+      const rightFocus = rightEliminated ? boats[0] : boats[1];
+      teamRightCameraRig.update(dt, rightFocus, t);
+    }
     return;
   }
   cameraRig.update(dt, focus, t);
@@ -1671,7 +1714,7 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     localInput.rumble(duoDevices[event.actorId], 0.5, 0.65, 52);
     localInput.rumble(duoDevices[event.targetId], 0.35, 0.4, 40);
     duoViewportHud.startTacticalMissileFeed(event.actorId, target.name);
-    hud.showTransientNotice(`🚨 战略核预警！${actor.name} 发射了【飞毛腿战术核导弹】· 75%命中率逼近中！`, '队友背刺预警', effectLane);
+    hud.showTransientNotice(`🚨 战略核预警！${actor.name} 发射了【飞毛腿战术核导弹】· 90% 致命锁定逼近中！`, '队友背刺预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
     audio.splash(1.8);
@@ -1686,7 +1729,7 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     audio.splash(0.8);
     audio.teamSpatialCue(targetSide, 'relay');
     duoViewportHud.finishTacticalMissileFeed(event.actorId, false);
-    hud.showTransientNotice(`💨 飞毛腿描边！${target.name} 极限躲过核打击！(75%命中率落空)`, '极限躲避', effectLane);
+    hud.showTransientNotice(`💨 飞毛腿描边！${target.name} 极限躲过核打击！(10% 脱靶概率)`, '极限躲避', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-miss', actor: actor.id, target: target.id });
   }
 }
@@ -2074,6 +2117,7 @@ function presentTeamCollisions(hits: readonly CollisionHit[]): void {
 }
 
 function step(dt: number, _t: number): void {
+  timeOfDayManager.update(dt);
   localInput.poll();
   // The finale cinematic is the first beat of the result sequence. The honor
   // wall is not mounted yet, so its spotlight timer starts at zero only after
@@ -2862,6 +2906,10 @@ const renderDrawingSize = new THREE.Vector2();
 
 function render(frameMs: number): void {
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
+  sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   const splitFrame = appMode === 'team-play' || isDuoSplitPhase();
   if (splitFrame) {
     renderTeamSplit();
@@ -3095,6 +3143,8 @@ interface Harness {
   duoDriverPowerCase(): Record<string, unknown>;
   qualityGovernorCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
+  timeOfDayState(): { timeOfDay: TimeOfDay; blend: number; round: number };
+  setTimeOfDay(tod: TimeOfDay): void;
 }
 
 let harnessUsePlayerInput = false;
@@ -4597,11 +4647,60 @@ function scenario(name: string): void {
   setHarnessInput(null);
   setHarnessEvidenceUiHidden(false);
   resetRace();
+  if (name.startsWith('night-')) {
+    timeOfDayManager.setOverride('night', true);
+    sky.setTimeOfDay('night', 1);
+    ocean.setTimeOfDay('night', 1);
+    course.setTimeOfDay('night', 1);
+    honorTargets.setTimeOfDay('night', 1);
+  }
   const riderInspection = name === 'rider-inspection' || name.startsWith('rider-inspection-');
   const openingInspection = name === 'opening-showcase';
-  if (name !== 'ready' && !riderInspection && !openingInspection) startFreshCountdown();
+  if (name !== 'ready' && name !== 'night-ready' && !riderInspection && !openingInspection) startFreshCountdown();
 
   switch (name) {
+    case "night-ready":
+      loop.advance(1.5);
+      break;
+    case "night-start":
+      advanceUntil(() => race.phase === "racing", 8);
+      loop.advance(2.2);
+      break;
+    case "night-flight":
+      advanceUntil(() => race.phase === "racing", 8);
+      earnHarnessFlight(false);
+      harnessKeepFlightMissRunning = true;
+      launchEarnedHarnessFlight();
+      loop.advance(0.35);
+      setHarnessInput(null);
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [0.95, 2.1, -3.3],
+        lookAt: [0, 1.25, -0.6],
+        fov: 50,
+      };
+      break;
+    case "night-honor-coin":
+      advanceUntil(() => race.phase === "racing", 8);
+      {
+        const target = honorTargets.debugTargets()[0];
+        if (target) {
+          boats[0].teleport(
+            target.x - target.forwardX * 14,
+            target.z - target.forwardZ * 14,
+            Math.atan2(target.forwardX, target.forwardZ),
+          );
+          setHarnessInput({ throttle: 0 });
+          harnessCameraOverride = {
+            target: boats[0].object,
+            offset: [0, 3.2, -10.4],
+            lookAt: [0, 2.1, 5.5],
+            fov: 54,
+          };
+          loop.advance(1.45);
+        }
+      }
+      break;
     case "race-straight":
       advanceUntil(() => race.phase === "racing", 8);
       setHarnessInput({ throttle: 1, steer: 0 });
@@ -5594,12 +5693,24 @@ if (HARNESS) {
       result: lastResultEnvelope,
     }),
     duoGuidanceCase: runDuoGuidanceCase,
-  duoFeedbackCase: runDuoFeedbackCase,
-  duoImpactCase: runDuoImpactCase,
-  duoNoticeCase: runDuoNoticeCase,
-  duoDriverPowerCase: runDuoDriverPowerCase,
-  qualityGovernorCase: runQualityGovernorCase,
+    duoFeedbackCase: runDuoFeedbackCase,
+    duoImpactCase: runDuoImpactCase,
+    duoNoticeCase: runDuoNoticeCase,
+    duoDriverPowerCase: runDuoDriverPowerCase,
+    qualityGovernorCase: runQualityGovernorCase,
     duoEliminate: harnessDuoEliminate,
+    timeOfDayState: () => ({
+      timeOfDay: timeOfDayManager.current,
+      blend: timeOfDayManager.blend,
+      round: timeOfDayManager.round,
+    }),
+    setTimeOfDay: (tod: TimeOfDay) => {
+      timeOfDayManager.setOverride(tod, true);
+      sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+      ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+      course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+      honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+    },
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
 } else {

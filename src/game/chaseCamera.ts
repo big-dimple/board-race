@@ -542,6 +542,107 @@ export class CameraRig {
     }
   }
 
+  /**
+   * Follow an active Scud missile in a high-adrenaline 3rd-person chase cam
+   * (slanted above-rear of missile, pointed forward at missile and survivor target),
+   * and dwell at an elevated spectator perspective during the 0.5s impact / 720° tumble.
+   */
+  updateMissileChase(
+    dt: number,
+    missilePos: THREE.Vector3,
+    missileDir: THREE.Vector3,
+    targetBoatPos: THREE.Vector3,
+    t: number,
+    isDwell = false,
+  ): void {
+    const target = this.target;
+    const look = this.targetLook;
+
+    if (!isDwell) {
+      // In-flight missile chase perspective:
+      // Camera is positioned ~5.2m behind the missile along its trajectory, ~1.8m above
+      const followDist = 5.2;
+      const followUp = 1.8;
+      const mx = missilePos.x;
+      const my = missilePos.y;
+      const mz = missilePos.z;
+      const dx = missileDir.x;
+      const dy = missileDir.y;
+      const dz = missileDir.z;
+
+      let camX = mx - dx * followDist;
+      let camY = my - dy * followDist + followUp;
+      let camZ = mz - dz * followDist;
+
+      // Keep clearance above ocean waves
+      const waveY = waterHeight(camX, camZ, t) + WATER_CLEARANCE;
+      if (camY < waveY) camY = waveY;
+
+      target.set(camX, camY, camZ);
+      // Look forward through the missile toward the locked target
+      look.set(mx + dx * 12, my + dy * 12, mz + dz * 12);
+
+      // Fast spring response to hug the missile's supersonic flight
+      const springRate = 1 - Math.exp(-22 * dt);
+      const lookRate = 1 - Math.exp(-24 * dt);
+      this.pos.lerp(target, springRate);
+      this.look.lerp(look, lookRate);
+      this.fov += (82 - this.fov) * (1 - Math.exp(-12 * dt));
+      this.roll *= Math.exp(-8 * dt);
+      this.shake(0.08); // Slight hypersonic flight vibration
+    } else {
+      // 0.5s post-impact / explosion dwell perspective:
+      // Elevate camera to clearly witness the violent explosion, spray, and 720° airborne tumble
+      const bx = targetBoatPos.x;
+      const by = targetBoatPos.y;
+      const bz = targetBoatPos.z;
+
+      const camX = bx - missileDir.x * 7.5;
+      const camY = by + 3.8;
+      const camZ = bz - missileDir.z * 7.5;
+
+      const waveY = waterHeight(camX, camZ, t) + WATER_CLEARANCE;
+      target.set(camX, Math.max(waveY, camY), camZ);
+      look.set(bx, by + 1.2, bz);
+
+      const springRate = 1 - Math.exp(-16 * dt);
+      const lookRate = 1 - Math.exp(-20 * dt);
+      this.pos.lerp(target, springRate);
+      this.look.lerp(look, lookRate);
+      this.fov += (76 - this.fov) * (1 - Math.exp(-10 * dt));
+      this.shake(0.45); // Heavy explosion shockwave
+    }
+
+    // Apply positional noise / shake
+    this.noiseT += dt;
+    this.shakeAmp *= Math.exp(-SHAKE_DECAY * dt);
+    const fp = this.finalPos.copy(this.pos);
+    const fl = this.finalLook.copy(this.look);
+    if (this.shakeAmp > 0.001) {
+      const nt = this.noiseT;
+      const a = this.shakeAmp * SHAKE_AMP;
+      fp.x += (Math.sin(nt * SHAKE_W) * 0.62 + Math.sin(nt * SHAKE_W * 1.618 + 1.3) * 0.38) * a;
+      fp.y += (Math.sin(nt * SHAKE_W * 1.13 + 2.1) * 0.62 + Math.sin(nt * SHAKE_W * 1.83 + 0.7) * 0.38) * a * 0.7;
+      fp.z += (Math.sin(nt * SHAKE_W * 0.97 + 4.2) * 0.62 + Math.sin(nt * SHAKE_W * 1.42 + 2.9) * 0.38) * a;
+    }
+
+    const minY = waterHeight(fp.x, fp.z, t) + WATER_CLEARANCE;
+    if (fp.y < minY) fp.y = minY;
+
+    const cam = this.camera;
+    cam.position.copy(fp);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(fl);
+    cam.fov = this.fov;
+    cam.updateProjectionMatrix();
+
+    // Prepare smooth blend snapshot for when returning to normal boat chase mode
+    this.blendPos.copy(fp);
+    this.blendLook.copy(fl);
+    this.blendFov = this.fov;
+    this.blendT = 0;
+  }
+
 }
 
 function loadCameraImpactLevel(): CameraImpactLevel {

@@ -136,6 +136,7 @@ void main() {
   col = mix(col, vec3(1.0, 0.16, 0.42), uWarning * vignette * 0.38);
   float flashMask = uFlash * (1.0 - smoothstep(0.15, 0.72, r)) * mix(0.34, 0.08, inkSolid);
   col = mix(col, vec3(0.92, 0.99, 1.0), flashMask);
+  col = clamp(col, 0.0, 1.0);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
