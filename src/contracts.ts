@@ -342,6 +342,8 @@ export interface IBoat {
   collisionVelocity(out: THREE.Vector2): THREE.Vector2;
   /** Apply one bounded arcade-contact response after all boats have integrated. */
   applyCollisionResponse(correctionX: number, correctionZ: number, impulseX: number, impulseZ: number): void;
+  /** Apply comical Scud missile nuclear strike: vertical air blast + 720° spin tumble along inertia. */
+  applyScudHit(impulseX: number, impulseZ: number, verticalPop?: number): void;
 }
 
 export interface IWake {
@@ -502,18 +504,10 @@ export interface CourseGuidanceStatus {
   /** Bounded translucent field; the ocean must remain legible through it. */
   surfaceGuideBaseAlpha: number;
   surfaceGuidePeakAlpha: number;
-  /** Sparse arrow cadence and deterministic geometry diagnostics. */
-  surfaceGuideArrowCadenceM: number;
-  surfaceGuideArrowSpeedMps: number;
-  surfaceGuideArrowCount: number;
-  surfaceGuideTurnArrowCount: number;
   /** The authored near-side tail fades instead of ending on a hard clip. */
   surfaceGuideTailFadeStartM: number;
   surfaceGuideTailFadeEndM: number;
   surfaceGuideMaskFeatherM: number;
-  /** Turn arrows currently aligning the boat before an authored launch. */
-  surfaceGuideLaunchTurnArrowCount: number;
-  surfaceGuideTurnChevronCount: number;
   /** Shared neutral mist material contract for every airborne branch and recovery tail. */
   flightGuideStyle: 'white-mist-corridor';
   flightGuidePanelAlpha: number;

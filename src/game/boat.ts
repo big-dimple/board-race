@@ -1232,6 +1232,8 @@ export class Boat implements IBoat {
   private flightRingActiveCount = 0;
   private flightPlumeLength = 0;
   private flightFlowDeflection = 0;
+  private tumbleSpinTimer = 0;
+  private tumbleSpinTotal = 0;
 
   constructor(opts: BoatOptions) {
     this.id = opts.id;
@@ -1674,7 +1676,23 @@ export class Boat implements IBoat {
       this.landingVisualCooldown = TUNING.landingVisualCooldown;
     }
 
-    _euler.set(-this.pitch, this.heading, this.roll, 'YXZ'); // euler.x is nose-down positive
+    let extraYaw = 0;
+    let extraPitch = 0;
+    let extraRoll = 0;
+    if (this.tumbleSpinTimer > 0) {
+      this.tumbleSpinTimer = Math.max(0, this.tumbleSpinTimer - dt);
+      const p = 1 - (this.tumbleSpinTimer / Math.max(1e-3, this.tumbleSpinTotal));
+      // 720 degrees = Math.PI * 4 radians along inertia
+      extraYaw = p * Math.PI * 4;
+      extraPitch = Math.sin(p * Math.PI * 4) * 0.42;
+      extraRoll = Math.sin(p * Math.PI * 4) * 0.55;
+      if (this.tumbleSpinTimer === 0) {
+        _v2.set(this.object.position.x, surfaceY, this.object.position.z);
+        this.spray.burst(_v2, 16, 7.2);
+      }
+    }
+
+    _euler.set(-this.pitch + extraPitch, this.heading + extraYaw, this.roll + extraRoll, 'YXZ'); // euler.x is nose-down positive
     this.object.quaternion.setFromEuler(_euler);
 
     // ---- active aerodynamic rear wing flaps ----
@@ -2592,6 +2610,17 @@ export class Boat implements IBoat {
       this.velZ *= scale;
     }
     this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.018, -2.4, 2.4);
+  }
+
+  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 8.5): void {
+    this.vy = verticalPop;
+    this.object.position.y += 0.35;
+    this.state.airborne = true;
+    this.tumbleSpinTimer = 1.35;
+    this.tumbleSpinTotal = 1.35;
+    this.velX += impulseX;
+    this.velZ += impulseZ;
+    this.yawRate = 0;
   }
 
   /** Deterministic collision-harness hook. Gameplay never calls this method. */

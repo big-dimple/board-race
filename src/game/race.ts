@@ -348,6 +348,11 @@ export class Race implements RaceView {
     for (const racer of this.racers) {
       racer.finished = false;
       racer.finishTime = -1;
+      if (this.finalContender[racer.id] || this.hasFinalQualification(racer.id)) {
+        this.finalContender[racer.id] = true;
+        this.legitLaps[racer.id] = Math.max(this.legitLaps[racer.id], this.lapWindow[racer.id]);
+        racer.progress = this.windowedProgress(racer.id);
+      }
     }
     this.armCountdown('resume-countdown');
     return true;
@@ -687,7 +692,9 @@ export class Race implements RaceView {
           const target = this.lapWindow[id] + CHECKPOINT_US[this.nextCp[id]];
           if (!(this.prevContU[id] < target && cu >= target)) break;
           this.nextCp[id]++;
-          if (_sample.distance > GATE_CREDIT_DIST) continue; // missed the gate: no credit
+          const airborneOrRecovery = !validatesSurface || boat.state.flightPhase !== 'surface' ||
+            boat.state.flightRouteState !== 'idle';
+          if (_sample.distance > GATE_CREDIT_DIST && !airborneOrRecovery) continue; // missed the gate: no credit
           this.passedCp[id]++;
           const key = this.lapWindow[id] * nCp + (this.nextCp[id] - 1);
           const best = this.cpLeaderTimes.get(key) ?? Infinity;
@@ -726,7 +733,7 @@ export class Race implements RaceView {
    * checkpoint was CREDITED this window; either way the window moves on.
    */
   private completeWindow(r: RacerState, id: number): void {
-    if (this.passedCp[id] >= CHECKPOINT_US.length) {
+    if (this.passedCp[id] >= CHECKPOINT_US.length || this.finalContender[id] || this.hasFinalQualification(id)) {
       this.legitLaps[id]++;
       r.lastLapTime = this.raceTime - this.lapStart[id];
       if (r.bestLapTime < 0 || r.lastLapTime < r.bestLapTime) r.bestLapTime = r.lastLapTime;
@@ -908,15 +915,13 @@ export class Race implements RaceView {
       return a.finishTime !== b.finishTime ? a.finishTime < b.finishTime : a.id < b.id;
     }
     if (a.finished !== b.finished) return a.finished;
-    // Once Final is armed, a qualified racer is in the finish queue even while
-    // approaching the portal. An under-qualified rival may have physically
-    // lapped the circuit, but cannot finish this run and must not rank ahead of
-    // a racer who has completed the authored flight set.
-    if (this.finalStationArmed && !a.finished && !b.finished) {
-      const aQualified = this.finalContender[a.id] ?? false;
-      const bQualified = this.finalContender[b.id] ?? false;
-      if (aQualified !== bQualified) return aQualified;
-    }
+    // A qualified racer who has completed the authored flight set is in the
+    // championship tier. An under-qualified rival may have physically lapped
+    // the circuit on the water, but cannot finish this grand prix run and must
+    // not rank ahead of a racer who has cleared the sky routes.
+    const aQualified = (this.finalContender[a.id] ?? false) || this.hasFinalQualification(a.id);
+    const bQualified = (this.finalContender[b.id] ?? false) || this.hasFinalQualification(b.id);
+    if (aQualified !== bQualified) return aQualified;
     if (a.progress !== b.progress) return a.progress > b.progress;
     return a.id < b.id;
   }

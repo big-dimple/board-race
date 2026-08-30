@@ -47,6 +47,8 @@ export class HonorHighlights {
   private readonly spotlightLabel: HTMLDivElement;
   private readonly spotlightTitle: HTMLDivElement;
   private readonly spotlightDetail: HTMLDivElement;
+  private readonly spotlightBadge: HTMLSpanElement;
+  private readonly spotlightRating: HTMLSpanElement;
   private readonly cards: HTMLDivElement;
   private readonly score: HTMLDivElement;
   private readonly hint: HTMLSpanElement;
@@ -83,9 +85,15 @@ export class HonorHighlights {
       </header>
       <div class="honor-review-standings" role="list" aria-label="本局名次"></div>
       <div class="honor-review-spotlight">
-        <img class="honor-review-spotlight-portrait" alt="" draggable="false">
+        <div class="honor-review-spotlight-media">
+          <img class="honor-review-spotlight-portrait" alt="" draggable="false">
+          <span class="honor-review-spotlight-badge"></span>
+        </div>
         <div class="honor-review-spotlight-copy">
-          <div class="honor-review-spotlight-label"></div>
+          <div class="honor-review-spotlight-kicker-row">
+            <div class="honor-review-spotlight-label"></div>
+            <span class="honor-review-spotlight-rating"></span>
+          </div>
           <strong class="honor-review-spotlight-title"></strong>
           <span class="honor-review-spotlight-detail"></span>
         </div>
@@ -105,6 +113,8 @@ export class HonorHighlights {
     this.standings = this.root.querySelector('.honor-review-standings')!;
     this.spotlight = this.root.querySelector('.honor-review-spotlight')!;
     this.spotlightPortrait = this.root.querySelector('.honor-review-spotlight-portrait')!;
+    this.spotlightBadge = this.root.querySelector('.honor-review-spotlight-badge')!;
+    this.spotlightRating = this.root.querySelector('.honor-review-spotlight-rating')!;
     this.spotlightLabel = this.root.querySelector('.honor-review-spotlight-label')!;
     this.spotlightTitle = this.root.querySelector('.honor-review-spotlight-title')!;
     this.spotlightDetail = this.root.querySelector('.honor-review-spotlight-detail')!;
@@ -242,6 +252,9 @@ export class HonorHighlights {
     const highlight = payload?.highlights[0];
     if (!payload || !highlight) {
       this.spotlightPortrait.removeAttribute('src');
+      this.spotlight.dataset.rarity = 'classic';
+      this.spotlightBadge.textContent = '★ 稳健航行';
+      this.spotlightRating.textContent = '[ S · 凌云飞将 ]';
       this.spotlightLabel.textContent = 'RUN SAVED';
       this.spotlightTitle.textContent = '稳健航海';
       this.spotlightDetail.textContent = '这局没有遗漏，下一局继续追分。';
@@ -252,9 +265,20 @@ export class HonorHighlights {
       this.spotlightPortrait.src = racer.portraitUrl;
       this.spotlightPortrait.style.setProperty('--racer-color', colorCss(racer.color));
     }
-    this.spotlightLabel.textContent = 'PLAY OF THE RUN';
+    const rarity = highlight.rarity ?? 'classic';
+    this.spotlight.dataset.rarity = rarity;
+    this.spotlightBadge.textContent = highlight.badge ?? '★ 经典高光';
+    const ratingLabel = highlight.score >= 400 || rarity === 'legendary'
+      ? '[ SSS · 极速传说 ]'
+      : highlight.score >= 250 || rarity === 'epic'
+        ? '[ SS · 破浪狂鲨 ]'
+        : highlight.score >= 120 || rarity === 'gold'
+          ? '[ S · 凌云飞将 ]'
+          : '[ A · 竞速精英 ]';
+    this.spotlightRating.textContent = ratingLabel;
+    this.spotlightLabel.textContent = 'PLAY OF THE RUN · 本局最高光';
     this.spotlightTitle.textContent = highlight.title;
-    this.spotlightDetail.textContent = `${highlight.detail} · ${highlight.count} 次 · ${highlight.score} 分`;
+    this.spotlightDetail.textContent = `${highlight.detail} · 达成 ${highlight.count} 次 · 荣耀斩获 ${highlight.score} PTS`;
   }
 
   private renderStandings(): void {
@@ -287,7 +311,7 @@ export class HonorHighlights {
     const payload = this.payload;
     if (!payload) return;
     const cards = payload.highlights.length > 0 ? payload.highlights : [{
-      id: 'clean.run', title: '稳健航海', detail: '本局完成有效航线', racerId: payload.racers[0]?.id ?? 0, count: 1, score: payload.summary.score,
+      id: 'clean.run', title: '稳健航海', detail: '本局完成有效航线', racerId: payload.racers[0]?.id ?? 0, count: 1, score: payload.summary.score, rarity: 'classic' as const, badge: '★ 稳健航行', icon: '★',
     }];
     for (const [index, highlight] of cards.slice(0, 4).entries()) {
       const racer = payload.racers.find((item) => item.id === highlight.racerId) ?? payload.racers[0];
@@ -295,22 +319,25 @@ export class HonorHighlights {
       card.type = 'button';
       card.className = 'honor-review-card';
       card.dataset.index = String(index);
+      card.dataset.rarity = highlight.rarity ?? 'classic';
       card.setAttribute('role', 'listitem');
       card.setAttribute('aria-label', `${highlight.title}，${highlight.detail}`);
       card.style.setProperty('--card-color', colorCss(racer?.color ?? 0x55e7ff));
       card.innerHTML = `
-        <span class="honor-review-card-mark">${index === 0 ? '★' : '◆'}</span>
-        <img class="honor-review-card-portrait" alt="" draggable="false">
-        <span class="honor-review-card-copy">
-          <strong></strong>
-          <small></small>
-          <i></i>
-        </span>`;
+        <div class="honor-review-card-media">
+          <img class="honor-review-card-portrait" alt="" draggable="false">
+          <span class="honor-review-card-mark">${highlight.icon ?? (index === 0 ? '★' : '◆')}</span>
+        </div>
+        <div class="honor-review-card-copy">
+          <div class="honor-review-card-header">
+            <span class="honor-review-card-badge">${highlight.badge ?? '荣誉'}</span>
+            <i>×${highlight.count} · +${highlight.score} PTS</i>
+          </div>
+          <strong>${highlight.title}</strong>
+          <small>${highlight.detail}</small>
+        </div>`;
       const portrait = card.querySelector('img')!;
       if (racer) portrait.src = racer.portraitUrl;
-      card.querySelector('strong')!.textContent = highlight.title;
-      card.querySelector('small')!.textContent = highlight.detail;
-      card.querySelector('i')!.textContent = `×${highlight.count} · ${highlight.score} PTS`;
       card.addEventListener('click', () => {
         this.selected = index;
         this.focusSelected();

@@ -309,6 +309,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     turnWarningToU: 0.558,
     navigation: {
       turn: { fromU: 0.515, toU: 0.558, direction: 'left' },
+      counterTurn: { fromU: 0.555, toU: 0.605, direction: 'right' },
       locatorU: 0.56,
       // The medal resume leaves less usable turn-in time than the raw surface
       // distance suggests. Preview the branch at handoff and recommend an
@@ -317,6 +318,7 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
       launchCueU: 0.493,
       launchVectorLengthM: 34,
       launchAlignM: 65,
+      postGateRecovery: { handoffMarginM: 20, maxDurationS: 5.5 },
     },
   },
   {
@@ -651,13 +653,6 @@ const _routeSample: CourseSample = {
   routeId: 'surface',
 };
 const _recoveryVelocity = new THREE.Vector2();
-const _hiddenRecoveryArrow = new THREE.Matrix4().makeScale(0, 0, 0);
-const _surfaceArrowCenter = new THREE.Vector3();
-const _surfaceArrowNext = new THREE.Vector3();
-const _surfaceArrowForward = new THREE.Vector3();
-const _surfaceArrowScale = new THREE.Vector3(1, 1, 1);
-const _surfaceArrowQuaternion = new THREE.Quaternion();
-const _surfaceArrowMatrix = new THREE.Matrix4();
 const _launchPacketForward = new THREE.Vector3(0, 0, 1);
 const _launchPacketDirection = new THREE.Vector3();
 
@@ -919,16 +914,11 @@ const SURFACE_GUIDE_CROSS_SEGS = 8;
 const SURFACE_GUIDE_STYLE = 'translucent-wave-spine' as const;
 const SURFACE_GUIDE_BASE_ALPHA = 0.168;
 const SURFACE_GUIDE_PEAK_ALPHA = 0.55;
-const SURFACE_GUIDE_ARROW_CADENCE_M = 10;
-const SURFACE_GUIDE_ARROW_SPEED_MPS = 10;
-const SURFACE_GUIDE_ARROW_START_M = 16;
-const SURFACE_GUIDE_ARROW_COUNT = Math.ceil((170 - SURFACE_GUIDE_ARROW_START_M) / SURFACE_GUIDE_ARROW_CADENCE_M);
 // Keep a short wake behind the hull, then let it settle into the swell instead
 // of cutting the authored guide off on a single fragment boundary.
 const SURFACE_GUIDE_TAIL_FADE_START_M = 12;
 const SURFACE_GUIDE_TAIL_FADE_END_M = 30;
 const SURFACE_GUIDE_MASK_FEATHER_M = 5;
-const SURFACE_GUIDE_TURN_CHEVRON_COUNT = 3;
 const SURFACE_GUIDE_LAUNCH_ALIGN_M = 40;
 const FLIGHT_GUIDE_STYLE = 'white-mist-corridor' as const;
 const FLIGHT_ROUTE_MARKER_COLOR = PALETTE.flightMist;
@@ -1074,191 +1064,9 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
 
 interface SurfaceGuideBuild {
   ribbon: THREE.ShaderMaterial;
-  arrows: THREE.InstancedMesh;
-  arrowInk: THREE.InstancedMesh;
-  arrowStations: THREE.InstancedBufferAttribute;
-  arrowTurns: THREE.InstancedBufferAttribute;
-  arrowPhases: THREE.InstancedBufferAttribute;
-  arrowCount: number;
 }
 
-const _surfaceTurnA = new THREE.Vector3();
-const _surfaceTurnB = new THREE.Vector3();
 
-function surfaceTurnAhead(s: number): number {
-  CURVE.getTangentAt(((s + 8) % LAP_LENGTH) / LAP_LENGTH, _surfaceTurnA).setY(0).normalize();
-  CURVE.getTangentAt(((s + 38) % LAP_LENGTH) / LAP_LENGTH, _surfaceTurnB).setY(0).normalize();
-  return Math.atan2(
-    _surfaceTurnA.x * _surfaceTurnB.z - _surfaceTurnA.z * _surfaceTurnB.x,
-    _surfaceTurnA.x * _surfaceTurnB.x + _surfaceTurnA.z * _surfaceTurnB.z,
-  );
-}
-
-function buildSurfaceChevronGeometry(): THREE.BufferGeometry {
-  const positions: number[] = [];
-  const addWing = (startX: number, startZ: number, endX: number, endZ: number): void => {
-    const dx = endX - startX;
-    const dz = endZ - startZ;
-    const inv = 1 / Math.hypot(dx, dz);
-    const px = -dz * inv;
-    const pz = dx * inv;
-    const startHalf = 0.32;
-    const endHalf = 0.24;
-    const a = [startX + px * startHalf, 0, startZ + pz * startHalf];
-    const b = [startX - px * startHalf, 0, startZ - pz * startHalf];
-    const c = [endX + px * endHalf, 0, endZ + pz * endHalf];
-    const d = [endX - px * endHalf, 0, endZ - pz * endHalf];
-    positions.push(...a, ...c, ...b, ...b, ...c, ...d);
-  };
-  addWing(-1.9, -1.8, 0, 2.6);
-  addWing(1.9, -1.8, 0, 2.6);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.computeBoundingSphere();
-  return geometry;
-}
-
-function buildSurfaceArrowMaterial(uniforms: SurfaceGuideUniforms, ink = false): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    name: 'SurfaceGuideChevrons',
-    uniforms,
-    vertexShader: /* glsl */ `
-      uniform float uTime;
-      attribute float aStation;
-      attribute float aTurn;
-      attribute float aPhase;
-      varying float vS;
-      varying float vTurn;
-      varying float vPhase;
-      varying float vDist;
-      ${WAVES_GLSL}
-      void main() {
-        vec4 local = vec4(position * ${ink ? '1.18' : '1.0'}, 1.0);
-        #ifdef USE_INSTANCING
-          local = instanceMatrix * local;
-        #endif
-        vec4 world = modelMatrix * local;
-        world.y = waveHeight(world.xz, uTime) + ${ink ? '0.185' : '0.215'};
-        vS = aStation;
-        vTurn = aTurn;
-        vPhase = aPhase;
-        vec4 mv = viewMatrix * world;
-        vDist = -mv.z;
-        gl_Position = projectionMatrix * mv;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform float uTime;
-      uniform vec3 uColor;
-      uniform vec3 uFoam;
-      uniform vec3 uTurnColor;
-      uniform vec3 uInk;
-      uniform float uPlayerS;
-      uniform float uLapLength;
-      uniform float uMaskStart;
-      uniform float uMaskEnd;
-      uniform float uGuideActive;
-      uniform float uFinalApproach;
-      uniform float uLaunchGateActive;
-      uniform float uLaunchGateS;
-      uniform float uLaunchGateEndS;
-      uniform float uMaskFeather;
-      varying float vS;
-      varying float vTurn;
-      varying float vPhase;
-      varying float vDist;
-      void main() {
-        float ahead = mod(vS - uPlayerS + uLapLength, uLapLength);
-        float behind = mod(uPlayerS - vS + uLapLength, uLapLength);
-        float forwardVisible = 1.0 - smoothstep(145.0, 170.0, ahead);
-        float trailingVisible = 1.0 - smoothstep(${SURFACE_GUIDE_TAIL_FADE_START_M.toFixed(1)}, ${SURFACE_GUIDE_TAIL_FADE_END_M.toFixed(1)}, behind);
-        float trailingSide = 1.0 - step(0.5 * uLapLength, behind);
-        float visible = 1.0;
-        visible *= mix(forwardVisible, trailingVisible, trailingSide);
-        float guideMask = step(uMaskStart, vS) * step(vS, uMaskEnd);
-        float guideMaskSoft = smoothstep(uMaskStart - uMaskFeather, uMaskStart + uMaskFeather, vS) *
-          (1.0 - smoothstep(uMaskEnd - uMaskFeather, uMaskEnd + uMaskFeather, vS));
-        visible *= 1.0 - uGuideActive * guideMaskSoft;
-        float launchMask = step(uLaunchGateS, vS) * step(vS, uLaunchGateEndS);
-        float launchMaskSoft = smoothstep(uLaunchGateS - uMaskFeather, uLaunchGateS + uMaskFeather, vS) *
-          (1.0 - smoothstep(uLaunchGateEndS - uMaskFeather, uLaunchGateEndS + uMaskFeather, vS));
-        visible *= 1.0 - uLaunchGateActive * launchMaskSoft;
-        // Actual instance motion carries direction; the phase sweep keeps a
-        // readable front-to-back rhythm without making arrows blink off.
-        float travel = fract(uTime * 0.65 - vPhase);
-        float pulse = 1.0 - smoothstep(0.02, 0.34, travel);
-        float nearFade = smoothstep(4.0, 12.0, ahead);
-        float localFade = 1.0 - smoothstep(145.0, 170.0, ahead);
-        float fade = nearFade * localFade * (vDist < 220.0 ? 1.0 : 0.78);
-        vec3 base = mix(uColor, uTurnColor, vTurn);
-        vec3 color = ${ink ? 'uInk' : 'mix(base, uFoam, 0.2 + pulse * 0.3)'};
-        float alpha = ${ink ? '0.86' : 'mix(0.82, 0.94, vTurn) * (0.88 + pulse * 0.12)'} * fade;
-        alpha *= mix(1.0, 0.18, uFinalApproach);
-        alpha *= visible;
-        gl_FragColor = vec4(color, alpha);
-      }
-    `,
-    transparent: true,
-    blending: THREE.NormalBlending,
-    depthWrite: false,
-    side: THREE.FrontSide,
-    toneMapped: false,
-  });
-}
-
-function buildSurfaceCueMaterial(
-  timeUniform: THREE.IUniform<number>,
-  color: number,
-  opacity: number,
-  flowing = false,
-  surfaceBlendUniform: THREE.IUniform<number> = { value: 1 },
-): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    name: 'SurfaceActionChevron',
-    uniforms: {
-      uTime: timeUniform,
-      uColor: { value: new THREE.Color().setHex(color, THREE.NoColorSpace) },
-      uOpacity: { value: opacity },
-      uFlowing: { value: flowing ? 1 : 0 },
-      uSurfaceBlend: surfaceBlendUniform,
-    },
-    vertexShader: /* glsl */ `
-      uniform float uTime;
-      uniform float uSurfaceBlend;
-      attribute float aPhase;
-      varying float vPhase;
-      ${WAVES_GLSL}
-      void main() {
-        vec4 local = vec4(position, 1.0);
-        #ifdef USE_INSTANCING
-          local = instanceMatrix * local;
-        #endif
-        vec4 world = modelMatrix * local;
-        world.y = mix(world.y + 0.205, waveHeight(world.xz, uTime) + 0.205, uSurfaceBlend);
-        vPhase = aPhase;
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      uniform float uFlowing;
-      uniform float uTime;
-      varying float vPhase;
-      void main() {
-        float travel = fract(uTime * 0.65 - vPhase);
-        float pulse = 1.0 - smoothstep(0.02, 0.34, travel);
-        float flowingAlpha = 0.72 + pulse * 0.28;
-        gl_FragColor = vec4(uColor, uOpacity * mix(1.0, flowingAlpha, uFlowing));
-      }
-    `,
-    transparent: true,
-    blending: THREE.NormalBlending,
-    depthWrite: false,
-    side: THREE.FrontSide,
-    toneMapped: false,
-  });
-}
 
 // ---------------------------------------------------------------- gates ----
 
@@ -1390,12 +1198,6 @@ interface FlightRouteVisual {
   curtain: THREE.ShaderMaterial;
   rail: THREE.MeshBasicMaterial;
   ring: THREE.MeshBasicMaterial;
-  recoveryArrows: THREE.InstancedMesh;
-  recoveryArrowMaterial: THREE.ShaderMaterial;
-  recoveryArrowFractions: number[];
-  turnChevronGroup: THREE.Group | null;
-  turnChevronFill: THREE.MeshBasicMaterial | null;
-  turnChevronCount: number;
   gates: FlightGate[];
   deployActive: boolean;
   deployTime: number;
@@ -1586,12 +1388,6 @@ export class Course implements ICourse {
   readonly flightGateUs = FLIGHT_GATE_US;
 
   private readonly ribbonMat: THREE.ShaderMaterial;
-  private readonly surfaceGuideArrows: THREE.InstancedMesh;
-  private readonly surfaceGuideArrowInk: THREE.InstancedMesh;
-  private readonly surfaceGuideArrowStations: THREE.InstancedBufferAttribute;
-  private readonly surfaceGuideArrowTurns: THREE.InstancedBufferAttribute;
-  private readonly surfaceGuideArrowPhases: THREE.InstancedBufferAttribute;
-  private readonly surfaceGuideArrowCount: number;
   private readonly stripMat: THREE.ShaderMaterial;
   private readonly flightVisuals: FlightRouteVisual[];
   private readonly flightVisualsRight: FlightRouteVisual[];
@@ -1670,12 +1466,6 @@ export class Course implements ICourse {
     this.object.name = 'course';
     const surfaceGuide = this.buildRibbon();
     this.ribbonMat = surfaceGuide.ribbon;
-    this.surfaceGuideArrows = surfaceGuide.arrows;
-    this.surfaceGuideArrowInk = surfaceGuide.arrowInk;
-    this.surfaceGuideArrowStations = surfaceGuide.arrowStations;
-    this.surfaceGuideArrowTurns = surfaceGuide.arrowTurns;
-    this.surfaceGuideArrowPhases = surfaceGuide.arrowPhases;
-    this.surfaceGuideArrowCount = surfaceGuide.arrowCount;
     this.stripMat = this.buildStartStrip();
     this.flightVisuals = FLIGHT_RUNTIME.map((runtime) => this.buildFlightRoute(runtime, LAYER_GUIDE_LEFT));
     this.buildGates();
@@ -1821,7 +1611,6 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uLaunchGateEndS.value = launchRoute >= 0
       ? Math.min(LAP_LENGTH, FLIGHT_ROUTES[launchRoute].exitU * LAP_LENGTH + 8) : 0;
     this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
-    this.updateSurfaceGuideArrowFlow(time);
   }
 
   /** Team mode may lock one portal until its surface relay is activated. */
@@ -2258,9 +2047,7 @@ export class Course implements ICourse {
       recoveryActive: this.playerRecoveryRoute >= 0 ? 1 : 0,
       recoveryElapsed: this.playerRecoveryElapsed,
       recoveryLimit: this.playerRecoveryLimit,
-      recoveryArrowCount: recoveryVisual
-        ? recoveryVisual.recoveryArrowFractions.filter((f) => f >= recoveryVisual.recoveryProgress - 0.018).length
-        : 0,
+      recoveryArrowCount: 0,
       recoveryGuideOpacity: recoveryVisual ? 1 : 0,
       handoffOverlapMeters: 16,
       playerSurfaceU: this.playerSurfaceU,
@@ -2286,15 +2073,9 @@ export class Course implements ICourse {
       surfaceGuideStyle: SURFACE_GUIDE_STYLE,
       surfaceGuideBaseAlpha: SURFACE_GUIDE_BASE_ALPHA,
       surfaceGuidePeakAlpha: SURFACE_GUIDE_PEAK_ALPHA,
-      surfaceGuideArrowCadenceM: SURFACE_GUIDE_ARROW_CADENCE_M,
-      surfaceGuideArrowSpeedMps: SURFACE_GUIDE_ARROW_SPEED_MPS,
-      surfaceGuideArrowCount: this.surfaceGuideArrowCount,
-      surfaceGuideTurnArrowCount: this.surfaceGuideTurnArrowCount,
       surfaceGuideTailFadeStartM: SURFACE_GUIDE_TAIL_FADE_START_M,
       surfaceGuideTailFadeEndM: SURFACE_GUIDE_TAIL_FADE_END_M,
       surfaceGuideMaskFeatherM: SURFACE_GUIDE_MASK_FEATHER_M,
-      surfaceGuideLaunchTurnArrowCount: this.surfaceGuideLaunchTurnArrowCount,
-      surfaceGuideTurnChevronCount: SURFACE_GUIDE_TURN_CHEVRON_COUNT,
       flightGuideStyle: FLIGHT_GUIDE_STYLE,
       flightGuidePanelAlpha: FLIGHT_GUIDE_PANEL_ALPHA,
       flightGuidePanelBeatAlpha: FLIGHT_GUIDE_PANEL_BEAT_ALPHA,
@@ -2332,9 +2113,7 @@ export class Course implements ICourse {
       recoveryActive: state.recoveryRoute >= 0 ? 1 : 0,
       recoveryElapsed: state.recoveryElapsed,
       recoveryLimit: state.recoveryLimit,
-      recoveryArrowCount: recoveryVisual
-        ? recoveryVisual.recoveryArrowFractions.filter((f) => f >= recoveryVisual.recoveryProgress - 0.018).length
-        : 0,
+      recoveryArrowCount: 0,
       recoveryGuideOpacity: recoveryVisual ? 1 : 0,
       playerSurfaceU: state.surfaceU,
       targetGateDistance: state.targetGateDistance,
@@ -2643,57 +2422,104 @@ export class Course implements ICourse {
         const gateIndex = st.flightGateProgress;
         const gate = visual.gates[gateIndex];
         if (gate && flightActive) {
-          const d0 = (prev.x - gate.center.x) * gate.normal.x + (prev.z - gate.center.z) * gate.normal.z;
-          const d1 = (pos.x - gate.center.x) * gate.normal.x + (pos.z - gate.center.z) * gate.normal.z;
-          if (d0 <= 0 && d1 > 0) {
-            const f = d0 / (d0 - d1);
-            const ix = prev.x + (pos.x - prev.x) * f;
-            const iz = prev.z + (pos.z - prev.z) * f;
-            const previousClearance = this.flightPrevClearance[id] ?? st.flightClearance;
-            const crossingClearance = previousClearance + (st.flightClearance - previousClearance) * f;
-            const lateral = (ix - gate.center.x) * gate.right.x + (iz - gate.center.z) * gate.right.z;
-            const lateralLimit = def.passHalfWidth;
-            const certifiedPhase = st.flightPhase === 'ascending' || st.flightPhase === 'cruise';
-            if (!certifiedPhase || crossingClearance < 2.8) {
-              this.flightDebug[id] = `late-height:f${routeIndex + 1}:y${crossingClearance.toFixed(2)}`;
-              this.failFlight(boat, visual, 'late', gate.u, gateIndex + 1, lateral, lateralLimit);
-            } else if (this.externalGateLocks[routeIndex]) {
-              this.flightDebug[id] = `team-lock:f${routeIndex + 1}`;
-              this.failFlight(boat, visual, 'gate', gate.u, gateIndex + 1, lateral, lateralLimit);
-              if (id === this.guidanceBoatId) {
-                this.flightWarn = 0.8;
-                this.flightWarnRoute = routeIndex;
-              }
-            } else if (Math.abs(lateral) <= lateralLimit) {
-              boat.applyFlightGatePass(gateIndex);
-              if (id === this.guidanceBoatId) {
-                gate.pulse = 0.36;
-                gate.cleared = true;
-                gate.anchor.visible = false;
-              }
-              if (gateIndex + 1 >= visual.gates.length) {
-                boat.completeFlightRoute(routeIndex, st.flightRouteCursor);
-                this.flightRecoveryT[id] = 0;
-                this.flightRecoveryLimit[id] = def.navigation?.postGateRecovery?.maxDurationS ??
-                  Math.max(2.5, Math.min(4,
-                    runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
+          // Pre-plane pillar cylinder proximity check (prevents delayed death judgment)
+          const normalDist = (pos.x - gate.center.x) * gate.normal.x + (pos.z - gate.center.z) * gate.normal.z;
+          const latDist = (pos.x - gate.center.x) * gate.right.x + (pos.z - gate.center.z) * gate.right.z;
+          const lateralLimit = def.passHalfWidth;
+          const pillarRadius = 1.0;
+          const boatRadius = 1.25;
+          const contactRadius = pillarRadius + boatRadius; // 2.25m
+
+          const pillarLeftX = gate.center.x - gate.right.x * (lateralLimit + 0.52);
+          const pillarLeftZ = gate.center.z - gate.right.z * (lateralLimit + 0.52);
+          const distToLeftPillar = Math.hypot(pos.x - pillarLeftX, pos.z - pillarLeftZ);
+
+          const pillarRightX = gate.center.x + gate.right.x * (lateralLimit + 0.52);
+          const pillarRightZ = gate.center.z + gate.right.z * (lateralLimit + 0.52);
+          const distToRightPillar = Math.hypot(pos.x - pillarRightX, pos.z - pillarRightZ);
+
+          const isOutside = Math.abs(latDist) > lateralLimit;
+          const hitPillarLeft = isOutside && normalDist > -2.8 && normalDist < 2.0 && distToLeftPillar <= contactRadius;
+          const hitPillarRight = isOutside && normalDist > -2.8 && normalDist < 2.0 && distToRightPillar <= contactRadius;
+
+          if (hitPillarLeft || hitPillarRight) {
+            const hitLeft = distToLeftPillar <= distToRightPillar;
+            const pX = hitLeft ? pillarLeftX : pillarRightX;
+            const pZ = hitLeft ? pillarLeftZ : pillarRightZ;
+            const pDist = hitLeft ? distToLeftPillar : distToRightPillar;
+            const rebX = pDist > 1e-3 ? (pos.x - pX) / pDist : (hitLeft ? -gate.right.x : gate.right.x);
+            const rebZ = pDist > 1e-3 ? (pos.z - pZ) / pDist : (hitLeft ? -gate.right.z : gate.right.z);
+            const bounceSpeed = Math.max(14, Math.abs(st.speed) * 0.55);
+            boat.applyCollisionResponse(rebX * 0.35, rebZ * 0.35, rebX * bounceSpeed, rebZ * bounceSpeed);
+
+            const reason = hitLeft ? 'gate_left' : 'gate_right';
+            this.flightDebug[id] = `pillar-hit:f${routeIndex + 1}:${reason}`;
+            this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, latDist, lateralLimit);
+            if (id === this.guidanceBoatId) {
+              this.flightWarn = 0.8;
+              this.flightWarnRoute = routeIndex;
+            }
+          } else {
+            const d0 = (prev.x - gate.center.x) * gate.normal.x + (prev.z - gate.center.z) * gate.normal.z;
+            const d1 = (pos.x - gate.center.x) * gate.normal.x + (pos.z - gate.center.z) * gate.normal.z;
+            if (d0 <= 0 && d1 > 0) {
+              const f = d0 / (d0 - d1);
+              const ix = prev.x + (pos.x - prev.x) * f;
+              const iz = prev.z + (pos.z - prev.z) * f;
+              const previousClearance = this.flightPrevClearance[id] ?? st.flightClearance;
+              const crossingClearance = previousClearance + (st.flightClearance - previousClearance) * f;
+              const lateral = (ix - gate.center.x) * gate.right.x + (iz - gate.center.z) * gate.right.z;
+              const certifiedPhase = st.flightPhase === 'ascending' || st.flightPhase === 'cruise';
+              if (!certifiedPhase || crossingClearance < 2.8) {
+                this.flightDebug[id] = `late-height:f${routeIndex + 1}:y${crossingClearance.toFixed(2)}`;
+                this.failFlight(boat, visual, 'late', gate.u, gateIndex + 1, lateral, lateralLimit);
+              } else if (this.externalGateLocks[routeIndex]) {
+                this.flightDebug[id] = `team-lock:f${routeIndex + 1}`;
+                this.failFlight(boat, visual, 'gate', gate.u, gateIndex + 1, lateral, lateralLimit);
                 if (id === this.guidanceBoatId) {
-                  this.playerLaunchCommittedRoute = -1;
-                  this.playerLaunchCommittedU = -1;
-                  this.playerRecoveryRoute = routeIndex;
-                  this.playerRecoverySurface = false;
-                  this.playerRecoveryElapsed = 0;
-                  this.playerRecoveryLimit = this.flightRecoveryLimit[id];
+                  this.flightWarn = 0.8;
+                  this.flightWarnRoute = routeIndex;
                 }
-                this.flightDebug[id] = 'passed';
-              }
-            } else {
-              const reason = lateral < 0 ? 'gate_left' : 'gate_right';
-              this.flightDebug[id] = `gate${gateIndex + 1}:lat${lateral.toFixed(2)}:limit${lateralLimit.toFixed(2)}`;
-              this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, lateral, lateralLimit);
-              if (id === this.guidanceBoatId) {
-                this.flightWarn = 0.8;
-                this.flightWarnRoute = routeIndex;
+              } else if (Math.abs(lateral) <= lateralLimit) {
+                boat.applyFlightGatePass(gateIndex);
+                if (id === this.guidanceBoatId) {
+                  gate.pulse = 0.36;
+                  gate.cleared = true;
+                  gate.anchor.visible = false;
+                }
+                if (gateIndex + 1 >= visual.gates.length) {
+                  boat.completeFlightRoute(routeIndex, st.flightRouteCursor);
+                  this.flightRecoveryT[id] = 0;
+                  this.flightRecoveryLimit[id] = def.navigation?.postGateRecovery?.maxDurationS ??
+                    Math.max(2.5, Math.min(4,
+                      runtime.gateToExitDistance / Math.max(1, def.targetSpeed) + 1.5));
+                  if (id === this.guidanceBoatId) {
+                    this.playerLaunchCommittedRoute = -1;
+                    this.playerLaunchCommittedU = -1;
+                    this.playerRecoveryRoute = routeIndex;
+                    this.playerRecoverySurface = false;
+                    this.playerRecoveryElapsed = 0;
+                    this.playerRecoveryLimit = this.flightRecoveryLimit[id];
+                  }
+                  this.flightDebug[id] = 'passed';
+                }
+              } else {
+                const miss = Math.abs(lateral) - lateralLimit;
+                // If near pillar, apply physical bounce. If flying way too far outside, no bounce.
+                if (miss <= 2.5) {
+                  const pillarSide = lateral < 0 ? -1 : 1;
+                  const rebX = -gate.right.x * pillarSide;
+                  const rebZ = -gate.right.z * pillarSide;
+                  const bounceSpeed = Math.max(12, Math.abs(st.speed) * 0.45);
+                  boat.applyCollisionResponse(rebX * 0.3, rebZ * 0.3, rebX * bounceSpeed, rebZ * bounceSpeed);
+                }
+                const reason = lateral < 0 ? 'gate_left' : 'gate_right';
+                this.flightDebug[id] = `gate${gateIndex + 1}:lat${lateral.toFixed(2)}:limit${lateralLimit.toFixed(2)}`;
+                this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, lateral, lateralLimit);
+                if (id === this.guidanceBoatId) {
+                  this.flightWarn = 0.8;
+                  this.flightWarnRoute = routeIndex;
+                }
               }
             }
           }
@@ -3104,11 +2930,14 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uRecovery.value = recovery;
       visual.ribbon.uniforms.uRecoverySurface.value = recoverySurface ? 1 : 0;
       visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
+      const isRecovery = state.recoveryRoute === routeIndex || visual.recoveryFade > 0;
+      const isActiveRoute = upcoming || isRecovery || next === routeIndex;
+      visual.ribbon.uniforms.uPanelAlpha.value = isActiveRoute ? FLIGHT_GUIDE_PANEL_ALPHA : 0.07;
+      visual.ribbon.uniforms.uEdgeAlpha.value = isActiveRoute ? FLIGHT_GUIDE_EDGE_ALPHA : 0.16;
+      visual.ribbon.uniforms.uFlowAlpha.value = isActiveRoute ? FLIGHT_GUIDE_FLOW_ALPHA : 0.0;
       visual.ribbonMesh.layers.disable(LAYER_ENERGY);
       if (recovery <= 0) visual.ribbonMesh.layers.enable(LAYER_GUIDE_RIGHT + 2);
       else visual.ribbonMesh.layers.disable(LAYER_GUIDE_RIGHT + 2);
-      visual.recoveryArrows.visible = false;
-      visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0;
       visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
       visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
       visual.rail.opacity = recovery > 0 ? 0.34 : warn > 0.5 ? 0.72 : 0.34 + readyStep * 0.08;
@@ -3169,75 +2998,6 @@ export class Course implements ICourse {
       visual.packetMaterial.color.setHex(armed ? PALETTE.foam : PALETTE.sunFlare, THREE.NoColorSpace);
       visual.packetMaterial.opacity = (armed ? 0.94 : 0.62) * deploy;
     }
-  }
-
-  private updateSurfaceGuideArrowFlow(t: number): void {
-    const playerS = this.playerSurfaceU * LAP_LENGTH;
-    const travel = (t * SURFACE_GUIDE_ARROW_SPEED_MPS) % SURFACE_GUIDE_ARROW_CADENCE_M;
-    const postThirdFromU = FLIGHT_ROUTES[2].exitU - 0.003;
-    const postThirdToU = FLIGHT_ROUTES[2].exitU + 0.012;
-    const launchRoute = this.activeGuideRoute >= 0 ? FLIGHT_ROUTES[this.activeGuideRoute] : undefined;
-    const launchRuntime = this.activeGuideRoute >= 0 ? FLIGHT_RUNTIME[this.activeGuideRoute] : undefined;
-    const launchTurn = launchRoute?.navigation?.turn;
-    const launchS = launchRoute ? flightLaunchCueU(launchRoute) * LAP_LENGTH : -1;
-    const launchAlignM = launchRoute?.navigation?.launchAlignM ?? SURFACE_GUIDE_LAUNCH_ALIGN_M;
-    this.surfaceGuideTurnArrowCount = 0;
-    this.surfaceGuideLaunchTurnArrowCount = 0;
-    for (let i = 0; i < this.surfaceGuideArrowCount; i++) {
-      const station = (playerS + SURFACE_GUIDE_ARROW_START_M +
-        i * SURFACE_GUIDE_ARROW_CADENCE_M + travel) % LAP_LENGTH;
-      const u = station / LAP_LENGTH;
-      const phase = (i % SURFACE_GUIDE_TURN_CHEVRON_COUNT) / SURFACE_GUIDE_TURN_CHEVRON_COUNT;
-      this.surfaceGuideArrowStations.setX(i, station);
-      this.surfaceGuideArrowPhases.setX(i, phase);
-      const authoredPostThirdTurn = u >= postThirdFromU && u <= postThirdToU;
-      const metersToLaunch = launchRoute
-        ? (launchS - station + LAP_LENGTH) % LAP_LENGTH
-        : Number.POSITIVE_INFINITY;
-      const authoredLaunchTurn = Boolean(launchTurn) && metersToLaunch <= launchAlignM;
-      const turn = authoredLaunchTurn || authoredPostThirdTurn ||
-        Math.abs(surfaceTurnAhead(station)) >= THREE.MathUtils.degToRad(16);
-      const lookAheadS = station + (turn ? 18 : 6);
-      CURVE.getPointAt(u, _surfaceArrowCenter);
-      CURVE.getPointAt((lookAheadS % LAP_LENGTH) / LAP_LENGTH, _surfaceArrowNext);
-      _surfaceArrowForward.subVectors(_surfaceArrowNext, _surfaceArrowCenter).setY(0).normalize();
-      if (_surfaceArrowForward.lengthSq() < 0.5) {
-        CURVE.getTangentAt(u, _surfaceArrowForward).setY(0).normalize();
-      }
-      if (authoredLaunchTurn && launchTurn && launchRuntime) {
-        const postureU = THREE.MathUtils.lerp(launchTurn.fromU, launchTurn.toU, 0.18);
-        runtimePointAt(launchRuntime, postureU, _surfaceArrowNext);
-        _surfaceArrowNext.sub(_surfaceArrowCenter).setY(0).normalize();
-        if (_surfaceArrowNext.lengthSq() > 0.5) {
-          const alignment = 1 - THREE.MathUtils.clamp(
-            metersToLaunch / launchAlignM,
-            0,
-            1,
-          );
-          _surfaceArrowForward.lerp(_surfaceArrowNext, 0.28 + alignment * 0.42).normalize();
-        }
-        this.surfaceGuideLaunchTurnArrowCount++;
-      }
-      _surfaceArrowQuaternion.setFromAxisAngle(UP, Math.atan2(_surfaceArrowForward.x, _surfaceArrowForward.z));
-      const ahead = (station - playerS + LAP_LENGTH) % LAP_LENGTH;
-      const farScaleT = THREE.MathUtils.smoothstep(ahead, 35, 150);
-      const distanceScale = THREE.MathUtils.lerp(1, 1.6, farScaleT);
-      // Dissolve the far end of the flow: beyond ~100 m a lone chevron on
-      // open water reads as a floating white triangle, not route guidance —
-      // the green ribbon alone carries the far line.
-      const farFade = 1 - THREE.MathUtils.smoothstep(ahead, 100, 165);
-      _surfaceArrowScale.setScalar(distanceScale * (turn ? 1.35 : 1) * farFade);
-      _surfaceArrowMatrix.compose(_surfaceArrowCenter, _surfaceArrowQuaternion, _surfaceArrowScale);
-      this.surfaceGuideArrows.setMatrixAt(i, _surfaceArrowMatrix);
-      this.surfaceGuideArrowInk.setMatrixAt(i, _surfaceArrowMatrix);
-      this.surfaceGuideArrowTurns.setX(i, turn ? 1 : 0);
-      if (turn) this.surfaceGuideTurnArrowCount++;
-    }
-    this.surfaceGuideArrows.instanceMatrix.needsUpdate = true;
-    this.surfaceGuideArrowInk.instanceMatrix.needsUpdate = true;
-    this.surfaceGuideArrowStations.needsUpdate = true;
-    this.surfaceGuideArrowTurns.needsUpdate = true;
-    this.surfaceGuideArrowPhases.needsUpdate = true;
   }
 
   private updateLaunchGateVisuals(dt: number, t: number): void {
@@ -3318,7 +3078,6 @@ export class Course implements ICourse {
     this.presentationTime = t;
     this.ribbonMat.uniforms.uTime.value = t;
     this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
-    this.updateSurfaceGuideArrowFlow(t);
     this.updateLaunchGateVisuals(dt, t);
     this.stripMat.uniforms.uTime.value = t;
     this.flightWarn = Math.max(0, this.flightWarn - dt);
@@ -3386,37 +3145,17 @@ export class Course implements ICourse {
       visual.ribbon.uniforms.uRecovery.value = recovery;
       visual.ribbon.uniforms.uRecoverySurface.value = visual.recoverySurfaceBlend;
       visual.ribbon.uniforms.uRecoveryProgress.value = visual.recoveryProgress;
+      const isRecovery = this.playerRecoveryRoute === routeIndex || visual.recoveryFade > 0;
+      const isActiveRoute = upcoming || isRecovery || this.activeGuideRoute === routeIndex;
+      visual.ribbon.uniforms.uPanelAlpha.value = isActiveRoute ? FLIGHT_GUIDE_PANEL_ALPHA : 0.07;
+      visual.ribbon.uniforms.uEdgeAlpha.value = isActiveRoute ? FLIGHT_GUIDE_EDGE_ALPHA : 0.16;
+      visual.ribbon.uniforms.uFlowAlpha.value = isActiveRoute ? FLIGHT_GUIDE_FLOW_ALPHA : 0.0;
       if (recovery > 0) {
         visual.ribbonMesh.layers.disable(LAYER_ENERGY);
         visual.ribbonMesh.layers.disable(LAYER_GUIDE_LEFT + 2);
       } else {
         visual.ribbonMesh.layers.enable(LAYER_ENERGY);
         visual.ribbonMesh.layers.enable(LAYER_GUIDE_LEFT + 2);
-      }
-      visual.recoveryArrows.visible = false;
-      visual.recoveryArrowMaterial.uniforms.uOpacity.value = 0;
-      if (recovery > 0) {
-        const def = visual.runtime.def;
-        const gateFraction = flightVisualT(def, def.gateUs[def.gateUs.length - 1]);
-        const minFraction = Math.max(gateFraction, visual.recoveryProgress - 0.018);
-        for (let i = 0; i < visual.recoveryArrowFractions.length; i++) {
-          const flow = (this.flightFlowTime * SURFACE_GUIDE_ARROW_SPEED_MPS /
-            Math.max(1, visual.runtime.routeLength)) % 1;
-          const phase = (i / visual.recoveryArrowFractions.length + flow) % 1;
-          const fraction = minFraction + (1 - minFraction) * phase;
-          visual.recoveryArrowFractions[i] = fraction;
-          const u = def.entryU + (def.exitU - def.entryU) * fraction;
-          runtimePointAt(visual.runtime, u, _surfaceArrowCenter);
-          runtimeTangentAt(visual.runtime, u, _surfaceArrowForward).setY(0).normalize();
-          _surfaceArrowQuaternion.setFromAxisAngle(
-            UP,
-            Math.atan2(_surfaceArrowForward.x, _surfaceArrowForward.z),
-          );
-          _surfaceArrowScale.setScalar(0.92);
-          _surfaceArrowMatrix.compose(_surfaceArrowCenter, _surfaceArrowQuaternion, _surfaceArrowScale);
-          visual.recoveryArrows.setMatrixAt(i, _surfaceArrowMatrix);
-        }
-        visual.recoveryArrows.instanceMatrix.needsUpdate = true;
       }
       visual.rail.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
       visual.ring.color.setHex(warn > 0.5 ? PALETTE.uiWarn : FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace);
@@ -3948,115 +3687,6 @@ export class Course implements ICourse {
     ribbon.layers.enable(LAYER_ENERGY);
     routeGroup.add(ribbon);
 
-    // Directional handoff markers appear only after the scoring portal. They
-    // stay neutral mist and follow the authored flight height until the hull actually
-    // reaches water; contact then blends the same markers onto the swell.
-    const arrowGeo = buildSurfaceChevronGeometry();
-    const recoveryArrowMaterial = buildSurfaceCueMaterial(
-      this.ribbonMat.uniforms.uTime,
-      FLIGHT_ROUTE_MARKER_COLOR,
-      0,
-      true,
-      ribbonMat.uniforms.uRecoverySurface,
-    );
-    const recoveryArrows = new THREE.InstancedMesh(arrowGeo, recoveryArrowMaterial, 7);
-    recoveryArrows.name = `${def.id}-recovery-arrows`;
-    recoveryArrows.visible = false;
-    recoveryArrows.renderOrder = 5;
-    const arrowTransform = new THREE.Object3D();
-    const recoveryArrowFractions: number[] = [];
-    const recoveryArrowPhases = new THREE.InstancedBufferAttribute(new Float32Array(7), 1);
-    for (let i = 0; i < 7; i++) recoveryArrowPhases.setX(i, i / 7);
-    arrowGeo.setAttribute('aPhase', recoveryArrowPhases);
-    for (let i = 0; i < 7; i++) {
-      const routeF = runtime.gateFraction + (1 - runtime.gateFraction) * ((i + 0.7) / 7.7);
-      const u = def.entryU + (def.exitU - def.entryU) * routeF;
-      recoveryArrowFractions.push(flightVisualT(def, u));
-      runtimePointAt(runtime, u, p);
-      runtimeTangentAt(runtime, u, t);
-      arrowTransform.position.set(p.x, 0.28, p.z);
-      arrowTransform.rotation.set(0, Math.atan2(t.x, t.z), 0);
-      const taper = 0.96 - i * 0.025;
-      arrowTransform.scale.setScalar(taper);
-      arrowTransform.updateMatrix();
-      recoveryArrows.setMatrixAt(i, arrowTransform.matrix);
-    }
-    recoveryArrows.instanceMatrix.needsUpdate = true;
-    routeGroup.add(recoveryArrows);
-
-    let turnChevronGroup: THREE.Group | null = null;
-    let turnChevronFill: THREE.MeshBasicMaterial | null = null;
-    let turnChevronCount = 0;
-    const turn = def.navigation?.turn;
-    if (turn) {
-      const markerSpecs: Array<{
-        cue: { fromU: number; toU: number; direction: 'left' | 'right' };
-        f: number;
-        role: 'entry' | 'counter';
-      }> = [0.16, 0.31, 0.46].map((f) => ({ cue: turn, f, role: 'entry' }));
-      if (def.navigation?.counterTurn) {
-        markerSpecs.push(
-          { cue: def.navigation.counterTurn, f: 0.28, role: 'counter' },
-          { cue: def.navigation.counterTurn, f: 0.7, role: 'counter' },
-        );
-      }
-      turnChevronCount = markerSpecs.length;
-      turnChevronGroup = new THREE.Group();
-      turnChevronGroup.name = `${def.id}-marine-chevrons-${turn.direction}`;
-      turnChevronGroup.userData.entryMarkerCount = 3;
-      turnChevronGroup.userData.counterMarkerCount = markerSpecs.length - 3;
-      turnChevronGroup.userData.counterDirection = def.navigation?.counterTurn?.direction ?? 'none';
-      const backingMaterial = new THREE.MeshBasicMaterial({
-        color: PALETTE.ink,
-        transparent: true,
-        opacity: 0.78,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      });
-      turnChevronFill = new THREE.MeshBasicMaterial({
-        color: PALETTE.sunFlare,
-        transparent: true,
-        opacity: def.index === 4 ? 0.9 : 0.82,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      });
-      const backing = new THREE.InstancedMesh(makeOpenChevronGeometry(), backingMaterial, turnChevronCount);
-      const fill = new THREE.InstancedMesh(makeOpenChevronGeometry(0.055), turnChevronFill, turnChevronCount);
-      backing.name = `${def.id}-chevron-ink`;
-      fill.name = `${def.id}-chevron-fill`;
-      backing.renderOrder = 5;
-      fill.renderOrder = 6;
-      const marker = new THREE.Object3D();
-      const fillMarker = new THREE.Object3D();
-      for (let i = 0; i < markerSpecs.length; i++) {
-        const spec = markerSpecs[i];
-        // Keep the three road-grade chevrons together near the decision point.
-        // A compact, lane-width cluster reads through waves and perspective;
-        // small markers spread across the whole bend disappear one by one.
-        const u = THREE.MathUtils.lerp(spec.cue.fromU, spec.cue.toU, spec.f);
-        runtimePointAt(runtime, u, p);
-        runtimeTangentAt(runtime, u, t).setY(0).normalize();
-        marker.position.set(p.x, p.y + 0.17, p.z);
-        // In this boat frame local +X is port/left when +Z follows the route.
-        // Flip only right-turn chevrons toward starboard.
-        marker.rotation.set(0, Math.atan2(t.x, t.z) + (spec.cue.direction === 'right' ? Math.PI : 0), 0);
-        marker.scale.set(Math.min(4.5, Math.max(3.4, HALF_W * 0.62)), 1.08, 1.85);
-        marker.updateMatrix();
-        backing.setMatrixAt(i, marker.matrix);
-        fillMarker.position.copy(marker.position);
-        fillMarker.rotation.copy(marker.rotation);
-        fillMarker.scale.copy(marker.scale).multiplyScalar(0.7);
-        fillMarker.updateMatrix();
-        fill.setMatrixAt(i, fillMarker.matrix);
-      }
-      backing.instanceMatrix.needsUpdate = true;
-      fill.instanceMatrix.needsUpdate = true;
-      turnChevronGroup.add(backing, fill);
-      routeGroup.add(turnChevronGroup);
-    }
-
     const railMat = new THREE.MeshBasicMaterial({
       color: FLIGHT_ROUTE_MARKER_COLOR,
       transparent: true,
@@ -4325,12 +3955,6 @@ export class Course implements ICourse {
       curtain: curtainMat,
       rail: railMat,
       ring: ringMat,
-      recoveryArrows,
-      recoveryArrowMaterial,
-      recoveryArrowFractions,
-      turnChevronGroup,
-      turnChevronFill,
-      turnChevronCount,
       gates,
       deployActive: false,
       deployTime: 0,
@@ -4586,46 +4210,8 @@ export class Course implements ICourse {
     mesh.frustumCulled = false; // spans the whole course
     mesh.renderOrder = 2; // over the water
     this.object.add(mesh);
-
-    const arrowGeo = buildSurfaceChevronGeometry();
-    const arrowStations = new THREE.InstancedBufferAttribute(new Float32Array(SURFACE_GUIDE_ARROW_COUNT), 1);
-    const arrowTurns = new THREE.InstancedBufferAttribute(new Float32Array(SURFACE_GUIDE_ARROW_COUNT), 1);
-    const arrowPhases = new THREE.InstancedBufferAttribute(new Float32Array(SURFACE_GUIDE_ARROW_COUNT), 1);
-    arrowStations.setUsage(THREE.DynamicDrawUsage);
-    arrowTurns.setUsage(THREE.DynamicDrawUsage);
-    arrowPhases.setUsage(THREE.DynamicDrawUsage);
-    arrowGeo.setAttribute('aStation', arrowStations);
-    arrowGeo.setAttribute('aTurn', arrowTurns);
-    arrowGeo.setAttribute('aPhase', arrowPhases);
-    const arrowMat = buildSurfaceArrowMaterial(uniforms);
-    const arrowInkMat = buildSurfaceArrowMaterial(uniforms, true);
-    const arrows = new THREE.InstancedMesh(arrowGeo, arrowMat, SURFACE_GUIDE_ARROW_COUNT);
-    arrows.name = 'surface-guide-chevrons';
-    arrows.frustumCulled = false;
-    arrows.renderOrder = 3;
-    arrows.visible = false;
-    arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    const arrowInk = new THREE.InstancedMesh(arrowGeo, arrowInkMat, SURFACE_GUIDE_ARROW_COUNT);
-    arrowInk.name = 'surface-guide-chevron-ink';
-    arrowInk.frustumCulled = false;
-    arrowInk.renderOrder = 2;
-    arrowInk.visible = false;
-    arrowInk.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    for (let i = 0; i < SURFACE_GUIDE_ARROW_COUNT; i++) {
-      arrows.setMatrixAt(i, _hiddenRecoveryArrow);
-      arrowInk.setMatrixAt(i, _hiddenRecoveryArrow);
-    }
-    arrows.instanceMatrix.needsUpdate = true;
-    arrowInk.instanceMatrix.needsUpdate = true;
-    this.object.add(arrowInk, arrows);
     return {
       ribbon: mat,
-      arrows,
-      arrowInk,
-      arrowStations,
-      arrowTurns,
-      arrowPhases,
-      arrowCount: SURFACE_GUIDE_ARROW_COUNT,
     };
   }
 

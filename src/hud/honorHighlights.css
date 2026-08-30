@@ -52,37 +52,84 @@
   min-height: 190px;
   padding: 20px 28px;
   border: 1px solid rgba(255, 207, 74, .58);
-  border-left: 6px solid #ffcf4a;
+  border-left: 8px solid #ffcf4a;
   background: rgba(16, 23, 58, .72);
-  box-shadow: 0 14px 35px rgba(0, 0, 0, .24), inset 0 -2px 0 rgba(85, 231, 255, .25);
+  box-shadow: 0 14px 35px rgba(0, 0, 0, .32), inset 0 0 30px rgba(0, 0, 0, .4);
   transform: translateY(12px);
   opacity: 0;
+  backdrop-filter: blur(16px);
+  border-radius: 8px;
+}
+.honor-review-spotlight[data-rarity="legendary"] {
+  border-color: rgba(255, 0, 85, .7);
+  border-left-color: #ff0055;
+  background: linear-gradient(135deg, rgba(42, 10, 36, .88), rgba(12, 6, 24, .95));
+  box-shadow: 0 0 35px rgba(255, 0, 85, .35), inset 0 0 25px rgba(255, 184, 0, .15);
+}
+.honor-review-spotlight[data-rarity="epic"] {
+  border-color: rgba(168, 85, 247, .7);
+  border-left-color: #a855f7;
+  background: linear-gradient(135deg, rgba(28, 14, 52, .88), rgba(8, 10, 32, .95));
+  box-shadow: 0 0 30px rgba(168, 85, 247, .3), inset 0 0 20px rgba(0, 240, 255, .15);
+}
+.honor-review-spotlight[data-rarity="gold"] {
+  border-color: rgba(245, 158, 11, .7);
+  border-left-color: #f59e0b;
+  background: linear-gradient(135deg, rgba(34, 22, 10, .88), rgba(10, 8, 22, .95));
+  box-shadow: 0 0 25px rgba(245, 158, 11, .28), inset 0 0 18px rgba(255, 207, 74, .12);
+}
+.honor-review-spotlight[data-rarity="classic"] {
+  border-color: rgba(0, 240, 255, .6);
+  border-left-color: #00f0ff;
+  background: linear-gradient(135deg, rgba(10, 26, 52, .88), rgba(6, 12, 28, .95));
+  box-shadow: 0 0 20px rgba(0, 240, 255, .22), inset 0 0 15px rgba(85, 231, 255, .1);
 }
 .honor-review.spotlight .honor-review-spotlight { animation: honor-spotlight-in .5s .12s cubic-bezier(.2, .9, .2, 1.15) both; }
-.honor-review-spotlight-portrait { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; object-position: 50% 20%; border: 2px solid #ffcf4a; background: #1e1b3a; box-shadow: 4px 4px 0 #14122b; }
+.honor-review-spotlight-media { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.honor-review-spotlight-portrait { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; object-position: 50% 20%; border: 2px solid #ffcf4a; background: #1e1b3a; box-shadow: 4px 4px 0 #14122b; border-radius: 6px; }
+.honor-review-spotlight-badge { display: inline-block; padding: 4px 10px; font: 900 12px/1 system-ui, sans-serif; letter-spacing: .05em; border-radius: 4px; white-space: nowrap; }
+.honor-review-spotlight[data-rarity="legendary"] .honor-review-spotlight-badge { background: linear-gradient(90deg, #ff0055, #ffb800); color: #fff; text-shadow: 0 1px 2px #000; box-shadow: 0 0 12px rgba(255, 0, 85, .6); }
+.honor-review-spotlight[data-rarity="epic"] .honor-review-spotlight-badge { background: linear-gradient(90deg, #9333ea, #00f0ff); color: #fff; text-shadow: 0 1px 2px #000; box-shadow: 0 0 12px rgba(147, 51, 234, .6); }
+.honor-review-spotlight[data-rarity="gold"] .honor-review-spotlight-badge { background: linear-gradient(90deg, #d97706, #fbbf24); color: #000; font-weight: 950; box-shadow: 0 0 10px rgba(245, 158, 11, .5); }
+.honor-review-spotlight[data-rarity="classic"] .honor-review-spotlight-badge { background: linear-gradient(90deg, #0284c7, #38bdf8); color: #fff; text-shadow: 0 1px 2px #000; box-shadow: 0 0 8px rgba(2, 132, 199, .5); }
 .honor-review-spotlight-copy { min-width: 0; }
-.honor-review-spotlight-label { color: #ffcf4a; font: 900 12px/1.2 system-ui, sans-serif; letter-spacing: .1em; }
-.honor-review-spotlight-title { display: block; margin-top: 5px; color: #fff; font: italic 900 clamp(26px, 4vw, 50px)/1 'Arial Black', Impact, system-ui, sans-serif; }
-.honor-review-spotlight-detail { display: block; margin-top: 12px; color: rgba(244, 254, 255, .82); font-size: 18px; font-weight: 750; line-height: 1.35; }
-.honor-review-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 330px)); justify-content: center; align-content: center; gap: 10px; align-self: stretch; align-items: center; opacity: 0; transform: translateY(14px); pointer-events: none; }
+.honor-review-spotlight-kicker-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.honor-review-spotlight-label { color: #ffcf4a; font: 900 12px/1.2 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.honor-review-spotlight-rating { color: #ffe600; font: italic 900 13px/1 'Arial Black', Impact, system-ui, sans-serif; text-shadow: 0 0 8px rgba(255, 230, 0, .6); letter-spacing: .08em; }
+.honor-review-spotlight-title { display: block; margin-top: 6px; color: #fff; font: italic 900 clamp(28px, 4.5vw, 54px)/1 'Arial Black', Impact, system-ui, sans-serif; text-shadow: 0 0 20px rgba(255, 255, 255, .3); }
+.honor-review-spotlight-detail { display: block; margin-top: 12px; color: rgba(244, 254, 255, .88); font-size: 17px; font-weight: 750; line-height: 1.35; }
+.honor-review-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 330px)); justify-content: center; align-content: center; gap: 12px; align-self: stretch; align-items: center; opacity: 0; transform: translateY(14px); pointer-events: none; }
 .honor-review.cards .honor-review-cards,
 .honor-review.settled .honor-review-cards { pointer-events: auto; }
 .honor-review.cards .honor-review-cards,
 .honor-review.settled .honor-review-cards { animation: honor-cards-in .46s ease-out both; }
-.honor-review-card { --card-color: #55e7ff; position: relative; display: grid; grid-template-columns: 70px minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 9px 13px; min-width: 0; min-height: 198px; padding: 18px 18px 16px 20px; border: 1px solid color-mix(in srgb, var(--card-color) 62%, transparent); border-left: 6px solid var(--card-color); color: #f4feff; background: rgba(8, 13, 42, .88); text-align: left; cursor: pointer; transition: transform .16s ease, background .16s ease, box-shadow .16s ease; }
+.honor-review-card { --card-color: #55e7ff; position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; min-width: 0; min-height: 170px; padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--card-color) 62%, transparent); border-left: 6px solid var(--card-color); color: #f4feff; background: rgba(8, 13, 42, .88); text-align: left; cursor: pointer; border-radius: 6px; backdrop-filter: blur(12px); transition: transform .16s ease, background .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.honor-review-card[data-rarity="legendary"] { border-color: rgba(255, 0, 85, .65); border-left-color: #ff0055; background: linear-gradient(145deg, rgba(38, 10, 32, .92), rgba(12, 6, 22, .96)); }
+.honor-review-card[data-rarity="epic"] { border-color: rgba(168, 85, 247, .65); border-left-color: #a855f7; background: linear-gradient(145deg, rgba(28, 12, 48, .92), rgba(8, 8, 28, .96)); }
+.honor-review-card[data-rarity="gold"] { border-color: rgba(245, 158, 11, .65); border-left-color: #f59e0b; background: linear-gradient(145deg, rgba(30, 20, 10, .92), rgba(10, 8, 20, .96)); }
 .honor-review-card:hover,
-.honor-review-card.selected { transform: translateY(-6px); background: rgba(22, 41, 75, .94); box-shadow: 0 11px 0 rgba(12, 12, 37, .46), 0 0 22px color-mix(in srgb, var(--card-color) 28%, transparent); }
+.honor-review-card.selected { transform: translateY(-6px); background: rgba(22, 41, 75, .94); box-shadow: 0 11px 0 rgba(12, 12, 37, .46), 0 0 24px color-mix(in srgb, var(--card-color) 38%, transparent); }
+.honor-review-card[data-rarity="legendary"]:hover,
+.honor-review-card[data-rarity="legendary"].selected { box-shadow: 0 11px 0 rgba(12, 12, 37, .46), 0 0 30px rgba(255, 0, 85, .45); }
+.honor-review-card[data-rarity="epic"]:hover,
+.honor-review-card[data-rarity="epic"].selected { box-shadow: 0 11px 0 rgba(12, 12, 37, .46), 0 0 28px rgba(168, 85, 247, .4); }
 .honor-review-card:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
-.honor-review-card-mark { grid-row: 1 / span 2; display: grid; place-items: center; width: 56px; height: 56px; color: var(--card-color); border: 1px solid var(--card-color); font: 900 28px/1 system-ui, sans-serif; }
-.honor-review-card-portrait { width: 52px; height: 52px; object-fit: cover; object-position: 50% 20%; border: 1px solid var(--card-color); background: #1e1b3a; }
-.honor-review-card-copy { display: grid; min-width: 0; align-content: start; gap: 3px; }
-.honor-review-card-copy strong { overflow: hidden; color: #fff; font: 900 22px/1.1 system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
-.honor-review-card-copy small { overflow: hidden; color: rgba(244, 254, 255, .74); font-size: 15px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; }
-.honor-review-card-copy i { margin-top: 8px; color: var(--card-color); font: 900 15px/1 system-ui, sans-serif; font-style: normal; }
+.honor-review-card-media { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.honor-review-card-portrait { width: 52px; height: 52px; object-fit: cover; object-position: 50% 20%; border: 1px solid var(--card-color); background: #1e1b3a; border-radius: 4px; }
+.honor-review-card-mark { display: grid; place-items: center; width: 34px; height: 34px; color: var(--card-color); border: 1px solid var(--card-color); font: 900 18px/1 system-ui, sans-serif; border-radius: 4px; background: rgba(0, 0, 0, .4); }
+.honor-review-card-copy { display: grid; min-width: 0; align-content: start; gap: 4px; }
+.honor-review-card-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.honor-review-card-badge { display: inline-block; padding: 2px 7px; font: 900 10px/1 system-ui, sans-serif; border-radius: 3px; background: rgba(85, 231, 255, .2); color: #55e7ff; }
+.honor-review-card[data-rarity="legendary"] .honor-review-card-badge { background: rgba(255, 0, 85, .3); color: #ff6b8b; }
+.honor-review-card[data-rarity="epic"] .honor-review-card-badge { background: rgba(168, 85, 247, .3); color: #c084fc; }
+.honor-review-card[data-rarity="gold"] .honor-review-card-badge { background: rgba(245, 158, 11, .3); color: #fbbf24; }
+.honor-review-card-copy strong { overflow: hidden; color: #fff; font: 900 20px/1.1 system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.honor-review-card-copy small { overflow: hidden; color: rgba(244, 254, 255, .78); font-size: 14px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; }
+.honor-review-card-copy i { color: #fff3ae; font: 900 13px/1 system-ui, sans-serif; font-style: normal; }
 .honor-review-foot { display: grid; grid-template-columns: 1fr auto auto auto auto; align-items: center; gap: 10px; min-height: 44px; }
 .honor-review-score { color: #fff3ae; font: 900 14px/1.2 system-ui, sans-serif; }
 .honor-review-hint { color: rgba(244, 254, 255, .64); font-size: 12px; font-weight: 700; }
-.honor-review-foot button { min-height: 50px; padding: 9px 17px; border: 1px solid rgba(85, 231, 255, .6); color: #55e7ff; background: rgba(8, 13, 42, .88); font: 900 14px/1 system-ui, sans-serif; cursor: pointer; }
+.honor-review-foot button { min-height: 50px; padding: 9px 17px; border: 1px solid rgba(85, 231, 255, .6); color: #55e7ff; background: rgba(8, 13, 42, .88); font: 900 14px/1 system-ui, sans-serif; cursor: pointer; border-radius: 4px; }
 .honor-review-foot button:hover:not(:disabled) { color: #14122b; background: #55e7ff; }
 .honor-review-foot button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .honor-review-foot button:disabled { opacity: .38; cursor: default; }
@@ -111,16 +158,19 @@
   .honor-review-standing-score { margin-top: 2px; font-size: 6px; }
   .honor-review-spotlight { grid-template-columns: 62px minmax(0, 1fr); gap: 8px; min-height: 62px; padding: 6px 8px; }
   .honor-review-spotlight-portrait { width: 58px; }
+  .honor-review-spotlight-badge { padding: 2px 5px; font-size: 8px; }
   .honor-review-spotlight-label { font-size: 8px; }
+  .honor-review-spotlight-rating { font-size: 9px; }
   .honor-review-spotlight-title { margin-top: 3px; font-size: clamp(20px, 5vh, 32px); }
   .honor-review-spotlight-detail { margin-top: 4px; font-size: 10px; line-height: 1.25; }
   .honor-review-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(56px, 1fr); gap: 4px; min-height: 0; overflow: hidden; align-content: stretch; }
   .honor-review-card { grid-template-columns: 26px minmax(0, 1fr); min-height: 0; padding: 5px 5px 5px 6px; gap: 3px 4px; }
-  .honor-review-card-mark { width: 25px; height: 25px; font-size: 13px; }
+  .honor-review-card-mark { width: 25px; height: 25px; font-size: 11px; }
   .honor-review-card-portrait { width: 24px; height: 24px; }
+  .honor-review-card-badge { font-size: 7px; padding: 1px 4px; }
   .honor-review-card-copy strong { font-size: 10px; }
   .honor-review-card-copy small { font-size: 7px; }
-  .honor-review-card-copy i { margin-top: 2px; font-size: 7px; }
+  .honor-review-card-copy i { margin-top: 1px; font-size: 7px; }
   .honor-review-foot { grid-template-columns: minmax(0, 1fr) repeat(3, minmax(96px, auto)); gap: 5px; }
   .honor-review-score { font-size: 9px; }
   .honor-review-hint { display: none; }

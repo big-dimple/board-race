@@ -31,6 +31,8 @@ export interface HonorHit {
   precision: 'center' | 'edge';
 }
 
+export type HonorRarity = 'legendary' | 'epic' | 'gold' | 'classic';
+
 export interface HonorHighlight {
   id: string;
   title: string;
@@ -38,6 +40,9 @@ export interface HonorHighlight {
   racerId: number;
   count: number;
   score: number;
+  rarity: HonorRarity;
+  badge: string;
+  icon: string;
 }
 
 export interface HonorDefinition {
@@ -45,27 +50,37 @@ export interface HonorDefinition {
   detail: string;
   value: number;
   color: number;
+  rarity?: HonorRarity;
+  badge?: string;
+  icon?: string;
 }
 
 /** Stable ids are deliberately protocol-safe: these are future server fields. */
 export const HONOR_DEFINITIONS: Readonly<Record<string, HonorDefinition>> = {
-  'target.coin': { title: '金币猎手', detail: '偏离主线撞取实体金币', value: 130, color: PALETTE.sunFlare },
+  'finale.captain': { title: '终点船长', detail: '完成七飞并穿过 Final Station', value: 250, color: PALETTE.sunFlare, rarity: 'legendary', badge: '👑 传奇终章', icon: '👑' },
+  'flight.clutch': { title: '绝境挽澜', detail: '在风暴撕裂危险区极限回正过门', value: 200, color: PALETTE.uiWarn, rarity: 'legendary', badge: '⚡ 绝地救赎', icon: '⚡' },
+  'coin.frenzy': { title: '连环夺金', detail: '狂飙连击拾取多枚黄金硬币', value: 190, color: PALETTE.sunCore, rarity: 'legendary', badge: '🔥 连击风暴', icon: '🔥' },
+  'comeback.sailor': { title: '逆风回航', detail: '落后后重新回到前三', value: 180, color: PALETTE.sunCore, rarity: 'epic', badge: '🌪️ 逆转奇迹', icon: '🌪️' },
+  'flight.speed': { title: '音速飞越', detail: '以超过 50 m/s 极速穿透光门', value: 175, color: PALETTE.flight, rarity: 'epic', badge: '🚀 极速飞跃', icon: '🚀' },
+  'lead.dominance': { title: '绝尘领跑', detail: '绝对优势领跑全场傲视群雄', value: 170, color: PALETTE.uiAccent, rarity: 'epic', badge: '🏆 领跑统治', icon: '🏆' },
+  'drift.apex': { title: '极限贴弯', detail: '极速咬合弯心完成爆发喷射', value: 160, color: PALETTE.sunFlare, rarity: 'epic', badge: '🏎️ 贴弯狂魔', icon: '🏎️' },
+  'airbrake.master': { title: '鹰击长空', detail: '空中极限空刹精确制导过门', value: 150, color: PALETTE.flight, rarity: 'gold', badge: '🦅 控速大师', icon: '🦅' },
+  'clean.run': { title: '清洁航线', detail: '整局没有撞击其他赛艇', value: 150, color: PALETTE.foam, rarity: 'gold', badge: '✨ 优雅领航', icon: '✨' },
+  'perfect.charge': { title: '完美充能', detail: '精准压哨松手完成满格蓄能', value: 140, color: PALETTE.sunFlare, rarity: 'gold', badge: '💎 毫秒压哨', icon: '💎' },
+  'target.coin': { title: '金币猎手', detail: '偏离主线撞取实体金币', value: 130, color: PALETTE.sunFlare, rarity: 'classic', badge: '★ 黄金拾取', icon: '🪙' },
+  'flight.ace': { title: '空中王牌', detail: '完整通过一条飞行路线', value: 90, color: PALETTE.flight, rarity: 'classic', badge: '★ 航道通过', icon: '✈️' },
+  'duo.assist': { title: '及时援手', detail: '淘汰席为队友送出支援', value: 80, color: PALETTE.uiAccent, rarity: 'gold', badge: '🤝 灵魂援手', icon: '🤝' },
+  'overtake.artist': { title: '超车艺术家', detail: '在关键门前完成一次超车', value: 75, color: PALETTE.uiAccent, rarity: 'classic', badge: '★ 战术超越', icon: '⚡' },
+  'duo.intervention': { title: '浪花导演', detail: '用互动改变了队友的线路', value: 65, color: PALETTE.uiWarn, rarity: 'gold', badge: '🎯 战术骚扰', icon: '🎯' },
   // Legacy ids remain readable in historical records; no new target uses
   // these props or the old ring/center-energy mechanic.
-  'target.duck': { title: '鸭鸭爆点', detail: '历史版本荣誉记录', value: 120, color: PALETTE.hullKai },
-  'target.ring': { title: '旧制穿环', detail: '历史版本荣誉记录', value: 100, color: PALETTE.flight },
-  'target.bell': { title: '海铃连响', detail: '把会摇摆的海铃撞到发声', value: 110, color: PALETTE.sunFlare },
-  'target.star': { title: '浪尖摘星', detail: '在浪尖上拿到星标', value: 140, color: PALETTE.racingLine },
-  'target.crown': { title: '王冠掠过', detail: '从王冠中心高速穿过', value: 160, color: PALETTE.hullPlayer },
-  'target.center': { title: '旧制精准线', detail: '历史版本荣誉记录', value: 180, color: PALETTE.uiAccent },
-  'target.comet': { title: '彗尾追击', detail: '追上移动彗星并留下尾焰', value: 135, color: 0x9b7cff },
-  'flight.ace': { title: '空中王牌', detail: '完整通过一条飞行路线', value: 90, color: PALETTE.flight },
-  'overtake.artist': { title: '超车艺术家', detail: '在关键门前完成一次超车', value: 75, color: PALETTE.uiAccent },
-  'duo.assist': { title: '及时援手', detail: '淘汰席为队友送出支援', value: 80, color: PALETTE.uiAccent },
-  'duo.intervention': { title: '浪花导演', detail: '用互动改变了队友的线路', value: 65, color: PALETTE.uiWarn },
-  'comeback.sailor': { title: '逆风回航', detail: '落后后重新回到前三', value: 180, color: PALETTE.sunCore },
-  'clean.run': { title: '清洁航线', detail: '整局没有撞击其他赛艇', value: 150, color: PALETTE.foam },
-  'finale.captain': { title: '终点船长', detail: '完成七飞并穿过 Final Station', value: 250, color: PALETTE.sunFlare },
+  'target.duck': { title: '鸭鸭爆点', detail: '历史版本荣誉记录', value: 120, color: PALETTE.hullKai, rarity: 'classic', badge: '★ 历史记录', icon: '🦆' },
+  'target.ring': { title: '旧制穿环', detail: '历史版本荣誉记录', value: 100, color: PALETTE.flight, rarity: 'classic', badge: '★ 历史记录', icon: '⭕' },
+  'target.bell': { title: '海铃连响', detail: '把会摇摆的海铃撞到发声', value: 110, color: PALETTE.sunFlare, rarity: 'classic', badge: '★ 历史记录', icon: '🔔' },
+  'target.star': { title: '浪尖摘星', detail: '在浪尖上拿到星标', value: 140, color: PALETTE.racingLine, rarity: 'classic', badge: '★ 历史记录', icon: '⭐' },
+  'target.crown': { title: '王冠掠过', detail: '从王冠中心高速穿过', value: 160, color: PALETTE.hullPlayer, rarity: 'classic', badge: '★ 历史记录', icon: '👑' },
+  'target.center': { title: '旧制精准线', detail: '历史版本荣誉记录', value: 180, color: PALETTE.uiAccent, rarity: 'classic', badge: '★ 历史记录', icon: '🎯' },
+  'target.comet': { title: '彗尾追击', detail: '追上移动彗星并留下尾焰', value: 135, color: 0x9b7cff, rarity: 'classic', badge: '★ 历史记录', icon: '☄️' },
 } as const;
 
 const TARGET_LAYOUT: readonly {
@@ -1007,6 +1022,12 @@ export class HonorLedger {
 
   highlightCards(racerIds: readonly number[], racerNames: readonly string[], max = 4): HonorHighlight[] {
     const cards: HonorHighlight[] = [];
+    const rarityRank: Record<HonorRarity, number> = {
+      legendary: 5000,
+      epic: 3200,
+      gold: 1800,
+      classic: 400,
+    };
     for (const [id, definition] of Object.entries(HONOR_DEFINITIONS)) {
       let bestRacer = -1;
       let bestCount = 0;
@@ -1018,18 +1039,24 @@ export class HonorLedger {
         }
       }
       if (bestRacer < 0 || bestCount <= 0) continue;
+      const rarity = definition.rarity ?? 'classic';
       cards.push({
         id,
         title: definition.title,
         detail: `${racerNames[bestRacer] ?? `选手 ${bestRacer + 1}`} · ${definition.detail}`,
         racerId: bestRacer,
         count: bestCount,
-        // The card is an accolade, so its points describe this accolade rather
-        // than repeating the racer's all-in total on every card.
         score: bestCount * definition.value,
+        rarity,
+        badge: definition.badge ?? '★ 荣誉记录',
+        icon: definition.icon ?? '★',
       });
     }
-    cards.sort((a, b) => (b.count * 1000 + b.score) - (a.count * 1000 + a.score));
+    cards.sort((a, b) => {
+      const weightA = (rarityRank[a.rarity] || 0) + a.score + a.count * 10;
+      const weightB = (rarityRank[b.rarity] || 0) + b.score + b.count * 10;
+      return weightB - weightA;
+    });
     return cards.slice(0, max);
   }
 

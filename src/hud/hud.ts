@@ -1630,7 +1630,14 @@ export class HUD {
     if (reason === 'exit') return `第 ${flight} 飞 · 飞行区出口漏门`;
     if (reason === 'teleport') return `第 ${flight} 飞 · 路线重置`;
     if (reason === 'late') return `第 ${flight} 飞 · 高度/时机不足`;
-    if (reason === 'gate_left' || reason === 'gate_right' || reason === 'gate') return `第 ${flight} 飞 · 撞柱`;
+    if (reason === 'gate_left' || reason === 'gate_right' || reason === 'gate') {
+      const f = result.failure;
+      if (f?.lateralOffsetM !== null && f?.lateralOffsetM !== undefined && f?.lateralLimitM !== null && f?.lateralLimitM !== undefined) {
+        const miss = Math.max(0, Math.abs(f.lateralOffsetM) - f.lateralLimitM);
+        if (miss > 2.5) return `第 ${flight} 飞 · 错失光门`;
+      }
+      return `第 ${flight} 飞 · 撞柱`;
+    }
     return `第 ${flight} 飞 · 漏门`;
   }
 
@@ -1674,7 +1681,8 @@ export class HUD {
       case 'gate_left':
       case 'gate_right':
         if (f.lateralOffsetM !== null && f.lateralLimitM !== null) {
-          return ` · 超出门心 ${(Math.max(0, Math.abs(f.lateralOffsetM) - f.lateralLimitM)).toFixed(1)}m`;
+          const miss = Math.max(0, Math.abs(f.lateralOffsetM) - f.lateralLimitM);
+          return miss > 2.5 ? ` · 偏离光门 ${miss.toFixed(1)}m` : ` · 超出门心 ${miss.toFixed(1)}m`;
         }
         return '';
       case 'no_launch':
@@ -1736,13 +1744,16 @@ export class HUD {
         const miss = failure.lateralOffsetM !== null && failure.lateralLimitM !== null
           ? Math.max(0, Math.abs(failure.lateralOffsetM) - failure.lateralLimitM) : 0;
         const direction = left ? (mobile ? '向右' : 'D') : (mobile ? '向左' : 'A');
+        const isWide = miss > 2.5;
         return {
-          title: `撞柱 · 差 ${miss.toFixed(1)}m`,
-          copy: mastery?.airBrakedInTurn
-            ? `${steer}回到两杆中点`
-            : mobile
-            ? `按住「漂 / 空刹」，再${direction}轻调回正`
-            : gamepad ? `按住 ${drift} 空刹，再用左摇杆向${left ? '右' : '左'}轻调` : `按住 SHIFT 空刹，再用 ${direction} 轻调回正`,
+          title: isWide ? `错失光门 · 偏离 ${miss.toFixed(1)}m` : `撞柱 · 差 ${miss.toFixed(1)}m`,
+          copy: isWide
+            ? (mobile ? `按住「漂 / 空刹」减速，再${direction}对准光门` : gamepad ? `按住 ${drift} 空刹减速，左摇杆向${left ? '右' : '左'}对准光门` : `按住 SHIFT 空刹减速，再用 ${direction} 对准光门`)
+            : (mastery?.airBrakedInTurn
+              ? `${steer}回到两杆中点`
+              : mobile
+              ? `按住「漂 / 空刹」，再${direction}轻调回正`
+              : gamepad ? `按住 ${drift} 空刹，再用左摇杆向${left ? '右' : '左'}轻调` : `按住 SHIFT 空刹，再用 ${direction} 轻调回正`),
           metric: '',
         };
       }

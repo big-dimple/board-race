@@ -5,12 +5,25 @@
 
 ## 当前工作包
 
-- **高科技赛博竞速风镜与全息战术目镜（High-Tech Cyber Aerodynamic Visors & Holographic HUD）**：`riderMesh`（`src/game/riderMesh.ts`）重构全体赛艇驾驶员（主角与全量 AI）的面部结构。全面告别以往低精度卡通五官贴图的粗糙感，为 6 大车手专属定制空气动力学赛博竞速风镜（Cyber Aerodynamic Visor），配备深邃渐变琉璃镜片、专属车队色彩发光 LED、曲面高光反光条、全息 HUD 战术准星与下颚微型气动滤网，呈现纯正未来街机大作级的炫酷质感！
+- **双人模式淘汰席 Y 键飞毛腿导弹骚扰 + 75% 命中率 + 720° 空中旋转 + 战术 CRT 监控视频（Scud-B Harassment & Tactical CRT Feed）**：
+  1. `DuoInteractionController`（`src/game/duoInteraction.ts`）重构 Y 键恶搞投射物为真实质感【飞毛腿战术导弹（Scud-B）】3D 模型（草绿弹体、深红战斗部整流锥、4 枚三角稳定翼面、尾喷管与火光烟圈），每局限制发射 7 枚。
+  2. 命中判定升级为 75% 致命命中率与 25% 擦身而过分支。
+  3. `Boat`（`src/game/boat.ts`）新增 `applyScudHit` 动力学响应：被击中后向惯性方向升空并触发 720°（$4\pi$ 完整双周）喜剧转体翻滚，着水后连续恢复航向。
+  4. `duoViewportHud`（`src/hud/duoViewportHud.ts` / `src/hud/duoViewportHud.css`）在已淘汰席位屏幕直接播放【战术 CRT 导弹监控视频】（`.duo-tactical-feed`），带雷达扫描、战术锁定准星、`🔴 LIVE SATELLITE FEED // SCUD-B LAUNCH` 与 `🚀 飞毛腿在途的聚变打击` 战术字样及爆炸闪光，将整蛊与双人竞技喜剧效果拉满！
+- **撞柱死亡即时判定 + 物理反弹力学 + 错失光门文案细分（Instant Gate Pillar Collision, Elastic Rebound & Copy Differentiation）**：
+  1. `Course`（`src/game/course.ts`）在光门逼近切片区（$-2.8\text{m} \le \text{normalDist} \le 2.0\text{m}$）引入柱体圆柱近接碰撞判定（$R \le 2.25\text{m}$），彻底根治了以往必须等待穿越光门平面才判负的 1.5–2.5m 延迟问题。
+  2. 发生撞柱时施加弹性反弹冲量（`applyCollisionResponse`），船身根据相对撞击角度被真实弹开。
+  3. 细分“撞柱”与“错失光门”：当横向偏离飞太靠外（$|\text{lateral}| > \text{passHalfWidth} + 2.5\text{m}$）而在空中掠过时，不再施加反弹冲量；`Hud`（`src/hud/hud.ts`）将失败提示明确区分显示为 `第 X 飞 · 错失光门` 与 `错失光门 · 偏离 X.Xm`，提示更精准。
+- **高科技赛博竞速头盔重构与全息战术目镜（High-Tech Cyber Aerodynamic Helmets & Holographic HUD Visors）**：
+  `riderMesh`（`src/game/riderMesh.ts`）为全体主角与 AI 车手深度重构高科技气动竞速头盔系统（午夜碳纤复合外壳、低风阻顶流导流脊、后置气动尾翼与排气扩散口、带车队专属发光 LED 环的耳部通讯舱、下颚气动滤网与吸气槽、512x512 偏光渐变全息 HUD 战术风镜与车手呼号徽章），彻底摆脱粗糙感，呈现顶级未来街机大作级质感！
 - **新手引导与全场景起飞时机重磅强化（Early Flight Timing Emphasized Across All Prompts）**：`KickstartGuide`（`src/hud/kickstartGuide.ts`）与 `Hud`（`src/hud/hud.ts`）全面强化起飞时机文案，强调“见雾提早起飞 / 点按【飞】提前起飞！”并预警“提早入轨避免错失航道坠海”，彻底杜绝新手飞晚冲出空轨的挫败感！
 - **移动端猛男颁奖画面四键隐藏与猛男大字超绝强化（Mobile Medal Touch Controls Hidden & Giant 「猛男」 Title）**：`hud.css`（`src/hud/hud.css`）在猛男勋章典礼开启时彻底隐藏移动端左转向/右转向/漂移/起飞 4 个触摸按键，全屏纯净沉浸；PC 桌面端「猛男」大字尺寸大幅放大至 `clamp(72px, 8.8vw, 108px)` 极粗大黑体，配合细腻鎏金呼吸闪光与 `250px × 64px` 超大气势按钮，荣耀仪式感拉满！
 - **起飞跳台大菱形与所有多余装饰彻底去除（Complete Removal of Launch Diamonds & Pure Mist Bridge Flight）**：`Course`（`src/game/course.ts`）彻底关闭了起飞跳台处的大菱形光环模型与所有多余的浮空装饰物。水面起飞区域 100% 还原为无遮挡纯净海面，由玩家凭肉眼观察白色的天际雾桥航道自主决定提前点火起飞！
 - **经典纯净 3D 黄金硬币与清脆 Bling 铃音（Classic Pure 3D Gold Coin & Snappy Crisp Chime）**：`HonorTargetSystem`（`src/game/honors.ts`）剔除所有繁琐杂乱的浮动环绕小币，回归单枚优雅自转的经典 3D 纯金大硬币；`AudioSystem`（`src/audio/audio.ts`）全面重构拾取音效为经典街机纯净双音晶莹铃音（B5 987.8Hz $\rightarrow$ E6 1318.5Hz），配合金属高频轻灵余音与 18m 弧线吸入座舱动画，干脆利落、欢快清爽！
-- **彻底清除所有离散引导与航路恢复白色三角箭头（Complete Purge of Stray White Triangles & Recovery Arrows）**：`Course`（`src/game/course.ts`）全面禁用了在通过各飞行门（尤其是第 7 门通过后）以及水面远端离散生成并随船只转向机械偏转的 `recoveryArrows` / `surfaceGuideArrows` 实例，彻底清除了在远端海天视野中孤立出现的白色三角箭头 Bug，赛道与空轨指引 100% 依托平滑纯净的流光缎带。
+- **高光时刻赛博玻璃拟物重构与高阶极限操作荣誉（Cyberpunk Glassmorphic Accolades & High-Skill Accolade Tiers）**：`honors.ts` 与 `honorHighlights.ts` / `honorHighlights.css` 全面升级荣誉高光体系。告别以往单一平庸的高光展示，引入 4 大品质梯度（`legendary` 传说高光 / `epic` 极限操作 / `gold` 卓越战术 / `classic` 稳健航行）与全新高阶极限荣誉（`极限空域回正` 200 PTS、`风暴连击` 190 PTS、`超音速破空` 175 PTS、`领跑统御` 170 PTS、`弯心掠影` 160 PTS、`精准蓄力` 140 PTS 等）；主焦点展示卡引入评级徽章（`[ SSS · 极速传说 ]`、`[ SS · 破浪狂鲨 ]` 等）、动态流光边框、独立荣誉徽章与金币 PTS 统计，仪式感与视觉冲击力倍增！
+- **第四门飞跃后右转指引强化与非活跃空轨智能淡化（Gate 4 Disambiguation & Inactive Route Dimming）**：`Course`（`src/game/course.ts`）在第 4 飞行路线出口追加了向右反向转向引导（`counterTurn: { fromU: 0.555, toU: 0.605, direction: 'right' }`）与着水恢复引导；同时重构了 7 条永久空轨的动态材质渲染逻辑，非活跃/身后旧航线自动淡化为柔和远景背景云（透明度降至 0.07 且关闭流动能量），当前/前方激活航线保持高亮金色粒子流，彻底根除新手过 4 门后因左侧 3 门残留雾道误判而飞错掉头的困扰！
+- **冲过终点站继续比赛掉名次彻底根治（Final Station Checkpoint Credit & Contender Ranking Latch Fix）**：`Race`（`src/game/race.ts`）彻底根治了完成 7 飞冲过 Final Station 继续比赛后名次掉到 6/6 或过门后停在 4/6 的底层元凶。根因是空中大侧偏航线（如第 2、5 飞）距离水面检查点浮标超过 15m 导致圈内通过数不足 8 个，过线时被判定为未完整圈而清空了整整一圈的累积里程；现修复为空中航段合规计入检查点，并将完成 7 飞的 `finalContender` 资格在后续圈数持续生效，确保冲线第一的玩家继续比赛时名次坚挺第一！
+- **彻底清除所有离散引导与航路恢复白色三角箭头（Complete Purge of Stray White Triangles & Recovery Arrows）**：`Course`（`src/game/course.ts`）全面删除了在通过各飞行门（尤其是第 7 门通过后）以及水面远端离散生成并随船只转向机械偏转的 `turnChevronGroup`、`recoveryArrows`、`surfaceGuideArrows` 几何体与渲染逻辑，从根源上彻底拔除了孤立三角箭头，赛道与空轨指引 100% 依托平滑纯净的流光缎带。
 - **7 条天际雾桥航道永久存在（Persistent Skyways & Cloud Mist Bridges）**：`Course`（`src/game/course.ts`）重构航道渲染可见性，废弃以往单航线排他隐藏策略。群岛上空的 7 道空中雾桥与穿云光门永久驻留于世界之中，未激活航线呈现通透纯净的“天际云轨”环境质感，当前航线则注入耀眼金色能量流。飞跃光门后回头看，浮空天轨依然巍峨伫立，空间纵深与世界观宏大感倍增。
 - **AI 飞行 100% 全量合规化（AI 100% Skybound Compliance）**：`AI`（`src/game/ai.ts`）强化起飞意愿与蓄能时机判定，确保所有 AI 艇在起飞跳台 100% 点火升空与玩家在云端咬尾竞技，彻底杜绝以往偶尔在水面空门下方“滑水作弊”导致的露馅出戏感。
 - **通关画面按钮极致精简与隐蔽下一轮（Finale Overlay Streamlining & Discreet Fast-Forward）**：`FinaleOverlay`（`src/hud/finaleOverlay.ts` / `src/hud/finaleOverlay.css`）彻底剔除了冗余鸡肋的“截图生成中 / 预览截图”按钮；将老手专用“直接下一轮 ➔”重构成右上角半透明低调实用工具按钮（确保 $\ge 44\text{px}$ 且不抢夺视觉焦点）；主视觉只保留双核大按钮：左侧金色大卡“神秘资料片”（进入 7 大彩蛋画廊）、右侧半透明倒计时大按钮“继续游戏 / 查看高光（5s）”。在横屏手机（844x390）与桌面端呈现端庄大气、对称均衡的清爽视觉。

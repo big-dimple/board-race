@@ -4,7 +4,7 @@ import type { LocalDeviceId, LocalMultiplayerInput } from '../core/localMultipla
 import { PALETTE } from '../core/palette';
 
 export type DuoInteractionAction = 'support' | 'prank';
-export type DuoInteractionPhase = 'support' | 'prank-launch' | 'prank-impact' | 'blocked';
+export type DuoInteractionPhase = 'support' | 'prank-launch' | 'prank-impact' | 'prank-miss' | 'blocked';
 export type DuoInteractionBlockReason = 'unsafe-window' | 'full-bank';
 
 export interface DuoInteractionEvent {
@@ -24,19 +24,22 @@ export interface DuoInteractionStatus {
   actorId: number;
 }
 
-const MAX_CHARGES = 3;
-const COOLDOWN_S = 4.0;
-const PRANK_IMPULSE = 1.15;
-const PRANK_SPEED = 32;
-const PRANK_LIFETIME_S = 1.8;
-const PRANK_HIT_RADIUS = 2.4;
-const MAX_PROJECTILES = 3;
+const MAX_CHARGES = 7;
+const COOLDOWN_S = 3.5;
+const PRANK_IMPULSE = 1.85;
+const PRANK_SPEED = 36;
+const PRANK_LIFETIME_S = 2.0;
+const PRANK_HIT_RADIUS = 2.8;
+const MAX_PROJECTILES = 4;
+
+const _missileDir = new THREE.Vector3();
+const _forwardZ = new THREE.Vector3(0, 0, 1);
 
 /**
  * A deterministic post-elimination role. It never writes to BoatInput: the
  * eliminated player's device emits a separate edge, safely hands off a flight
- * cell, or launches a visible, dodgeable duck that can only nudge a surface
- * boat during a safe window.
+ * cell, or launches a realistic Scud tactical missile with 75% hit rate that
+ * launches the survivor into a 720° comical airborne tumble along its inertia vector.
  */
 export class DuoInteractionController {
   readonly object: THREE.Group;
@@ -57,46 +60,87 @@ export class DuoInteractionController {
     vx: 0,
     vz: 0,
     age: 0,
-    historyX: new Float32Array(12),
-    historyY: new Float32Array(12),
-    historyZ: new Float32Array(12),
+    historyX: new Float32Array(16),
+    historyY: new Float32Array(16),
+    historyZ: new Float32Array(16),
   }));
-  private readonly projectileVisuals: Array<{ group: THREE.Group; trail: THREE.Line; halo: THREE.Mesh }> = [];
+  private readonly projectileVisuals: Array<{
+    group: THREE.Group;
+    trail: THREE.Line;
+    flame: THREE.Mesh;
+    smokeRing: THREE.Mesh;
+  }> = [];
 
   constructor() {
     this.object = new THREE.Group();
     this.object.name = 'duo-interaction-projectiles';
-    const duckMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.sunFlare, toneMapped: false });
-    const billMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.uiWarn, toneMapped: false });
-    const crestMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.uiAccent, toneMapped: false });
-    const trailMaterial = new THREE.LineBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0.85, toneMapped: false });
-    const haloMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.uiWarn, transparent: true, opacity: 0.82, toneMapped: false });
-    const duckGeometry = new THREE.SphereGeometry(0.72, 12, 8);
-    const billGeometry = new THREE.ConeGeometry(0.22, 0.5, 8);
-    const crestGeometry = new THREE.ConeGeometry(0.18, 0.44, 4);
-    const haloGeometry = new THREE.TorusGeometry(1.4, 0.12, 6, 24);
+
+    // Realistic Scud-B / tactical ballistic missile materials
+    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x3d4b3d, toneMapped: false }); // Olive military drab
+    const warheadMat = new THREE.MeshBasicMaterial({ color: 0xd62828, toneMapped: false }); // Danger crimson nose
+    const finMat = new THREE.MeshBasicMaterial({ color: 0x1f2421, toneMapped: false }); // Gunmetal dark fins
+    const bandMat = new THREE.MeshBasicMaterial({ color: 0xf4a261, toneMapped: false }); // Hazard yellow ring
+    const nozzleMat = new THREE.MeshBasicMaterial({ color: 0x111111, toneMapped: false });
+    const flameMat = new THREE.MeshBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0.95, toneMapped: false });
+    const trailMat = new THREE.LineBasicMaterial({ color: 0xffeedd, transparent: true, opacity: 0.88, toneMapped: false });
+    const smokeRingMat = new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.75, toneMapped: false });
+
+    const bodyGeo = new THREE.CylinderGeometry(0.24, 0.24, 2.4, 10);
+    bodyGeo.rotateX(Math.PI / 2);
+    const warheadGeo = new THREE.ConeGeometry(0.24, 0.85, 10);
+    warheadGeo.rotateX(Math.PI / 2);
+    const bandGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.22, 10);
+    bandGeo.rotateX(Math.PI / 2);
+    const finGeo = new THREE.BoxGeometry(0.04, 0.55, 0.45);
+    const nozzleGeo = new THREE.CylinderGeometry(0.14, 0.20, 0.32, 8);
+    nozzleGeo.rotateX(Math.PI / 2);
+    const flameGeo = new THREE.ConeGeometry(0.18, 1.25, 8);
+    flameGeo.rotateX(-Math.PI / 2);
+    const ringGeo = new THREE.TorusGeometry(0.85, 0.08, 6, 16);
+
     for (let index = 0; index < MAX_PROJECTILES; index++) {
       const group = new THREE.Group();
-      group.name = `duo-interaction-duck-${index + 1}`;
-      const duck = new THREE.Mesh(duckGeometry, duckMaterial);
-      duck.scale.set(1.15, 0.88, 1.28);
-      const bill = new THREE.Mesh(billGeometry, billMaterial);
-      bill.rotation.x = Math.PI / 2;
-      bill.position.z = 0.72;
-      const crest = new THREE.Mesh(crestGeometry, crestMaterial);
-      crest.position.set(0, 0.62, -0.1);
-      crest.rotation.x = -0.3;
-      duck.add(bill, crest);
-      const halo = new THREE.Mesh(haloGeometry, haloMaterial);
-      halo.rotation.x = Math.PI / 2;
+      group.name = `duo-interaction-scud-${index + 1}`;
+
+      const missileMeshGroup = new THREE.Group();
+      missileMeshGroup.name = 'scud-body';
+
+      const fuselage = new THREE.Mesh(bodyGeo, bodyMat);
+      const warhead = new THREE.Mesh(warheadGeo, warheadMat);
+      warhead.position.z = 1.55;
+      const band = new THREE.Mesh(bandGeo, bandMat);
+      band.position.z = 0.55;
+
+      const nozzle = new THREE.Mesh(nozzleGeo, nozzleMat);
+      nozzle.position.z = -1.32;
+
+      // 4 stabilization delta tail fins
+      for (let f = 0; f < 4; f++) {
+        const fin = new THREE.Mesh(finGeo, finMat);
+        fin.position.z = -0.95;
+        fin.rotation.z = (f * Math.PI) / 2;
+        if (f % 2 === 0) fin.position.y = (f === 0 ? 0.35 : -0.35);
+        else fin.position.x = (f === 1 ? 0.35 : -0.35);
+        missileMeshGroup.add(fin);
+      }
+
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.position.z = -2.05;
+
+      missileMeshGroup.add(fuselage, warhead, band, nozzle, flame);
+
+      const smokeRing = new THREE.Mesh(ringGeo, smokeRingMat);
+      smokeRing.rotation.x = Math.PI / 2;
+
       const trailGeometry = new THREE.BufferGeometry();
-      trailGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3));
-      const trail = new THREE.Line(trailGeometry, trailMaterial);
+      trailGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(16 * 3), 3));
+      const trail = new THREE.Line(trailGeometry, trailMat);
       trail.frustumCulled = false;
-      group.add(trail, halo, duck);
+
+      group.add(trail, smokeRing, missileMeshGroup);
       group.visible = false;
       this.object.add(group);
-      this.projectileVisuals.push({ group, trail, halo });
+      this.projectileVisuals.push({ group, trail, flame, smokeRing });
     }
   }
 
@@ -250,11 +294,19 @@ export class DuoInteractionController {
       const hitDistance = Math.hypot(targetBoat.state.position.x - shot.x, targetBoat.state.position.z - shot.z);
       if (hitDistance <= PRANK_HIT_RADIUS) {
         if (isSafeSurfaceWindow(targetBoat)) {
-          const heading = targetBoat.state.heading;
-          const sideX = Math.cos(heading) * PRANK_IMPULSE;
-          const sideZ = -Math.sin(heading) * PRANK_IMPULSE;
-          targetBoat.applyCollisionResponse(0, 0, sideX, sideZ);
-          emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
+          const isHit = Math.random() < 0.75;
+          if (isHit) {
+            const heading = targetBoat.state.heading;
+            const forwardX = Math.sin(heading) * PRANK_IMPULSE;
+            const forwardZ = Math.cos(heading) * PRANK_IMPULSE;
+            const sideSign = ((shot.actorId + Math.round(shot.age * 10)) % 2 === 0) ? 1 : -1;
+            const sideX = sideSign * Math.cos(heading) * 1.2;
+            const sideZ = sideSign * -Math.sin(heading) * 1.2;
+            targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 9.0);
+            emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
+          } else {
+            emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
+          }
         }
         shot.active = false;
       }
@@ -267,14 +319,27 @@ export class DuoInteractionController {
     visual.group.visible = shot.active;
     if (!shot.active) return;
     visual.group.position.set(shot.x, shot.historyY[0], shot.z);
-    visual.group.rotation.y = shot.age * 8.5;
-    visual.halo.rotation.z = shot.age * 12;
-    visual.halo.scale.setScalar(1 + Math.sin(shot.age * 8) * 0.18);
+
+    // Orient missile directly along velocity vector in world space
+    const speed = Math.hypot(shot.vx, shot.vz) || 1;
+    const dy = shot.historyY[0] - shot.historyY[1];
+    _missileDir.set(shot.vx / speed, Math.max(-0.6, Math.min(0.6, dy * 2)), shot.vz / speed).normalize();
+    visual.group.quaternion.setFromUnitVectors(_forwardZ, _missileDir);
+
+    // Dynamic flame scale pulsing
+    visual.flame.scale.set(
+      1 + Math.sin(shot.age * 32) * 0.25,
+      1 + Math.cos(shot.age * 32) * 0.25,
+      1.1 + Math.sin(shot.age * 45) * 0.35,
+    );
+    visual.smokeRing.scale.setScalar(1 + (shot.age % 0.3) * 3);
+    visual.smokeRing.position.z = -1.6 - (shot.age % 0.3) * 2;
+
     const positions = visual.trail.geometry.getAttribute('position') as THREE.BufferAttribute;
-    for (let history = 0; history < 12; history++) {
-      const fade = 1 - history / 12;
-      const swirl = 1.25 * fade * (0.18 + history / 12 * 0.82);
-      const swirlPhase = shot.age * 9 - history * 0.72;
+    for (let history = 0; history < 16; history++) {
+      const fade = 1 - history / 16;
+      const swirl = 0.45 * fade * (0.2 + (history / 16) * 0.8);
+      const swirlPhase = shot.age * 12 - history * 0.65;
       positions.setXYZ(history,
         shot.historyX[history] - shot.x + Math.cos(swirlPhase) * swirl,
         (shot.historyY[history] - shot.historyY[0]) * fade,

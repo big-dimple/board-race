@@ -49,3 +49,170 @@
   .duo-viewport-place { font-size: 20px; }
   .duo-viewport-stats, .duo-viewport-status { margin-top: 2px; font-size: 8px; }
 }
+
+/* Tactical Missile Mini-Screen Video Monitor on Eliminated Seat */
+.duo-tactical-feed {
+  position: absolute;
+  top: 110px;
+  width: calc(50% - 36px);
+  max-width: 320px;
+  background: rgba(5, 12, 24, 0.92);
+  border: 2px solid #00f0ff;
+  border-radius: 4px;
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.4), inset 0 0 12px rgba(0, 240, 255, 0.2);
+  padding: 8px 10px;
+  z-index: 18;
+  display: none;
+  overflow: hidden;
+}
+
+.duo-tactical-feed.duo-tactical-feed-left { left: 16px; }
+.duo-tactical-feed.duo-tactical-feed-right { right: 16px; }
+.duo-tactical-feed.on { display: block; }
+
+.duo-tactical-header {
+  font: 900 10px/1.2 monospace, system-ui;
+  color: #00f0ff;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.3);
+  padding-bottom: 3px;
+}
+
+.duo-tactical-dot {
+  animation: pulse-dot 0.6s infinite alternate;
+}
+
+@keyframes pulse-dot {
+  from { opacity: 0.3; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1.1); }
+}
+
+.duo-tactical-sub {
+  margin-top: 4px;
+  font: 900 12px/1.2 'Arial Black', Impact, sans-serif;
+  color: #ffd020;
+  text-shadow: 0 0 6px rgba(255, 208, 32, 0.6);
+}
+
+.duo-tactical-body {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.duo-tactical-radar {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.15) 0%, rgba(5, 12, 24, 0.8) 70%);
+  border: 1.5px solid rgba(0, 240, 255, 0.5);
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.duo-tactical-sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(0, 240, 255, 0.6) 0deg, transparent 60deg);
+  animation: radar-spin 1.2s linear infinite;
+}
+
+@keyframes radar-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.duo-tactical-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border: 1.5px dashed #ff3d7f;
+  border-radius: 50%;
+  animation: reticle-lock 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes reticle-lock {
+  from { transform: translate(-50%, -50%) scale(1.3); }
+  to { transform: translate(-50%, -50%) scale(0.85); }
+}
+
+.duo-tactical-missile-icon {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: 900 7px/1 monospace;
+  color: #ffd020;
+}
+
+.duo-tactical-info {
+  flex: 1;
+  font: 700 9px/1.3 monospace, system-ui;
+  color: #e2f9ff;
+}
+
+.duo-tactical-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.blink-red {
+  color: #ff3d7f;
+  animation: blink-text 0.5s infinite alternate;
+}
+
+@keyframes blink-text {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+.duo-tactical-blast {
+  font: 900 15px/1.1 'Arial Black', Impact, sans-serif;
+  color: #ff3d7f;
+  text-shadow: 0 0 10px #ff3d7f, 0 0 20px #ffd020;
+  animation: blast-shake 0.2s 4;
+}
+
+@keyframes blast-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-2px, 2px); }
+  50% { transform: translate(2px, -2px); }
+  75% { transform: translate(-2px, -2px); }
+  100% { transform: translate(0, 0); }
+}
+
+.duo-tactical-scanline {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.15) 2px, transparent 2px, transparent 4px);
+  pointer-events: none;
+}
+
+.duo-tactical-feed.detonation-hit {
+  border-color: #ff3d7f;
+  box-shadow: 0 0 24px rgba(255, 61, 127, 0.8), inset 0 0 16px rgba(255, 61, 127, 0.4);
+}
+
+@media (max-width: 900px), (max-height: 520px) {
+  .duo-tactical-feed {
+    top: 72px;
+    max-width: 240px;
+    padding: 5px 7px;
+  }
+  .duo-tactical-radar {
+    width: 38px;
+    height: 38px;
+  }
+  .duo-tactical-sub { font-size: 10px; }
+  .duo-tactical-info { font-size: 8px; }
+}

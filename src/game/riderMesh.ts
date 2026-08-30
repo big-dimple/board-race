@@ -472,12 +472,12 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   const cached = sharedFaceTextureCache.get(driverId);
   if (cached) return cached;
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
+  canvas.width = 512;
+  canvas.height = 512;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Failed to get 2d context for face texture canvas');
 
-  ctx.clearRect(0, 0, 256, 256);
+  ctx.clearRect(0, 0, 512, 512);
 
   const driverVisorThemes: Record<string, {
     primary: string;
@@ -485,147 +485,186 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
     glow: string;
     hudLine: string;
     browHex: string;
+    code: string;
   }> = {
-    sol: { primary: '#ffd020', secondary: '#ff7700', glow: 'rgba(255, 208, 32, 0.65)', hudLine: '#fff4b8', browHex: '#ffaa00' },
-    tide: { primary: '#00f0ff', secondary: '#0077ff', glow: 'rgba(0, 240, 255, 0.65)', hudLine: '#b8f8ff', browHex: '#00c8ff' },
-    axle: { primary: '#39ff88', secondary: '#00b040', glow: 'rgba(57, 255, 136, 0.65)', hudLine: '#c4ffdf', browHex: '#00e676' },
-    reef: { primary: '#ff3d7f', secondary: '#c50042', glow: 'rgba(255, 61, 127, 0.65)', hudLine: '#ffb3ca', browHex: '#ff1744' },
-    kai: { primary: '#448aff', secondary: '#0d47a1', glow: 'rgba(68, 138, 255, 0.65)', hudLine: '#c2dcff', browHex: '#2979ff' },
-    jinx: { primary: '#d500f9', secondary: '#7b1fa2', glow: 'rgba(213, 0, 249, 0.65)', hudLine: '#f6c4ff', browHex: '#e040fb' },
+    sol: { primary: '#ffd020', secondary: '#ff7700', glow: 'rgba(255, 208, 32, 0.85)', hudLine: '#fff4b8', browHex: '#ffaa00', code: 'SOL-01' },
+    tide: { primary: '#00f0ff', secondary: '#0077ff', glow: 'rgba(0, 240, 255, 0.85)', hudLine: '#b8f8ff', browHex: '#00c8ff', code: 'TIDE-02' },
+    axle: { primary: '#39ff88', secondary: '#00b040', glow: 'rgba(57, 255, 136, 0.85)', hudLine: '#c4ffdf', browHex: '#00e676', code: 'AXLE-03' },
+    reef: { primary: '#ff3d7f', secondary: '#c50042', glow: 'rgba(255, 61, 127, 0.85)', hudLine: '#ffb3ca', browHex: '#ff1744', code: 'REEF-04' },
+    kai: { primary: '#448aff', secondary: '#0d47a1', glow: 'rgba(68, 138, 255, 0.85)', hudLine: '#c2dcff', browHex: '#2979ff', code: 'KAI-05' },
+    jinx: { primary: '#d500f9', secondary: '#7b1fa2', glow: 'rgba(213, 0, 249, 0.85)', hudLine: '#f6c4ff', browHex: '#e040fb', code: 'JINX-06' },
   };
   const theme = driverVisorThemes[driverId] ?? {
     primary: '#00f0ff',
     secondary: '#0055cc',
-    glow: 'rgba(0, 240, 255, 0.6)',
+    glow: 'rgba(0, 240, 255, 0.8)',
     hudLine: '#ffffff',
     browHex: hexToString(look.hair),
+    code: 'ACE-00',
   };
 
-  // 1. Aerodynamic Visor Body Contour
+  // 1. Panoramic Cyber Aerodynamic Visor Body Contour
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(34, 92);
-  ctx.quadraticCurveTo(128, 68, 222, 92);
-  ctx.quadraticCurveTo(236, 126, 218, 154);
-  ctx.quadraticCurveTo(128, 178, 38, 154);
-  ctx.quadraticCurveTo(20, 126, 34, 92);
+  ctx.moveTo(42, 142);
+  ctx.quadraticCurveTo(256, 88, 470, 142);
+  ctx.quadraticCurveTo(502, 235, 462, 345);
+  ctx.quadraticCurveTo(256, 396, 50, 345);
+  ctx.quadraticCurveTo(10, 235, 42, 142);
   ctx.closePath();
 
-  // Deep obsidian to team-tinted gloss gradient
-  const visorGrad = ctx.createLinearGradient(128, 70, 128, 176);
-  visorGrad.addColorStop(0, '#0a0d1a');
-  visorGrad.addColorStop(0.35, '#12182e');
-  visorGrad.addColorStop(0.78, theme.secondary);
+  // Deep polarized cosmic obsidian to vibrant team-color gradient
+  const visorGrad = ctx.createLinearGradient(256, 90, 256, 390);
+  visorGrad.addColorStop(0, '#050712');
+  visorGrad.addColorStop(0.32, '#0c1426');
+  visorGrad.addColorStop(0.70, theme.secondary);
   visorGrad.addColorStop(1, theme.primary);
   ctx.fillStyle = visorGrad;
   ctx.fill();
 
   // Visor outer ink border
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = '#060814';
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#04060e';
   ctx.stroke();
   ctx.restore();
 
-  // 2. Holographic HUD Reticle & Cyber Telemetry
+  // 2. Holographic Tactical HUD Reticles & Cyber Telemetry
   ctx.save();
   ctx.strokeStyle = theme.hudLine;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 3.5;
   ctx.shadowColor = theme.glow;
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = 14;
 
-  // Left & right eye HUD brackets [  ]
-  for (const cx of [82, 174]) {
-    const cy = 120;
+  // Left & right eye HUD brackets [ ⌖ ]
+  for (const cx of [160, 352]) {
+    const cy = 240;
     ctx.beginPath();
-    ctx.arc(cx, cy, 14, -Math.PI * 0.4, Math.PI * 0.4);
+    ctx.arc(cx, cy, 28, -Math.PI * 0.42, Math.PI * 0.42);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cx, cy, 14, Math.PI * 0.6, Math.PI * 1.4);
+    ctx.arc(cx, cy, 28, Math.PI * 0.58, Math.PI * 1.42);
     ctx.stroke();
-    // Center micro dot
+
+    // Corner targeting ticks
     ctx.beginPath();
-    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+    ctx.moveTo(cx - 38, cy - 10);
+    ctx.lineTo(cx - 38, cy - 22);
+    ctx.lineTo(cx - 26, cy - 22);
+    ctx.moveTo(cx + 38, cy - 10);
+    ctx.lineTo(cx + 38, cy - 22);
+    ctx.lineTo(cx + 26, cy - 22);
+    ctx.stroke();
+
+    // Center micro laser optical dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
     ctx.fillStyle = theme.hudLine;
     ctx.fill();
   }
 
-  // Horizon HUD scanline
+  // Horizon HUD scanline with degree ticks
   ctx.beginPath();
-  ctx.moveTo(108, 120);
-  ctx.lineTo(148, 120);
+  ctx.moveTo(210, 240);
+  ctx.lineTo(302, 240);
+  ctx.stroke();
+  for (const tick of [-22, 0, 22]) {
+    ctx.beginPath();
+    ctx.moveTo(256 + tick, 234);
+    ctx.lineTo(256 + tick, 246);
+    ctx.stroke();
+  }
+
+  // Driver Callsign Telemetry Badge
+  ctx.font = '900 15px monospace';
+  ctx.fillStyle = theme.hudLine;
+  ctx.textAlign = 'center';
+  ctx.fillText(`[ ${theme.code} // TACTICAL HUD ]`, 256, 152);
+
+  // Micro chevron telemetry marks << >>
+  ctx.beginPath();
+  ctx.moveTo(88, 232);
+  ctx.lineTo(74, 240);
+  ctx.lineTo(88, 248);
+  ctx.moveTo(424, 232);
+  ctx.lineTo(438, 240);
+  ctx.lineTo(424, 248);
   ctx.stroke();
 
-  // Micro chevron marks << >>
-  ctx.beginPath();
-  ctx.moveTo(52, 116);
-  ctx.lineTo(46, 120);
-  ctx.lineTo(52, 124);
-  ctx.moveTo(204, 116);
-  ctx.lineTo(210, 120);
-  ctx.lineTo(204, 124);
-  ctx.stroke();
+  // Bottom speed & battery status bar
+  ctx.font = '700 11px monospace';
+  ctx.fillStyle = theme.hudLine;
+  ctx.fillText('SPEED: OPTIMAL  |  LINK: STABLE', 256, 335);
   ctx.restore();
 
-  // 3. Specular Curved Glass Highlight Streak
+  // 3. Specular Curved Polarized Glass Highlight Streaks
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(48, 98);
-  ctx.quadraticCurveTo(128, 76, 208, 98);
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.72)';
+  ctx.moveTo(68, 154);
+  ctx.quadraticCurveTo(256, 105, 444, 154);
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.82)';
   ctx.lineCap = 'round';
   ctx.stroke();
 
   // Secondary lower glint
   ctx.beginPath();
-  ctx.moveTo(58, 108);
-  ctx.quadraticCurveTo(96, 92, 128, 92);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.moveTo(88, 178);
+  ctx.quadraticCurveTo(180, 142, 256, 142);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineCap = 'round';
   ctx.stroke();
   ctx.restore();
 
-  // 4. Upper Cyber Brow Housing Strip with Neon LED
+  // 4. Upper Cyber Brow Housing Strip with Neon LED Matrix
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(30, 88);
-  ctx.quadraticCurveTo(128, 64, 226, 88);
-  ctx.lineWidth = 7;
-  ctx.strokeStyle = '#181b2e';
+  ctx.moveTo(34, 134);
+  ctx.quadraticCurveTo(256, 78, 478, 134);
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = '#121626';
   ctx.lineCap = 'round';
   ctx.stroke();
 
-  // Glowing center status LED
+  // Glowing center status LED cluster
   ctx.beginPath();
-  ctx.arc(128, 74, 4, 0, Math.PI * 2);
+  ctx.arc(256, 102, 8, 0, Math.PI * 2);
   ctx.fillStyle = theme.browHex;
   ctx.shadowColor = theme.primary;
-  ctx.shadowBlur = 12;
+  ctx.shadowBlur = 20;
   ctx.fill();
+
+  // Side mini indicator LEDs
+  for (const lx of [195, 317]) {
+    ctx.beginPath();
+    ctx.arc(lx, 110, 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = theme.primary;
+    ctx.fill();
+  }
   ctx.restore();
 
-  // 5. Lower Aerodynamic Chin Respirator / Collar Shield
+  // 5. Lower Aerodynamic Chin Respirator / Carbon Intake Deflector
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(86, 192);
-  ctx.lineTo(128, 218);
-  ctx.lineTo(170, 192);
-  ctx.lineTo(154, 178);
-  ctx.lineTo(102, 178);
+  ctx.moveTo(165, 410);
+  ctx.lineTo(256, 465);
+  ctx.lineTo(347, 410);
+  ctx.lineTo(315, 378);
+  ctx.lineTo(197, 378);
   ctx.closePath();
-  ctx.fillStyle = '#101424';
+  ctx.fillStyle = '#0a0d18';
   ctx.fill();
-  ctx.lineWidth = 3.5;
-  ctx.strokeStyle = '#060814';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = '#04060e';
   ctx.stroke();
 
-  // Aero vent slots
+  // Aero intake vent slots
   ctx.strokeStyle = theme.primary;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(112, 190);
-  ctx.lineTo(128, 202);
-  ctx.lineTo(144, 190);
+  ctx.moveTo(218, 412);
+  ctx.lineTo(256, 434);
+  ctx.lineTo(294, 412);
   ctx.stroke();
   ctx.restore();
 
@@ -644,13 +683,13 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
   const uvs: number[] = [];
   const indices: number[] = [];
 
-  const xmin = -0.070;
-  const xmax = 0.070;
-  const ymin = 0.040;
-  const ymax = 0.150;
+  const xmin = -0.118;
+  const xmax = 0.118;
+  const ymin = 0.046;
+  const ymax = 0.195;
 
-  const numCols = 8;
-  const numRows = 6;
+  const numCols = 16;
+  const numRows = 10;
 
   for (let row = 0; row < numRows; row++) {
     const tY = row / (numRows - 1);
@@ -661,10 +700,10 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
       const x = xmin + tX * (xmax - xmin);
       const u = tX;
 
-      const nx = x / 0.125;
-      const ny = (y - 0.100) / 0.140;
+      const nx = x / 0.136;
+      const ny = (y - 0.115) / 0.150;
       const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
-      const z = 0.020 + 0.132 * nz + 0.004;
+      const z = 0.024 + 0.142 * nz + 0.008;
 
       positions.push(x, y, z);
       uvs.push(u, v);
@@ -722,7 +761,7 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
     { y: 0.035, z: -0.040, rx: 0.098, rz: 0.075 }, // nape
   ];
   const sides = detailed ? 12 : 8;
-  const frontGap = 0.58; // radians on each side of +Z; leave forehead open
+  const frontGap = 0.72; // radians on each side of +Z; leave entire cyber visor face open
   const sweep = Math.PI * 2 - frontGap * 2;
   const vertices: number[] = [];
   const indices: number[] = [];
@@ -732,8 +771,8 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
       const theta = frontGap + (sweep * i) / sides;
       const x = ring.rx * Math.sin(theta);
       const z = ring.z + ring.rz * Math.cos(theta);
-      // push the loft back from the face only; do not add a front cap
-      vertices.push(x, ring.y, z - 0.004);
+      // push the loft back from the face
+      vertices.push(x, ring.y, z - 0.006);
     }
   }
   for (let ring = 0; ring < rings.length - 1; ring++) {
@@ -746,8 +785,7 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
     }
   }
 
-  // Close only the crown arc. The wedge toward +Z remains open so this reads
-  // as a fitted hairstyle with a real forehead, not a spherical helmet.
+  // Close crown arc
   const crownCenter = vertices.length / 3;
   vertices.push(0, 0.252, -0.014);
   for (let i = 0; i < sides; i++) indices.push(crownCenter, i, i + 1);
@@ -784,19 +822,12 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     braidBones = [tie, braid1, braid2, braid3, braid4];
   }
 
-  // SkinAssembler snapshots the bone index and current bone matrices. Build
-  // the whole accessory skeleton first so style locks cannot fall back to the
-  // root bone or be authored from identity matrices after a driver switch.
   object.updateWorldMatrix(true, true);
   const out = new SkinAssembler(object, bones, 0xffffff, look);
 
-  // Open-front fitted skull loft (~294°) is always appended first
-  out.append(buildSkullLoftGeometry(detailed), hairRoot, Role.Hair);
-
   if (bobBones) {
     const [back, left, right] = bobBones;
-    // Four curved, shoulder-length locks turn the cap into a bob without the
-    // old rigid slabs reaching the rider's waist.
+    // Four curved, shoulder-length locks emerging cleanly from the rear exhaust cowl
     appendHairBlade(out, hairRoot, [0, 0.015, -0.115], 0.28, 0.22, 0.25, 0.08, [0.02, 0, 0]);
     appendHairBlade(out, hairRoot, [0, -0.135, -0.18], 0.24, 0.28, 0.14, 0.035,
       [0.02, 0, 0], Role.HairLight);
@@ -808,8 +839,7 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
       0.34, 0.115, -0.035, [0.07, 0, -0.12]);
     appendCurvedHairLock(out, right, [-0.045, -0.015, -0.06], [0.065, 0.18, 0.22],
       0.34, 0.115, -0.035, [0.07, 0, 0.12]);
-    // Cyan-dipped overlays sit toward the chase camera, so the portrait cue
-    // stays visible instead of z-fighting inside the dark locks.
+    // Cyan-dipped overlays
     appendCurvedHairLock(out, back, [0.065, -0.245, -0.095], [0.025, 0.07, 0.085],
       0.12, 0.035, -0.018, [0.07, 0, -0.05], Role.HairLight);
     appendCurvedHairLock(out, back, [-0.065, -0.255, -0.1], [0.025, 0.07, 0.085],
@@ -818,74 +848,32 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
       0.12, 0.04, -0.016, [0.07, 0, -0.12], Role.HairLight);
     appendCurvedHairLock(out, right, [-0.045, -0.215, -0.14], [0.035, 0.11, 0.14],
       0.12, 0.04, -0.016, [0.07, 0, 0.12], Role.HairLight);
-    // Face-framing fringe bangs so the forehead never reads as a bare helmet visor
-    appendCurvedHairLock(out, hairRoot, [0.028, 0.208, 0.13], [0.032, 0.042, 0.045], 0.072, 0.022, 0.014, [-0.08, 0.04, -0.16]);
-    appendCurvedHairLock(out, hairRoot, [-0.032, 0.212, 0.132], [0.03, 0.04, 0.042], 0.068, 0.022, 0.014, [-0.08, -0.04, 0.14]);
-    appendCurvedHairLock(out, hairRoot, [0.082, 0.185, 0.108], [0.022, 0.03, 0.034], 0.09, 0.022, 0.01, [-0.06, 0.08, -0.22]);
-    appendCurvedHairLock(out, hairRoot, [-0.08, 0.185, 0.11], [0.022, 0.03, 0.034], 0.085, 0.022, 0.01, [-0.06, -0.08, 0.2]);
   } else if (braidBones) {
     const [tie, braid1, braid2, braid3, braid4] = braidBones;
-    // Five overlapping curved sections make one high, side-swept ponytail.
-    // Each child starts at the previous lock's tip, so the back silhouette
-    // remains continuous through steering and landing secondary motion.
+    // High aerodynamic ponytail braid streaming from the rear upper exhaust port
     appendCurvedHairLock(out, tie, [0, 0, 0], [0.1, 0.125, 0.1], 0.15, 0.1, -0.055, [0.08, 0, -0.12]);
     appendCurvedHairLock(out, braid1, [0, 0, 0], [0.09, 0.115, 0.1], 0.18, 0.1, -0.07, [-0.06, 0, -0.06]);
     appendCurvedHairLock(out, braid2, [0, 0, 0], [0.075, 0.1, 0.09], 0.17, 0.09, -0.065, [0.05, 0, 0.05]);
     appendCurvedHairLock(out, braid3, [0, 0, 0], [0.055, 0.08, 0.07], 0.16, 0.075, -0.055, [-0.04, 0, -0.04]);
     appendCurvedHairLock(out, braid4, [0, 0, 0], [0.022, 0.052, 0.062], 0.14, 0.062, -0.045,
-      [0.03, 0, 0.03], Role.HairLight);
-
-    // Four swept fringe locks frame the eyes; two narrow side locks bridge
-    // the open forehead loft into the ponytail without covering the face.
-    appendCurvedHairLock(out, hairRoot, [0.032, 0.213, 0.13], [0.03, 0.038, 0.04], 0.07, 0.02, 0.012, [-0.1, 0.03, -0.18]);
-    appendCurvedHairLock(out, hairRoot, [-0.025, 0.215, 0.135], [0.028, 0.036, 0.038], 0.064, 0.02, 0.012, [-0.1, -0.02, 0.15]);
-    appendCurvedHairLock(out, hairRoot, [0.078, 0.195, 0.112], [0.02, 0.028, 0.032], 0.085, 0.02, 0.01, [-0.08, 0.06, -0.24]);
-    appendCurvedHairLock(out, hairRoot, [-0.075, 0.195, 0.115], [0.02, 0.028, 0.032], 0.08, 0.02, 0.01, [-0.08, -0.05, 0.22]);
-    appendCurvedHairLock(out, hairRoot, [0.108, 0.14, 0.058], [0.018, 0.026, 0.03], 0.17, 0.026, -0.008, [0.04, 0.08, -0.06]);
-    appendCurvedHairLock(out, hairRoot, [-0.108, 0.14, 0.058], [0.018, 0.026, 0.03], 0.17, 0.026, -0.008, [0.04, -0.08, 0.06]);
+      [0.03, 0, 0], Role.HairLight);
   } else {
-    // Short hairstyles: custom volume locks, front fringe, and sideburns per driver
+    // Male drivers: High-tech aerodynamic racing crests & stabilizers
     if (look.driverId === 'kai') {
-      // Kai ("打你嗷" / Claude) — Voluminous, fluffy layered messy locks and textured fringe
-      appendHairBlade(out, hairRoot, [0, 0.245, 0.02], 0.16, 0.12, 0.08, 0.16, [0.1, 0, 0]);
-      appendHairBlade(out, hairRoot, [0.06, 0.235, 0.04], 0.12, 0.09, 0.07, 0.14, [0.08, 0.12, -0.15]);
-      appendHairBlade(out, hairRoot, [-0.06, 0.235, 0.04], 0.12, 0.09, 0.07, 0.14, [0.08, -0.12, 0.15]);
-      appendCurvedHairLock(out, hairRoot, [0.04, 0.22, 0.125], [0.038, 0.05, 0.055], 0.08, 0.03, 0.018, [-0.12, 0.06, -0.22]);
-      appendCurvedHairLock(out, hairRoot, [-0.035, 0.222, 0.128], [0.035, 0.048, 0.052], 0.075, 0.03, 0.018, [-0.12, -0.04, 0.18]);
-      appendCurvedHairLock(out, hairRoot, [0.085, 0.20, 0.105], [0.028, 0.04, 0.045], 0.09, 0.028, 0.014, [-0.08, 0.12, -0.28]);
-      appendCurvedHairLock(out, hairRoot, [-0.082, 0.20, 0.108], [0.028, 0.04, 0.045], 0.085, 0.028, 0.014, [-0.08, -0.10, 0.25]);
-      appendCurvedHairLock(out, hairRoot, [0.11, 0.145, 0.05], [0.022, 0.032, 0.036], 0.14, 0.028, -0.01, [0.06, 0.1, -0.08]);
-      appendCurvedHairLock(out, hairRoot, [-0.11, 0.145, 0.05], [0.022, 0.032, 0.036], 0.14, 0.028, -0.01, [0.06, -0.1, 0.08]);
-      appendCurvedHairLock(out, hairRoot, [0, 0.23, -0.09], [0.12, 0.15, 0.14], 0.11, 0.045, -0.02, [0.15, 0, 0]);
-    } else if (look.driverId === 'reef') {
-      // Reef (Kimi / "KK") — Forward-swept dynamic athletic crest and sharp athletic fringe
-      appendHairBlade(out, hairRoot, [0, 0.25, 0.03], 0.10, 0.06, 0.09, 0.18, [0.18, 0, 0]);
-      appendHairBlade(out, hairRoot, [0, 0.235, -0.04], 0.12, 0.08, 0.08, 0.16, [0.12, 0, 0]);
-      appendCurvedHairLock(out, hairRoot, [0.03, 0.218, 0.128], [0.032, 0.044, 0.048], 0.075, 0.026, 0.016, [-0.14, 0.04, -0.18]);
-      appendCurvedHairLock(out, hairRoot, [-0.035, 0.216, 0.13], [0.03, 0.042, 0.046], 0.07, 0.026, 0.016, [-0.14, -0.03, 0.16]);
-      appendCurvedHairLock(out, hairRoot, [0.078, 0.19, 0.105], [0.024, 0.032, 0.036], 0.08, 0.024, 0.012, [-0.1, 0.08, -0.24]);
-      appendCurvedHairLock(out, hairRoot, [-0.078, 0.19, 0.105], [0.024, 0.032, 0.036], 0.08, 0.024, 0.012, [-0.1, -0.08, 0.24]);
-      appendCurvedHairLock(out, hairRoot, [0.105, 0.14, 0.052], [0.02, 0.028, 0.032], 0.13, 0.025, -0.008, [0.05, 0.08, -0.06]);
-      appendCurvedHairLock(out, hairRoot, [-0.105, 0.14, 0.052], [0.02, 0.028, 0.032], 0.13, 0.025, -0.008, [0.05, -0.08, 0.06]);
+      // Kai (Claude) — Sleek aerodynamic twin top crests and rear flow guide
+      appendHairBlade(out, hairRoot, [0, 0.22, -0.02], 0.08, 0.04, 0.08, 0.08, [0.08, 0, 0], Role.HairLight);
+      appendHairBlade(out, hairRoot, [0.06, 0.21, -0.04], 0.06, 0.03, 0.06, 0.06, [0.06, 0.12, -0.15], Role.Hair);
+      appendHairBlade(out, hairRoot, [-0.06, 0.21, -0.04], 0.06, 0.03, 0.06, 0.06, [0.06, -0.12, 0.15], Role.Hair);
     } else if (look.driverId === 'jinx') {
-      // Jinx (DeepSeek / "梁圣梁子") — Edgy asymmetrical swept layered fringe and spiky crown
-      appendHairBlade(out, hairRoot, [-0.04, 0.24, 0.01], 0.12, 0.08, 0.08, 0.15, [0.1, -0.15, 0.2]);
-      appendHairBlade(out, hairRoot, [0.04, 0.235, -0.02], 0.11, 0.07, 0.07, 0.14, [0.08, 0.12, -0.16]);
-      appendCurvedHairLock(out, hairRoot, [-0.045, 0.215, 0.132], [0.038, 0.05, 0.055], 0.09, 0.028, 0.02, [-0.14, -0.08, 0.24]);
-      appendCurvedHairLock(out, hairRoot, [0.025, 0.218, 0.128], [0.026, 0.036, 0.04], 0.065, 0.024, 0.014, [-0.1, 0.04, -0.14]);
-      appendCurvedHairLock(out, hairRoot, [-0.085, 0.19, 0.11], [0.026, 0.036, 0.04], 0.085, 0.025, 0.014, [-0.08, -0.1, 0.26]);
-      appendCurvedHairLock(out, hairRoot, [0.075, 0.192, 0.106], [0.02, 0.028, 0.032], 0.075, 0.022, 0.01, [-0.08, 0.06, -0.2]);
-      appendCurvedHairLock(out, hairRoot, [-0.108, 0.138, 0.055], [0.02, 0.028, 0.032], 0.14, 0.025, -0.008, [0.04, -0.09, 0.08]);
-      appendCurvedHairLock(out, hairRoot, [0.105, 0.14, 0.052], [0.018, 0.026, 0.03], 0.12, 0.024, -0.008, [0.04, 0.07, -0.06]);
+      // Jinx (DeepSeek) — Edgy cyberpunk aerodynamic winglets
+      appendHairBlade(out, hairRoot, [-0.05, 0.22, -0.02], 0.07, 0.04, 0.07, 0.07, [0.08, -0.15, 0.2], Role.HairLight);
+      appendHairBlade(out, hairRoot, [0.05, 0.21, -0.03], 0.06, 0.03, 0.06, 0.06, [0.06, 0.12, -0.16], Role.Hair);
+    } else if (look.driverId === 'sol') {
+      // Sol — Solar golden top crest fin
+      appendHairBlade(out, hairRoot, [0, 0.225, -0.01], 0.08, 0.04, 0.08, 0.09, [0.08, 0, 0], Role.HairLight);
     } else {
-      // Axle (GLM / "盛唐俊杰") & default short — Clean athletic parted hair and structured locks
-      appendHairBlade(out, hairRoot, [0, 0.24, 0.01], 0.14, 0.10, 0.07, 0.16, [0.08, 0, 0]);
-      appendCurvedHairLock(out, hairRoot, [0.035, 0.212, 0.13], [0.032, 0.042, 0.046], 0.075, 0.025, 0.015, [-0.1, 0.05, -0.16]);
-      appendCurvedHairLock(out, hairRoot, [-0.032, 0.214, 0.132], [0.03, 0.04, 0.044], 0.07, 0.025, 0.015, [-0.1, -0.04, 0.15]);
-      appendCurvedHairLock(out, hairRoot, [0.08, 0.192, 0.108], [0.022, 0.03, 0.034], 0.082, 0.022, 0.01, [-0.07, 0.07, -0.22]);
-      appendCurvedHairLock(out, hairRoot, [-0.078, 0.192, 0.11], [0.022, 0.03, 0.034], 0.08, 0.022, 0.01, [-0.07, -0.06, 0.2]);
-      appendCurvedHairLock(out, hairRoot, [0.106, 0.142, 0.055], [0.018, 0.026, 0.03], 0.13, 0.024, -0.008, [0.04, 0.08, -0.06]);
-      appendCurvedHairLock(out, hairRoot, [-0.106, 0.142, 0.055], [0.018, 0.026, 0.03], 0.13, 0.024, -0.008, [0.04, -0.08, 0.06]);
+      // Axle & default — Clean aerodynamic composite crown flow blade
+      appendHairBlade(out, hairRoot, [0, 0.22, -0.02], 0.08, 0.04, 0.07, 0.07, [0.06, 0, 0], Role.HairLight);
     }
   }
 
@@ -940,10 +928,7 @@ export function buildSkinnedRider(
   const sides = detailed ? 12 : 8;
   const out = new SkinAssembler(root, bones, color, look);
 
-  // Pelvis and torso are authored lofts: narrow waist, broad protected
-  // shoulders and a forward-rising racing posture rather than stacked balls.
-  // The seat is white sail-cloth with dark navy side panels — from the chase
-  // camera the rider reads as a white-suited sailor, not a dark silhouette.
+  // Pelvis and torso are authored lofts
   out.append(bodyLoft([
     { y: -0.08, z: 0.015, halfWidth: 0.135, halfDepth: 0.095 },
     { y: 0.0, z: 0.02, halfWidth: 0.17, halfDepth: 0.12 },
@@ -1001,18 +986,39 @@ export function buildSkinnedRider(
       transform([0, -0.065, 0.078], [0.03, 0, 0]));
   }
 
-  // Bare head, portrait-locked. Commercial arcade racers keep the face out:
-  // hair + skin is the character read from every camera, a full helmet throws
-  // the identity away. +Z is face-forward in head-bone space.
-  appendSegment(out, rig.chest, rig.head, 0.062, 0.052, Role.Skin, sides);
+  // High-Tech Cyber Aerodynamic Racing Helmet System
+  // +Z is face-forward in head-bone space.
+  appendSegment(out, rig.chest, rig.head, 0.064, 0.054, Role.SuitDark, sides);
   const collarLocalInHead = new THREE.Matrix4().makeTranslation(0, -0.015, 0.005);
   const collarLocalInChest = new THREE.Matrix4()
     .copy(rig.chest.matrixWorld).invert()
     .multiply(rig.head.matrixWorld)
     .multiply(collarLocalInHead);
-  out.append(new THREE.CylinderGeometry(0.068, 0.078, 0.06, sides, 1), rig.chest, Role.SuitDark, collarLocalInChest);
-  const headSides = detailed ? 16 : 10;
-  appendEllipsoid(out, rig.head, Role.Skin, [0, 0.1, 0.02], [0.125, 0.14, 0.132], headSides);
+  out.append(new THREE.CylinderGeometry(0.072, 0.082, 0.065, sides, 1), rig.chest, Role.SuitDark, collarLocalInChest);
+  const headSides = detailed ? 20 : 12;
+
+  // 1. Aerodynamic Composite Helmet Base Shell (Midnight Carbon)
+  appendEllipsoid(out, rig.head, Role.SuitDark, [0, 0.105, 0.015], [0.128, 0.144, 0.138], headSides);
+
+  // 2. High-Tech Aerodynamic Top Crest & Crown Spoilers
+  appendPanel(out, rig.head, Role.Suit, [0, 0.205, 0.012], [0.086, 0.054, 0.21, 0.024], [0.06, 0, 0]);
+  appendPanel(out, rig.head, Role.Accent, [0, 0.218, -0.012], [0.038, 0.022, 0.21, 0.016], [0.06, 0, 0]);
+
+  // 3. Rear Aerodynamic Diffuser / Exhaust Port Cowling
+  appendPanel(out, rig.head, Role.SuitDark, [0, 0.08, -0.13], [0.16, 0.12, 0.10, 0.04], [-0.18, 0, 0]);
+  appendPanel(out, rig.head, Role.Accent, [0, 0.06, -0.142], [0.09, 0.06, 0.07, 0.026], [-0.18, 0, 0]);
+  appendPanel(out, rig.head, Role.Metal, [0, 0.04, -0.148], [0.05, 0.03, 0.04, 0.016], [-0.18, 0, 0]);
+
+  // 4. Side Communications / Acoustic Dampener Pods with Glowing Accent Rings
+  for (const side of [-1, 1]) {
+    appendEllipsoid(out, rig.head, Role.SuitDark, [side * 0.132, 0.105, 0.015], [0.022, 0.045, 0.045], sides);
+    appendPanel(out, rig.head, Role.Accent, [side * 0.142, 0.105, 0.015], [0.012, 0.012, 0.034, 0.034], [0, 0, 0]);
+    appendEllipsoid(out, rig.head, Role.Metal, [side * 0.146, 0.105, 0.015], [0.010, 0.020, 0.020], sides);
+  }
+
+  // 5. Lower Chin Respirator & Deflector
+  appendPanel(out, rig.head, Role.SuitDark, [0, 0.025, 0.115], [0.11, 0.07, 0.065, 0.045], [0.26, 0, 0]);
+  appendPanel(out, rig.head, Role.Metal, [0, 0.025, 0.132], [0.065, 0.04, 0.035, 0.02], [0.26, 0, 0]);
 
   const result = out.finish();
   const material = createToonMaterial({

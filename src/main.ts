@@ -166,6 +166,11 @@ const duoDevices: [LocalDeviceId, LocalDeviceId] = [
 const duoEliminated = [false, false];
 const comebackAwarded = [false, false];
 const previousHumanPlaces = [Infinity, Infinity];
+const maxCorridorDangerThisFlight = [0, 0];
+const airBrakedThisFlight = [false, false];
+const maxDriftYawRateThisDrift = [0, 0];
+const leadDominanceTimer = [0, 0];
+const leadDominanceAwarded = [false, false];
 
 // Boats + riders + wakes. Boat 0 is the player.
 const boats: Boat[] = [];
@@ -1105,6 +1110,16 @@ function startNextRaceRound(): void {
   humanCollisionCounts[1] = 0;
   comebackAwarded[0] = false;
   comebackAwarded[1] = false;
+  maxCorridorDangerThisFlight[0] = 0;
+  maxCorridorDangerThisFlight[1] = 0;
+  airBrakedThisFlight[0] = false;
+  airBrakedThisFlight[1] = false;
+  maxDriftYawRateThisDrift[0] = 0;
+  maxDriftYawRateThisDrift[1] = 0;
+  leadDominanceTimer[0] = 0;
+  leadDominanceTimer[1] = 0;
+  leadDominanceAwarded[0] = false;
+  leadDominanceAwarded[1] = false;
   previousHumanPlaces[0] = race.racers[0]?.place ?? Infinity;
   previousHumanPlaces[1] = race.racers[1]?.place ?? Infinity;
   finalePresentation = false;
@@ -1388,6 +1403,16 @@ function resetRace(): void {
   duoViewportHud.setVisible(false);
   comebackAwarded[0] = false;
   comebackAwarded[1] = false;
+  maxCorridorDangerThisFlight[0] = 0;
+  maxCorridorDangerThisFlight[1] = 0;
+  airBrakedThisFlight[0] = false;
+  airBrakedThisFlight[1] = false;
+  maxDriftYawRateThisDrift[0] = 0;
+  maxDriftYawRateThisDrift[1] = 0;
+  leadDominanceTimer[0] = 0;
+  leadDominanceTimer[1] = 0;
+  leadDominanceAwarded[0] = false;
+  leadDominanceAwarded[1] = false;
   previousHumanPlaces[0] = Infinity;
   previousHumanPlaces[1] = Infinity;
   course.resetFlightChallenge();
@@ -1649,19 +1674,27 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-launch') {
     audio.teamSpatialCue(targetSide, 'relay');
-    targetPipeline.pulse('lost', 0.35);
-    localInput.rumble(duoDevices[event.actorId], 0.42, 0.55, 48);
-    localInput.rumble(duoDevices[event.targetId], 0.28, 0.32, 36);
-    hud.showTransientNotice(`🚨 危险！${actor.name} 释放了【狂暴追魂鸭】· ${target.name} 准备避险！`, '队友背刺预警', effectLane);
+    targetPipeline.pulse('lost', 0.45);
+    localInput.rumble(duoDevices[event.actorId], 0.5, 0.65, 52);
+    localInput.rumble(duoDevices[event.targetId], 0.35, 0.4, 40);
+    duoViewportHud.startTacticalMissileFeed(event.actorId, target.name);
+    hud.showTransientNotice(`🚨 战略核预警！${actor.name} 发射了【飞毛腿战术核导弹】· 75%命中率逼近中！`, '队友背刺预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
-    audio.splash(1.1);
-    targetPipeline.pulse('lost', 0.85);
+    audio.splash(1.8);
+    targetPipeline.pulse('lost', 0.95);
     audio.teamSpatialCue(targetSide, 'impact');
-    localInput.rumble(duoDevices[event.targetId], 0.72, 0.55, 64);
-    localInput.rumble(duoDevices[event.actorId], 0.35, 0.65, 42);
-    hud.showTransientNotice(`💥 狂暴鸭浪拍脸！${target.name} 被 ${actor.name} 掀翻推开！"你也给我下来！"`, '队友偷袭得手', effectLane);
+    localInput.rumble(duoDevices[event.targetId], 0.85, 0.7, 72);
+    localInput.rumble(duoDevices[event.actorId], 0.45, 0.8, 55);
+    duoViewportHud.finishTacticalMissileFeed(event.actorId, true);
+    hud.showTransientNotice(`💥 飞毛腿在途的聚变打击命中！${target.name} 被炸飞上天 720° 旋转杂耍！`, '聚变打击得手', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
+  } else if (event.phase === 'prank-miss') {
+    audio.splash(0.8);
+    audio.teamSpatialCue(targetSide, 'relay');
+    duoViewportHud.finishTacticalMissileFeed(event.actorId, false);
+    hud.showTransientNotice(`💨 飞毛腿描边！${target.name} 极限躲过核打击！(75%命中率落空)`, '极限躲避', effectLane);
+    trackGameEvent('duo_interaction', { action: 'prank-miss', actor: actor.id, target: target.id });
   }
 }
 
@@ -1685,6 +1718,9 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     spray.burst(honorFxPoint, 7, 4.8);
     honorTargets.presentHitFx(hit);
     if (!isHumanRacer(hit.racerId)) continue;
+    if (streakStep >= 2) {
+      honors.award('coin.frenzy', hit.racerId, HONOR_DEFINITIONS['coin.frenzy'].value, race.raceTime);
+    }
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
     audio.coinCollect(streakStep);
@@ -2430,6 +2466,15 @@ function step(dt: number, _t: number): void {
         else if (routeState === 'failed') harnessRouteFails[i]++;
         harnessPrevRouteStates[i] = routeState;
       }
+      if (isHumanRacer(i)) {
+        if (state.airborne) {
+          maxCorridorDangerThisFlight[i] = Math.max(maxCorridorDangerThisFlight[i], course.playerCorridorDanger);
+          if (state.flightAirBrake > 0.28) airBrakedThisFlight[i] = true;
+        }
+        if (state.drifting) {
+          maxDriftYawRateThisDrift[i] = Math.max(maxDriftYawRateThisDrift[i], Math.abs(state.steer));
+        }
+      }
       if (routeState === routeLifecycleStates[i]) continue;
       routeLifecycleStates[i] = routeState;
       if (routeState === 'failed') {
@@ -2440,6 +2485,17 @@ function step(dt: number, _t: number): void {
         if (isHumanRacer(i)) {
           playerPassedFlights.push(i);
           honors.award('flight.ace', i, HONOR_DEFINITIONS['flight.ace'].value, race.raceTime);
+          if (maxCorridorDangerThisFlight[i] >= 0.38) {
+            honors.award('flight.clutch', i, HONOR_DEFINITIONS['flight.clutch'].value, race.raceTime);
+          }
+          if (state.speed >= 49.0) {
+            honors.award('flight.speed', i, HONOR_DEFINITIONS['flight.speed'].value, race.raceTime);
+          }
+          if (airBrakedThisFlight[i]) {
+            honors.award('airbrake.master', i, HONOR_DEFINITIONS['airbrake.master'].value, race.raceTime);
+          }
+          maxCorridorDangerThisFlight[i] = 0;
+          airBrakedThisFlight[i] = false;
         }
       }
     }
@@ -2453,6 +2509,18 @@ function step(dt: number, _t: number): void {
       if (!comebackAwarded[id] && previousHumanPlaces[id] > 3 && racer.place <= 3) {
         comebackAwarded[id] = true;
         honors.award('comeback.sailor', id, HONOR_DEFINITIONS['comeback.sailor'].value, race.raceTime);
+      }
+      if (racer.place === 1) {
+        const second = race.racers.find((r) => r.id !== id && r.place === 2);
+        if (second && racer.progress - second.progress >= 35) {
+          leadDominanceTimer[id] += dt;
+          if (leadDominanceTimer[id] >= 8.0 && !leadDominanceAwarded[id]) {
+            leadDominanceAwarded[id] = true;
+            honors.award('lead.dominance', id, HONOR_DEFINITIONS['lead.dominance'].value, race.raceTime);
+          }
+        } else {
+          leadDominanceTimer[id] = Math.max(0, leadDominanceTimer[id] - dt * 2);
+        }
       }
       previousHumanPlaces[id] = racer.place;
     }
@@ -2544,6 +2612,9 @@ function step(dt: number, _t: number): void {
       feedbackHaptics.cue('drift-ready');
     }
     if (state.flightCharges > edge.flightCharges) {
+      if (state.speed >= 36) {
+        honors.award('perfect.charge', seat, HONOR_DEFINITIONS['perfect.charge'].value, race.raceTime);
+      }
       audio.flightReady(state.flightCharges);
       seatCamera.flightReadyKick();
       seatPipeline.pulse('ready');
@@ -2558,6 +2629,10 @@ function step(dt: number, _t: number): void {
       feedbackHaptics.cue('extend');
     }
     if (state.boosting && !edge.boosting) {
+      if (maxDriftYawRateThisDrift[seat] >= 0.7 && state.speed >= 36) {
+        honors.award('drift.apex', seat, HONOR_DEFINITIONS['drift.apex'].value, race.raceTime);
+      }
+      maxDriftYawRateThisDrift[seat] = 0;
       seatPipeline.pulse('boost', 0.92);
       feedbackHaptics.cue('boost');
     }
