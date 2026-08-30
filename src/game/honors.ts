@@ -893,12 +893,13 @@ export class HonorTargetSystem {
       halo.layers.set(0);
       group.add(halo);
 
-      // Orbiting sparkle particles
+      // Orbiting sparkle particles and companion coin cluster in drift apexes
       const orbit = new THREE.Group();
       orbit.name = 'honor-orbit';
-      const orbitCount = 4;
+      const isApexCluster = index === 2 || index === 4 || index === 5;
+      const orbitCount = isApexCluster ? 6 : 4;
       for (let orbitIndex = 0; orbitIndex < orbitCount; orbitIndex++) {
-        const isCoinChip = orbitIndex % 2 === 0;
+        const isCoinChip = isApexCluster || orbitIndex % 2 === 0;
         const orb = new THREE.Mesh(
           isCoinChip ? coinMiniGeometry : coinGlintGeometry,
           isCoinChip ? coinRimMaterial : coinHighlightMaterial,
@@ -906,7 +907,9 @@ export class HonorTargetSystem {
         orb.name = isCoinChip ? 'honor-orbit-coin' : 'honor-coin-glint';
         orb.userData.noOutline = true;
         const angle = orbitIndex * (Math.PI * 2 / orbitCount);
-        orb.position.set(Math.cos(angle) * 2.0, 0.52 + Math.sin(angle * 1.3) * 0.28, Math.sin(angle) * 2.0);
+        const radius = isApexCluster ? 2.3 : 1.8;
+        orb.position.set(Math.cos(angle) * radius, 0.52 + Math.sin(angle * 1.3) * 0.28, Math.sin(angle) * radius);
+        if (isApexCluster) orb.scale.setScalar(1.25);
         orbit.add(orb);
       }
       group.add(orbit);
