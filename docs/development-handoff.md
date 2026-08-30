@@ -5,9 +5,9 @@
 
 ## 当前工作包
 
-- **PC 版男人勋章界面比例与下半屏布局优化（Desktop Macho Medal Ceremony Layout & Typography Polish）**：`hud.css`（`src/hud/hud.css`）深度优化桌面端男人勋章颁奖界面的纵向排版与字号层级。将大奖章与文本内容区以黄金比例平铺于视口中央与中下区域，放大 Kicker 副标（`16px`）、大标题（`58px~84px`）、大数字计数（`28px`）与动作大按钮（`196px × 52px`），底部添加呼吸光影底标，彻底消除 PC 屏幕下方大片空白与空旷感，营造端庄厚重的荣耀殿堂仪式感！
+- **PC 版男人勋章界面比例与超大气势按钮（Grand Desktop Macho Medal Layout & Epic Action Buttons）**：`hud.css`（`src/hud/hud.css`）深度优化桌面端男人勋章颁奖界面的纵向排版与字号层级。将大奖章与文本内容区以黄金比例平铺于视口中央与中下区域，放大 Kicker 副标（`16px`）、大标题（`58px~84px`）、大数字计数（`28px`），操作大按钮全面升级为超大气势规格（`250px × 64px`，`22px` 粗黑体 + 金黄/霓虹双色微光悬停缩放特效），底部配以呼吸光影底标，彻底消除 PC 屏幕下方空白空旷感，营造顶奢荣耀殿堂仪式感！
+- **起飞跳台大菱形与所有多余装饰彻底去除（Complete Removal of Launch Diamonds & Pure Mist Bridge Flight）**：`Course`（`src/game/course.ts`）彻底关闭了起飞跳台处的大菱形光环模型与所有多余的浮空装饰物。水面起飞区域 100% 还原为无遮挡纯净海面，由玩家凭肉眼观察白色的天际雾桥航道自主决定提前点火起飞！
 - **经典纯净 3D 黄金硬币与清脆 Bling 铃音（Classic Pure 3D Gold Coin & Snappy Crisp Chime）**：`HonorTargetSystem`（`src/game/honors.ts`）剔除所有繁琐杂乱的浮动环绕小币，回归单枚优雅自转的经典 3D 纯金大硬币；`AudioSystem`（`src/audio/audio.ts`）全面重构拾取音效为经典街机纯净双音晶莹铃音（B5 987.8Hz $\rightarrow$ E6 1318.5Hz），配合金属高频轻灵余音与 18m 弧线吸入座舱动画，干脆利落、欢快清爽！
-- **起飞跳台完全清空多余装饰（Clean & Pristine Skyway Takeoff Corridor）**：`Course`（`src/game/course.ts`）完全清除了起飞点所有多余的临时文字光标与翅膀装饰，保持赛道与云轨起飞视线 100% 纯净通透，等待后续全新设计。
 - **彻底清除所有离散引导与航路恢复白色三角箭头（Complete Purge of Stray White Triangles & Recovery Arrows）**：`Course`（`src/game/course.ts`）全面禁用了在通过各飞行门（尤其是第 7 门通过后）以及水面远端离散生成并随船只转向机械偏转的 `recoveryArrows` / `surfaceGuideArrows` 实例，彻底清除了在远端海天视野中孤立出现的白色三角箭头 Bug，赛道与空轨指引 100% 依托平滑纯净的流光缎带。
 - **7 条天际雾桥航道永久存在（Persistent Skyways & Cloud Mist Bridges）**：`Course`（`src/game/course.ts`）重构航道渲染可见性，废弃以往单航线排他隐藏策略。群岛上空的 7 道空中雾桥与穿云光门永久驻留于世界之中，未激活航线呈现通透纯净的“天际云轨”环境质感，当前航线则注入耀眼金色能量流。飞跃光门后回头看，浮空天轨依然巍峨伫立，空间纵深与世界观宏大感倍增。
 - **AI 飞行 100% 全量合规化（AI 100% Skybound Compliance）**：`AI`（`src/game/ai.ts`）强化起飞意愿与蓄能时机判定，确保所有 AI 艇在起飞跳台 100% 点火升空与玩家在云端咬尾竞技，彻底杜绝以往偶尔在水面空门下方“滑水作弊”导致的露馅出戏感。

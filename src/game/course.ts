@@ -3147,7 +3147,7 @@ export class Course implements ICourse {
         visual.deploy = 0;
         continue;
       }
-      visual.group.visible = true;
+      visual.group.visible = false;
       visual.deploy = Math.min(1, visual.deploy + dt / 0.35);
       const deploy = visual.deploy * visual.deploy * (3 - 2 * visual.deploy);
       const focus = 1 - THREE.MathUtils.clamp(state.launchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
@@ -3259,7 +3259,7 @@ export class Course implements ICourse {
         visual.deploy = 0;
         continue;
       }
-      visual.group.visible = true;
+      visual.group.visible = false;
       visual.deploy = Math.min(1, visual.deploy + dt / 0.35);
       const deploy = visual.deploy * visual.deploy * (3 - 2 * visual.deploy);
       const focus = 1 - THREE.MathUtils.clamp(this.playerLaunchGateDistanceM / LAUNCH_GATE_FOCUS_M, 0, 1);
