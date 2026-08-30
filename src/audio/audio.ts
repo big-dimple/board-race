@@ -648,10 +648,10 @@ export class GameAudio {
     const t = c.currentTime;
     const n = clamp01(thrust);
     this.flightPressure = clamp01(pressure);
-    this.flightClearance = clamp01(clearance / 4.5);
+    this.flightClearance = clamp01(clearance / 35.0);
     this.flightAirBrake = clamp01(airBrake);
     this.flightSteer = Math.max(-1, Math.min(1, steer));
-    const index = Math.max(0, Math.min(2, Math.floor(flightIndex)));
+    const index = Math.max(0, Math.min(6, Math.floor(flightIndex)));
     if (active !== this.flightActive) {
       this.flightActive = active;
       if (active) {
@@ -663,7 +663,7 @@ export class GameAudio {
     if (Math.abs(n - this.lastFlightThrust) > 0.004 || index !== this.lastFlightIndex) {
       this.lastFlightThrust = n;
       this.lastFlightIndex = index;
-      const harmonic = [1, 1.08, 1.15][index];
+      const harmonic = [1, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30][index] ?? 1;
       this.flightOsc.frequency.setTargetAtTime(92 + n * 78, t, 0.04);
       this.flightHarm.frequency.setTargetAtTime((276 + n * 190) * harmonic, t, 0.04);
       this.flightGain.gain.setTargetAtTime(active ? 0.055 + n * 0.17 : 0, t, active ? 0.025 : 0.16);

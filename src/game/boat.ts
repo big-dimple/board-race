@@ -94,14 +94,14 @@ const TUNING = {
 
   // -- earned anti-grav flight --
   flightSpool: 0.12,
-  flightAscend: 0.48,
+  flightAscend: 0.62,
   flightCruise: 5.10,
   flightExtension: 2.40,
-  flightDescend: 0.75,
-  flightClearance: 4.5,  // hull-root height above the live mean water surface
+  flightDescend: 0.88,
+  flightClearance: 20.0,  // hull-root height above the live mean water surface
   flightLandingLead: 0.45, // counter moving-wave lag so the landing envelope seats cleanly
   flightOmega: 9,        // critically damped vertical target tracking
-  flightAccelMax: 54,    // m/s², keeps a late launch from snapping vertically
+  flightAccelMax: 120,   // m/s², keeps elevated launch responsive and smooth
   flightDriveAccel: 22,
   flightDriveGain: 3.2,
   flightHardCap: 50,
@@ -1229,6 +1229,7 @@ export class Boat implements IBoat {
   private corridorPushX = 0;
   private corridorPushZ = 0;
   private flightTargetSpeed = 42;
+  private flightTargetClearance: number = TUNING.flightClearance;
   private flightRingActiveCount = 0;
   private flightPlumeLength = 0;
   private flightFlowDeflection = 0;
@@ -2200,12 +2201,13 @@ export class Boat implements IBoat {
     this.flapNodeR.rotation.z = this.flapRollR;
   }
 
-  beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void {
+  beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number, targetClearance?: number): void {
     const st = this.state;
     if (st.flightRouteState !== 'idle' || routeCursor !== st.flightRouteCursor || routeIndex < 0) return;
     st.flightRouteState = 'active';
     st.flightRouteIndex = routeIndex;
     this.flightTargetSpeed = clamp(targetSpeed, TUNING.topSpeed, TUNING.flightHardCap);
+    this.flightTargetClearance = targetClearance !== undefined ? targetClearance : TUNING.flightClearance;
     st.flightRouteFailReason = 'none';
     st.flightFailure = null;
     st.flightGateProgress = 0;
@@ -2660,17 +2662,17 @@ export class Boat implements IBoat {
     } else if (this.flightElapsed < cruiseAt) {
       phase = 'ascending';
       const p = smooth01((this.flightElapsed - ascendAt) / TUNING.flightAscend);
-      targetClearance = this.flightStartClearance + (TUNING.flightClearance - this.flightStartClearance) * p;
+      targetClearance = this.flightStartClearance + (this.flightTargetClearance - this.flightStartClearance) * p;
       thrust = 1;
     } else if (this.flightElapsed < descendAt) {
       phase = 'cruise';
-      targetClearance = TUNING.flightClearance;
+      targetClearance = this.flightTargetClearance;
       thrust = 0.72;
     } else {
       phase = 'descending';
       const p = smooth01((this.flightElapsed - descendAt) / TUNING.flightDescend);
       const landingTarget = -TUNING.draft - TUNING.flightLandingLead;
-      targetClearance = TUNING.flightClearance + (landingTarget - TUNING.flightClearance) * p;
+      targetClearance = this.flightTargetClearance + (landingTarget - this.flightTargetClearance) * p;
       thrust = 0.72 * (1 - p);
     }
 
@@ -2682,7 +2684,7 @@ export class Boat implements IBoat {
 
     const desiredY = surfaceY + targetClearance;
     if (firstFlightFrame) this.flightDesiredYPrev = desiredY;
-    const rawTargetVy = clamp((desiredY - this.flightDesiredYPrev) / Math.max(1e-4, dt), -14, 14);
+    const rawTargetVy = clamp((desiredY - this.flightDesiredYPrev) / Math.max(1e-4, dt), -42, 42);
     this.flightTargetVy += (rawTargetVy - this.flightTargetVy) * (1 - Math.exp(-18 * dt));
     this.flightDesiredYPrev = desiredY;
     const w = TUNING.flightOmega;

@@ -324,7 +324,7 @@ export interface IBoat {
   grantFlightCharge(): boolean;
   /** Apply a short surface boost when a technique target is hit at full charge. */
   activateTechniqueBoost(): void;
-  beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number): void;
+  beginFlightRouteAttempt(routeIndex: number, routeCursor: number, targetSpeed: number, targetClearance?: number): void;
   applyFlightGatePass(gateIndex: number): void;
   completeFlightRoute(routeIndex: number, routeCursor: number): void;
   settleFlightRoute(): void;

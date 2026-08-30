@@ -218,8 +218,8 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.1],
     nodes: [
       { u: 0.06, lateral: 0, height: 0 },
-      { u: 0.075, lateral: 0, height: 4.5 },
-      { u: 0.1, lateral: 0, height: 4.5 },
+      { u: 0.075, lateral: 0, height: 15.0 },
+      { u: 0.1, lateral: 0, height: 15.0 },
       { u: 0.115, lateral: 0, height: 0 },
     ],
     corridorHalfWidth: 6.5,
@@ -240,9 +240,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.3],
     nodes: [
       { u: 0.2462, lateral: 0, height: 0 },
-      { u: 0.262, lateral: 18, height: 4.5 },
-      { u: 0.2971, lateral: 41, height: 4.5 },
-      { u: 0.3, lateral: 23, height: 4.5 },
+      { u: 0.262, lateral: 18, height: 22.0 },
+      { u: 0.2971, lateral: 41, height: 24.0 },
+      { u: 0.3, lateral: 23, height: 22.0 },
       { u: 0.315, lateral: 0, height: 0 },
     ],
     corridorHalfWidth: 5.5,
@@ -266,9 +266,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.45],
     nodes: [
       { u: 0.39, lateral: 0, height: 0 },
-      { u: 0.404, lateral: 13, height: 4.5 },
-      { u: 0.419, lateral: 22, height: 4.5 },
-      { u: 0.435, lateral: 11, height: 4.5 },
+      { u: 0.404, lateral: 13, height: 16.0 },
+      { u: 0.419, lateral: 22, height: 18.0 },
+      { u: 0.435, lateral: 11, height: 16.0 },
       { u: 0.47, lateral: 0, height: 0 },
     ],
     corridorHalfWidth: 5,
@@ -293,9 +293,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.56],
     nodes: [
       { u: 0.515, lateral: 0, height: 0 },
-      { u: 0.535, lateral: 0, height: 4.5 },
-      { u: 0.55, lateral: 0, height: 4.5 },
-      { u: 0.565, lateral: 0, height: 4.5 },
+      { u: 0.535, lateral: 0, height: 22.0 },
+      { u: 0.55, lateral: 0, height: 25.0 },
+      { u: 0.565, lateral: 0, height: 22.0 },
       { u: 0.58, lateral: 0, height: 0 },
     ],
     corridorHalfWidth: 8,
@@ -329,9 +329,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.69875],
     nodes: [
       { u: 0.635, lateral: 0, height: 0 },
-      { u: 0.647, lateral: -15, height: 4.5 },
-      { u: 0.661, lateral: -28, height: 4.5 },
-      { u: 0.677, lateral: -11, height: 4.5 },
+      { u: 0.647, lateral: -15, height: 24.0 },
+      { u: 0.661, lateral: -28, height: 28.0 },
+      { u: 0.677, lateral: -11, height: 24.0 },
       { u: 0.72, lateral: 0, height: 0 },
     ],
     // The strongest lateral route needs a recovery funnel before its precise
@@ -361,9 +361,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.835],
     nodes: [
       { u: 0.775, lateral: 0, height: 0 },
-      { u: 0.788, lateral: 12, height: 4.5 },
-      { u: 0.803, lateral: 21, height: 4.5 },
-      { u: 0.819, lateral: 10, height: 4.5 },
+      { u: 0.788, lateral: 12, height: 28.0 },
+      { u: 0.803, lateral: 21, height: 32.0 },
+      { u: 0.819, lateral: 10, height: 28.0 },
       { u: 0.855, lateral: 0, height: 0 },
     ],
     corridorHalfWidth: 5,
@@ -387,9 +387,9 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     gateUs: [0.9575],
     nodes: [
       { u: 0.905, lateral: 0, height: 0 },
-      { u: 0.917, lateral: -3, height: 4.5 },
-      { u: 0.933, lateral: -6, height: 4.5 },
-      { u: 0.948, lateral: -3, height: 4.5 },
+      { u: 0.917, lateral: -3, height: 30.0 },
+      { u: 0.933, lateral: -6, height: 35.0 },
+      { u: 0.948, lateral: -3, height: 30.0 },
       { u: 0.975, lateral: 0, height: 0 },
     ],
     corridorHalfWidth: 5.5,
@@ -2391,7 +2391,7 @@ export class Course implements ICourse {
       const crossedChallengeEntry = surfaceU >= def.entryU - 0.001;
       if (flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
           (near.distance <= def.corridorHalfWidth || crossedChallengeEntry)) {
-        boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed);
+        boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed, def.nodes[1].height);
         this.flightDebug[id] = 'active';
         this.flightLatched[id] = routeIndex;
         this.flightOffCorridorT[id] = 0;
@@ -2408,7 +2408,7 @@ export class Course implements ICourse {
       if (!earnedEveryRoute && !flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
           _routeSample.distance < SURFACE_ROUTE_FAIL_DISTANCE_M &&
           surfaceU >= def.gateUs[0] - FLIGHT_GATE_BYPASS_U) {
-        boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed);
+        boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed, def.nodes[1].height);
         this.flightDebug[id] = 'no-launch';
         this.failFlight(boat, visual, 'no_launch', surfaceU, 1);
       }
@@ -3842,7 +3842,7 @@ export class Course implements ICourse {
     // gates are world-static. A 1.8m vertical radius absorbs wave elevation
     // without allowing a surface boat (roughly y <= 1.2m) through.
     const gates: FlightGate[] = [];
-    const gateHalfHeight = 1.8;
+    const gateHalfHeight = 2.4;
     for (let i = 0; i < def.gateUs.length; i++) {
       const u = def.gateUs[i];
       const center = this.routePointAt(def.id, u, new THREE.Vector3());
@@ -3853,19 +3853,20 @@ export class Course implements ICourse {
       gateGroup.name = `${def.id}-gate-${i + 1}`;
       gateGroup.position.copy(center);
       gateGroup.quaternion.setFromUnitVectors(forward, tangent3);
-      const pillarHeight = gateHalfHeight * 2 + 1.8;
+      const pillarTotalHeight = center.y + gateHalfHeight + 2.4;
+      const pillarCenterY = (gateHalfHeight + 0.8 - center.y - 1.2) * 0.5;
       const corePillars: THREE.Mesh[] = [];
       for (const side of [-1, 1]) {
         const spine = new THREE.Mesh(beamGeo, spineMat);
-        spine.position.set(side * (def.passHalfWidth + 0.42), 0, 0.18);
-        spine.scale.set(0.8, pillarHeight * 1.08, 0.28);
+        spine.position.set(side * (def.passHalfWidth + 0.42), pillarCenterY, 0.18);
+        spine.scale.set(0.8, pillarTotalHeight * 1.04, 0.28);
         const outer = new THREE.Mesh(pillarGeo, ringMat);
-        outer.position.set(side * (def.passHalfWidth + 0.52), 0, 0);
-        outer.scale.set(0.5, pillarHeight, 0.5);
+        outer.position.set(side * (def.passHalfWidth + 0.52), pillarCenterY, 0);
+        outer.scale.set(0.5, pillarTotalHeight, 0.5);
         const core = new THREE.Mesh(corePillarGeo, coreMat);
         corePillars.push(core);
         core.position.copy(outer.position);
-        core.scale.set(0.24, pillarHeight * 1.04, 0.24);
+        core.scale.set(0.24, pillarTotalHeight * 1.02, 0.24);
         gateGroup.add(spine, outer, core);
       }
       const beamSpine = new THREE.Mesh(beamGeo, spineMat);

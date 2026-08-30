@@ -5,6 +5,21 @@
 
 ## 当前工作包
 
+- **天际雾桥整体高度梯级提升至 15m–35m 与空中漫游系统重构（Skyway Elevation Overhaul: 15m–35m Tiered Flight Routes）**：
+  1. `Course`（`src/game/course.ts`）将全部 7 条飞行空轨由以往统一的 4.5m 贴水低空高架，重构为梯级攀升的壮阔天轨系统：
+     - 第 1 飞：**15.0m**（入门体验型空中大跳）
+     - 第 2 飞：**24.0m**（壮阔群岛全景大反弯，鸟瞰海面群艇）
+     - 第 3 飞：**18.0m**（空中连续 S 弯侧切）
+     - 第 4 飞：**25.0m**（跨海长程云端漫游）
+     - 第 5 飞：**28.0m**（大半径高速天轨回旋）
+     - 第 6 飞：**32.0m**（飞越中央海岛山巅山脊）
+     - 第 7 飞：**35.0m**（傲视 32m 巨型灯塔光柱，直冲积雨云海巅峰漫游）
+  2. `Boat`（`src/game/boat.ts`）与 `IBoat`（`src/contracts.ts`）引入动态 `flightTargetClearance`，爬升加速度上限提升至 `flightAccelMax: 120`，起飞爬升与着水俯冲时间优化（`flightAscend: 0.62s`, `flightDescend: 0.88s`），确保 60Hz 物理刚体平滑起跳、云端巡航与入水抛物线，杜绝高空失速与生硬顿挫；
+  3. `Course`（`src/game/course.ts`）升级光门为海面拔地而起的巨型穿云光柱，支撑立柱从高空光门一路扎入海面水体（$Y = 0$），世界纵深与建筑气势磅礴；
+  4. `CameraRig`（`src/game/chaseCamera.ts`）引入高空自适应后拉拉远（`altitudeBack`）与下俯角补偿（`FLIGHT_LOOK_GAIN = 0.68`），配合 FOV 动态呼吸扩展（`FLIGHT_FOV = [79..88]`），呈现如《马力欧卡丁车 8》与《F-Zero GX》般的震撼鹰眼鸟瞰海天视效；
+  5. `AudioSystem`（`src/audio/audio.ts`）高度归一化扩展至 35.0m，7 条空轨分配独立高空泛音层。
+- **中远景白色三角转向切入客观运行态证据文档导出（Objective Evidence Report Exported to /tmp）**：
+  将渲染场景树、`sea-decor-sails`（4 边形 `ConeGeometry` 纯白材质、环形分布 $R \in [96\text{m}, 240\text{m}]$ 随相机偏航旋转切入视野）的客观代码事实与坐标计算导出至 `/tmp/white_triangles_runtime_evidence.md`。
 - **金币拾取立体声空间化与晶莹和弦升级 + 超强长程磁吸（Coin Audio Spatial Panning & 34m Suction Magnet）**：
   1. `AudioSystem`（`src/audio/audio.ts`）重构金币拾取音效为四音阶晶莹清脆和弦（523Hz 击打底音 + B5/E6/G#6/C7 晶莹泛音）配合音乐引擎智能瞬态避让，并引入 Web Audio `StereoPannerNode` 空间声相支持；`src/main.ts` 根据双人分屏席位下发声相（左席 -0.45 / 右席 +0.45），彻底解决右屏听不见金币拾取音效的问题！
   2. `HonorTargetSystem`（`src/game/honors.ts`）磁吸范围由 18m 大幅强化至 **34m 长程磁吸** 与 **14m 全向近接磁吸**，飞行吸入速率提升至 0.26s 且自转速率提升至 36 rad/s，金币如飞燕还巢般流畅吸入座舱驾驶员头部！
