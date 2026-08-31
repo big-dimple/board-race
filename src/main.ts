@@ -1822,6 +1822,19 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     localInput.rumble(duoDevices[event.actorId], 0.55, 0.8, 60);
     duoViewportHud.finishTacticalMissileFeed(event.actorId, true);
     hud.showTransientNotice(`💥 巡航导弹精准命中！${target.name} 被冲击波轰飞升空 720° 剧烈翻滚！`, '精准打击得手', effectLane);
+
+    const inAir = boats[event.targetId].state.flightPhase !== 'surface' || boats[event.targetId].state.airborne;
+    if (inAir) {
+      highlightRecorder.tagEvent(
+        'crash_climax',
+        320,
+        race.raceTime,
+        '💥 我死了你也别想好过！',
+        '空中走廊遭遇核弹级背刺 · 华丽坠毁同归于尽',
+        '🎪 喜剧之神',
+        '[ EX · 喜剧之神 ]',
+      );
+    }
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-miss') {
     audio.splash(2.8); // Roaring underwater eruption blast

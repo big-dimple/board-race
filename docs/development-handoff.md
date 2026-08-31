@@ -1,8 +1,12 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“战术导弹 90% 精确打击与 50% 漂移规避豁免、近失弹冲天水柱巨浪与火光特效拉满、静止导轨点火起飞与上帝天眼高塔全局高光重构（Tactical Missile 90% Precision & 50% Drift Evasion, Near-Miss Geyser & Fireball VFX Maxed, Static Rail Ignition & God's-Eye Sky Tower Highlights）”。
+状态：主分支当前工作包已圆满交付“空中走廊背刺坠击专属高光字幕【我死了你也别想好过！】、全面统一猛男勋章质感字体、90% 战术导弹精确打击与 50% 漂移规避、近失弹冲天水柱巨浪与上帝天眼高塔高光（Iconic Air Corridor Defeat Highlight Quote, Macho Medal Typography, Tactical Missile 90% Precision & God's-Eye Skycam）”。
 
 ## 当前工作包
+
+- **空中走廊击中与坠毁专属高光字幕（Air Corridor Climax Highlight Quote & Macho Typography）**：
+  1. **标志性高光台词与喜剧效果拉满**：在空中走廊/飞行阶段被导弹击落或坠毁时，高光回放以最高优先级自动生成并呈现专属喜剧之神大字幕：`💥 我死了你也别想好过！`（副标题：`空中走廊遭遇核弹级背刺 · 华丽坠击同归于尽`，评级：`[ EX · 喜剧之神 ]`）；
+  2. **全面替换消除刺眼的蓝+黑外影**：高光横幅与 HUD 互动通知彻底告别模糊重影与蓝黑双重光晕，全面对齐“猛男勋章”级的高质感排版：硬朗暗色描边（`0 4px 0 rgba(12, 12, 37, 0.95)`）+ 温暖金色环境光晕（`0 0 36px rgba(255, 207, 74, 0.7)`）+ 斜体加粗醒目字体设计。
 
 - **战术巡航导弹 90% 精准打击与 50% 漂移规避豁免（Tactical Cruise Missile 90% Precision & 50% Drift Evasion）**：
   1. **90% 基础精确打击 + 50% 漂移规避豁免**：目标未处于漂移状态时（无论是直行冲刺、空中腾空还是任意飞行姿态），一律 90% 绝对精确轰炸打击；唯有在海面上持续保持高速极限漂移时，享有 50% 规避豁免（命中率降至 45%）；

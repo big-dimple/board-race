@@ -157,16 +157,25 @@ export class HighlightRecorder {
   }
 
   tagDefeat(failure: FlightFailureSnapshot | null | undefined, time: number, speed: number): void {
-    // Only used as fallback if player performed zero positive stunts throughout the entire run
-    if (this.peakStuntScore < 40) {
-      const speedKmh = Math.round(speed * 3.6);
-      this.peakStuntScore = 40;
+    // If defeat happened during flight corridor, trigger iconic comedy climax quote
+    const isFlightCorridor = failure !== null && failure !== undefined;
+    const score = isFlightCorridor ? 260 : 40;
+    if (score >= this.peakStuntScore) {
+      this.peakStuntScore = score;
       this.peakStuntTime = Math.max(0, time - 0.6);
       this.peakStuntKind = 'crash_climax';
-      this.peakStuntTitle = `💥 弹力四射 · ${speedKmh} km/h 极限回弹 720°`;
-      this.peakStuntDetail = '高强度防撞橡胶梁拉满 · 经典喜剧弹射';
-      this.peakStuntBadge = '🎪 喜剧之王';
-      this.peakStuntRating = '[ EX · 喜剧之王 ]';
+      if (isFlightCorridor) {
+        this.peakStuntTitle = '💥 我死了你也别想好过！';
+        this.peakStuntDetail = '空中走廊遭遇极限坠毁 · 华丽翻车喜剧效果拉满';
+        this.peakStuntBadge = '🎪 喜剧之神';
+        this.peakStuntRating = '[ EX · 喜剧之神 ]';
+      } else {
+        const speedKmh = Math.round(speed * 3.6);
+        this.peakStuntTitle = `💥 弹力四射 · ${speedKmh} km/h 极限回弹 720°`;
+        this.peakStuntDetail = '高强度防撞橡胶梁拉满 · 经典喜剧弹射';
+        this.peakStuntBadge = '🎪 喜剧之王';
+        this.peakStuntRating = '[ EX · 喜剧之王 ]';
+      }
     }
   }
 

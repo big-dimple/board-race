@@ -991,6 +991,26 @@
   text-shadow: 2px 2px 0 var(--ink);
 }
 
+.hud-impact[data-kind='duo-interaction'] .hud-impact-kicker {
+  font-size: clamp(28px, 4.5vw, 48px);
+  color: #ffcf4a;
+  text-shadow: 0 4px 0 rgba(12, 12, 37, 0.95), 0 0 32px rgba(255, 207, 74, 0.65);
+}
+
+.hud-impact[data-kind='duo-interaction'] .hud-impact-title {
+  margin-top: 6px;
+  font-size: clamp(20px, 3.2vw, 32px);
+  color: #ffffff;
+  text-shadow: 0 3px 0 rgba(12, 12, 37, 0.95), 0 0 20px rgba(255, 207, 74, 0.45);
+}
+
+.hud-impact[data-kind='duo-interaction'] .hud-impact-detail {
+  margin-top: 6px;
+  font-size: clamp(13px, 1.8vw, 18px);
+  color: #ffcf4a;
+  text-shadow: 0 2px 6px rgba(12, 12, 37, 0.95);
+}
+
 .hud-impact[data-kind='drift'] .hud-impact-kicker,
 .hud-impact[data-kind='gate'] .hud-impact-kicker {
   font-size: 34px;
