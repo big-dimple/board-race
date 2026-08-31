@@ -92,7 +92,9 @@ export class DuoInteractionController {
   }));
   private readonly projectileVisuals: Array<{
     group: THREE.Group;
+    body: THREE.Group;
     trail: THREE.Line;
+    blastPlume: THREE.Mesh;
     flame: THREE.Mesh;
     flameCore: THREE.Mesh;
     flameOuter?: THREE.Mesh;
@@ -265,6 +267,9 @@ export class DuoInteractionController {
     }
     this.object.add(this.launchComplexGroup);
 
+    const blastPlumeGeo = new THREE.SphereGeometry(1.4, 12, 12);
+    const blastPlumeMat = new THREE.MeshBasicMaterial({ color: 0xff6611, transparent: true, opacity: 0.95, toneMapped: false });
+
     // Active in-flight missile visual projectiles
     for (let index = 0; index < MAX_PROJECTILES; index++) {
       const group = new THREE.Group();
@@ -277,10 +282,21 @@ export class DuoInteractionController {
       const trail = new THREE.Line(trailGeometry, trailMat);
       trail.frustumCulled = false;
 
-      group.add(trail, missileMeshGroup);
+      const blastPlume = new THREE.Mesh(blastPlumeGeo, blastPlumeMat.clone());
+      blastPlume.visible = false;
+
+      group.add(trail, missileMeshGroup, blastPlume);
       group.visible = false;
       this.object.add(group);
-      this.projectileVisuals.push({ group, trail, flame: flame!, flameCore: flameCore!, flameOuter });
+      this.projectileVisuals.push({
+        group,
+        body: missileMeshGroup,
+        trail,
+        blastPlume,
+        flame: flame!,
+        flameCore: flameCore!,
+        flameOuter,
+      });
     }
   }
 
@@ -541,7 +557,7 @@ export class DuoInteractionController {
           targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 18.5);
           emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
         } else {
-          targetBoat.applyCollisionResponse(0, 0, sideX * 0.4, sideZ * 0.4);
+          targetBoat.applyScudNearMiss(shot.x, shot.z, sideX * 0.75, sideZ * 0.75);
           emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
         }
         shot.isDwell = true;
@@ -553,8 +569,25 @@ export class DuoInteractionController {
 
   private syncProjectileVisual(index: number, shot: (typeof this.projectileState)[number]): void {
     const visual = this.projectileVisuals[index];
-    visual.group.visible = shot.active && !shot.isDwell;
-    if (!shot.active || shot.isDwell) return;
+    visual.group.visible = shot.active;
+    if (!shot.active) return;
+
+    if (shot.isDwell) {
+      // Dynamic water surface fireball & geyser plume expansion during dwell
+      visual.body.visible = false;
+      visual.trail.visible = false;
+      visual.blastPlume.visible = true;
+      const progress = 1 - shot.dwellTimer / 0.65;
+      const scale = 1.2 + progress * 8.5;
+      visual.blastPlume.scale.set(scale, scale * 1.8, scale);
+      visual.blastPlume.position.set(shot.x, Math.max(0.6, shot.y), shot.z);
+      (visual.blastPlume.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - progress * 1.15);
+      return;
+    }
+
+    visual.body.visible = true;
+    visual.trail.visible = true;
+    visual.blastPlume.visible = false;
     visual.group.position.set(shot.x, shot.y, shot.z);
 
     // Orient missile directly along 3D velocity vector in world space

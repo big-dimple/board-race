@@ -1824,10 +1824,15 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     hud.showTransientNotice(`💥 巡航导弹精准命中！${target.name} 被冲击波轰飞升空 720° 剧烈翻滚！`, '精准打击得手', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-miss') {
-    audio.splash(1.2);
-    audio.teamSpatialCue(targetSide, 'relay');
+    audio.splash(2.8); // Roaring underwater eruption blast
+    targetPipeline.pulse('lost', 1.15); // Fiery orange shockwave flash on target screen
+    audio.teamSpatialCue(targetSide, 'impact');
+    if (event.targetId === 0) teamLeftCameraRig.shake(0.75);
+    else if (event.targetId === 1) teamRightCameraRig.shake(0.75);
+    localInput.rumble(duoDevices[event.targetId], 0.85, 0.75, 75);
+    localInput.rumble(duoDevices[event.actorId], 0.45, 0.6, 50);
     duoViewportHud.finishTacticalMissileFeed(event.actorId, false);
-    hud.showTransientNotice(`💨 极限漂移机动生效！${target.name} 成功豁免规避战术导弹打击！`, '极限规避得手', effectLane);
+    hud.showTransientNotice(`💥 惊魂一刻！战术导弹紧贴侧舷炸裂 · 冲天水柱巨浪与 ${target.name} 擦肩而过！`, '极限规避脱靶', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-miss', actor: actor.id, target: target.id });
   }
 }

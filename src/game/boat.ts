@@ -2643,6 +2643,17 @@ export class Boat implements IBoat {
     this.spray.burst(this.object.position, 80, 22.0);
   }
 
+  applyScudNearMiss(waterPointX: number, waterPointZ: number, impulseX: number, impulseZ: number): void {
+    _v2.set(waterPointX, 0, waterPointZ);
+    // Massive 100-particle water geyser eruption with 26.0m splash radius
+    this.spray.burst(_v2, 100, 26.0);
+    // Lateral blast wave jolt without killing boat forward momentum
+    this.velX += impulseX;
+    this.velZ += impulseZ;
+    this.roll = clamp(this.roll + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.045, -0.75, 0.75);
+    this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.035, -2.8, 2.8);
+  }
+
   /** Deterministic collision-harness hook. Gameplay never calls this method. */
   setCollisionTestMotion(x: number, z: number, heading: number, velX: number, velZ: number, y = 0): void {
     this.object.position.set(x, y, z);

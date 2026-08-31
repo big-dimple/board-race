@@ -344,6 +344,8 @@ export interface IBoat {
   applyCollisionResponse(correctionX: number, correctionZ: number, impulseX: number, impulseZ: number): void;
   /** Apply comical Scud missile nuclear strike: vertical air blast + 720° spin tumble along inertia. */
   applyScudHit(impulseX: number, impulseZ: number, verticalPop?: number): void;
+  /** Apply near-miss water surface blast shockwave and massive water geyser eruption. */
+  applyScudNearMiss(waterPointX: number, waterPointZ: number, impulseX: number, impulseZ: number): void;
 }
 
 export interface IWake {
