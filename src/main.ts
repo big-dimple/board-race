@@ -1870,8 +1870,8 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
         'crash_climax',
         320,
         race.raceTime,
-        '💥 我死了你也别想好过！',
-        '空中走廊遭遇核弹级背刺 · 华丽坠毁同归于尽',
+        '💥 我挂了你也别想好过！',
+        '空中走廊遭遇核弹级背刺 · 华丽翻车同归于尽',
         '🎪 喜剧之神',
         '[ EX · 喜剧之神 ]',
       );
@@ -3080,7 +3080,7 @@ function step(dt: number, _t: number): void {
         race.challengeResult.ordinaryNew = ordinaryNewThisRun;
         records.decorateResult(race.challengeResult, pendingFailureNewBest, medalEarnedThisRun);
       }
-      highlightRecorder.tagDefeat(race.challengeResult?.failure, race.raceTime, boats[0].state.speed);
+      highlightRecorder.tagDefeat(race.challengeResult?.failure, race.raceTime, boats[0].state.speed, isDuoMode());
       defeatFreezeTimer = DEFEAT_FREEZE_S;
       retryLessonFrozenT = worldTime;
       input.reset();

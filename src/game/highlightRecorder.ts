@@ -153,7 +153,7 @@ export class HighlightRecorder {
     } else if (p.drifting && Math.abs(p.lateralG) > 9) {
       const score = 170 + Math.min(40, Math.abs(p.lateralG) * 2.5);
       if (score > this.peakStuntScore) {
-        this.tagEvent('apex_drift', score, time, `🏎️ 极限贴弯 · 完美弯心过弯`, '死死咬住弯心 · 侧舷水花漫天', '⚡ 弯心狂鲨', '[ SS · 破浪狂鲨 ]');
+        this.tagEvent('apex_drift', score, time, `🏎️ 极限贴弯 · 完美弯心过弯`, '牢牢咬住弯心 · 侧舷水花漫天', '⚡ 弯心狂鲨', '[ SS · 破浪狂鲨 ]');
       }
     }
 
@@ -181,16 +181,21 @@ export class HighlightRecorder {
     }
   }
 
-  tagDefeat(failure: FlightFailureSnapshot | null | undefined, time: number, speed: number): void {
+  tagDefeat(failure: FlightFailureSnapshot | null | undefined, time: number, speed: number, isDuo = false): void {
     const isFlightCorridor = failure !== null && failure !== undefined;
     const score = isFlightCorridor ? 280 : 40;
     if (score >= this.peakStuntScore) {
       this.peakStuntScore = score;
       this.peakStuntTime = Math.max(0, time - 0.8);
       this.peakStuntKind = 'crash_climax';
-      if (isFlightCorridor) {
-        this.peakStuntTitle = '💥 我死了你也别想好过！';
-        this.peakStuntDetail = '空中走廊遭遇极限坠毁 · 华丽翻车喜剧效果拉满';
+      if (isDuo && isFlightCorridor) {
+        this.peakStuntTitle = '💥 我挂了你也别想好过！';
+        this.peakStuntDetail = '空中走廊遭遇核弹级背刺 · 华丽翻车同归于尽';
+        this.peakStuntBadge = '🎪 喜剧之神';
+        this.peakStuntRating = '[ EX · 喜剧之神 ]';
+      } else if (isFlightCorridor) {
+        this.peakStuntTitle = '💥 极限空翻 · 华丽翻车！';
+        this.peakStuntDetail = '空中走廊极限翻车 · 华丽姿态喜剧拉满';
         this.peakStuntBadge = '🎪 喜剧之神';
         this.peakStuntRating = '[ EX · 喜剧之神 ]';
       } else {

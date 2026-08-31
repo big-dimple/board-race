@@ -1,8 +1,14 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“双模导弹体系（霸气战斧巡航 vs 超萌Q版大眼鲨鱼导弹）、移除红线提线木偶、修复空中飞被豁免Bug、全场赛艇多船同步录像与 7.5 秒电竞广播高光（Dual-Style Missile System, Trail Removed, Air Exemption Bug Fixed & Multi-Boat 7.5s Highlights）”。
+状态：主分支当前工作包已圆满交付“单人/双人高光台词语境区分（单人极限空翻 vs 双打【我挂了你也别想好过！】）、忌讳字修正为【挂】、双模导弹体系与 7.5 秒电竞广播高光（Contextual Defeat Quotes Solo vs Duo, Taboo Word Fix & Dual-Style Missiles）”。
 
 ## 当前工作包
+
+- **单人/双人高光台词语境区分与忌讳字修正（Contextual Defeat Quotes & Friendly Wording）**：
+  1. **区分单人模式与双人对抗模式**：
+     - **双打对抗背刺/导弹击落时**：呈现复仇爆笑台词 `💥 我挂了你也别想好过！`（副标题：`空中走廊遭遇核弹级背刺 · 华丽翻车同归于尽`，评级：`[ EX · 喜剧之神 ]`）；
+     - **单人模式空中失误/坠毁时**：杜绝无对手语境下的“你”，呈现契合单人狂飙的 `💥 极限空翻 · 华丽翻车！`（副标题：`空中走廊极限翻车 · 华丽姿态喜剧拉满`，评级：`[ EX · 喜剧之神 ]`）；
+  2. **全面替换不吉利的字眼**：将所有高光文案中的“死”字全面替换为更接地气、喜感友好的“挂”与“翻车”，如“我挂了你也别想好过！”、“牢牢咬住弯心”。
 
 - **双模导弹体系与命中机制修缮（Dual-Style Missiles & True Water Drift Hit Logic）**：
   1. **双模导弹体系交替发射（Dual-Style Missiles）**：
