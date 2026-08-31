@@ -86,10 +86,10 @@ export class DuoKickstartGuide {
                 <div class="duo-step-badge duo-badge-scud">4</div>
                 <div class="duo-step-body">
                   <div class="duo-step-top">
-                    <strong class="duo-step-title">💥 淘汰整蛊 · 飞毛腿</strong>
+                    <strong class="duo-step-title">💥 淘汰整蛊 · 巡航导弹</strong>
                     <div class="duo-step-key duo-key-scud-left">--</div>
                   </div>
-                  <p class="duo-step-copy">不幸坠海切入导弹第一视角！锁定对手发射超音速飞毛腿（90% 致命命中+720°腾空）或支援队友电池。</p>
+                  <p class="duo-step-copy">不幸坠海切入导弹第一视角！锁定对手发射超音速巡航导弹（60% 致命命中+720°腾空）或支援队友电池。</p>
                 </div>
               </div>
             </div>
@@ -146,10 +146,10 @@ export class DuoKickstartGuide {
                 <div class="duo-step-badge duo-badge-scud">4</div>
                 <div class="duo-step-body">
                   <div class="duo-step-top">
-                    <strong class="duo-step-title">💥 淘汰整蛊 · 飞毛腿</strong>
+                    <strong class="duo-step-title">💥 淘汰整蛊 · 巡航导弹</strong>
                     <div class="duo-step-key duo-key-scud-right">--</div>
                   </div>
-                  <p class="duo-step-copy">不幸坠海切入导弹第一视角！锁定对手发射超音速飞毛腿（90% 致命命中+720°腾空）或支援队友电池。</p>
+                  <p class="duo-step-copy">不幸坠海切入导弹第一视角！锁定对手发射超音速巡航导弹（60% 致命命中+720°腾空）或支援队友电池。</p>
                 </div>
               </div>
             </div>

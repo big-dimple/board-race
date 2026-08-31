@@ -93,7 +93,7 @@ export class DuoInteractionController {
     trail: THREE.Line;
     flame: THREE.Mesh;
     flameCore: THREE.Mesh;
-    smokeRing: THREE.Mesh;
+    flameOuter?: THREE.Mesh;
   }> = [];
 
   private readonly activeMissileScratch: ActiveMissileInfo = {
@@ -112,93 +112,107 @@ export class DuoInteractionController {
     this.object = new THREE.Group();
     this.object.name = 'duo-interaction-projectiles';
 
-    // Realistic Scud-B / tactical ballistic missile materials
-    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x2e3d2e, toneMapped: false }); // Heavy olive military drab
-    const warheadMat = new THREE.MeshBasicMaterial({ color: 0xd62828, toneMapped: false }); // High-visibility crimson warhead
-    const seekerMat = new THREE.MeshBasicMaterial({ color: 0x111618, toneMapped: false }); // Infrared seeker dome
-    const finMat = new THREE.MeshBasicMaterial({ color: 0x181c18, toneMapped: false }); // Gunmetal dark fins
-    const bandMat = new THREE.MeshBasicMaterial({ color: 0xffd020, toneMapped: false }); // Hazard yellow caution band
-    const blackBandMat = new THREE.MeshBasicMaterial({ color: 0x111111, toneMapped: false });
-    const nozzleMat = new THREE.MeshBasicMaterial({ color: 0x222222, toneMapped: false });
-    const gantryMat = new THREE.MeshBasicMaterial({ color: 0x2c333a, toneMapped: false }); // Gantry frame steel
-    const padBaseMat = new THREE.MeshBasicMaterial({ color: 0x181d22, toneMapped: false }); // Concrete pad
+    // Realistic Military Tactical Cruise / Ballistic Missile materials
+    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x222629, toneMapped: false }); // Matte military gunmetal / graphite
+    const noseMat = new THREE.MeshBasicMaterial({ color: 0x14181a, toneMapped: false }); // Titanium radome
+    const seekerMat = new THREE.MeshBasicMaterial({ color: 0x050708, toneMapped: false }); // Infrared seeker dome
+    const finMat = new THREE.MeshBasicMaterial({ color: 0x181c1f, toneMapped: false }); // High-strength carbon-titanium fins
+    const actuatorMat = new THREE.MeshBasicMaterial({ color: 0x33393f, toneMapped: false }); // Hydraulic actuator pods
+    const bandMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, toneMapped: false }); // Tactical hazard yellow stripe
+    const blackBandMat = new THREE.MeshBasicMaterial({ color: 0x0e1012, toneMapped: false }); // Tactical black chevron stripe
+    const nozzleMat = new THREE.MeshBasicMaterial({ color: 0x151515, toneMapped: false }); // Rocket motor nozzle
+    const gantryMat = new THREE.MeshBasicMaterial({ color: 0x282e34, toneMapped: false }); // Gantry frame steel
+    const padBaseMat = new THREE.MeshBasicMaterial({ color: 0x15181c, toneMapped: false }); // Concrete launch pad
     const flameCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.98, toneMapped: false });
-    const flameMat = new THREE.MeshBasicMaterial({ color: PALETTE.sunFlare, transparent: true, opacity: 0.88, toneMapped: false });
-    const trailMat = new THREE.LineBasicMaterial({ color: 0xffe0a0, transparent: true, opacity: 0.88, toneMapped: false });
-    const smokeRingMat = new THREE.MeshBasicMaterial({ color: 0xdddddd, transparent: true, opacity: 0.72, toneMapped: false });
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.92, toneMapped: false });
+    const flameOuterMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.75, toneMapped: false });
+    const trailMat = new THREE.LineBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.88, toneMapped: false });
 
-    const bodyGeo = new THREE.CylinderGeometry(0.25, 0.25, 2.6, 12);
+    // Sleek aerodynamic military missile fuselage
+    const bodyGeo = new THREE.CylinderGeometry(0.22, 0.22, 2.8, 12);
     bodyGeo.rotateX(Math.PI / 2);
-    const warheadGeo = new THREE.ConeGeometry(0.25, 1.05, 12);
+    const warheadGeo = new THREE.ConeGeometry(0.22, 1.15, 12);
     warheadGeo.rotateX(Math.PI / 2);
-    const seekerGeo = new THREE.SphereGeometry(0.08, 8, 8);
-    const bandGeo = new THREE.CylinderGeometry(0.255, 0.255, 0.16, 12);
+    const seekerGeo = new THREE.SphereGeometry(0.07, 8, 8);
+    const bandGeo = new THREE.CylinderGeometry(0.225, 0.225, 0.14, 12);
     bandGeo.rotateX(Math.PI / 2);
-    const blackBandGeo = new THREE.CylinderGeometry(0.256, 0.256, 0.08, 12);
+    const blackBandGeo = new THREE.CylinderGeometry(0.226, 0.226, 0.07, 12);
     blackBandGeo.rotateX(Math.PI / 2);
 
-    // Front canard strakes
-    const canardGeo = new THREE.BoxGeometry(0.03, 0.24, 0.32);
-    // Rear stabilization delta fins
-    const finGeo = new THREE.BoxGeometry(0.04, 0.68, 0.52);
+    // Aerodynamic titanium forward canards (swept trapezoidal)
+    const canardGeo = new THREE.BoxGeometry(0.025, 0.28, 0.36);
+    // Rear cruciform delta stabilization control fins
+    const finGeo = new THREE.BoxGeometry(0.035, 0.72, 0.58);
+    const actuatorGeo = new THREE.BoxGeometry(0.08, 0.08, 0.28);
 
-    const nozzleGeo = new THREE.CylinderGeometry(0.15, 0.22, 0.38, 10);
+    const nozzleGeo = new THREE.CylinderGeometry(0.14, 0.20, 0.42, 10);
     nozzleGeo.rotateX(Math.PI / 2);
-    const flameCoreGeo = new THREE.ConeGeometry(0.12, 1.35, 8);
+    const flameCoreGeo = new THREE.ConeGeometry(0.10, 1.45, 8);
     flameCoreGeo.rotateX(-Math.PI / 2);
-    const flameGeo = new THREE.ConeGeometry(0.22, 2.1, 8);
+    const flameGeo = new THREE.ConeGeometry(0.19, 2.35, 8);
     flameGeo.rotateX(-Math.PI / 2);
-    const ringGeo = new THREE.TorusGeometry(0.95, 0.09, 6, 16);
+    const flameOuterGeo = new THREE.ConeGeometry(0.28, 3.1, 8);
+    flameOuterGeo.rotateX(-Math.PI / 2);
 
-    const buildScudModel = (includePlume: boolean): { group: THREE.Group; flame?: THREE.Mesh; flameCore?: THREE.Mesh } => {
+    const buildScudModel = (includePlume: boolean): { group: THREE.Group; flame?: THREE.Mesh; flameCore?: THREE.Mesh; flameOuter?: THREE.Mesh } => {
       const missileMeshGroup = new THREE.Group();
       missileMeshGroup.name = 'scud-body';
 
       const fuselage = new THREE.Mesh(bodyGeo, bodyMat);
-      const warhead = new THREE.Mesh(warheadGeo, warheadMat);
-      warhead.position.z = 1.75;
+      const warhead = new THREE.Mesh(warheadGeo, noseMat);
+      warhead.position.z = 1.85;
       const seeker = new THREE.Mesh(seekerGeo, seekerMat);
-      seeker.position.z = 2.3;
+      seeker.position.z = 2.45;
 
       const bandYellow = new THREE.Mesh(bandGeo, bandMat);
-      bandYellow.position.z = 0.85;
+      bandYellow.position.z = 0.95;
       const bandBlack = new THREE.Mesh(blackBandGeo, blackBandMat);
-      bandBlack.position.z = 0.85;
+      bandBlack.position.z = 0.95;
 
       const nozzle = new THREE.Mesh(nozzleGeo, nozzleMat);
-      nozzle.position.z = -1.45;
+      nozzle.position.z = -1.55;
 
       for (let c = 0; c < 4; c++) {
         const canard = new THREE.Mesh(canardGeo, finMat);
-        canard.position.z = 0.45;
+        canard.position.z = 0.65;
         canard.rotation.z = (c * Math.PI) / 2;
-        if (c % 2 === 0) canard.position.y = (c === 0 ? 0.28 : -0.28);
-        else canard.position.x = (c === 1 ? 0.28 : -0.28);
+        if (c % 2 === 0) canard.position.y = (c === 0 ? 0.26 : -0.26);
+        else canard.position.x = (c === 1 ? 0.26 : -0.26);
         missileMeshGroup.add(canard);
       }
 
       for (let f = 0; f < 4; f++) {
         const fin = new THREE.Mesh(finGeo, finMat);
-        fin.position.z = -1.05;
+        fin.position.z = -1.15;
         fin.rotation.z = (f * Math.PI) / 2;
-        if (f % 2 === 0) fin.position.y = (f === 0 ? 0.42 : -0.42);
-        else fin.position.x = (f === 1 ? 0.42 : -0.42);
-        missileMeshGroup.add(fin);
+        if (f % 2 === 0) fin.position.y = (f === 0 ? 0.44 : -0.44);
+        else fin.position.x = (f === 1 ? 0.44 : -0.44);
+
+        const actuator = new THREE.Mesh(actuatorGeo, actuatorMat);
+        actuator.position.z = -1.15;
+        actuator.rotation.z = (f * Math.PI) / 2;
+        if (f % 2 === 0) actuator.position.y = (f === 0 ? 0.22 : -0.22);
+        else actuator.position.x = (f === 1 ? 0.22 : -0.22);
+
+        missileMeshGroup.add(fin, actuator);
       }
 
       missileMeshGroup.add(fuselage, warhead, seeker, bandYellow, bandBlack, nozzle);
 
       let flameMesh: THREE.Mesh | undefined;
       let flameCoreMesh: THREE.Mesh | undefined;
+      let flameOuterMesh: THREE.Mesh | undefined;
       if (includePlume) {
         flameCoreMesh = new THREE.Mesh(flameCoreGeo, flameCoreMat);
-        flameCoreMesh.position.z = -2.15;
+        flameCoreMesh.position.z = -2.25;
         flameMesh = new THREE.Mesh(flameGeo, flameMat);
-        flameMesh.position.z = -2.55;
-        missileMeshGroup.add(flameCoreMesh, flameMesh);
+        flameMesh.position.z = -2.70;
+        flameOuterMesh = new THREE.Mesh(flameOuterGeo, flameOuterMat);
+        flameOuterMesh.position.z = -3.10;
+        missileMeshGroup.add(flameCoreMesh, flameMesh, flameOuterMesh);
       }
 
-      return { group: missileMeshGroup, flame: flameMesh, flameCore: flameCoreMesh };
+      return { group: missileMeshGroup, flame: flameMesh, flameCore: flameCoreMesh, flameOuter: flameOuterMesh };
     };
 
     // Construct static launch gantry battery at lighthouse reef base
@@ -253,20 +267,17 @@ export class DuoInteractionController {
       const group = new THREE.Group();
       group.name = `duo-interaction-scud-${index + 1}`;
 
-      const { group: missileMeshGroup, flame, flameCore } = buildScudModel(true);
-
-      const smokeRing = new THREE.Mesh(ringGeo, smokeRingMat);
-      smokeRing.rotation.x = Math.PI / 2;
+      const { group: missileMeshGroup, flame, flameCore, flameOuter } = buildScudModel(true);
 
       const trailGeometry = new THREE.BufferGeometry();
       trailGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(16 * 3), 3));
       const trail = new THREE.Line(trailGeometry, trailMat);
       trail.frustumCulled = false;
 
-      group.add(trail, smokeRing, missileMeshGroup);
+      group.add(trail, missileMeshGroup);
       group.visible = false;
       this.object.add(group);
-      this.projectileVisuals.push({ group, trail, flame: flame!, flameCore: flameCore!, smokeRing });
+      this.projectileVisuals.push({ group, trail, flame: flame!, flameCore: flameCore!, flameOuter });
     }
   }
 
@@ -481,23 +492,23 @@ export class DuoInteractionController {
       const hitDistVert = Math.abs(targetBoat.state.position.y - shot.y);
       if (hitDistHoriz <= PRANK_HIT_RADIUS && hitDistVert <= 3.8) {
         if (isSafeSurfaceWindow(targetBoat)) {
-          // 90% Lethal Hit Rate
-          const isHit = Math.random() < 0.90;
+          // 60% Lethal Hit Rate with massive explosion launch
+          const isHit = Math.random() < 0.60;
           if (isHit) {
             const heading = targetBoat.state.heading;
-            const forwardX = Math.sin(heading) * PRANK_IMPULSE;
-            const forwardZ = Math.cos(heading) * PRANK_IMPULSE;
+            const forwardX = Math.sin(heading) * PRANK_IMPULSE * 2.2;
+            const forwardZ = Math.cos(heading) * PRANK_IMPULSE * 2.2;
             const sideSign = ((shot.actorId + Math.round(shot.age * 10)) % 2 === 0) ? 1 : -1;
-            const sideX = sideSign * Math.cos(heading) * 1.2;
-            const sideZ = sideSign * -Math.sin(heading) * 1.2;
-            targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 9.0);
+            const sideX = sideSign * Math.cos(heading) * 4.2;
+            const sideZ = sideSign * -Math.sin(heading) * 4.2;
+            targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 14.5);
             emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
             shot.isDwell = true;
-            shot.dwellTimer = 0.5; // 0.5s dwell for dramatic explosion viewing
+            shot.dwellTimer = 0.55; // 0.55s dwell for dramatic explosion viewing
           } else {
             emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
             shot.isDwell = true;
-            shot.dwellTimer = 0.5;
+            shot.dwellTimer = 0.55;
           }
         } else {
           shot.active = false;
@@ -518,19 +529,25 @@ export class DuoInteractionController {
     _missileDir.set(shot.vx / speed, shot.vy / speed, shot.vz / speed).normalize();
     visual.group.quaternion.setFromUnitVectors(_forwardZ, _missileDir);
 
-    // Dynamic flame scale pulsing
+    // Dynamic supersonic afterburner pulsing
+    const pulse = Math.sin(shot.age * 36);
     visual.flame.scale.set(
-      1 + Math.sin(shot.age * 32) * 0.25,
-      1 + Math.cos(shot.age * 32) * 0.25,
-      1.1 + Math.sin(shot.age * 45) * 0.35,
+      1 + pulse * 0.22,
+      1 + Math.cos(shot.age * 36) * 0.22,
+      1.15 + Math.sin(shot.age * 48) * 0.35,
     );
     visual.flameCore.scale.set(
-      0.9 + Math.cos(shot.age * 40) * 0.2,
-      0.9 + Math.sin(shot.age * 40) * 0.2,
-      1.0 + Math.sin(shot.age * 50) * 0.3,
+      0.95 + Math.cos(shot.age * 45) * 0.18,
+      0.95 + Math.sin(shot.age * 45) * 0.18,
+      1.10 + pulse * 0.28,
     );
-    visual.smokeRing.scale.setScalar(1 + (shot.age % 0.25) * 4);
-    visual.smokeRing.position.z = -1.6 - (shot.age % 0.25) * 3;
+    if (visual.flameOuter) {
+      visual.flameOuter.scale.set(
+        1.05 + Math.sin(shot.age * 30) * 0.25,
+        1.05 + Math.cos(shot.age * 30) * 0.25,
+        1.2 + pulse * 0.4,
+      );
+    }
 
     const positions = visual.trail.geometry.getAttribute('position') as THREE.BufferAttribute;
     for (let history = 0; history < 16; history++) {

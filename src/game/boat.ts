@@ -1685,11 +1685,11 @@ export class Boat implements IBoat {
       const p = 1 - (this.tumbleSpinTimer / Math.max(1e-3, this.tumbleSpinTotal));
       // 720 degrees = Math.PI * 4 radians along inertia
       extraYaw = p * Math.PI * 4;
-      extraPitch = Math.sin(p * Math.PI * 4) * 0.42;
-      extraRoll = Math.sin(p * Math.PI * 4) * 0.55;
+      extraPitch = Math.sin(p * Math.PI * 4) * 0.72;
+      extraRoll = Math.sin(p * Math.PI * 6) * 0.85;
       if (this.tumbleSpinTimer === 0) {
         _v2.set(this.object.position.x, surfaceY, this.object.position.z);
-        this.spray.burst(_v2, 16, 7.2);
+        this.spray.burst(_v2, 28, 11.5);
       }
     }
 
@@ -2273,6 +2273,20 @@ export class Boat implements IBoat {
       const descentAt = this.flightDescendAt();
       this.flightElapsed = Math.max(this.flightElapsed, descentAt);
     }
+    // Comedic bouncy pinball rebound on gate pillar collision
+    if (failure.reason === 'gate_left' || failure.reason === 'gate_right' || failure.reason === 'gate') {
+      const lateralDir = failure.reason === 'gate_left' ? 1 : -1;
+      const heading = this.heading;
+      const sideX = Math.cos(heading) * lateralDir * 7.5;
+      const sideZ = -Math.sin(heading) * lateralDir * 7.5;
+      this.velX = -this.velX * 0.45 + sideX;
+      this.velZ = -this.velZ * 0.45 + sideZ;
+      this.vy = 9.5;
+      this.tumbleSpinTimer = 1.25;
+      this.tumbleSpinTotal = 1.25;
+      this.yawRate = lateralDir * 3.6;
+      this.spray.burst(this.object.position, 28, 12.0);
+    }
     st.flightExtensionReady = false;
     st.flightRouteMiss = true;
   }
@@ -2614,15 +2628,16 @@ export class Boat implements IBoat {
     this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.018, -2.4, 2.4);
   }
 
-  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 8.5): void {
+  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 14.5): void {
     this.vy = verticalPop;
-    this.object.position.y += 0.35;
+    this.object.position.y += 0.55;
     this.state.airborne = true;
-    this.tumbleSpinTimer = 1.35;
-    this.tumbleSpinTotal = 1.35;
+    this.tumbleSpinTimer = 1.6;
+    this.tumbleSpinTotal = 1.6;
     this.velX += impulseX;
     this.velZ += impulseZ;
-    this.yawRate = 0;
+    this.yawRate = 4.2;
+    this.spray.burst(this.object.position, 36, 14.0);
   }
 
   /** Deterministic collision-harness hook. Gameplay never calls this method. */

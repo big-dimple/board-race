@@ -39,7 +39,7 @@ export interface HighlightClip {
 }
 
 const MAX_SAMPLES = 600; // ~10 seconds at 60 Hz
-const CLIP_DURATION = 4.5; // 4.5 seconds clip length
+const CLIP_DURATION = 5.2; // 5.2 seconds cinematic clip length
 
 export class HighlightRecorder {
   private readonly samples: HighlightSample[] = [];
@@ -47,11 +47,11 @@ export class HighlightRecorder {
   private sampleCount = 0;
   private peakStuntScore = 0;
   private peakStuntTime = 0;
-  private peakStuntKind: StuntKind = 'crash_climax';
-  private peakStuntTitle = '绝境冲刺 · 虽败犹荣';
-  private peakStuntDetail = '极速入弯 · 极限姿态';
-  private peakStuntBadge = '★ 精彩回放';
-  private peakStuntRating = '[ SS · 极限冲刺 ]';
+  private peakStuntKind: StuntKind = 'flight';
+  private peakStuntTitle = '🚀 破空翱翔 · 穿云过门';
+  private peakStuntDetail = '天际雾桥 · 完美腾空穿透光门';
+  private peakStuntBadge = '👑 绝顶破空';
+  private peakStuntRating = '[ SSS · 极速传说 ]';
 
   // Scratch vectors for interpolation
   private readonly qA = new THREE.Quaternion();
@@ -83,11 +83,11 @@ export class HighlightRecorder {
     this.sampleCount = 0;
     this.peakStuntScore = 0;
     this.peakStuntTime = 0;
-    this.peakStuntKind = 'crash_climax';
-    this.peakStuntTitle = '绝境冲刺 · 虽败犹荣';
-    this.peakStuntDetail = '极速入弯 · 极限姿态';
-    this.peakStuntBadge = '★ 精彩回放';
-    this.peakStuntRating = '[ SS · 极限冲刺 ]';
+    this.peakStuntKind = 'flight';
+    this.peakStuntTitle = '🚀 破空翱翔 · 穿云过门';
+    this.peakStuntDetail = '天际雾桥 · 完美腾空穿透光门';
+    this.peakStuntBadge = '👑 绝顶破空';
+    this.peakStuntRating = '[ SSS · 极速传说 ]';
   }
 
   recordFrame(boat: IBoat, time: number, waveHeight = 0): void {
@@ -112,23 +112,21 @@ export class HighlightRecorder {
     sample.stuntTitle = undefined;
     sample.stuntDetail = undefined;
 
-    // Evaluate dynamic stunts in flight / drift
+    // Evaluate dynamic stunts in flight / drift with high priority scores
     if (s.flightPhase !== 'surface') {
       const speedKmh = Math.round(s.speed * 3.6);
-      if (s.speed > 28) {
-        const score = 80 + Math.min(40, (s.speed - 28) * 3);
-        if (score > this.peakStuntScore) {
-          this.tagEvent('flight', score, time, `🚀 破空翱翔 · ${speedKmh} km/h 穿云过门`, '天际雾桥 · 完美腾空穿透光门', '👑 绝顶破空', '[ SSS · 极速传说 ]');
-        }
+      const score = 190 + Math.min(50, Math.max(0, s.speed - 24) * 3);
+      if (score > this.peakStuntScore) {
+        this.tagEvent('flight', score, time, `🚀 破空翱翔 · ${speedKmh} km/h 穿云过门`, '天际雾桥 · 完美腾空穿透光门', '👑 绝顶破空', '[ SSS · 极速传说 ]');
       }
     } else if (s.boosting) {
       const speedKmh = Math.round(s.speed * 3.6);
-      const score = 70 + Math.min(30, s.speed * 1.5);
+      const score = 160 + Math.min(40, s.speed * 1.5);
       if (score > this.peakStuntScore) {
         this.tagEvent('speed_burst', score, time, `⚡ 极速狂飙 · ${speedKmh} km/h 破空喷射`, '尾焰全开 · 狂暴冲刺', '🔥 破风之刃', '[ SS · 极速破空 ]');
       }
-    } else if (s.drifting && Math.abs(s.lateralG) > 12) {
-      const score = 65 + Math.min(35, Math.abs(s.lateralG) * 2);
+    } else if (s.drifting && Math.abs(s.lateralG) > 10) {
+      const score = 170 + Math.min(40, Math.abs(s.lateralG) * 2.5);
       if (score > this.peakStuntScore) {
         this.tagEvent('apex_drift', score, time, `🏎️ 极限贴弯 · 完美弯心过弯`, '死死咬住弯心 · 侧舷水花漫天', '⚡ 弯心狂鲨', '[ SS · 破浪狂鲨 ]');
       }
@@ -159,18 +157,16 @@ export class HighlightRecorder {
   }
 
   tagDefeat(failure: FlightFailureSnapshot | null | undefined, time: number, speed: number): void {
-    if (this.peakStuntScore < 60) {
+    // Only used as fallback if player performed zero positive stunts throughout the entire run
+    if (this.peakStuntScore < 40) {
       const speedKmh = Math.round(speed * 3.6);
-      const reasonLabel = failure?.reason === 'gate_left' || failure?.reason === 'gate_right' ? '掠门极速俯冲' :
-        failure?.reason === 'corridor' ? '狂暴气流撕裂' :
-          failure?.reason === 'landing' ? '水花剧烈激荡' : '极速狂飙';
-      this.peakStuntScore = 60;
+      this.peakStuntScore = 40;
       this.peakStuntTime = Math.max(0, time - 0.6);
       this.peakStuntKind = 'crash_climax';
-      this.peakStuntTitle = `💥 绝境狂飙 · ${speedKmh} km/h ${reasonLabel}`;
-      this.peakStuntDetail = '极速冲刺至最后一刻 · 虽败犹荣';
-      this.peakStuntBadge = '★ 狂暴冲刺';
-      this.peakStuntRating = '[ SS · 极限冲刺 ]';
+      this.peakStuntTitle = `💥 弹力四射 · ${speedKmh} km/h 极限回弹 720°`;
+      this.peakStuntDetail = '高强度防撞橡胶梁拉满 · 经典喜剧弹射';
+      this.peakStuntBadge = '🎪 喜剧之王';
+      this.peakStuntRating = '[ EX · 喜剧之王 ]';
     }
   }
 

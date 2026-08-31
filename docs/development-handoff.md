@@ -1,18 +1,21 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“成就墙重命名与商业大作级多机位慢镜高光时刻视频回放系统（Achievement Wall & AAA Multi-Angle Cinematic Highlight Video Replay）”。
+状态：主分支当前工作包已圆满交付“双打全屏对齐、军工级战术巡航导弹重构、60%轰炸720°剧烈翻滚爆炸物理与远景正能量高光重构（Duo Fullscreen, Tactical Missile Military Overhaul, 60% Blast Physics & Wide Epic Highlights）”。
 
 ## 当前工作包
 
-- **成就墙重命名与商业大作级多机位慢镜高光时刻视频回放系统（Achievement Wall & AAA Multi-Angle Cinematic Highlight Video Replay）**：
-  1. **原高光时刻统一更名为【成就墙】**：`HonorHighlights`（`src/hud/honorHighlights.ts` / `src/hud/honorHighlights.css`）、`FinaleOverlay`（`src/hud/finaleOverlay.ts`）、`Hud`（`src/hud/hud.ts`）与通关结算、失败回顾流程全面将以往名不副实的“高光时刻”卡片列表更名为【成就墙】（`成就墙` / `查看成就墙` / `赛后成就墙` / `PLAY OF THE RUN · 本局最佳成就`），职责清晰独立，通关时直接展示七飞认证与成就墙；
-  2. **每局淘汰/失败时专属触发真正的【高光时刻视频回放】**：`HighlightRecorder`（`src/game/highlightRecorder.ts`）在 60Hz 物理步中实时捕获玩家赛艇的运动学切片与高光动作标签（极限腾空飞跃、弯心极限贴弯、连环夺金、极速破空、绝境冲刺），并在每局挂掉/撞毁淘汰时自动提炼本局最耀眼的 4.5 秒高光片段；
-  3. **商业大作级多机位电影级运镜与变速升降格（Speed Ramping）**：`HighlightDirector`（`src/game/highlightDirector.ts`）参考《极限竞速》《极品飞车》《守望先锋 POTG》等顶级商业大作，摒弃单一呆板的主玩家第三人称视角，构建 3 段电影级动态机位剪辑：
-     - **机位 1（0.0s–1.5s · 贴地低机位弯心追焦）**：低掠水面（`height = 0.75m`）大广角侧舷追随，捕捉赛艇切水浪花与车手俯冲冲刺姿态；
-     - **机位 2（1.5s–3.3s · 无人机大俯冲 + 0.35x 子弹时间慢镜定格回旋）**：自空中斜前方平滑俯冲回旋（Dolly & Orbit），伴随 0.35x 极速慢放（Speed Ramping 升降格）与 FOV 呼吸变焦，特写车手面部、全息风镜光芒与腾空光门飞跃瞬间；
-     - **机位 3（3.3s–4.5s · 前置广角高速掠影）**：机位前置迎面仰拍，赛艇以全速自镜头前方呼啸而过，喷射金色尾焰直冲远方；
-  4. **电竞赛事级视频播放器与电影级视效烘托**：`HighlightVideo`（`src/hud/highlightVideo.ts` / `src/hud/highlightVideo.css`）呈现精致的 16:9 电影级宽银幕黑边、`🔴 REC [4K 60FPS HDR]` 动态时间码、`[ SSS · 极速传说 ]` 冲刺横幅、`⏱️ 0.35X SLOW-MO` 脉冲徽章、径向速度线、变形镜头横向流光（Anamorphic Lens Flare）、金色粒子流、CRT 扫描线光栅以及跳动的 12 段音频 EQ 频谱仪与拖拽进度条；
-  5. **操作与全流程回归闭环**：支持 Space / Enter / 手柄 A / 点击 `查看成就墙 ➔` 随时跳过或播完自动进入失败回顾与成就墙；`verify:smoke`、`verify:team`、`verify:collision`、`verify:audio` 自动化测试 100% 通过。
+- **双打全屏与单打手势对齐（Duo Fullscreen User Activation）**：
+  1. **同步触发浏览器全屏请求**：在双打模式入口、选择模式按键、选手锁定与 Kickstart 引导确认点击事件中同步调用 `onRequestFullscreen` -> `immersive.requestGo()`，并在 `startDuoRace` 中将沉浸状态设置为 `active`，确保双打与单打一样进入沉浸式自动全屏。
+
+- **军工级战术巡航导弹外观与 60% 物理轰炸翻滚重构（Tactical Cruise Missile & 60% Blast Physics）**：
+  1. **彻底移除玩具塑料圆环**：彻底删除 `TorusGeometry` 烟圈环，重构为符合现代航空航天军工标准的超音速战术巡航/弹道导弹模型（哑光暗钛金军工机身、尖锥卵形雷达罩、高透光学寻的头、战术警示条纹、前置梯形鸭翼与十字形气动尾翼、超音速 Mach 菱形核心激波火焰尾焰）；
+  2. **轰炸成功率调优至 60%**：导弹追踪命中率设定为 60%（40% 几率掠过水面脱靶并产生巨大水柱激流）；
+  3. **720° 剧烈翻滚击飞物理爆炸**：命中后施加 $14.5\text{m/s}$ 强力升空冲击波与剧烈侧向反冲，触发 $1.6\text{s}$ 的 720° 翻滚、俯仰摇摆与漫天水花爆炸，相机与分屏震颤拉满。
+
+- **高光时刻远景全景运镜、正能量特技优先与搞笑反弹物理重构（Wide Cinematic Highlight Video & Positive Stunt Priority）**：
+  1. **大景深全景建立镜头**：`HighlightDirector` 镜头距离全面拉开（全景建立镜头侧距 $-8.5\text{m}$、后距 $-7.5\text{m}$、高度 $3.8\text{m}$，无人机轨道回旋半径 $9.2\text{m}$，高速前迎掠影拉长至 $18\text{m}$），回放时长延长至 5.2 秒，全景展示赛艇、海浪、光门与赛道全貌；
+  2. **正能量特技绝对优先**：`HighlightRecorder` 大幅提升高光特技分值（穿云飞跃 190–240、弯心极限漂移 170–210、闪电超车 160–200、连环夺金 140–180），淘汰失误分值降至 40，确保玩家只要在本局有任何漂移/起飞/加速，必定精选最荣耀的正能量高光；
+  3. **撞柱搞笑弹力反弹物理**：撞上光门立柱时施加搞笑弹力球反弹冲量（$-0.45v$ 反弹速度、$9.5\text{m}$ 腾空跳跃与 720° 搞笑翻滚），淘汰失误专属标注 `[ EX · 喜剧之王 ]` 与 `💥 弹力四射 · 极限回弹 720°`。
 
 - **第七门过后全局操作体验一致性回归（Consistent Controls & Full Gameplay Freedom After Gate 7）**：
   1. **移除强制减速与特殊刹车**：`main.ts` 彻底移除在 `finalStationArmed` 时将玩家漂移键篡改为 `airBrake`、强行设 `flightTrigger: false` 以及将快艇模式切换为 `return-brake` 强制减速至 18m/s 的特殊逻辑；快艇全程保持 100% 正常的动力学、漂移手感与喷射加速；

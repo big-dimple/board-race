@@ -101,19 +101,19 @@ export class HighlightDirector {
     const duration = this.clip.duration;
     const clipProgress = Math.max(0, Math.min(1, this.elapsed / duration));
 
-    // Commercial AAA Speed Ramping:
-    // 0.0s - 1.4s: 1.0x normal approach
-    // 1.4s - 3.2s: 0.35x slow-mo climax (bullet time at peak jump / apex drift)
-    // 3.2s - 4.5s: 1.1x speed recovery burst
+    // Commercial AAA Speed Ramping (5.2s duration):
+    // 0.0s - 1.8s: 1.0x panoramic approach (establishing environment & race context)
+    // 1.8s - 3.8s: 0.35x slow-mo climax (bullet time at peak jump / apex drift)
+    // 3.8s - 5.2s: 1.1x speed recovery burst & outro flyaway
     let timeScale = 1.0;
     let slowMoActive = false;
-    if (this.elapsed >= 1.4 && this.elapsed <= 3.2) {
-      const slowPhase = (this.elapsed - 1.4) / 1.8;
+    if (this.elapsed >= 1.8 && this.elapsed <= 3.8) {
+      const slowPhase = (this.elapsed - 1.8) / 2.0;
       // Smooth bell curve dip to 0.35
       timeScale = 0.35 + 0.65 * Math.pow(Math.abs(slowPhase - 0.5) * 2, 2);
       slowMoActive = true;
-    } else if (this.elapsed > 3.2) {
-      timeScale = 1.1;
+    } else if (this.elapsed > 3.8) {
+      timeScale = 1.15;
     }
 
     if (this.isPlaying) {
@@ -134,77 +134,77 @@ export class HighlightDirector {
 
     // Multi-angle Cinematic Camera Director
     let camIndex: 1 | 2 | 3 = 1;
-    let camLabel = '[ CAM 01 // LOW-ANGLE APEX TRACK ]';
-    let targetFov = 84;
+    let camLabel = '[ CAM 01 // PANORAMIC ESTABLISHING TRACK ]';
+    let targetFov = 72;
 
-    if (this.elapsed < 1.5) {
-      // Angle 1: Low-Angle Waterline Apex Track Cam (贴地低机位水线追焦)
-      // Camera is close to water line on left/right side, looking slightly up at the hull & bow wave
+    if (this.elapsed < 1.8) {
+      // Angle 1: Wide-Angle Panoramic Establishing Track Cam (大景深全景建立追焦)
+      // Camera is elevated and set back to show the boat carving through waves, mist gates & scenery
       camIndex = 1;
-      camLabel = '[ CAM 01 // LOW-ANGLE APEX TRACK ]';
-      targetFov = 84;
+      camLabel = '[ CAM 01 // PANORAMIC ESTABLISHING TRACK ]';
+      targetFov = 72;
 
-      const sideDist = -4.2;
-      const backDist = -3.5;
-      const height = 0.75;
+      const sideDist = -8.5;
+      const backDist = -7.5;
+      const height = 3.8;
       this.targetCamPos.copy(this.boatPos)
         .addScaledVector(this.right, sideDist)
         .addScaledVector(this.forward, backDist);
-      this.targetCamPos.y = Math.max(0.65, this.boatPos.y + height);
+      this.targetCamPos.y = Math.max(1.8, this.boatPos.y + height);
 
       this.targetLookAt.copy(this.boatPos)
-        .addScaledVector(this.forward, 3.8)
-        .addScaledVector(this.up, 0.4);
+        .addScaledVector(this.forward, 5.0)
+        .addScaledVector(this.up, 0.8);
 
-    } else if (this.elapsed < 3.3) {
-      // Angle 2: Aero Drone Swoop & Bullet-Time Orbit (空中无人机俯冲 / 子弹时间定格旋转)
-      // Elevated aerial angle sweeping around the front-quarter with dynamic focal breathing
+    } else if (this.elapsed < 3.8) {
+      // Angle 2: Aero Drone Swoop & Bullet-Time Orbit (空中无人机大俯冲 / 子弹时间慢镜头定格回旋)
+      // Elevated aerial angle sweeping around with cinematic dolly in and focal breathing
       camIndex = 2;
-      camLabel = '[ CAM 02 // DYNAMIC HELI-DRONE SWOOP ]';
-      const orbitPhase = (this.elapsed - 1.5) / 1.8;
-      const orbitAngle = -0.45 + orbitPhase * 0.95; // Sweep from side-front to 3/4 front
-      const orbitRadius = 6.2 - Math.sin(orbitPhase * Math.PI) * 1.5; // Dolly in at peak
-      const orbitHeight = 2.4 - orbitPhase * 0.7; // Swoop downwards
+      camLabel = '[ CAM 02 // AERO DRONE BULLET-TIME ORBIT ]';
+      const orbitPhase = (this.elapsed - 1.8) / 2.0;
+      const orbitAngle = -0.55 + orbitPhase * 1.15; // Sweeping from 3/4 front to side
+      const orbitRadius = 9.2 - Math.sin(orbitPhase * Math.PI) * 2.2; // Smooth dolly in at climax
+      const orbitHeight = 4.2 - orbitPhase * 1.6; // High-altitude swoop down
 
-      targetFov = 68 + Math.sin(orbitPhase * Math.PI) * 6; // Dynamic focal zoom
+      targetFov = 66 + Math.sin(orbitPhase * Math.PI) * 6; // Dynamic focal zoom
 
       const cosA = Math.cos(orbitAngle);
       const sinA = Math.sin(orbitAngle);
 
       this.targetCamPos.copy(this.boatPos)
         .addScaledVector(this.right, cosA * orbitRadius)
-        .addScaledVector(this.forward, sinA * orbitRadius + 2.0);
-      this.targetCamPos.y = this.boatPos.y + orbitHeight;
+        .addScaledVector(this.forward, sinA * orbitRadius + 3.2);
+      this.targetCamPos.y = Math.max(1.5, this.boatPos.y + orbitHeight);
 
       this.targetLookAt.copy(this.boatPos)
-        .addScaledVector(this.up, 0.6);
+        .addScaledVector(this.up, 0.7);
 
     } else {
-      // Angle 3: Dynamic Flyby / Exit Cam (前置广角高速掠影)
-      // Camera is ahead of the boat looking back at a low dramatic angle as the boat blasts past!
+      // Angle 3: Outro Flyaway & Telephoto Pass (长焦高速前迎掠影 / 绝尘而去)
+      // Camera looks back down the course as the boat blasts past and rockets off into the distance!
       camIndex = 3;
-      camLabel = '[ CAM 03 // ACTION FLYBY CAM ]';
-      targetFov = 78;
+      camLabel = '[ CAM 03 // OUTRO FLYAWAY & TELEPHOTO PASS ]';
+      targetFov = 68;
 
-      const flybyPhase = (this.elapsed - 3.3) / 1.2;
-      const aheadDist = 9.0 - flybyPhase * 16.0; // Boat passes camera from front to behind
-      const sideOffset = 2.8;
+      const flybyPhase = (this.elapsed - 3.8) / 1.4;
+      const aheadDist = 18.0 - flybyPhase * 32.0; // Long distance pass
+      const sideOffset = 4.8;
 
       this.targetCamPos.copy(this.boatPos)
         .addScaledVector(this.forward, aheadDist)
         .addScaledVector(this.right, sideOffset);
-      this.targetCamPos.y = Math.max(0.65, this.boatPos.y + 1.2);
+      this.targetCamPos.y = Math.max(1.2, this.boatPos.y + 2.2);
 
       this.targetLookAt.copy(this.boatPos)
-        .addScaledVector(this.up, 0.45);
+        .addScaledVector(this.up, 0.6);
     }
 
     // Smooth camera transition
-    if (this.elapsed <= 0.05 || this.elapsed === 1.5 || this.elapsed === 3.3) {
+    if (this.elapsed <= 0.05 || this.elapsed === 1.8 || this.elapsed === 3.8) {
       this.camPosSmooth.copy(this.targetCamPos);
       this.lookAtSmooth.copy(this.targetLookAt);
     } else {
-      const lerpFactor = Math.min(1, dt * 14);
+      const lerpFactor = Math.min(1, dt * 12);
       this.camPosSmooth.lerp(this.targetCamPos, lerpFactor);
       this.lookAtSmooth.lerp(this.targetLookAt, lerpFactor);
     }

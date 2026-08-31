@@ -433,6 +433,9 @@ const teamExperience = new TeamExperience(hudLayer, {
     audio.resume();
     audio.startReadyMusic();
   },
+  onRequestFullscreen: () => {
+    immersive.requestGo();
+  },
 });
 teamExperience.setSavedStage(teamSave.stage, teamSave.completed, teamSave.tutorialCompleted);
 teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
@@ -584,6 +587,17 @@ const race = new Race(course, boats, {
       const racerId = race.player().id;
       if (isHumanRacer(racerId)) {
         honors.award('overtake.artist', racerId, HONOR_DEFINITIONS['overtake.artist'].value, race.raceTime);
+        if (racerId === 0) {
+          highlightRecorder.tagEvent(
+            'speed_burst',
+            185,
+            race.raceTime,
+            '🏎️ 绝地反超 · 闪电撕裂超车',
+            '极限外线切内线 · 连超对手',
+            '🔥 锋芒毕露',
+            '[ SSS · 弯道狂魔 ]',
+          );
+        }
       }
     }
   },
@@ -760,6 +774,8 @@ function startDuoRace(selection: DuoSelection): void {
   // The selection screen has already supplied the confirming gesture. Start
   // the same authored opening/countdown used by single mode without another
   // hidden station or role tutorial.
+  immersive.setPhase('active');
+  immersive.requestGo();
   startFreshCountdown();
 }
 
@@ -1784,26 +1800,28 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-launch') {
     audio.teamSpatialCue(targetSide, 'relay');
-    targetPipeline.pulse('lost', 0.45);
+    targetPipeline.pulse('lost', 0.55);
     localInput.rumble(duoDevices[event.actorId], 0.5, 0.65, 52);
-    localInput.rumble(duoDevices[event.targetId], 0.35, 0.4, 40);
+    localInput.rumble(duoDevices[event.targetId], 0.45, 0.5, 48);
     duoViewportHud.startTacticalMissileFeed(event.actorId, target.name);
-    hud.showTransientNotice(`🚨 战略核预警！${actor.name} 发射了【飞毛腿战术核导弹】· 90% 致命锁定逼近中！`, '队友背刺预警', effectLane);
+    hud.showTransientNotice(`🚨 战术锁定预警！${actor.name} 发射了【超音速战术巡航导弹】· 60% 致命锁定逼近中！`, '队友背刺预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
-    audio.splash(1.8);
-    targetPipeline.pulse('lost', 0.95);
+    audio.splash(2.5);
+    targetPipeline.pulse('defeat', 1.45);
     audio.teamSpatialCue(targetSide, 'impact');
-    localInput.rumble(duoDevices[event.targetId], 0.85, 0.7, 72);
-    localInput.rumble(duoDevices[event.actorId], 0.45, 0.8, 55);
+    if (event.targetId === 0) teamLeftCameraRig.defeatKick();
+    else if (event.targetId === 1) teamRightCameraRig.defeatKick();
+    localInput.rumble(duoDevices[event.targetId], 0.95, 0.8, 85);
+    localInput.rumble(duoDevices[event.actorId], 0.55, 0.8, 60);
     duoViewportHud.finishTacticalMissileFeed(event.actorId, true);
-    hud.showTransientNotice(`💥 飞毛腿在途的聚变打击命中！${target.name} 被炸飞上天 720° 旋转杂耍！`, '聚变打击得手', effectLane);
+    hud.showTransientNotice(`💥 巡航导弹精准命中！${target.name} 被冲击波轰飞升空 720° 剧烈翻滚！`, '精准打击得手', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-miss') {
-    audio.splash(0.8);
+    audio.splash(1.2);
     audio.teamSpatialCue(targetSide, 'relay');
     duoViewportHud.finishTacticalMissileFeed(event.actorId, false);
-    hud.showTransientNotice(`💨 飞毛腿描边！${target.name} 极限躲过核打击！(10% 脱靶概率)`, '极限躲避', effectLane);
+    hud.showTransientNotice(`💨 战术导弹掠过水面脱靶！${target.name} 侥幸躲过致命打击！(40% 脱靶几率)`, '极限躲避', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-miss', actor: actor.id, target: target.id });
   }
 }
@@ -1830,6 +1848,17 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
     if (!isHumanRacer(hit.racerId)) continue;
     if (streakStep >= 2) {
       honors.award('coin.frenzy', hit.racerId, HONOR_DEFINITIONS['coin.frenzy'].value, race.raceTime);
+      if (hit.racerId === 0) {
+        highlightRecorder.tagEvent(
+          'coin_frenzy',
+          160,
+          race.raceTime,
+          '🪙 连环夺金 · 狂飙风暴',
+          '精准扫荡 · 能量连击',
+          '💰 黄金领航',
+          '[ SS · 金币狂潮 ]',
+        );
+      }
     }
     const racer = roster[hit.racerId];
     const definition = HONOR_DEFINITIONS[`target.${hit.kind}`];
@@ -2602,6 +2631,17 @@ function step(dt: number, _t: number): void {
         if (isHumanRacer(i)) {
           playerPassedFlights.push(i);
           honors.award('flight.ace', i, HONOR_DEFINITIONS['flight.ace'].value, race.raceTime);
+          if (i === 0) {
+            highlightRecorder.tagEvent(
+              'flight',
+              220,
+              race.raceTime,
+              '🚀 穿云破空 · 极速翱翔',
+              '天际光门 · 零误差穿透',
+              '👑 绝顶破空',
+              '[ SSS · 极速传说 ]',
+            );
+          }
           if (maxCorridorDangerThisFlight[i] >= 0.38) {
             honors.award('flight.clutch', i, HONOR_DEFINITIONS['flight.clutch'].value, race.raceTime);
           }
@@ -2748,6 +2788,17 @@ function step(dt: number, _t: number): void {
     if (state.boosting && !edge.boosting) {
       if (maxDriftYawRateThisDrift[seat] >= 0.7 && state.speed >= 36) {
         honors.award('drift.apex', seat, HONOR_DEFINITIONS['drift.apex'].value, race.raceTime);
+        if (seat === 0) {
+          highlightRecorder.tagEvent(
+            'apex_drift',
+            195,
+            race.raceTime,
+            '⚡ 弯心贴地 · 极速漂移',
+            '死咬弯心 · 侧舷水花炸裂',
+            '⚡ 弯心狂鲨',
+            '[ SS · 破浪狂鲨 ]',
+          );
+        }
       }
       maxDriftYawRateThisDrift[seat] = 0;
       seatPipeline.pulse('boost', 0.92);

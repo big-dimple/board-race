@@ -52,6 +52,7 @@ export interface TeamExperienceCallbacks {
   onReplayDuo: () => void;
   onExitDuo: () => void;
   onAudioIntent: () => void;
+  onRequestFullscreen?: () => void;
 }
 
 type FrontDoorPhase = 'mode' | 'save-choice' | 'join' | 'drivers' | 'hidden';
@@ -473,6 +474,7 @@ export class TeamExperience {
 
   private activateMode(mode: FrontDoorMode): void {
     this.callbacks.onAudioIntent();
+    this.callbacks.onRequestFullscreen?.();
     if (mode === 'single') {
       this.hideAll();
       this.callbacks.onSingle();
@@ -661,6 +663,8 @@ export class TeamExperience {
     const right = this.claims.right;
     if (!left || !right) return;
 
+    this.callbacks.onRequestFullscreen?.();
+
     const isHarness = typeof window !== 'undefined' && (
       window.location.search.includes('harness=1') ||
       Boolean((window as unknown as { __harness?: unknown }).__harness)
@@ -677,6 +681,7 @@ export class TeamExperience {
     const left = this.claims.left;
     const right = this.claims.right;
     if (!left || !right) return;
+    this.callbacks.onRequestFullscreen?.();
     this.phase = 'hidden';
     this.hidePanels();
     this.callbacks.onDuoStart({
