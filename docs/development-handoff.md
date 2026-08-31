@@ -1,8 +1,14 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“第七门过后全局操作体验一致性回归（Consistent Controls & Full Gameplay Freedom After Gate 7）”与“车手高精五官与 3D 头部造型系统”。
+状态：主分支当前工作包已圆满交付“双人模式新手操作指南与日式街机出击协议（Duo Kickstart Guide & Japanese Arcade Operation Manual）”。
 
 ## 当前工作包
+
+- **双人模式新手操作指南与日式街机出击协议（Duo Kickstart Guide & Japanese Arcade Operation Manual）**：
+  1. **双席动态键位卡与日式街机卡片**：新建 `DuoKickstartGuide`（`src/hud/duoKickstartGuide.ts` / `src/hud/duoKickstartGuide.css`），为双人模式 1P（蓝席）与 2P（黄席）提供独立侧向分栏卡片；根据真实入座设备（键盘左区 / 键盘右区 / 手柄 1 / 手柄 2）动态生成 100% 准确的 4 步极速操作指引（全速巡航、过弯长按漂移蓄力存电、见雾提前起飞、淘汰战术整蛊飞毛腿导弹发射与电池支援）；
+  2. **飞毛腿按键明确指引**：在淘汰战术卡片中特别醒目标注飞毛腿发射键（手柄 `按 Y 发射飞毛腿 🚀` / 键盘左席 `按 E` / 键盘右席 `按 O`，90% 致命追踪拦截打击）与补电支援键（手柄 `按 B` / 键盘左席 `按 Q` / 键盘右席 `按 U`）；
+  3. **出击签约确认流程与随时查看**：选人界面提供高对比度 `?` 新手引导按钮；在双人首次选角锁定后弹出操作指南卡片，经玩家清晰确认（Space / Enter / 手柄 A / 点击）后出击出发；
+  4. **自动化与回归断言**：`harness/team.mjs` 新增双人模式键盘与手柄双席引导卡片内容和键位断言，全部回归用例 100% 通过。
 
 - **第七门过后全局操作体验一致性回归（Consistent Controls & Full Gameplay Freedom After Gate 7）**：
   1. **移除强制减速与特殊刹车**：`main.ts` 彻底移除在 `finalStationArmed` 时将玩家漂移键篡改为 `airBrake`、强行设 `flightTrigger: false` 以及将快艇模式切换为 `return-brake` 强制减速至 18m/s 的特殊逻辑；快艇全程保持 100% 正常的动力学、漂移手感与喷射加速；

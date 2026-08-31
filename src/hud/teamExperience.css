@@ -110,6 +110,32 @@
 .team-join-copy,
 .team-driver-copy { margin: 8px 0 0; color: rgba(244, 247, 239, .72); font: 600 13px/1.3 Arial, sans-serif; }
 .team-driver-copy { font-weight: 800; }
+.team-driver-coach-button {
+  position: absolute;
+  top: 4px;
+  right: -52px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 2px solid rgba(244, 254, 255, .45);
+  border-radius: 4px;
+  color: #f4feff;
+  background: rgba(8, 13, 42, .88);
+  font: 900 20px/1 system-ui, sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 16px rgba(45, 228, 224, .22);
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+.team-driver-coach-button:hover {
+  border-color: var(--team-cyan);
+  background: #16294b;
+  transform: scale(1.08);
+}
+.team-driver-coach-button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
 .team-join-grid,
 .team-driver-grid { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; height: 100%; }
 .team-join-grid::after,
@@ -374,6 +400,7 @@
   .team-mode-body strong { font-size: 25px; }
   .team-join-head,
   .team-driver-head { top: 10px; }
+  .team-driver-coach-button { width: 32px; height: 32px; font-size: 16px; top: 0; right: -42px; }
   .team-join-title,
   .team-driver-title { font-size: 24px; }
   .team-join-copy,
@@ -424,6 +451,7 @@
   .team-mode-body > span { display: none; }
   .team-key-legend { gap: 9px; }
   .team-driver-head { width: calc(100% - 88px); }
+  .team-driver-coach-button { right: 4px; top: 0; width: 30px; height: 30px; font-size: 15px; }
   .team-driver-grid::after { top: 72px; }
   .team-driver-nav { width: 42px; height: 68px; font-size: 48px; }
   .team-driver-prev { left: 7px; }

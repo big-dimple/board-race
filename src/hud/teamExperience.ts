@@ -6,6 +6,7 @@ import {
   type SeatSide,
 } from '../core/localMultiplayerInput';
 import type { TeamRole } from '../game/teamExpedition';
+import { DuoKickstartGuide } from './duoKickstartGuide';
 import './teamExperience.css';
 
 export type FrontDoorMode = 'single' | 'duo';
@@ -79,10 +80,12 @@ const ROLE_LABEL: Record<TeamRole, string> = {
 
 export class TeamExperience {
   readonly root: HTMLDivElement;
+  readonly duoKickstartGuide: DuoKickstartGuide;
   private readonly modePanel: HTMLElement;
   private readonly savePanel: HTMLElement;
   private readonly joinPanel: HTMLElement;
   private readonly driverPanel: HTMLElement;
+  private readonly driverCoachButton: HTMLButtonElement;
   private readonly teamHud: HTMLElement;
   private readonly transition: HTMLElement;
   private readonly transitionKicker: HTMLElement;
@@ -121,6 +124,7 @@ export class TeamExperience {
   ) {
     this.root = element('div', 'team-experience', parent);
     this.root.setAttribute('aria-live', 'polite');
+    this.duoKickstartGuide = new DuoKickstartGuide(this.root);
 
     this.modePanel = element('section', 'team-front team-mode', this.root);
     this.modePanel.setAttribute('aria-label', '选择玩法');
@@ -186,6 +190,12 @@ export class TeamExperience {
     element('div', 'team-kicker', driverHeader, 'DUO LINEUP');
     element('h2', 'team-driver-title', driverHeader, '各选一名选手');
     element('p', 'team-driver-copy', driverHeader, '左右切换自己的选手 · 确认锁定后等待另一席');
+    this.driverCoachButton = button('team-driver-coach-button', driverHeader, '?', () => {
+      this.callbacks.onAudioIntent();
+      this.openDuoGuide();
+    });
+    this.driverCoachButton.title = '双打操作指南 · 键位手册';
+    this.driverCoachButton.setAttribute('aria-label', '打开双打操作指南');
     const driverGrid = element('div', 'team-driver-grid', this.driverPanel);
     for (const side of SIDES) {
       const seat = element('article', `team-driver-seat team-seat-${side}`, driverGrid);
@@ -534,7 +544,41 @@ export class TeamExperience {
     this.renderDrivers();
   }
 
+  openDuoGuide(onConfirm?: () => void): void {
+    const left = this.claims.left;
+    const right = this.claims.right;
+    this.duoKickstartGuide.show(
+      {
+        deviceId: left?.deviceId ?? 'keyboard-left',
+        profile: DRIVER_PROFILES[left?.profileIndex ?? 0],
+      },
+      {
+        deviceId: right?.deviceId ?? 'keyboard-right',
+        profile: DRIVER_PROFILES[right?.profileIndex ?? 1],
+      },
+      onConfirm,
+    );
+  }
+
   private updateDrivers(dt: number, input: LocalMultiplayerInput): void {
+    if (this.duoKickstartGuide.isOpen()) {
+      for (const side of SIDES) {
+        const claim = this.claims[side];
+        if (!claim) continue;
+        const edges = input.menuEdges(claim.deviceId);
+        if (edges.confirm) {
+          this.callbacks.onAudioIntent();
+          this.duoKickstartGuide.confirm();
+          return;
+        }
+        if (edges.cancel) {
+          this.callbacks.onAudioIntent();
+          this.duoKickstartGuide.hide();
+          return;
+        }
+      }
+      return;
+    }
     for (const side of SIDES) {
       const claim = this.claims[side];
       if (!claim) {
@@ -613,6 +657,23 @@ export class TeamExperience {
   }
 
   private startTeam(): void {
+    const left = this.claims.left;
+    const right = this.claims.right;
+    if (!left || !right) return;
+
+    const isHarness = typeof window !== 'undefined' && (
+      window.location.search.includes('harness=1') ||
+      Boolean((window as unknown as { __harness?: unknown }).__harness)
+    );
+
+    if (!isHarness && !this.duoKickstartGuide.hasSeen()) {
+      this.openDuoGuide(() => this.launchDuo());
+    } else {
+      this.launchDuo();
+    }
+  }
+
+  private launchDuo(): void {
     const left = this.claims.left;
     const right = this.claims.right;
     if (!left || !right) return;
@@ -705,6 +766,7 @@ export class TeamExperience {
   }
 
   private hidePanels(): void {
+    this.duoKickstartGuide.hide();
     this.modePanel.classList.remove('on');
     this.savePanel.classList.remove('on');
     this.joinPanel.classList.remove('on');

@@ -125,6 +125,31 @@ async function enterDuoWithKeyboard(page) {
   assert.ok(portraits.every((box) => box.width >= 240 && box.height >= 330),
     `dual portraits became tiny: ${JSON.stringify(portraits)}`);
 
+  // Verify Duo Kickstart Guide (? button and guide content)
+  assert.equal(await page.locator('.team-driver-coach-button').count(), 1);
+  await page.locator('.team-driver-coach-button').click();
+  await advance(page, 1 / 60);
+  assert.equal(await page.locator('.duo-kickstart-guide.on').count(), 1);
+  const leftText = await page.locator('.duo-player-left').innerText();
+  const rightText = await page.locator('.duo-player-right').innerText();
+  assert.match(leftText, /1P · 蓝席/);
+  assert.match(leftText, /键盘左区/);
+  assert.match(leftText, /A \/ D/);
+  assert.match(leftText, /SHIFT/);
+  assert.match(leftText, /SPACE/);
+  assert.match(leftText, /飞毛腿/);
+  assert.match(leftText, /E/);
+  assert.match(rightText, /2P · 黄席/);
+  assert.match(rightText, /键盘右区/);
+  assert.match(rightText, /← \/ →|J \/ L/);
+  assert.match(rightText, /SHIFT/);
+  assert.match(rightText, /ENTER/);
+  assert.match(rightText, /飞毛腿/);
+  assert.match(rightText, /O/);
+  await page.locator('.duo-kickstart-start').click();
+  await advance(page, 1 / 60);
+  assert.equal(await page.locator('.duo-kickstart-guide.on').count(), 0);
+
   // The two confirmations are deliberately owned by their seated devices.
   await page.keyboard.press('Space');
   await advance(page, 1 / 60);
@@ -296,6 +321,27 @@ async function verifyGamepadSeating(page) {
   const devices = (await page.locator('.team-driver-device').allTextContents()).join(' ');
   assert.match(devices, /手柄 1/);
   assert.match(devices, /手柄 2/);
+
+  // Verify Duo Kickstart Guide for Gamepad
+  await page.locator('.team-driver-coach-button').click();
+  await advance(page, 1 / 60);
+  assert.equal(await page.locator('.duo-kickstart-guide.on').count(), 1);
+  const padLeftText = await page.locator('.duo-player-left').innerText();
+  const padRightText = await page.locator('.duo-player-right').innerText();
+  assert.match(padLeftText, /手柄 1/);
+  assert.match(padLeftText, /左摇杆/);
+  assert.match(padLeftText, /X.*漂移/);
+  assert.match(padLeftText, /A.*起飞/);
+  assert.match(padLeftText, /Y.*飞毛腿/);
+  assert.match(padRightText, /手柄 2/);
+  assert.match(padRightText, /左摇杆/);
+  assert.match(padRightText, /X.*漂移/);
+  assert.match(padRightText, /A.*起飞/);
+  assert.match(padRightText, /Y.*飞毛腿/);
+  await page.keyboard.press('Escape');
+  await advance(page, 1 / 60);
+  assert.equal(await page.locator('.duo-kickstart-guide.on').count(), 0);
+
   await padButton(page, 0, 0);
   await padButton(page, 1, 0);
   await advance(page, 0.75);
