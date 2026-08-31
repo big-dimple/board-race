@@ -1,8 +1,16 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“全场赛艇多船同步录像与对手实时回放、7.5秒电竞级广播回放时长、动态上帝天眼运镜（Multi-Boat Full Replay Recording, 7.5s Broadcast Duration & Dynamic Skycam Tracking）”。
+状态：主分支当前工作包已圆满交付“双模导弹体系（霸气战斧巡航 vs 超萌Q版大眼鲨鱼导弹）、移除红线提线木偶、修复空中飞被豁免Bug、全场赛艇多船同步录像与 7.5 秒电竞广播高光（Dual-Style Missile System, Trail Removed, Air Exemption Bug Fixed & Multi-Boat 7.5s Highlights）”。
 
 ## 当前工作包
+
+- **双模导弹体系与命中机制修缮（Dual-Style Missiles & True Water Drift Hit Logic）**：
+  1. **双模导弹体系交替发射（Dual-Style Missiles）**：
+     - **霸气重装战斧巡航导弹（Dominator Dark Tomahawk）**：哑光碳钛合金机身、雷达导引头、前置鸭翼与后掠后缘三角翼、超音速马赫环尾焰；
+     - **超萌Q版大眼鲨鱼导弹（Chibi Kawaii Shark Banger）**：圆润Q萌弹体、水蓝色海洋涂装与白色肚皮、超萌大眼珠、粉红腮红与鲨鱼利齿涂装、背部背鳍与萌感侧鳍；
+     - 灯塔发射台 4 个导轨交替配备并点火弹射，兼顾军事霸气与二次元爆笑萌感；
+  2. **彻底移除红色提线木偶线（No Puppet String）**：删除 `trail` 连线几何体，导弹飞行以纯净 3D 箭体、超音速马赫环喷焰与膨胀大爆炸光球呈现；
+  3. **修复空中飞可以豁免到的 Bug**：严格限制仅当快艇在**真实海面上**（`flightPhase === 'surface' && !airborne`）高速漂移时才享有 50% 规避豁免；空中腾空、起飞滑翔或直行冲刺时一律 90% 绝对精确轰炸击落！
 
 - **全场赛艇多船同步录像与对手实时回放（Multi-Boat Full Replay Recording）**：
   1. **全员赛艇位置与姿态高频录制**：`HighlightRecorder` 重构为全量多船环形缓冲采样，完整记录主驾快艇及赛道上全部对手/AI快艇（`boats[1..N]`）的 3D 坐标、四元数姿态、车手动画、速度与航行模式（漂移/喷射/飞行）；

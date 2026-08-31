@@ -93,7 +93,6 @@ export class DuoInteractionController {
   private readonly projectileVisuals: Array<{
     group: THREE.Group;
     body: THREE.Group;
-    trail: THREE.Line;
     blastPlume: THREE.Mesh;
     flame: THREE.Mesh;
     flameCore: THREE.Mesh;
@@ -116,92 +115,112 @@ export class DuoInteractionController {
     this.object = new THREE.Group();
     this.object.name = 'duo-interaction-projectiles';
 
-    // Realistic Military Tactical Cruise / Ballistic Missile materials
-    const bodyMat = new THREE.MeshBasicMaterial({ color: 0x222629, toneMapped: false }); // Matte military gunmetal / graphite
-    const noseMat = new THREE.MeshBasicMaterial({ color: 0x14181a, toneMapped: false }); // Titanium radome
-    const seekerMat = new THREE.MeshBasicMaterial({ color: 0x050708, toneMapped: false }); // Infrared seeker dome
-    const finMat = new THREE.MeshBasicMaterial({ color: 0x181c1f, toneMapped: false }); // High-strength carbon-titanium fins
-    const actuatorMat = new THREE.MeshBasicMaterial({ color: 0x33393f, toneMapped: false }); // Hydraulic actuator pods
-    const bandMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, toneMapped: false }); // Tactical hazard yellow stripe
-    const blackBandMat = new THREE.MeshBasicMaterial({ color: 0x0e1012, toneMapped: false }); // Tactical black chevron stripe
-    const nozzleMat = new THREE.MeshBasicMaterial({ color: 0x151515, toneMapped: false }); // Rocket motor nozzle
-    const gantryMat = new THREE.MeshBasicMaterial({ color: 0x282e34, toneMapped: false }); // Gantry frame steel
-    const padBaseMat = new THREE.MeshBasicMaterial({ color: 0x15181c, toneMapped: false }); // Concrete launch pad
+    // Materials for Dominator Heavy Cruise Missile
+    const domBodyMat = new THREE.MeshBasicMaterial({ color: 0x222629, toneMapped: false });
+    const domNoseMat = new THREE.MeshBasicMaterial({ color: 0x14181a, toneMapped: false });
+    const domSeekerMat = new THREE.MeshBasicMaterial({ color: 0x050708, toneMapped: false });
+    const domFinMat = new THREE.MeshBasicMaterial({ color: 0x181c1f, toneMapped: false });
+    const domActuatorMat = new THREE.MeshBasicMaterial({ color: 0x33393f, toneMapped: false });
+    const domBandMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, toneMapped: false });
+    const domBlackBandMat = new THREE.MeshBasicMaterial({ color: 0x0e1012, toneMapped: false });
+    const domNozzleMat = new THREE.MeshBasicMaterial({ color: 0x151515, toneMapped: false });
+
+    // Materials for Chibi Kawaii Shark Missile
+    const sharkBodyMat = new THREE.MeshBasicMaterial({ color: 0x1e88e5, toneMapped: false }); // Oceanic anime blue
+    const sharkBellyMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }); // Bright white underbelly
+    const sharkFinMat = new THREE.MeshBasicMaterial({ color: 0x1565c0, toneMapped: false }); // Deep blue shark fins
+    const sharkEyeWhiteMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+    const sharkEyePupilMat = new THREE.MeshBasicMaterial({ color: 0x111122, toneMapped: false });
+    const sharkBlushMat = new THREE.MeshBasicMaterial({ color: 0xff6b8b, toneMapped: false }); // Cute pink blush
+    const sharkTeethMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+
+    const gantryMat = new THREE.MeshBasicMaterial({ color: 0x282e34, toneMapped: false });
+    const padBaseMat = new THREE.MeshBasicMaterial({ color: 0x15181c, toneMapped: false });
     const flameCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.98, toneMapped: false });
     const flameMat = new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.92, toneMapped: false });
     const flameOuterMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.75, toneMapped: false });
-    const trailMat = new THREE.LineBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.88, toneMapped: false });
 
-    // Sleek aerodynamic military missile fuselage
-    const bodyGeo = new THREE.CylinderGeometry(0.22, 0.22, 2.8, 12);
-    bodyGeo.rotateX(Math.PI / 2);
-    const warheadGeo = new THREE.ConeGeometry(0.22, 1.15, 12);
-    warheadGeo.rotateX(Math.PI / 2);
-    const seekerGeo = new THREE.SphereGeometry(0.07, 8, 8);
-    const bandGeo = new THREE.CylinderGeometry(0.225, 0.225, 0.14, 12);
-    bandGeo.rotateX(Math.PI / 2);
-    const blackBandGeo = new THREE.CylinderGeometry(0.226, 0.226, 0.07, 12);
-    blackBandGeo.rotateX(Math.PI / 2);
+    // --- Model 1: Dominator Dark Cruise Missile ---
+    const domBodyGeo = new THREE.CylinderGeometry(0.22, 0.22, 2.8, 12);
+    domBodyGeo.rotateX(Math.PI / 2);
+    const domWarheadGeo = new THREE.ConeGeometry(0.22, 1.15, 12);
+    domWarheadGeo.rotateX(Math.PI / 2);
+    const domSeekerGeo = new THREE.SphereGeometry(0.07, 8, 8);
+    const domBandGeo = new THREE.CylinderGeometry(0.225, 0.225, 0.14, 12);
+    domBandGeo.rotateX(Math.PI / 2);
+    const domBlackBandGeo = new THREE.CylinderGeometry(0.226, 0.226, 0.07, 12);
+    domBlackBandGeo.rotateX(Math.PI / 2);
+    const domCanardGeo = new THREE.BoxGeometry(0.025, 0.28, 0.36);
+    const domFinGeo = new THREE.BoxGeometry(0.035, 0.72, 0.58);
+    const domActuatorGeo = new THREE.BoxGeometry(0.08, 0.08, 0.28);
+    const domNozzleGeo = new THREE.CylinderGeometry(0.14, 0.20, 0.42, 10);
+    domNozzleGeo.rotateX(Math.PI / 2);
 
-    // Aerodynamic titanium forward canards (swept trapezoidal)
-    const canardGeo = new THREE.BoxGeometry(0.025, 0.28, 0.36);
-    // Rear cruciform delta stabilization control fins
-    const finGeo = new THREE.BoxGeometry(0.035, 0.72, 0.58);
-    const actuatorGeo = new THREE.BoxGeometry(0.08, 0.08, 0.28);
+    // --- Model 2: Chibi Kawaii Shark Banger ---
+    const sharkBodyGeo = new THREE.CylinderGeometry(0.32, 0.28, 2.2, 14);
+    sharkBodyGeo.rotateX(Math.PI / 2);
+    const sharkNoseGeo = new THREE.SphereGeometry(0.32, 12, 12);
+    const sharkBellyGeo = new THREE.CylinderGeometry(0.322, 0.282, 1.8, 12, 1, false, Math.PI * 0.75, Math.PI * 0.5);
+    sharkBellyGeo.rotateX(Math.PI / 2);
+    const sharkDorsalFinGeo = new THREE.BoxGeometry(0.05, 0.48, 0.52);
+    const sharkPectoralFinGeo = new THREE.BoxGeometry(0.48, 0.04, 0.36);
+    const sharkTailFinGeo = new THREE.BoxGeometry(0.04, 0.55, 0.42);
+    const sharkEyeWhiteGeo = new THREE.SphereGeometry(0.11, 8, 8);
+    const sharkEyePupilGeo = new THREE.SphereGeometry(0.065, 8, 8);
+    const sharkBlushGeo = new THREE.SphereGeometry(0.075, 6, 6);
+    const sharkTeethGeo = new THREE.BoxGeometry(0.22, 0.06, 0.12);
 
-    const nozzleGeo = new THREE.CylinderGeometry(0.14, 0.20, 0.42, 10);
-    nozzleGeo.rotateX(Math.PI / 2);
-    const flameCoreGeo = new THREE.ConeGeometry(0.10, 1.45, 8);
+    const flameCoreGeo = new THREE.ConeGeometry(0.12, 1.55, 8);
     flameCoreGeo.rotateX(-Math.PI / 2);
-    const flameGeo = new THREE.ConeGeometry(0.19, 2.35, 8);
+    const flameGeo = new THREE.ConeGeometry(0.22, 2.45, 8);
     flameGeo.rotateX(-Math.PI / 2);
-    const flameOuterGeo = new THREE.ConeGeometry(0.28, 3.1, 8);
+    const flameOuterGeo = new THREE.ConeGeometry(0.32, 3.2, 8);
     flameOuterGeo.rotateX(-Math.PI / 2);
 
-    const buildScudModel = (includePlume: boolean): { group: THREE.Group; flame?: THREE.Mesh; flameCore?: THREE.Mesh; flameOuter?: THREE.Mesh } => {
-      const missileMeshGroup = new THREE.Group();
-      missileMeshGroup.name = 'scud-body';
+    const buildDominatorModel = (includePlume: boolean): { group: THREE.Group; flame?: THREE.Mesh; flameCore?: THREE.Mesh; flameOuter?: THREE.Mesh } => {
+      const g = new THREE.Group();
+      g.name = 'scud-dominator';
 
-      const fuselage = new THREE.Mesh(bodyGeo, bodyMat);
-      const warhead = new THREE.Mesh(warheadGeo, noseMat);
+      const fuselage = new THREE.Mesh(domBodyGeo, domBodyMat);
+      const warhead = new THREE.Mesh(domWarheadGeo, domNoseMat);
       warhead.position.z = 1.85;
-      const seeker = new THREE.Mesh(seekerGeo, seekerMat);
+      const seeker = new THREE.Mesh(domSeekerGeo, domSeekerMat);
       seeker.position.z = 2.45;
 
-      const bandYellow = new THREE.Mesh(bandGeo, bandMat);
+      const bandYellow = new THREE.Mesh(domBandGeo, domBandMat);
       bandYellow.position.z = 0.95;
-      const bandBlack = new THREE.Mesh(blackBandGeo, blackBandMat);
+      const bandBlack = new THREE.Mesh(domBlackBandGeo, domBlackBandMat);
       bandBlack.position.z = 0.95;
 
-      const nozzle = new THREE.Mesh(nozzleGeo, nozzleMat);
+      const nozzle = new THREE.Mesh(domNozzleGeo, domNozzleMat);
       nozzle.position.z = -1.55;
 
       for (let c = 0; c < 4; c++) {
-        const canard = new THREE.Mesh(canardGeo, finMat);
+        const canard = new THREE.Mesh(domCanardGeo, domFinMat);
         canard.position.z = 0.65;
         canard.rotation.z = (c * Math.PI) / 2;
         if (c % 2 === 0) canard.position.y = (c === 0 ? 0.26 : -0.26);
         else canard.position.x = (c === 1 ? 0.26 : -0.26);
-        missileMeshGroup.add(canard);
+        g.add(canard);
       }
 
       for (let f = 0; f < 4; f++) {
-        const fin = new THREE.Mesh(finGeo, finMat);
+        const fin = new THREE.Mesh(domFinGeo, domFinMat);
         fin.position.z = -1.15;
         fin.rotation.z = (f * Math.PI) / 2;
         if (f % 2 === 0) fin.position.y = (f === 0 ? 0.44 : -0.44);
         else fin.position.x = (f === 1 ? 0.44 : -0.44);
 
-        const actuator = new THREE.Mesh(actuatorGeo, actuatorMat);
+        const actuator = new THREE.Mesh(domActuatorGeo, domActuatorMat);
         actuator.position.z = -1.15;
         actuator.rotation.z = (f * Math.PI) / 2;
         if (f % 2 === 0) actuator.position.y = (f === 0 ? 0.22 : -0.22);
         else actuator.position.x = (f === 1 ? 0.22 : -0.22);
 
-        missileMeshGroup.add(fin, actuator);
+        g.add(fin, actuator);
       }
 
-      missileMeshGroup.add(fuselage, warhead, seeker, bandYellow, bandBlack, nozzle);
+      g.add(fuselage, warhead, seeker, bandYellow, bandBlack, nozzle);
 
       let flameMesh: THREE.Mesh | undefined;
       let flameCoreMesh: THREE.Mesh | undefined;
@@ -213,13 +232,87 @@ export class DuoInteractionController {
         flameMesh.position.z = -2.70;
         flameOuterMesh = new THREE.Mesh(flameOuterGeo, flameOuterMat);
         flameOuterMesh.position.z = -3.10;
-        missileMeshGroup.add(flameCoreMesh, flameMesh, flameOuterMesh);
+        g.add(flameCoreMesh, flameMesh, flameOuterMesh);
       }
 
-      return { group: missileMeshGroup, flame: flameMesh, flameCore: flameCoreMesh, flameOuter: flameOuterMesh };
+      return { group: g, flame: flameMesh, flameCore: flameCoreMesh, flameOuter: flameOuterMesh };
     };
 
-    // Construct static launch gantry battery at lighthouse reef base
+    const buildChibiSharkModel = (includePlume: boolean): { group: THREE.Group; flame?: THREE.Mesh; flameCore?: THREE.Mesh; flameOuter?: THREE.Mesh } => {
+      const g = new THREE.Group();
+      g.name = 'scud-chibi-shark';
+
+      const body = new THREE.Mesh(sharkBodyGeo, sharkBodyMat);
+      const nose = new THREE.Mesh(sharkNoseGeo, sharkBodyMat);
+      nose.position.z = 1.05;
+
+      const belly = new THREE.Mesh(sharkBellyGeo, sharkBellyMat);
+      belly.position.y = -0.05;
+
+      // Cute big shark dorsal fin on top
+      const dorsal = new THREE.Mesh(sharkDorsalFinGeo, sharkFinMat);
+      dorsal.position.set(0, 0.44, -0.2);
+      dorsal.rotation.x = -0.3;
+
+      // Pectoral cute side fins
+      const pecLeft = new THREE.Mesh(sharkPectoralFinGeo, sharkFinMat);
+      pecLeft.position.set(-0.36, -0.06, 0.2);
+      pecLeft.rotation.z = -0.3;
+      const pecRight = new THREE.Mesh(sharkPectoralFinGeo, sharkFinMat);
+      pecRight.position.set(0.36, -0.06, 0.2);
+      pecRight.rotation.z = 0.3;
+
+      // Tail fins
+      const tailTop = new THREE.Mesh(sharkTailFinGeo, sharkFinMat);
+      tailTop.position.set(0, 0.32, -1.25);
+      tailTop.rotation.x = -0.4;
+      const tailBottom = new THREE.Mesh(sharkTailFinGeo, sharkFinMat);
+      tailBottom.position.set(0, -0.26, -1.25);
+      tailBottom.rotation.x = 0.4;
+
+      // Cute anime big eyes
+      const eyeL = new THREE.Mesh(sharkEyeWhiteGeo, sharkEyeWhiteMat);
+      eyeL.position.set(-0.24, 0.16, 0.85);
+      const pupilL = new THREE.Mesh(sharkEyePupilGeo, sharkEyePupilMat);
+      pupilL.position.set(-0.28, 0.16, 0.92);
+
+      const eyeR = new THREE.Mesh(sharkEyeWhiteGeo, sharkEyeWhiteMat);
+      eyeR.position.set(0.24, 0.16, 0.85);
+      const pupilR = new THREE.Mesh(sharkEyePupilGeo, sharkEyePupilMat);
+      pupilR.position.set(0.28, 0.16, 0.92);
+
+      // Pink blush cheeks
+      const blushL = new THREE.Mesh(sharkBlushGeo, sharkBlushMat);
+      blushL.position.set(-0.28, -0.02, 0.72);
+      const blushR = new THREE.Mesh(sharkBlushGeo, sharkBlushMat);
+      blushR.position.set(0.28, -0.02, 0.72);
+
+      // Comical shark teeth
+      const teeth = new THREE.Mesh(sharkTeethGeo, sharkTeethMat);
+      teeth.position.set(0, -0.16, 1.12);
+
+      const nozzle = new THREE.Mesh(domNozzleGeo, domNozzleMat);
+      nozzle.position.z = -1.25;
+
+      g.add(body, nose, belly, dorsal, pecLeft, pecRight, tailTop, tailBottom, eyeL, pupilL, eyeR, pupilR, blushL, blushR, teeth, nozzle);
+
+      let flameMesh: THREE.Mesh | undefined;
+      let flameCoreMesh: THREE.Mesh | undefined;
+      let flameOuterMesh: THREE.Mesh | undefined;
+      if (includePlume) {
+        flameCoreMesh = new THREE.Mesh(flameCoreGeo, flameCoreMat);
+        flameCoreMesh.position.z = -1.95;
+        flameMesh = new THREE.Mesh(flameGeo, flameMat);
+        flameMesh.position.z = -2.35;
+        flameOuterMesh = new THREE.Mesh(flameOuterGeo, flameOuterMat);
+        flameOuterMesh.position.z = -2.75;
+        g.add(flameCoreMesh, flameMesh, flameOuterMesh);
+      }
+
+      return { group: g, flame: flameMesh, flameCore: flameCoreMesh, flameOuter: flameOuterMesh };
+    };
+
+    // Construct static launch gantry battery at lighthouse reef base (alternating Dominator and Chibi Shark)
     this.launchComplexGroup = new THREE.Group();
     this.launchComplexGroup.name = 'scud-launch-complex';
 
@@ -256,8 +349,9 @@ export class DuoInteractionController {
       strutRight.rotation.x = 0.4;
       padGroup.add(strutLeft, strutRight);
 
-      // Parked static Scud missile on launch rail
-      const staticScud = buildScudModel(false);
+      // Alternating static missile styles across gantry pads
+      const isChibi = p % 2 === 1;
+      const staticScud = isChibi ? buildChibiSharkModel(false) : buildDominatorModel(false);
       staticScud.group.position.set(0, 0.22, 0.3);
       gantryRail.add(staticScud.group);
       this.staticMissiles.push(staticScud.group);
@@ -270,28 +364,23 @@ export class DuoInteractionController {
     const blastPlumeGeo = new THREE.SphereGeometry(1.4, 12, 12);
     const blastPlumeMat = new THREE.MeshBasicMaterial({ color: 0xff6611, transparent: true, opacity: 0.95, toneMapped: false });
 
-    // Active in-flight missile visual projectiles
+    // Active in-flight missile visual projectiles (alternating styles)
     for (let index = 0; index < MAX_PROJECTILES; index++) {
       const group = new THREE.Group();
       group.name = `duo-interaction-scud-${index + 1}`;
 
-      const { group: missileMeshGroup, flame, flameCore, flameOuter } = buildScudModel(true);
-
-      const trailGeometry = new THREE.BufferGeometry();
-      trailGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(16 * 3), 3));
-      const trail = new THREE.Line(trailGeometry, trailMat);
-      trail.frustumCulled = false;
+      const isChibi = index % 2 === 1;
+      const { group: missileMeshGroup, flame, flameCore, flameOuter } = isChibi ? buildChibiSharkModel(true) : buildDominatorModel(true);
 
       const blastPlume = new THREE.Mesh(blastPlumeGeo, blastPlumeMat.clone());
       blastPlume.visible = false;
 
-      group.add(trail, missileMeshGroup, blastPlume);
+      group.add(missileMeshGroup, blastPlume);
       group.visible = false;
       this.object.add(group);
       this.projectileVisuals.push({
         group,
         body: missileMeshGroup,
-        trail,
         blastPlume,
         flame: flame!,
         flameCore: flameCore!,
@@ -543,9 +632,10 @@ export class DuoInteractionController {
         (shot.age > 0.8 && directDist <= 7.5 && (shot.vx * (tx - shot.x) + shot.vz * (tz - shot.z) < 0));
 
       if (reachedTarget) {
-        // 90% Base precision hit rate; continuous drifting on water grants 50% dodge exemption
-        const isDrifting = targetBoat.state.drifting;
-        const hitProbability = isDrifting ? 0.45 : 0.90;
+        // 90% Base precision hit rate; ONLY true water surface drifting grants 50% dodge exemption.
+        // Airborne/flying/jumping/cruising is ALWAYS 90% direct hit & blast out of the sky!
+        const isSurfaceDrifting = targetBoat.state.drifting && targetBoat.state.flightPhase === 'surface' && !targetBoat.state.airborne && targetBoat.state.speed > 8.0;
+        const hitProbability = isSurfaceDrifting ? 0.45 : 0.90;
         const isHit = Math.random() < hitProbability;
         const sideSign = ((shot.actorId + Math.round(shot.age * 10)) % 2 === 0) ? 1 : -1;
         const forwardX = Math.sin(heading) * 18.0;
@@ -575,7 +665,6 @@ export class DuoInteractionController {
     if (shot.isDwell) {
       // Dynamic water surface fireball & geyser plume expansion during dwell
       visual.body.visible = false;
-      visual.trail.visible = false;
       visual.blastPlume.visible = true;
       const progress = 1 - shot.dwellTimer / 0.65;
       const scale = 1.2 + progress * 8.5;
@@ -586,7 +675,6 @@ export class DuoInteractionController {
     }
 
     visual.body.visible = true;
-    visual.trail.visible = true;
     visual.blastPlume.visible = false;
     visual.group.position.set(shot.x, shot.y, shot.z);
 
@@ -614,19 +702,6 @@ export class DuoInteractionController {
         1.2 + pulse * 0.4,
       );
     }
-
-    const positions = visual.trail.geometry.getAttribute('position') as THREE.BufferAttribute;
-    for (let history = 0; history < 16; history++) {
-      const fade = 1 - history / 16;
-      const swirl = 0.38 * fade * (0.2 + (history / 16) * 0.8);
-      const swirlPhase = shot.age * 12 - history * 0.65;
-      positions.setXYZ(history,
-        shot.historyX[history] - shot.x + Math.cos(swirlPhase) * swirl,
-        shot.historyY[history] - shot.y,
-        shot.historyZ[history] - shot.z + Math.sin(swirlPhase) * swirl,
-      );
-    }
-    positions.needsUpdate = true;
   }
 
   private syncStatus(actor: number, available: boolean): void {
