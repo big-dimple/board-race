@@ -2628,19 +2628,19 @@ export class Boat implements IBoat {
     this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.018, -2.4, 2.4);
   }
 
-  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 16.5): void {
+  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 18.5): void {
     this.vy = verticalPop;
-    this.object.position.y += 0.85;
+    this.object.position.y += 1.15;
     this.state.airborne = true;
     this.state.airTime = 0.1;
     this.state.flightPhase = 'surface';
-    this.tumbleSpinTimer = 2.0;
-    this.tumbleSpinTotal = 2.0;
+    this.tumbleSpinTimer = 2.4;
+    this.tumbleSpinTotal = 2.4;
     this.velX = impulseX;
     this.velZ = impulseZ;
-    this.state.speed = Math.hypot(this.velX, this.velZ) * 0.35;
-    this.yawRate = 6.2;
-    this.spray.burst(this.object.position, 64, 18.0);
+    this.state.speed = Math.hypot(this.velX, this.velZ) * 0.18;
+    this.yawRate = 7.5;
+    this.spray.burst(this.object.position, 80, 22.0);
   }
 
   /** Deterministic collision-harness hook. Gameplay never calls this method. */

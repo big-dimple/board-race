@@ -1810,7 +1810,7 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     localInput.rumble(duoDevices[event.actorId], 0.5, 0.65, 52);
     localInput.rumble(duoDevices[event.targetId], 0.45, 0.5, 48);
     duoViewportHud.startTacticalMissileFeed(event.actorId, target.name);
-    hud.showTransientNotice(`🚨 战术锁定预警！${actor.name} 发射了【超音速战术巡航导弹】· 60% 致命锁定逼近中！`, '队友背刺预警', effectLane);
+    hud.showTransientNotice(`🚨 战术锁定预警！${actor.name} 发射了【超音速战术巡航导弹】· 立即长按漂移！无限漂移触发 50% 规避豁免！`, '队友背刺预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
     audio.splash(2.5);
@@ -1827,7 +1827,7 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     audio.splash(1.2);
     audio.teamSpatialCue(targetSide, 'relay');
     duoViewportHud.finishTacticalMissileFeed(event.actorId, false);
-    hud.showTransientNotice(`💨 战术导弹掠过水面脱靶！${target.name} 侥幸躲过致命打击！(40% 脱靶几率)`, '极限躲避', effectLane);
+    hud.showTransientNotice(`💨 极限漂移机动生效！${target.name} 成功豁免规避战术导弹打击！`, '极限规避得手', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-miss', actor: actor.id, target: target.id });
   }
 }

@@ -64,6 +64,7 @@ const _forwardZ = new THREE.Vector3(0, 0, 1);
 export class DuoInteractionController {
   readonly object: THREE.Group;
   private readonly launchComplexGroup: THREE.Group;
+  private readonly staticMissiles: THREE.Group[] = [];
   private readonly cooldown = [0, 0];
   private readonly charges = [MAX_CHARGES, MAX_CHARGES];
   private readonly counts = { support: 0, prank: 0 };
@@ -75,6 +76,7 @@ export class DuoInteractionController {
     active: false,
     actorId: -1,
     targetId: -1,
+    padIndex: 0,
     x: 0,
     y: 0,
     z: 0,
@@ -256,6 +258,7 @@ export class DuoInteractionController {
       const staticScud = buildScudModel(false);
       staticScud.group.position.set(0, 0.22, 0.3);
       gantryRail.add(staticScud.group);
+      this.staticMissiles.push(staticScud.group);
 
       padGroup.add(gantryRail);
       this.launchComplexGroup.add(padGroup);
@@ -301,6 +304,7 @@ export class DuoInteractionController {
       this.projectileState[i].historyY.fill(0);
       this.projectileState[i].historyZ.fill(0);
     }
+    for (const missile of this.staticMissiles) missile.visible = true;
     for (let i = 0; i < 2; i++) this.syncStatus(i, false);
   }
 
@@ -361,27 +365,36 @@ export class DuoInteractionController {
         const padIndex = this.counts.prank % LAUNCH_PADS.length;
         const pad = LAUNCH_PADS[padIndex];
         const spawnX = pad.x;
-        const spawnY = pad.y + 0.8;
+        const spawnY = pad.y + 0.85;
         const spawnZ = pad.z;
 
-        // Calculate initial launch direction climbing from gantry
+        // Calculate initial launch direction climbing from static gantry rail
         const launchAngle = pad.angle;
-        const initVx = Math.sin(launchAngle) * 18;
-        const initVy = 26;
-        const initVz = -Math.cos(launchAngle) * 18;
+        const elev = 0.32 * Math.PI; // 58 deg launch inclination
+        const railDirX = Math.sin(launchAngle) * Math.cos(elev);
+        const railDirY = Math.sin(elev);
+        const railDirZ = -Math.cos(launchAngle) * Math.cos(elev);
+
+        const initSpeed = 10.0; // Rapid rail ignition boost from static gantry
 
         shot.active = true;
         shot.actorId = actor;
         shot.targetId = target;
+        shot.padIndex = padIndex;
         shot.x = spawnX;
         shot.y = spawnY;
         shot.z = spawnZ;
-        shot.vx = initVx;
-        shot.vy = initVy;
-        shot.vz = initVz;
+        shot.vx = railDirX * initSpeed;
+        shot.vy = railDirY * initSpeed;
+        shot.vz = railDirZ * initSpeed;
         shot.age = 0;
         shot.isDwell = false;
         shot.dwellTimer = 0;
+
+        // Hide the static missile on this gantry as it launches
+        if (this.staticMissiles[padIndex]) {
+          this.staticMissiles[padIndex].visible = false;
+        }
 
         shot.historyX.fill(spawnX);
         shot.historyY.fill(spawnY);
@@ -429,6 +442,9 @@ export class DuoInteractionController {
         if (shot.dwellTimer <= 0) {
           shot.active = false;
           shot.isDwell = false;
+          if (this.staticMissiles[shot.padIndex]) {
+            this.staticMissiles[shot.padIndex].visible = true;
+          }
         }
         continue;
       }
@@ -439,6 +455,9 @@ export class DuoInteractionController {
       if (!targetBoat || !targetState || targetState.eliminated || targetState.finished || shot.age > PRANK_LIFETIME_S) {
         shot.active = false;
         this.projectileVisuals[index].group.visible = false;
+        if (this.staticMissiles[shot.padIndex]) {
+          this.staticMissiles[shot.padIndex].visible = true;
+        }
         continue;
       }
 
@@ -464,9 +483,9 @@ export class DuoInteractionController {
       // Proportional homing guidance towards survivor boat
       if (shot.age < 0.45) {
         // Initial ignition climb phase from lighthouse battery
-        shot.vy += (-9.8 + 32.0) * dt;
+        shot.vy += (-9.8 + 36.0) * dt;
         const horizDist = Math.hypot(dx, dz) || 1;
-        const steer = dt * 4.5;
+        const steer = dt * 5.0;
         shot.vx += ((dx / horizDist) * PRANK_SPEED - shot.vx) * steer;
         shot.vz += ((dz / horizDist) * PRANK_SPEED - shot.vz) * steer;
       } else {
@@ -474,7 +493,7 @@ export class DuoInteractionController {
         const desiredX = (dx / distance) * PRANK_SPEED;
         const desiredY = (dy / distance) * PRANK_SPEED;
         const desiredZ = (dz / distance) * PRANK_SPEED;
-        const steer = Math.min(1, dt * 9.5);
+        const steer = Math.min(1, dt * 10.0);
         shot.vx += (desiredX - shot.vx) * steer;
         shot.vy += (desiredY - shot.vy) * steer;
         shot.vz += (desiredZ - shot.vz) * steer;
@@ -508,16 +527,18 @@ export class DuoInteractionController {
         (shot.age > 0.8 && directDist <= 7.5 && (shot.vx * (tx - shot.x) + shot.vz * (tz - shot.z) < 0));
 
       if (reachedTarget) {
-        // 60% Lethal Hit Rate with massive explosion launch
-        const isHit = Math.random() < 0.60;
+        // 90% Base precision hit rate; continuous drifting on water grants 50% dodge exemption
+        const isDrifting = targetBoat.state.drifting;
+        const hitProbability = isDrifting ? 0.45 : 0.90;
+        const isHit = Math.random() < hitProbability;
         const sideSign = ((shot.actorId + Math.round(shot.age * 10)) % 2 === 0) ? 1 : -1;
-        const forwardX = Math.sin(heading) * 16.0;
-        const forwardZ = Math.cos(heading) * 16.0;
-        const sideX = sideSign * Math.cos(heading) * 9.5;
-        const sideZ = sideSign * -Math.sin(heading) * 9.5;
+        const forwardX = Math.sin(heading) * 18.0;
+        const forwardZ = Math.cos(heading) * 18.0;
+        const sideX = sideSign * Math.cos(heading) * 12.0;
+        const sideZ = sideSign * -Math.sin(heading) * 12.0;
 
         if (isHit) {
-          targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 16.5);
+          targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 18.5);
           emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
         } else {
           targetBoat.applyCollisionResponse(0, 0, sideX * 0.4, sideZ * 0.4);

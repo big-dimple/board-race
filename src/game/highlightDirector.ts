@@ -18,6 +18,17 @@ export class HighlightDirector {
   private replayTime = 0;
   private isPlaying = false;
   private isFinished = false;
+  private activeCamIndex: 1 | 2 | 3 = 1;
+
+  // Spatial keyframe anchors for broadcast sky towers
+  private readonly startPos = new THREE.Vector3();
+  private readonly peakPos = new THREE.Vector3();
+  private readonly endPos = new THREE.Vector3();
+  private startHeading = 0;
+  private peakHeading = 0;
+
+  private readonly camStation1 = new THREE.Vector3();
+  private readonly camStation3 = new THREE.Vector3();
 
   // Scratch vectors and objects for zero-allocation camera math
   private readonly boatPos = new THREE.Vector3();
@@ -38,6 +49,43 @@ export class HighlightDirector {
     this.replayTime = clip.startTime;
     this.isPlaying = true;
     this.isFinished = false;
+    this.activeCamIndex = 1;
+
+    const samples = clip.samples;
+    if (samples.length > 0) {
+      const first = samples[0];
+      const mid = samples[Math.floor(samples.length * 0.5)];
+      const last = samples[samples.length - 1];
+
+      this.startPos.set(first.x, first.y, first.z);
+      this.peakPos.set(mid.x, mid.y, mid.z);
+      this.endPos.set(last.x, last.y, last.z);
+
+      const dx1 = mid.x - first.x;
+      const dz1 = mid.z - first.z;
+      this.startHeading = Math.atan2(dx1, dz1) || 0;
+
+      const dx2 = last.z - mid.z;
+      const dz2 = last.z - mid.z;
+      this.peakHeading = Math.atan2(dx2, dz2) || this.startHeading;
+
+      // Station 1: High God's-Eye Sky Tower (上帝天眼俯瞰高塔)
+      // Elevated 22m in the sky, offset 28m to the diagonal side of approach
+      const sideAngle1 = this.startHeading - 0.72;
+      this.camStation1.set(
+        this.startPos.x - Math.sin(sideAngle1) * 28.0,
+        Math.max(18.0, this.startPos.y + 22.0),
+        this.startPos.z - Math.cos(sideAngle1) * 28.0,
+      );
+
+      // Station 3: Sky Exit Overlook Tower (高空俯拍过顶长焦塔)
+      // Elevated 18m, positioned 36m ahead along the exit vector
+      this.camStation3.set(
+        this.endPos.x + Math.sin(this.peakHeading) * 36.0 + Math.cos(this.peakHeading) * 14.0,
+        Math.max(16.0, this.endPos.y + 18.0),
+        this.endPos.z + Math.cos(this.peakHeading) * 36.0 - Math.sin(this.peakHeading) * 14.0,
+      );
+    }
   }
 
   stop(): void {
@@ -56,6 +104,7 @@ export class HighlightDirector {
     this.replayTime = this.clip.startTime;
     this.isPlaying = true;
     this.isFinished = false;
+    this.activeCamIndex = 1;
   }
 
   seek(progress: number): void {
@@ -136,55 +185,38 @@ export class HighlightDirector {
     this.forward.set(0, 0, 1).applyQuaternion(this.boatQuat).normalize();
     this.right.set(1, 0, 0).applyQuaternion(this.boatQuat).normalize();
 
-    // Extract planar track heading from horizontal direction (isolated from hull pitch & roll)
-    const heading = Math.atan2(this.forward.x, this.forward.z);
-
-    // Multi-angle Cinematic Camera Director (TRUE GOD'S-EYE / AERIAL BROADCAST VIEWS)
-    let camIndex: 1 | 2 | 3 = 1;
-    let camLabel = '[ CAM 01 // GODS-EYE OVERHEAD BROADCAST ]';
-    let targetFov = 62;
+    // Multi-angle Cinematic Camera Director (TRUE GOD'S-EYE BROADCAST VIEWS)
+    let newCamIndex: 1 | 2 | 3 = 1;
+    let camLabel = '[ CAM 01 // GODS-EYE SKY TOWER OVERVIEW ]';
+    let targetFov = 58;
 
     if (this.elapsed < 1.8) {
-      // Angle 1: High-Altitude God's-Eye Drone Track (上帝视角 / 高空俯瞰大景深建立追焦)
-      // Camera is high in the sky (13.5m above, 18m back-diagonal in track plane)
-      // looking down at a ~40 deg broadcast angle directly at the boat & water!
-      camIndex = 1;
-      camLabel = '[ CAM 01 // GODS-EYE OVERHEAD BROADCAST ]';
-      targetFov = 62;
+      // Angle 1: High God's-Eye Sky Tower Overview (上帝天眼俯瞰高塔机位)
+      // Stationary overhead camera overlooking the entire sector, panning to track boat racing below
+      newCamIndex = 1;
+      camLabel = '[ CAM 01 // GODS-EYE SKY TOWER OVERVIEW ]';
+      targetFov = 58;
 
-      const sideAngle = heading - 0.55;
-      const backDist = 18.0;
-      const height = 13.5;
-
-      this.targetCamPos.set(
-        this.boatPos.x - Math.sin(sideAngle) * backDist,
-        Math.max(6.0, this.boatPos.y + height),
-        this.boatPos.z - Math.cos(sideAngle) * backDist,
-      );
-
-      // Lock camera lookAt straight at the center of the boat/rider in world space!
-      this.targetLookAt.set(
-        this.boatPos.x,
-        this.boatPos.y + 0.85,
-        this.boatPos.z,
-      );
+      const craneDrift = (this.elapsed / 1.8) * 3.5;
+      this.targetCamPos.copy(this.camStation1).add(new THREE.Vector3(0, craneDrift, 0));
+      this.targetLookAt.set(this.boatPos.x, this.boatPos.y + 0.8, this.boatPos.z);
 
     } else if (this.elapsed < 3.8) {
       // Angle 2: 360° Sky Orbit & Bullet-Time (上帝高空360度大回旋 / 子弹时间慢镜头定格)
       // Elevated aerial helicopter camera smoothly sweeps 360 around the climax from high above
-      camIndex = 2;
+      newCamIndex = 2;
       camLabel = '[ CAM 02 // 360° SKY-ORBIT BULLET-TIME ]';
-      targetFov = 56;
+      targetFov = 52;
 
       const orbitPhase = (this.elapsed - 1.8) / 2.0;
-      const orbitAngle = heading + Math.PI * 0.75 + orbitPhase * Math.PI * 1.5;
-      const radius = 17.5;
-      const height = 11.5 - Math.sin(orbitPhase * Math.PI) * 3.5; // High aerial swoop
+      const orbitAngle = this.peakHeading + Math.PI * 0.65 + orbitPhase * Math.PI * 1.6;
+      const radius = 24.0;
+      const height = 16.0 - Math.sin(orbitPhase * Math.PI) * 4.0; // High aerial swoop
 
       this.targetCamPos.set(
-        this.boatPos.x + Math.sin(orbitAngle) * radius,
-        Math.max(5.0, this.boatPos.y + height),
-        this.boatPos.z + Math.cos(orbitAngle) * radius,
+        this.peakPos.x + Math.sin(orbitAngle) * radius,
+        Math.max(12.0, this.peakPos.y + height),
+        this.peakPos.z + Math.cos(orbitAngle) * radius,
       );
 
       this.targetLookAt.set(
@@ -194,22 +226,13 @@ export class HighlightDirector {
       );
 
     } else {
-      // Angle 3: High Telephoto Flyunder Pass (高空长焦前迎过顶俯拍 / 绝尘而去)
-      // Camera is positioned high ahead looking back, watching the boat race underneath into the sunset!
-      camIndex = 3;
-      camLabel = '[ CAM 03 // SKY OVERLOOK TELEPHOTO PASS ]';
-      targetFov = 52;
+      // Angle 3: Sky High Telephoto Exit Overlook (高空长焦前迎过顶俯拍 / 绝尘而去)
+      // Stationary sky camera perched ahead looking back as the boat blazes past underneath
+      newCamIndex = 3;
+      camLabel = '[ CAM 03 // SKY HIGH TELEPHOTO OVERLOOK ]';
+      targetFov = 48;
 
-      const flybyPhase = (this.elapsed - 3.8) / 1.4;
-      const aheadDist = 26.0 - flybyPhase * 40.0;
-      const sideDist = 9.0;
-
-      this.targetCamPos.set(
-        this.boatPos.x + Math.sin(heading) * aheadDist + Math.cos(heading) * sideDist,
-        Math.max(4.5, this.boatPos.y + 9.5),
-        this.boatPos.z + Math.cos(heading) * aheadDist - Math.sin(heading) * sideDist,
-      );
-
+      this.targetCamPos.copy(this.camStation3);
       this.targetLookAt.set(
         this.boatPos.x,
         this.boatPos.y + 0.6,
@@ -217,8 +240,12 @@ export class HighlightDirector {
       );
     }
 
-    // Smooth camera transition
-    if (this.elapsed <= 0.05 || this.elapsed === 1.8 || this.elapsed === 3.8) {
+    // Handle clean angle cuts
+    const isFirstFrame = this.elapsed <= 0.05;
+    const isAngleCut = newCamIndex !== this.activeCamIndex;
+    this.activeCamIndex = newCamIndex;
+
+    if (isFirstFrame || isAngleCut) {
       this.camPosSmooth.copy(this.targetCamPos);
       this.lookAtSmooth.copy(this.targetLookAt);
     } else {
@@ -233,7 +260,7 @@ export class HighlightDirector {
     camera.updateProjectionMatrix();
 
     return {
-      camIndex,
+      camIndex: this.activeCamIndex,
       camLabel,
       fov: targetFov,
       slowMoActive,
