@@ -463,6 +463,12 @@ let defeatFreezeTimer = 0;
 let highlightReplayActive = false;
 const highlightReplayPos = new THREE.Vector3();
 const highlightReplayQuat = new THREE.Quaternion();
+const highlightReplayRivalStates = Array.from({ length: 5 }, () => ({
+  pos: new THREE.Vector3(),
+  quat: new THREE.Quaternion(),
+  speed: 0,
+  mode: 'surface',
+}));
 let pendingFailureNewBest = false;
 let newBestThisRun = false;
 let medalEarnedThisRun = false;
@@ -1355,11 +1361,28 @@ function completeRetryLesson(): void {
 function startHighlightVideoReplay(): void {
   const clip = highlightRecorder.getBestClip(race.raceTime);
   highlightDirector.start(clip);
-  highlightRecorder.sampleAt(clip, clip.startTime, highlightReplayPos, highlightReplayQuat);
+  const sample = highlightRecorder.sampleAt(clip, clip.startTime, highlightReplayPos, highlightReplayQuat, highlightReplayRivalStates);
   boats[0].object.position.copy(highlightReplayPos);
   boats[0].object.quaternion.copy(highlightReplayQuat);
   boats[0].state.position.copy(highlightReplayPos);
   boats[0].state.quaternion.copy(highlightReplayQuat);
+  boats[0].state.speed = sample.speed;
+  boats[0].state.drifting = sample.drifting;
+  boats[0].state.boosting = sample.boosting;
+  boats[0].object.visible = true;
+
+  for (let r = 1; r < boats.length; r++) {
+    if (r - 1 < highlightReplayRivalStates.length) {
+      const riv = highlightReplayRivalStates[r - 1];
+      boats[r].object.position.copy(riv.pos);
+      boats[r].object.quaternion.copy(riv.quat);
+      boats[r].state.position.copy(riv.pos);
+      boats[r].state.quaternion.copy(riv.quat);
+      boats[r].state.speed = riv.speed;
+      boats[r].object.visible = true;
+    }
+  }
+
   highlightVideo.show(clip);
   highlightReplayActive = true;
   hud.setVisible(false);
@@ -1387,16 +1410,34 @@ function updateHighlightVideoPresentation(dt: number): void {
     highlightDirector.currentTime,
     highlightReplayPos,
     highlightReplayQuat,
+    highlightReplayRivalStates,
   );
   boats[0].object.position.copy(highlightReplayPos);
   boats[0].object.quaternion.copy(highlightReplayQuat);
   boats[0].state.position.copy(highlightReplayPos);
   boats[0].state.quaternion.copy(highlightReplayQuat);
   boats[0].state.speed = sample.speed;
-  boats[0].state.drifting = sample.mode === 'drift';
-  boats[0].state.boosting = sample.mode === 'boost';
-  boats[0].state.flightPhase = sample.mode === 'flight' || sample.mode === 'ascending' || sample.mode === 'cruise' || sample.mode === 'descending' || sample.mode === 'spool' ? (sample.mode as any) : 'surface';
-  riders[0].update(dt, boats[0].state, presentationTime);
+  boats[0].state.drifting = sample.drifting;
+  boats[0].state.boosting = sample.boosting;
+  boats[0].state.flightPhase = sample.mode !== 'surface' && sample.mode !== 'drift' && sample.mode !== 'boost' ? (sample.mode as any) : 'surface';
+  boats[0].object.visible = true;
+  if (riders[0]) riders[0].update(dt, boats[0].state, presentationTime);
+
+  for (let r = 1; r < boats.length; r++) {
+    if (r - 1 < highlightReplayRivalStates.length) {
+      const riv = highlightReplayRivalStates[r - 1];
+      boats[r].object.position.copy(riv.pos);
+      boats[r].object.quaternion.copy(riv.quat);
+      boats[r].state.position.copy(riv.pos);
+      boats[r].state.quaternion.copy(riv.quat);
+      boats[r].state.speed = riv.speed;
+      boats[r].state.drifting = riv.mode === 'drift';
+      boats[r].state.boosting = riv.mode === 'boost';
+      boats[r].state.flightPhase = riv.mode !== 'surface' && riv.mode !== 'drift' && riv.mode !== 'boost' ? (riv.mode as any) : 'surface';
+      boats[r].object.visible = true;
+      if (riders[r]) riders[r].update(dt, boats[r].state, presentationTime);
+    }
+  }
 
   const state = highlightDirector.update(
     dt,
@@ -2605,7 +2646,7 @@ function step(dt: number, _t: number): void {
   }
 
   if (racing) {
-    highlightRecorder.recordFrame(boats[0], race.raceTime, waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime));
+    highlightRecorder.recordFrame(boats, race.raceTime, waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime));
     // Each screen keeps its fixed seat layer while global coach/audio feedback
     // follows the surviving human promoted by Race.
     if (isDuoMode()) course.setGuidanceOwners([0, 1], race.player().id);
