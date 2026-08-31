@@ -164,13 +164,13 @@ function makeNavyGeometry(): THREE.BufferGeometry {
 }
 
 function makeSearchlightBeamGeometry(): THREE.BufferGeometry {
-  const length = 260.0;
-  const radiusTop = 0.8;
-  const radiusBottom = 32.0;
+  const length = 280.0;
+  const radiusTop = 0.45;   // matches realistic Fresnel lantern aperture
+  const radiusBottom = 6.8; // realistic slender ~1.4° half-angle beam divergence
   const geo = new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 24, 8, true);
-  // Extend forward from apex (0, 0, 0) along +Z, tilted down slightly (~0.11 rad / 6.3 deg)
+  // Extend forward from apex (0, 0, 0) along +Z, tilted down slightly (~0.045 rad / ~2.6 deg)
   geo.translate(0, -length / 2, 0);
-  geo.rotateX(-Math.PI / 2 + 0.11);
+  geo.rotateX(-Math.PI / 2 + 0.045);
   return geo;
 }
 
@@ -200,20 +200,21 @@ void main() {
   // In CylinderGeometry, uv.y goes 1.0 (top/apex) -> 0.0 (bottom/tip)
   float tAxis = 1.0 - vUv.y; // 0.0 at lantern apex -> 1.0 at distant tip
 
-  // Axial falloff: bright and dense near lantern room, long smooth taper into night
-  float apexRamp = smoothstep(0.0, 0.025, tAxis);
-  float tipTaper = 1.0 - smoothstep(0.52, 1.0, tAxis);
-  float axial = apexRamp * tipTaper;
+  // Physical exponential atmospheric Mie scattering falloff
+  float apexRamp = smoothstep(0.0, 0.015, tAxis);
+  float axialScatter = exp(-tAxis * 2.8) * (1.0 - smoothstep(0.72, 1.0, tAxis));
+  float axial = apexRamp * axialScatter;
 
-  // Circumferential radial soft profile
-  float radial = abs(fract(vUv.x * 2.0) - 0.5) * 2.0;
-  float radialSoft = smoothstep(0.0, 1.0, radial);
+  // Soft Gaussian beam profile across cylindrical waist
+  float distFromCenter = abs(fract(vUv.x * 2.0) - 0.5) * 2.0;
+  float gaussianProfile = exp(-pow(distFromCenter, 2.0) * 3.5);
 
-  // Subtle atmospheric dust stream
-  float dust = 0.85 + 0.15 * sin(tAxis * 32.0 - uTime * 2.2 + vUv.x * 12.0);
+  // Delicate micro-atmospheric particle dust
+  float dust = 0.92 + 0.08 * sin(tAxis * 36.0 - uTime * 1.6 + vUv.x * 14.0);
 
-  float intensity = axial * (0.65 + 0.35 * radialSoft) * dust * uBlend * 0.52;
-  vec3 col = mix(uColorHalo, uColorCore, pow(clamp(1.0 - tAxis, 0.0, 1.0), 0.6));
+  // Subtle, realistic atmospheric luminescence (delicate semi-transparent beam)
+  float intensity = axial * gaussianProfile * dust * uBlend * 0.28;
+  vec3 col = mix(uColorHalo, uColorCore, exp(-tAxis * 2.2));
   gl_FragColor = vec4(col * intensity, 1.0);
 }
 `;
@@ -242,8 +243,8 @@ void main() {
   vec3 N = normalize(vNormal);
   vec3 V = normalize(-vViewPos);
   float fresnel = max(dot(N, V), 0.0);
-  float core = pow(fresnel, 1.4);
-  vec3 col = uGlowColor * (1.6 + core * 2.2) * uBlend;
+  float core = pow(fresnel, 1.8);
+  vec3 col = uGlowColor * (1.1 + core * 1.6) * uBlend;
   gl_FragColor = vec4(col, 1.0);
 }
 `;

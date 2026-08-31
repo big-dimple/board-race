@@ -682,10 +682,12 @@ export class HUD {
 
     if (race.phase === 'racing' && st.flightGateProgress > this.seatFlightGateProgress[seat] &&
         st.flightRouteState !== 'passed') {
-      const flightNumber = Math.max(1, st.flightsCleared);
+      const flightNumber = Math.max(1, st.flightsCleared + (st.flightRouteIndex >= 0 ? 1 : 0));
+      const kicker = flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`;
+      const title = flightNumber === 5 ? '卧槽，最难发卡弯过了！' : '通过';
       this.enqueueImpact({
-        kind: 'gate', kicker: `FLIGHT ${flightNumber} / 3`, title: '通过', detail: '',
-        color: PALETTE.flight, duration: 0.7, priority: 50, lane,
+        kind: 'gate', kicker, title, detail: flightNumber === 5 ? '大弧度发卡弯 · 稳住！' : '',
+        color: PALETTE.flight, duration: flightNumber === 5 ? 1.8 : 0.7, priority: flightNumber === 5 ? 75 : 50, lane,
       });
     }
     this.seatFlightGateProgress[seat] = st.flightGateProgress;
@@ -704,6 +706,12 @@ export class HUD {
             kind: 'route-clear', kicker: 'FLIGHT 4 CLEARED', title: '右切入弯 ➔ 迎战第 5 飞',
             detail: '水面右转大弯心 · 对准第 5 飞天轨',
             color: PALETTE.flight, duration: 1.5, priority: 65, lane,
+          });
+        } else if (flightNumber === 5) {
+          this.enqueueImpact({
+            kind: 'route-clear', kicker: 'FLIGHT 5 CLEARED', title: '卧槽，最难发卡弯过了！',
+            detail: '大弧度天轨回旋完美通过 · 保持节奏迎战第 6 飞',
+            color: PALETTE.flight, duration: 2.0, priority: 75, lane,
           });
         }
       }

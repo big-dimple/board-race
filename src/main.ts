@@ -3937,22 +3937,30 @@ function runPostSetRankCase(): Record<string, unknown> {
       st.flightRouteCursor = cleared;
       st.flightsCleared = cleared;
     };
-    // The player leads the pack; stay clear of the half-lap antipode so the
-    // staging teleports resolve as forward placements, not wrap-arounds.
+    // The player leads the pack on Lap 2 (having completed a whole set of 7 routes).
     stage(0, 0.25, 0, routeCount);
     for (let id = 1; id < boats.length; id++) stage(id, 0.2 - id * 0.02, id % 2 === 0 ? 2.4 : -2.4, 0);
     course.syncFlightTrackingAfterCollisions(boats);
     race.update(dt);
+    // Player has cleared 1 full circuit of flights: bank 1 legitimate completed lap
+    (race as any).legitLaps[0] = 1;
+    (race as any).lapWindow[0] = 1;
+    (race as any).contU[0] = 1.25;
+    (race as any).prevContU[0] = 1.25;
+    race.racers[0].progress = (race as any).windowedProgress(0);
+    race.racers[0].lap = 2;
+
     if (!race.armFinale()) throw new Error('unable to arm Final for the post-set rank case');
     course.armFinalStation();
     const progressAtArming = Math.round(race.racers[0].progress);
     // The player keeps racing toward the next corridor instead of crossing.
     stage(0, 0.35, 0, routeCount);
+    (race as any).contU[0] = 1.35;
+    (race as any).prevContU[0] = 1.35;
+    race.racers[0].progress = (race as any).windowedProgress(0);
     race.update(dt);
     const progressAfterDriving = Math.round(race.racers[0].progress);
-    // The pack physically laps past the player's banked distance. Move in
-    // sub-half-lap hops so each placement resyncs forward instead of being
-    // read as a wrap backwards across the line.
+    // The pack drives forward in Lap 1.
     for (const u of [0.45, 0.85]) {
       for (let id = 1; id < boats.length; id++) stage(id, u - id * 0.01, id % 2 === 0 ? 2.4 : -2.4, 0);
       course.syncFlightTrackingAfterCollisions(boats);

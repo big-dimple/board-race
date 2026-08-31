@@ -147,11 +147,8 @@ void main() {
   colNight = mix(colNight, uNightMid, smoothstep(0.02, 0.14, h));
   colNight = mix(colNight, uNightZenith, smoothstep(0.24, 0.45, h));
 
-  // Blended base sky color
-  vec3 col = mix(colDay, colNight, uNightBlend);
-
   // ---------------------------------------------------------------
-  // DAY SUN
+  // DAY SUN & WARM SOLAR ATMOSPHERE (PHYSICAL FORWARD MIE SCATTERING)
   // ---------------------------------------------------------------
   if (uNightBlend < 0.999) {
     float ang = acos(clamp(dot(dir, uSunVisualDir), -1.0, 1.0));
@@ -159,15 +156,27 @@ void main() {
     vec3 t1 = cross(t0, uSunVisualDir);
     float az = atan(dot(dir, t1), dot(dir, t0));
 
+    // Sun core and solid disk
     float core = 1.0 - smoothstep(0.0, 0.024, ang);
     float disc = 1.0 - smoothstep(0.024, 0.052, ang);
-    float innerHalo = 1.0 - smoothstep(0.052, 0.14, ang);
-    float outerHalo = 1.0 - smoothstep(0.14, 0.34, ang);
-    float veilBand = smoothstep(0.07, 0.15, ang) * (1.0 - smoothstep(0.19, 0.4, ang));
-    float veilA = pow(max(cos(az - 0.24), 0.0), 24.0);
-    float veilB = pow(max(cos(az + 0.31), 0.0), 21.0);
-    float veils = veilBand * (veilA * 0.7 + veilB * 0.5);
 
+    // Exponential forward Mie scattering (corona, halo, wide ambient glow)
+    float innerCorona = exp(-ang * 14.0);
+    float outerHalo = exp(-ang * 4.2);
+    float wideGlow = exp(-ang * 1.6);
+
+    // Pure warm golden solar spectrum (zero blue contamination)
+    vec3 warmSunCore = vec3(1.0, 0.99, 0.92);
+    vec3 warmSunDisc = uSunCore; // pure golden amber
+    vec3 warmSunCorona = mix(uSunCore, vec3(1.0, 0.91, 0.68), 0.55);
+    vec3 warmAtmosphere = vec3(1.0, 0.93, 0.76);
+
+    // Smoothly wash out the blue sky into warm golden atmosphere in the sun direction
+    float haloFactor = clamp(innerCorona * 0.90 + outerHalo * 0.40 + wideGlow * 0.12, 0.0, 1.0);
+    colDay = mix(colDay, warmAtmosphere, haloFactor * (0.55 + uOpeningArt * 0.1));
+    colDay = mix(colDay, warmSunCorona, clamp(innerCorona * 1.15, 0.0, 1.0));
+
+    // Warm Tyndall sunbeams (downward crepuscular light shafts)
     float downSun = max(-dot(dir, t1), 0.0);
     float rayReach = smoothstep(0.012, 0.050, downSun) *
       (1.0 - smoothstep(0.20, 0.52, downSun));
@@ -184,21 +193,15 @@ void main() {
     float tyndall = rayReach *
       (rayA * 0.82 * rayAMod + rayB * 0.50 * rayBMod + rayC * 0.26 * rayCMod) * rayTexture;
 
-    float atmosphericGlow = innerHalo * 0.22 + outerHalo * 0.05;
-    atmosphericGlow *= 1.0 + uOpeningArt * 0.10;
-    vec3 sunMist = mix(uSunCore, vec3(1.0, 0.97, 0.86), 0.55);
-    vec3 airLight = mix(uSunCore, vec3(1.0, 0.97, 0.86), 0.58);
-    float corona = pow(innerHalo * (1.0 - disc), 1.7);
+    colDay += vec3(1.0, 0.94, 0.78) * tyndall * (0.15 + uOpeningArt * 0.02) * veilBreathe;
 
-    vec3 sunLight = vec3(0.0);
-    sunLight = mix(sunLight, sunMist, clamp(atmosphericGlow, 0.0, 0.26));
-    sunLight += airLight * (corona * 0.09 + veils * 0.075);
-    sunLight += airLight * tyndall * (0.10 + uOpeningArt * 0.018) * veilBreathe;
-    sunLight = mix(sunLight, uSunCore, disc);
-    sunLight = mix(sunLight, vec3(1.0, 0.99, 0.89), core * 0.82);
-
-    col += sunLight * (1.0 - uNightBlend);
+    // Solid sun disk and brilliant core
+    colDay = mix(colDay, warmSunDisc, disc);
+    colDay = mix(colDay, warmSunCore, core * 0.95);
   }
+
+  // Blended base sky color
+  vec3 col = mix(colDay, colNight, uNightBlend);
 
   // ---------------------------------------------------------------
   // NIGHT CELESTIALS (CRESCENT MOON & 4-POINTED CROSS STARS)

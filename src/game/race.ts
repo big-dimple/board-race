@@ -941,13 +941,6 @@ export class Race implements RaceView {
       return a.finishTime !== b.finishTime ? a.finishTime < b.finishTime : a.id < b.id;
     }
     if (a.finished !== b.finished) return a.finished;
-    // A qualified racer who has completed the authored flight set is in the
-    // championship tier. An under-qualified rival may have physically lapped
-    // the circuit on the water, but cannot finish this grand prix run and must
-    // not rank ahead of a racer who has cleared the sky routes.
-    const aQualified = (this.finalContender[a.id] ?? false) || this.hasFinalQualification(a.id);
-    const bQualified = (this.finalContender[b.id] ?? false) || this.hasFinalQualification(b.id);
-    if (aQualified !== bQualified) return aQualified;
     if (a.progress !== b.progress) return a.progress > b.progress;
     return a.id < b.id;
   }
