@@ -75,7 +75,7 @@ export class HonorHighlights {
     this.root.className = 'honor-review';
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
-    this.root.setAttribute('aria-label', '赛后荣誉');
+    this.root.setAttribute('aria-label', '赛后成就墙');
     this.root.innerHTML = `
       <div class="honor-review-sheen" aria-hidden="true"></div>
       <header class="honor-review-head">
@@ -155,11 +155,11 @@ export class HonorHighlights {
     this.root.dataset.mode = payload.mode;
     this.root.style.setProperty('--honor-progress', '0');
     this.root.classList.add('on', 'spotlight');
-    this.kicker.textContent = payload.mode === 'duo' ? 'DUO RACE · POST-MATCH ACCOLADES' : 'RACE · POST-MATCH ACCOLADES';
-    this.title.textContent = '高光时刻';
+    this.kicker.textContent = payload.mode === 'duo' ? 'DUO RACE · ACCOLADES // 成就墙' : 'RACE · ACCOLADES // 成就墙';
+    this.title.textContent = '成就墙';
     this.result.textContent = payload.resultLabel;
     this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · 历史荣誉 ${Math.round(payload.historyHonorScore)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次记录`;
-    this.hint.textContent = '高光播放中';
+    this.hint.textContent = '成就墙展示中';
     this.renderStandings();
     this.renderSpotlight();
     this.renderCards();
@@ -267,7 +267,7 @@ export class HonorHighlights {
     }
     const rarity = highlight.rarity ?? 'classic';
     this.spotlight.dataset.rarity = rarity;
-    this.spotlightBadge.textContent = highlight.badge ?? '★ 经典高光';
+    this.spotlightBadge.textContent = highlight.badge ?? '★ 经典成就';
     const ratingLabel = highlight.score >= 400 || rarity === 'legendary'
       ? '[ SSS · 极速传说 ]'
       : highlight.score >= 250 || rarity === 'epic'
@@ -276,7 +276,7 @@ export class HonorHighlights {
           ? '[ S · 凌云飞将 ]'
           : '[ A · 竞速精英 ]';
     this.spotlightRating.textContent = ratingLabel;
-    this.spotlightLabel.textContent = 'PLAY OF THE RUN · 本局最高光';
+    this.spotlightLabel.textContent = 'PLAY OF THE RUN · 本局最佳成就';
     this.spotlightTitle.textContent = highlight.title;
     this.spotlightDetail.textContent = `${highlight.detail} · 达成 ${highlight.count} 次 · 荣耀斩获 ${highlight.score} PTS`;
   }

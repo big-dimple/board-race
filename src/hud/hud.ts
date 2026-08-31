@@ -1363,7 +1363,7 @@ export class HUD {
     if (failure) this.lessonEl.dataset.failureReason = failure.reason;
     this.lessonContinue.hidden = false;
     this.lessonDisable.hidden = !coachArmed;
-    this.lessonContinue.textContent = continueToHonors ? '看高光' : coachArmed ? '带标注再冲' : '再冲一次';
+    this.lessonContinue.textContent = continueToHonors ? '查看成就墙' : coachArmed ? '带标注再冲' : '再冲一次';
     this.updateRetryLesson(0, !continueToHonors);
     this.root.classList.add('lesson-on');
     this.lessonEl.classList.add('on');

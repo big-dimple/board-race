@@ -35,8 +35,8 @@ export class FinaleOverlay {
     root.innerHTML = `
       <div class="finale-flare" aria-hidden="true"></div>
       <div class="finale-visual" aria-hidden="true"></div>
-      <button class="finale-skip" type="button" data-action="skip" title="跳过资料片与高光，直接进入下一轮"
-        aria-label="直接下一轮，跳过资料片与高光">直接下一轮 ➔</button>
+      <button class="finale-skip" type="button" data-action="skip" title="跳过资料片与成就墙，直接进入下一轮"
+        aria-label="直接下一轮，跳过资料片与成就墙">直接下一轮 ➔</button>
       <div class="finale-copy">
         <div class="finale-kicker">FINAL STATION · SEVEN FLIGHTS</div>
         <div class="finale-title">七飞认证</div>

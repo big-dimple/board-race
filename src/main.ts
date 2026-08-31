@@ -87,6 +87,9 @@ import {
 } from './core/capture';
 import { CapturePreview } from './hud/capturePreview';
 import { HonorHighlights } from './hud/honorHighlights';
+import { HighlightRecorder } from './game/highlightRecorder';
+import { HighlightDirector } from './game/highlightDirector';
+import { HighlightVideo } from './hud/highlightVideo';
 import {
   TeamExperience,
   loadTeamSave,
@@ -337,6 +340,15 @@ const honorHighlights = new HonorHighlights(
     enterFrontDoor();
   },
 );
+const highlightRecorder = new HighlightRecorder();
+const highlightDirector = new HighlightDirector();
+const highlightVideo = new HighlightVideo(
+  hudLayer,
+  () => highlightDirector.togglePause(),
+  () => highlightDirector.restart(),
+  (progress) => highlightDirector.seek(progress),
+  () => completeHighlightVideo(),
+);
 const expansionGallery = new ExpansionGallery(
   hudLayer,
   (index) => records.markExpansionSeen(index),
@@ -445,6 +457,9 @@ let retryLessonElapsed = 0;
 let retryLessonMinRead = 0;
 let retryLessonFrozenT = 0;
 let defeatFreezeTimer = 0;
+let highlightReplayActive = false;
+const highlightReplayPos = new THREE.Vector3();
+const highlightReplayQuat = new THREE.Quaternion();
 let pendingFailureNewBest = false;
 let newBestThisRun = false;
 let medalEarnedThisRun = false;
@@ -1321,6 +1336,61 @@ function completeRetryLesson(): void {
   else resetRace();
 }
 
+function startHighlightVideoReplay(): void {
+  const clip = highlightRecorder.getBestClip(race.raceTime);
+  highlightDirector.start(clip);
+  highlightVideo.show(clip);
+  highlightReplayActive = true;
+  hud.setVisible(false);
+  for (const entry of activeTowers()) entry.setVisible(false);
+  mixer.setVisible(false);
+  mobileInput.setOverlayHidden(true);
+  mobileInput.setControlPhase('inactive');
+  audio.setScene('defeat');
+}
+
+function completeHighlightVideo(): void {
+  if (!highlightReplayActive) return;
+  highlightDirector.stop();
+  highlightVideo.hide();
+  highlightReplayActive = false;
+  hud.setVisible(true);
+  startRetryLesson(true);
+}
+
+function updateHighlightVideoPresentation(dt: number): void {
+  const clip = highlightDirector.currentClip;
+  if (!clip) return;
+  const state = highlightDirector.update(
+    dt,
+    stage.camera,
+    highlightReplayPos,
+    highlightReplayQuat,
+    boats[0].state.speed,
+  );
+  const sample = highlightRecorder.sampleAt(
+    clip,
+    state.currentReplayTime,
+    highlightReplayPos,
+    highlightReplayQuat,
+  );
+  boats[0].object.position.copy(highlightReplayPos);
+  boats[0].object.quaternion.copy(highlightReplayQuat);
+  boats[0].state.position.copy(highlightReplayPos);
+  boats[0].state.quaternion.copy(highlightReplayQuat);
+  boats[0].state.speed = sample.speed;
+  boats[0].state.drifting = sample.mode === 'drift';
+  boats[0].state.boosting = sample.mode === 'boost';
+  boats[0].state.flightPhase = sample.mode === 'flight' || sample.mode === 'ascending' || sample.mode === 'cruise' || sample.mode === 'descending' || sample.mode === 'spool' ? (sample.mode as any) : 'surface';
+  riders[0].update(dt, boats[0].state, presentationTime);
+  highlightVideo.update(state, dt);
+  ocean.update(presentationTime, stage.camera.position);
+  sky.update(presentationTime, stage.camera.position);
+  course.update(dt, presentationTime);
+  pipeline.update(dt, presentationTime, boats[0].state, 'defeated');
+  audio.update(dt);
+}
+
 type HarnessCameraView = {
   target: THREE.Object3D;
   offset: readonly [number, number, number];
@@ -1392,6 +1462,10 @@ function resetRace(): void {
   retryLessonElapsed = 0;
   retryLessonMinRead = 0;
   defeatFreezeTimer = 0;
+  highlightReplayActive = false;
+  highlightDirector.stop();
+  highlightVideo.hide();
+  highlightRecorder.reset();
   pendingFailureNewBest = false;
   newBestThisRun = false;
   medalEarnedThisRun = false;
@@ -1886,7 +1960,7 @@ function beginFinalePresentation(): void {
     honors.award('finale.captain', racerId, HONOR_DEFINITIONS['finale.captain'].value, race.raceTime);
   }
   course.triggerFinaleCelebration();
-  finale.show(result, '查看高光');
+  finale.show(result, '查看成就墙');
   finaleElapsed = 0;
   finalePresentation = true;
   finaleCapture = null;
@@ -2267,11 +2341,23 @@ function step(dt: number, _t: number): void {
     return;
   }
 
+  if (highlightReplayActive) {
+    mobileInput.consumeAnyPress();
+    const skipPressed = enterPressed || spaceConfirmPressed || retryPressed || gamepadConfirm;
+    if (skipPressed || highlightDirector.finished) {
+      completeHighlightVideo();
+    } else {
+      updateHighlightVideoPresentation(dt);
+    }
+    localInput.endFrame();
+    return;
+  }
+
   if (defeatFreezeTimer > 0) {
     mobileInput.consumeAnyPress();
     defeatFreezeTimer = Math.max(0, defeatFreezeTimer - dt);
     updateFrozenPresentation(dt);
-    if (defeatFreezeTimer <= 0) startRetryLesson(true);
+    if (defeatFreezeTimer <= 0) startHighlightVideoReplay();
     localInput.endFrame();
     return;
   }
@@ -2466,6 +2552,7 @@ function step(dt: number, _t: number): void {
   }
 
   if (racing) {
+    highlightRecorder.recordFrame(boats[0], race.raceTime, waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime));
     // Each screen keeps its fixed seat layer while global coach/audio feedback
     // follows the surviving human promoted by Race.
     if (isDuoMode()) course.setGuidanceOwners([0, 1], race.player().id);
@@ -2877,6 +2964,7 @@ function step(dt: number, _t: number): void {
         race.challengeResult.ordinaryNew = ordinaryNewThisRun;
         records.decorateResult(race.challengeResult, pendingFailureNewBest, medalEarnedThisRun);
       }
+      highlightRecorder.tagDefeat(race.challengeResult?.failure, race.raceTime, boats[0].state.speed);
       defeatFreezeTimer = DEFEAT_FREEZE_S;
       retryLessonFrozenT = worldTime;
       input.reset();

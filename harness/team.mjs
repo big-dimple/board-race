@@ -251,6 +251,9 @@ async function verifyKeyboardDuo(page) {
   // assumed a direct wall, which skipped the reason / recommendation screen.
   await page.evaluate(() => window.__harness.duoEliminate(1));
   await advance(page, 0.5);
+  assert.equal((await page.locator('.highlight-video-overlay.on').count()), 1);
+  await page.locator('.highlight-btn-continue').click();
+  await advance(page, 1 / 60);
   assert.equal((await page.locator('.hud-retry-lesson.on').count()), 1);
   assert.match(await page.locator('.hud-lesson-title').textContent(), /撞柱|偏离|起飞|飞行/);
   await advance(page, 1.3);

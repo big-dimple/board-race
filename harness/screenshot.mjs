@@ -245,7 +245,7 @@ async function verifyMode(browser, mobile) {
     `${label}: honor wall DOM remained visible during the cinematic`);
   assert.equal(finaleSequence.afterFinaleShow.pending, true,
     `${label}: successful result did not queue its honor review`);
-  assert.match(finaleSequence.afterFinaleShow.continueLabel, /查看高光/,
+  assert.match(finaleSequence.afterFinaleShow.continueLabel, /查看成就墙|查看高光/,
     `${label}: Final Station action does not explain the next result beat`);
   assert.equal(finaleSequence.afterFinaleShow.mobileControlsHidden, true,
     `${label}: mobile controls leaked into the Final Station presentation`);
@@ -332,7 +332,7 @@ async function verifyMode(browser, mobile) {
     `${label}: a certificate utility button is too narrow to read: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.utilityLayout.inViewport, true,
     `${label}: a certificate utility button fell outside the frame: ${JSON.stringify(autoFlow)}`);
-  assert.match(autoFlow.countdownLabel, /查看高光.*[0-9]+\s*秒/,
+  assert.match(autoFlow.countdownLabel, /(?:查看成就墙|查看高光).*[0-9]+\s*秒/,
     `${label}: the certificate did not count itself down to the accolade wall: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.autoEntered.finaleVisible, false,
     `${label}: the certificate did not walk itself into the accolade wall: ${JSON.stringify(autoFlow)}`);
@@ -455,7 +455,7 @@ async function verifyMode(browser, mobile) {
       `${label}: failure review lost its concrete failure reason`);
     assert.match(singleHonors.failureLesson.copy, /空刹|轻调|中点/,
       `${label}: failure review lost its actionable recommendation`);
-    assert.equal(singleHonors.failureLesson.action, '看高光',
+    assert.match(singleHonors.failureLesson.action, /查看成就墙|看高光/,
       `${label}: failure review action did not explain the next result beat`);
     assert.equal(singleHonors.continueVisible, false,
       `${label}: failed run incorrectly exposed the next-round action`);

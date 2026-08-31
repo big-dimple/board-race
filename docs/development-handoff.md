@@ -1,14 +1,18 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“双人模式新手操作指南与日式街机出击协议（Duo Kickstart Guide & Japanese Arcade Operation Manual）”。
+状态：主分支当前工作包已圆满交付“成就墙重命名与商业大作级多机位慢镜高光时刻视频回放系统（Achievement Wall & AAA Multi-Angle Cinematic Highlight Video Replay）”。
 
 ## 当前工作包
 
-- **双人模式新手操作指南与日式街机出击协议（Duo Kickstart Guide & Japanese Arcade Operation Manual）**：
-  1. **双席动态键位卡与日式街机卡片**：新建 `DuoKickstartGuide`（`src/hud/duoKickstartGuide.ts` / `src/hud/duoKickstartGuide.css`），为双人模式 1P（蓝席）与 2P（黄席）提供独立侧向分栏卡片；根据真实入座设备（键盘左区 / 键盘右区 / 手柄 1 / 手柄 2）动态生成 100% 准确的 4 步极速操作指引（全速巡航、过弯长按漂移蓄力存电、见雾提前起飞、淘汰战术整蛊飞毛腿导弹发射与电池支援）；
-  2. **飞毛腿按键明确指引**：在淘汰战术卡片中特别醒目标注飞毛腿发射键（手柄 `按 Y 发射飞毛腿 🚀` / 键盘左席 `按 E` / 键盘右席 `按 O`，90% 致命追踪拦截打击）与补电支援键（手柄 `按 B` / 键盘左席 `按 Q` / 键盘右席 `按 U`）；
-  3. **出击签约确认流程与随时查看**：选人界面提供高对比度 `?` 新手引导按钮；在双人首次选角锁定后弹出操作指南卡片，经玩家清晰确认（Space / Enter / 手柄 A / 点击）后出击出发；
-  4. **自动化与回归断言**：`harness/team.mjs` 新增双人模式键盘与手柄双席引导卡片内容和键位断言，全部回归用例 100% 通过。
+- **成就墙重命名与商业大作级多机位慢镜高光时刻视频回放系统（Achievement Wall & AAA Multi-Angle Cinematic Highlight Video Replay）**：
+  1. **原高光时刻统一更名为【成就墙】**：`HonorHighlights`（`src/hud/honorHighlights.ts` / `src/hud/honorHighlights.css`）、`FinaleOverlay`（`src/hud/finaleOverlay.ts`）、`Hud`（`src/hud/hud.ts`）与通关结算、失败回顾流程全面将以往名不副实的“高光时刻”卡片列表更名为【成就墙】（`成就墙` / `查看成就墙` / `赛后成就墙` / `PLAY OF THE RUN · 本局最佳成就`），职责清晰独立，通关时直接展示七飞认证与成就墙；
+  2. **每局淘汰/失败时专属触发真正的【高光时刻视频回放】**：`HighlightRecorder`（`src/game/highlightRecorder.ts`）在 60Hz 物理步中实时捕获玩家赛艇的运动学切片与高光动作标签（极限腾空飞跃、弯心极限贴弯、连环夺金、极速破空、绝境冲刺），并在每局挂掉/撞毁淘汰时自动提炼本局最耀眼的 4.5 秒高光片段；
+  3. **商业大作级多机位电影级运镜与变速升降格（Speed Ramping）**：`HighlightDirector`（`src/game/highlightDirector.ts`）参考《极限竞速》《极品飞车》《守望先锋 POTG》等顶级商业大作，摒弃单一呆板的主玩家第三人称视角，构建 3 段电影级动态机位剪辑：
+     - **机位 1（0.0s–1.5s · 贴地低机位弯心追焦）**：低掠水面（`height = 0.75m`）大广角侧舷追随，捕捉赛艇切水浪花与车手俯冲冲刺姿态；
+     - **机位 2（1.5s–3.3s · 无人机大俯冲 + 0.35x 子弹时间慢镜定格回旋）**：自空中斜前方平滑俯冲回旋（Dolly & Orbit），伴随 0.35x 极速慢放（Speed Ramping 升降格）与 FOV 呼吸变焦，特写车手面部、全息风镜光芒与腾空光门飞跃瞬间；
+     - **机位 3（3.3s–4.5s · 前置广角高速掠影）**：机位前置迎面仰拍，赛艇以全速自镜头前方呼啸而过，喷射金色尾焰直冲远方；
+  4. **电竞赛事级视频播放器与电影级视效烘托**：`HighlightVideo`（`src/hud/highlightVideo.ts` / `src/hud/highlightVideo.css`）呈现精致的 16:9 电影级宽银幕黑边、`🔴 REC [4K 60FPS HDR]` 动态时间码、`[ SSS · 极速传说 ]` 冲刺横幅、`⏱️ 0.35X SLOW-MO` 脉冲徽章、径向速度线、变形镜头横向流光（Anamorphic Lens Flare）、金色粒子流、CRT 扫描线光栅以及跳动的 12 段音频 EQ 频谱仪与拖拽进度条；
+  5. **操作与全流程回归闭环**：支持 Space / Enter / 手柄 A / 点击 `查看成就墙 ➔` 随时跳过或播完自动进入失败回顾与成就墙；`verify:smoke`、`verify:team`、`verify:collision`、`verify:audio` 自动化测试 100% 通过。
 
 - **第七门过后全局操作体验一致性回归（Consistent Controls & Full Gameplay Freedom After Gate 7）**：
   1. **移除强制减速与特殊刹车**：`main.ts` 彻底移除在 `finalStationArmed` 时将玩家漂移键篡改为 `airBrake`、强行设 `flightTrigger: false` 以及将快艇模式切换为 `return-brake` 强制减速至 18m/s 的特殊逻辑；快艇全程保持 100% 正常的动力学、漂移手感与喷射加速；
