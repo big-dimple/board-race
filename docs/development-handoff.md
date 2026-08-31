@@ -1,8 +1,13 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“车手高精五官与 3D 头部造型系统（HD Rider Facial Features, UV Orientation & 3D Layered Bangs）”以及“通关近景旋转镜头（Clearance Orbit Camera Review）”。
+状态：主分支当前工作包已圆满交付“第七门过后全局操作体验一致性回归（Consistent Controls & Full Gameplay Freedom After Gate 7）”与“车手高精五官与 3D 头部造型系统”。
 
 ## 当前工作包
+
+- **第七门过后全局操作体验一致性回归（Consistent Controls & Full Gameplay Freedom After Gate 7）**：
+  1. **移除强制减速与特殊刹车**：`main.ts` 彻底移除在 `finalStationArmed` 时将玩家漂移键篡改为 `airBrake`、强行设 `flightTrigger: false` 以及将快艇模式切换为 `return-brake` 强制减速至 18m/s 的特殊逻辑；快艇全程保持 100% 正常的动力学、漂移手感与喷射加速；
+  2. **移除移动端与 HUD 按钮锁定**：`mobileControls.ts` 与 `abilityTelemetry.ts` 彻底移除 `finalMode` 对触控按键的禁用及 `finish` 状态覆写，玩家在过 7 门后依然可以正常长按漂移蓄力、起跳飞行与空中续航，界面操作反馈与前 6 门完全一致；
+  3. **标准 15 秒掉头与出圈规则对齐**：`race.ts` 移除过 7 门后对 `wrongT` / `offCourseT` 的特殊规避，未进终点站掉头回进或偏离航道均统一遵循标准的 15 秒纠偏倒计时，规则统一透明。
 
 - **车手高精五官与 3D 头部造型系统（HD Rider Facial Features, Upright UV & 3D Layered Bangs）**：
   1. **UV 坐标与贴图方向修复**：`riderMesh`（`src/game/riderMesh.ts`）修复面部补丁网格 UV $v = t_Y$ 贴图倒置 Bug，面部贴图完全正向贴合头部网格；

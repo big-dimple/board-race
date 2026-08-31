@@ -51,28 +51,23 @@ export function actionTelemetry(st: BoatState): ActionTelemetry {
   };
 }
 
-export function deriveAbilityHudState(st: BoatState, finalStationArmed = false): AbilityHudState {
+export function deriveAbilityHudState(st: BoatState, _finalStationArmed = false): AbilityHudState {
   const flightActive = st.flightPhase !== 'surface';
-  const finalRoute = finalStationArmed;
   const airbraking = flightActive && st.flightAirBrake > 0.18;
-  const leftMode: AbilityMode = finalRoute
-    ? 'finish'
-    : airbraking ? 'airbrake' : st.drifting ? 'drift' : st.boosting ? 'boost' : 'idle';
-  const canExtend = st.flightExtensionReady && !finalRoute;
+  const leftMode: AbilityMode = airbraking ? 'airbrake' : st.drifting ? 'drift' : st.boosting ? 'boost' : 'idle';
+  const canExtend = st.flightExtensionReady;
   const urgency: AbilityUrgency = flightActive && st.flightRemaining <= FLIGHT_CRITICAL
     ? 'critical'
     : flightActive && st.flightRemaining <= FLIGHT_SOON
       ? 'soon'
       : 'normal';
-  const flightMode: FlightUiMode = finalRoute
-    ? 'finish'
-    : canExtend ? 'extend' : flightActive ? 'active' : st.flightCharges > 0 ? 'stored' : 'locked';
+  const flightMode: FlightUiMode = canExtend ? 'extend' : flightActive ? 'active' : st.flightCharges > 0 ? 'stored' : 'locked';
   return {
     ...actionTelemetry(st),
     leftMode,
     flightMode,
     urgency,
     extendUrgent: canExtend && urgency !== 'normal',
-    showNearRail: st.drifting || st.boosting || flightActive || st.flightCharges > 0 || finalRoute,
+    showNearRail: st.drifting || st.boosting || flightActive || st.flightCharges > 0,
   };
 }

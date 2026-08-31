@@ -1035,7 +1035,7 @@ export class HUD {
   }
 
   private updateSeatDriverPower(dt: number, race: RaceView, player: IBoat, seat: number, split: boolean): void {
-    const state = deriveAbilityHudState(player.state, this.course.finalStationArmed());
+    const state = deriveAbilityHudState(player.state);
     const active = race.phase === 'racing' && state.showNearRail;
     const el = this.driverPower[seat];
     el.classList.toggle('on', active);
@@ -1051,13 +1051,13 @@ export class HUD {
     // Stored cells are shown as diamonds; the continuous rail only appears
     // once an airborne envelope is actually consuming time.
     this.driverRightRail[seat].classList.toggle('on', active &&
-      (state.flightMode === 'active' || state.flightMode === 'extend' || state.flightMode === 'finish'));
-    this.driverLeftLabel[seat].textContent = state.leftMode === 'airbrake' ? 'AIR' : state.leftMode === 'finish' ? 'BRAKE' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
-    this.driverRightLabel[seat].textContent = state.flightMode === 'finish' ? 'GO' : state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
+      (state.flightMode === 'active' || state.flightMode === 'extend'));
+    this.driverLeftLabel[seat].textContent = state.leftMode === 'airbrake' ? 'AIR' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
+    this.driverRightLabel[seat].textContent = state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
     el.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
     el.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
     el.classList.toggle('extend', state.flightMode === 'extend');
-    el.classList.toggle('final', state.flightMode === 'finish');
+    el.classList.toggle('final', false);
     const stocks = this.driverStocks[seat].children;
     for (let i = 0; i < stocks.length; i++) {
       (stocks[i] as HTMLElement).classList.toggle('on', i < state.flightCharges);

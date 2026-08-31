@@ -396,8 +396,8 @@ export class Race implements RaceView {
 
   /** End the player's run immediately. Idempotent so swept checks cannot double-fire. */
   defeatFlight(failure: FlightFailureSnapshot, force = false): void {
-    if (this.phase !== 'racing' || (this.finalStationArmed && !force)) return;
-    if (force) this.finalStationArmed = false;
+    if (this.phase !== 'racing') return;
+    this.finalStationArmed = false;
     this.phase = 'defeated';
     // A flight or surface failure can be raised from inside `track()` before
     // the normal end-of-step sort. Build the result and honor wall from the
@@ -648,16 +648,6 @@ export class Race implements RaceView {
 
         if (isLegitFlight) {
           // Legit flight along active authored route: clear warning clocks.
-          this.wrongT[id] = 0;
-          this.offCourseT[id] = 0;
-          this.setCourseWarning(r, 'none');
-        } else if (id === this.primaryPlayerId && this.finalStationArmed) {
-          // An armed player is lining up the shared portal, so the hazard
-          // clocks and the failures they arm stay suspended. Gate and lap
-          // bookkeeping below must keep running: skipping it used to close the
-          // lap window with no gates credited, void the lap, and silently drop
-          // a whole lap of banked progress — the player crossed the line first
-          // and still fell to last place after continuing the run.
           this.wrongT[id] = 0;
           this.offCourseT[id] = 0;
           this.setCourseWarning(r, 'none');

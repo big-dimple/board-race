@@ -2452,17 +2452,12 @@ function step(dt: number, _t: number): void {
     if (i === 0 && harnessFlightTriggerPulse) inp = { ...inp, flightTrigger: true };
     const harnessOverride = HARNESS ? harnessBoatInputOverrides[i] : null;
     if (harnessOverride) inp = { ...inp, ...harnessOverride };
-    const finalReturnBrake = i === race.player().id && course.finalStationArmed();
-    if (finalReturnBrake) {
-      const returnBrake = inp.drift || inp.airBrake;
-      inp = { ...inp, drift: false, airBrake: returnBrake, flightTrigger: false };
-    }
     if (HARNESS) Object.assign(harnessLastBoatInputs[i], inp);
     boats[i].update(
       dt,
       inp,
       worldTime,
-      finalReturnBrake ? 'return-brake' : 'drift',
+      'drift',
       rivalControl.surfaceTargetScale,
       rivalControl.flightTargetScale,
       wakes,
@@ -2816,7 +2811,7 @@ function step(dt: number, _t: number): void {
   updateDuoViewportHud();
   const routeGuidance = course.guidanceStatus();
   mobileInput.setActionState(
-    deriveAbilityHudState(ps, course.finalStationArmed()),
+    deriveAbilityHudState(ps),
     course.flightTurnWarning(focusBoat.id),
     routeGuidance.actionCue,
     routeGuidance.actionDirection,

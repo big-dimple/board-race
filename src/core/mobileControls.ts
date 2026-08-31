@@ -61,7 +61,6 @@ export class MobileControls {
   private gestureSuppressions = 0;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
-  private finalMode = false;
 
   get ready(): boolean {
     return !this.enabled || this.landscape && this.activation === 'ready';
@@ -233,14 +232,14 @@ export class MobileControls {
     const action = this.hasAction('drift');
     const flightTrigger = this.flightQueued;
     this.flightQueued = false;
-    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : this.finalMode ? '刹' : '漂';
-    if (this.driftSubLabel) this.driftSubLabel.textContent = flightActive ? 'AIR BRAKE' : this.finalMode ? 'BRAKE' : 'DRIFT';
+    if (this.driftLabel) this.driftLabel.textContent = flightActive ? '空刹' : '漂';
+    if (this.driftSubLabel) this.driftSubLabel.textContent = flightActive ? 'AIR BRAKE' : 'DRIFT';
     return {
       throttle: 1,
       steer,
-      drift: action && !flightActive && !this.finalMode,
-      flightTrigger: this.finalMode ? false : flightTrigger,
-      airBrake: action && (flightActive || this.finalMode),
+      drift: action && !flightActive,
+      flightTrigger,
+      airBrake: action && flightActive,
     };
   }
 
@@ -303,7 +302,6 @@ export class MobileControls {
     routeDirection: RouteTurnDirection | 'none' = 'none',
   ): void {
     if (!this.root) return;
-    this.finalMode = state.flightMode === 'finish';
     const charges = Math.round(clamp(state.flightCharges, 0, MAX_FLIGHT_CHARGES));
     this.root.style.setProperty('--mobile-drift-progress', String(clamp(state.boostCharge, 0, 1)));
     this.root.style.setProperty('--mobile-bank-progress', String(clamp(state.driftBankProgress, 0, 1)));
@@ -314,7 +312,7 @@ export class MobileControls {
     this.root.classList.toggle('drift-bank-full', state.drifting && state.boostCharge >= 0.995);
     this.root.classList.toggle('flight-ready', state.flightMode === 'stored');
     this.root.classList.toggle('flight-extension-ready', state.flightMode === 'extend');
-    this.root.classList.toggle('flight-urgent', state.urgency !== 'normal' && state.flightMode !== 'finish');
+    this.root.classList.toggle('flight-urgent', state.urgency !== 'normal');
     this.root.classList.toggle('flight-critical', state.urgency === 'critical');
     this.root.dataset.flightCharges = String(charges);
     this.root.dataset.flightMode = state.flightMode;
@@ -324,16 +322,14 @@ export class MobileControls {
     if (flight) {
       const label = state.flightMode === 'extend'
         ? `空中续航，本飞最多起飞一次、续航一次；续航消耗 1 格，当前剩余 ${charges} 格`
-        : state.flightMode === 'finish'
-          ? '终点已就绪，保持水面航行并冲线'
         : state.flightMode === 'active'
           ? '飞行中，当前不可续航'
           : charges > 0 ? `飞行，已蓄能 ${charges} 次` : '飞行，尚未蓄能';
       flight.setAttribute('aria-label', label);
-      flight.setAttribute('aria-disabled', this.finalMode ? 'true' : 'false');
+      flight.setAttribute('aria-disabled', 'false');
     }
-    if (this.flightLabel) this.flightLabel.textContent = state.flightMode === 'extend' ? '续' : state.flightMode === 'finish' ? '终' : '飞';
-    if (this.flightSubLabel) this.flightSubLabel.textContent = state.flightMode === 'extend' ? '每飞 1 次' : state.flightMode === 'finish' ? 'FINAL' : 'FLIGHT';
+    if (this.flightLabel) this.flightLabel.textContent = state.flightMode === 'extend' ? '续' : '飞';
+    if (this.flightSubLabel) this.flightSubLabel.textContent = state.flightMode === 'extend' ? '每飞 1 次' : 'FLIGHT';
     const stock = this.buttons.get('flight')?.querySelector<HTMLElement>('.mobile-stock');
     if (stock) stock.textContent = `x${charges}`;
     this.root.classList.toggle('in-flight', state.flightPhase !== 'surface');
@@ -343,12 +339,12 @@ export class MobileControls {
     this.root.classList.toggle('route-action-turn', routeAction === 'turn');
     this.root.classList.toggle('route-turn-left', routeAction === 'turn' && routeDirection === 'left');
     this.root.classList.toggle('route-turn-right', routeAction === 'turn' && routeDirection === 'right');
-    const leftLabel = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'finish' ? '刹' : state.leftMode === 'boost' ? '加' : '漂';
-    const leftSubLabel = state.flightPhase !== 'surface' ? 'AIR BRAKE' : state.leftMode === 'finish' ? 'BRAKE' : state.leftMode === 'boost' ? 'BOOST' : 'DRIFT';
+    const leftLabel = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加' : '漂';
+    const leftSubLabel = state.flightPhase !== 'surface' ? 'AIR BRAKE' : state.leftMode === 'boost' ? 'BOOST' : 'DRIFT';
     if (this.driftLabel) this.driftLabel.textContent = leftLabel;
     if (this.driftSubLabel) this.driftSubLabel.textContent = leftSubLabel;
     const drift = this.buttons.get('drift');
-    if (drift) drift.setAttribute('aria-label', state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'finish' ? '回港刹车' : state.leftMode === 'boost' ? '加速中' : '漂移');
+    if (drift) drift.setAttribute('aria-label', state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加速中' : '漂移');
   }
 
   reset(): void {
@@ -546,7 +542,6 @@ export class MobileControls {
     this.activitySerialValue++;
     if (this.controlPhase === 'inactive' || this.activation !== 'ready') return;
     if ((this.controlPhase === 'presentation' || this.controlPhase === 'preparing') && action === 'flight') return;
-    if (this.finalMode && action === 'flight') return;
     event.preventDefault();
     const button = event.currentTarget as HTMLButtonElement;
     this.activePointers.set(event.pointerId, action);
