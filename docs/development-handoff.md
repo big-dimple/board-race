@@ -1,8 +1,14 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“四大核心改进与日夜交替系统（4 Issues & Day/Night System）”以及“过第五门高能字幕、实时真实物理名次、白天太阳自然暖晕与夜间物理写实灯塔光束”。
+状态：主分支当前工作包已圆满交付“车手高精五官与 3D 头部造型系统（HD Rider Facial Features, UV Orientation & 3D Layered Bangs）”以及“通关近景旋转镜头（Clearance Orbit Camera Review）”。
 
 ## 当前工作包
+
+- **车手高精五官与 3D 头部造型系统（HD Rider Facial Features, Upright UV & 3D Layered Bangs）**：
+  1. **UV 坐标与贴图方向修复**：`riderMesh`（`src/game/riderMesh.ts`）修复面部补丁网格 UV $v = t_Y$ 贴图倒置 Bug，面部贴图完全正向贴合头部网格；
+  2. **高精度生动动漫五官重构**：`getOrCreateFaceTexture` 重构 512x512 动漫面部贴图，引入平滑柔和的径向渐变肤色底色与边缘透明平滑羽化衰减（彻底消除面部贴片边界感），重构清晰锐利的眼线双眼皮、多色虹膜反射弧渐变光晕、高光星芒、个性化挑眉、立体动漫鼻翼与专属嘴角表情（Axle 沉稳微笑、Tide 傲然微翘、Sol 阳光皓齿灿笑、Reef 咬牙坚毅战意、Kai 极客专注、Jinx 虎牙鬼马坏笑）；
+  3. **3D 前额刘海与发型造型体系（告别秃顶）**：收拢头骨穹顶开角（`frontGap = 0.52`），为全量 6 位车手打造丰满立体的 3D 前额刘海（Bangs）、鬓角发丝与专属 3D 标志性头饰（Jinx 头顶动态呆毛与护目镜、Axle 盛唐翡翠额带与通讯麦、Tide 左眼全息战术单镜、Sol 额前太阳镜、Reef 鼻梁战术贴与莫西干尖刺、Kai AR 战术目镜横梁与钛金耳翼）；
+  4. **通关近景旋转镜头实测验证**：`main.ts` 新增 `finale-orbit-face` 与 `finale-orbit-close` 通关旋转近距离特写场景，通过通关结算“七飞认证”近景环绕实测，车手在通关近景旋转镜头下五官精致清晰，发型立体自然。
 
 - **第五门高能字幕、实时真实物理名次、白天太阳自然暖晕与夜间物理写实灯塔光束（Gate 5 Subtitle, Pure Progress Rank, Warm Sun & Real Lighthouse Beam）**：
   1. **过第五门高能字幕**：`Hud`（`src/hud/hud.ts`）在过 Gate 5 及第 5 飞全过（Flight 5 Cleared）时第一时间打出高能字幕提示 `卧槽，最难发卡弯过了！`（大弧度天轨回旋完美通过 · 保持节奏迎战第 6 飞）；

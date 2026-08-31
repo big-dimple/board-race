@@ -479,318 +479,463 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
 
   ctx.clearRect(0, 0, 512, 512);
 
-  // 1. Natural Anime Skin Tone Gradient
+  // 1. Natural Anime Skin Tone Gradient & Seamless Edge Blending
   const skinHex = hexToString(look.skin);
   const hairHex = hexToString(look.hair);
 
-  // Soft stylized cheek gradient
-  const skinGrad = ctx.createRadialGradient(256, 260, 20, 256, 260, 220);
+  // Smooth seamless radial skin fill (fades to 0 alpha at outer edges)
+  const skinGrad = ctx.createRadialGradient(256, 260, 50, 256, 260, 245);
   skinGrad.addColorStop(0, skinHex);
-  skinGrad.addColorStop(0.85, skinHex);
-  skinGrad.addColorStop(1, 'rgba(0,0,0,0.06)');
+  skinGrad.addColorStop(0.70, skinHex);
+  skinGrad.addColorStop(0.90, `${skinHex}b0`);
+  skinGrad.addColorStop(1, `${skinHex}00`);
+  ctx.fillStyle = skinGrad;
+  ctx.fillRect(0, 0, 512, 512);
 
-  // 2. Character-Specific Facial Features & Expressions
-  const eyeColors: Record<string, { irisTop: string; irisBottom: string; highlight: string; glow: string }> = {
-    axle: { irisTop: '#2a1a10', irisBottom: '#8d5524', highlight: '#ffffff', glow: '#39ff88' },
-    tide: { irisTop: '#081c3b', irisBottom: '#00d0ff', highlight: '#ffffff', glow: '#00f0ff' },
-    sol: { irisTop: '#5a2500', irisBottom: '#ffaa00', highlight: '#fff2a8', glow: '#ffd020' },
-    reef: { irisTop: '#4a0808', irisBottom: '#ff2244', highlight: '#ffffff', glow: '#ff3d7f' },
-    kai: { irisTop: '#0c1228', irisBottom: '#448aff', highlight: '#ffffff', glow: '#64b5f6' },
-    jinx: { irisTop: '#280c44', irisBottom: '#d500f9', highlight: '#ffffff', glow: '#ea80fc' },
+  // Forehead ambient hairline shadow (y=0..90)
+  const hairShadowGrad = ctx.createLinearGradient(256, 10, 256, 95);
+  hairShadowGrad.addColorStop(0, 'rgba(20, 15, 30, 0.30)');
+  hairShadowGrad.addColorStop(0.6, 'rgba(20, 15, 30, 0.10)');
+  hairShadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = hairShadowGrad;
+  ctx.fillRect(0, 0, 512, 100);
+
+  // Chin and jaw contour shadow (y=440..512)
+  const chinGrad = ctx.createLinearGradient(256, 440, 256, 512);
+  chinGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  chinGrad.addColorStop(1, 'rgba(30, 15, 10, 0.18)');
+  ctx.fillStyle = chinGrad;
+  ctx.fillRect(0, 440, 512, 72);
+
+  // Character-Specific Eye Colors & Sparkle Configuration
+  const eyeColors: Record<string, { irisTop: string; irisMid: string; irisBottom: string; highlight: string; glow: string }> = {
+    axle: { irisTop: '#1e140d', irisMid: '#6e421e', irisBottom: '#b8753b', highlight: '#ffffff', glow: '#39ff88' },
+    tide: { irisTop: '#061326', irisMid: '#0072aa', irisBottom: '#00d4ff', highlight: '#ffffff', glow: '#00f0ff' },
+    sol: { irisTop: '#3e1800', irisMid: '#c86a00', irisBottom: '#ffba00', highlight: '#fffde0', glow: '#ffd020' },
+    reef: { irisTop: '#3a0404', irisMid: '#ad1212', irisBottom: '#ff3050', highlight: '#ffffff', glow: '#ff3d7f' },
+    kai: { irisTop: '#080d1e', irisMid: '#1d4ea8', irisBottom: '#4d88ff', highlight: '#ffffff', glow: '#80b3ff' },
+    jinx: { irisTop: '#1f0834', irisMid: '#8c16cf', irisBottom: '#e238f8', highlight: '#ffffff', glow: '#ea80fc' },
   };
-  const eyeColor = eyeColors[driverId] ?? { irisTop: '#101018', irisBottom: '#3878cc', highlight: '#ffffff', glow: '#00f0ff' };
+  const eyeColor = eyeColors[driverId] ?? { irisTop: '#101018', irisMid: '#244888', irisBottom: '#4890ee', highlight: '#ffffff', glow: '#00f0ff' };
 
-  // Draw Eyes
+  // Soft cheeks blush
+  for (const [side, bx] of [[-1, 148], [1, 364]] as const) {
+    const blushGrad = ctx.createRadialGradient(bx, 275, 2, bx, 275, 36);
+    const blushColor = (driverId === 'sol' || driverId === 'tide' || driverId === 'jinx')
+      ? 'rgba(255, 60, 110, 0.38)'
+      : 'rgba(230, 90, 60, 0.20)';
+    blushGrad.addColorStop(0, blushColor);
+    blushGrad.addColorStop(1, 'rgba(255, 100, 100, 0)');
+    ctx.fillStyle = blushGrad;
+    ctx.beginPath();
+    ctx.arc(bx, 275, 36, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 2. High-Definition Expressive Eyes (cy=232)
   for (const [side, cx] of [[-1, 160], [1, 352]] as const) {
-    const cy = 248;
+    const cy = 232;
+
     // Sclera (Eye White)
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(cx, cy, 38, 30, (side * 0.08), 0, Math.PI * 2);
-    ctx.fillStyle = '#f8fafd';
+    ctx.ellipse(cx, cy, 42, 32, side * 0.05, 0, Math.PI * 2);
+    ctx.fillStyle = '#f8fbfe';
     ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+
+    // Sclera upper shadow
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - 8, 40, 22, side * 0.05, Math.PI, Math.PI * 2);
+    ctx.fillStyle = 'rgba(20, 30, 60, 0.14)';
+    ctx.fill();
+
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(30, 20, 40, 0.25)';
     ctx.stroke();
 
-    // Iris
+    // Vibrant Multi-Tone Iris
     ctx.beginPath();
-    ctx.ellipse(cx + side * 2, cy + 1, 22, 26, (side * 0.04), 0, Math.PI * 2);
-    const irisGrad = ctx.createLinearGradient(cx, cy - 26, cx, cy + 26);
+    ctx.ellipse(cx + side * 3, cy + 1, 25, 29, side * 0.03, 0, Math.PI * 2);
+    const irisGrad = ctx.createLinearGradient(cx, cy - 28, cx, cy + 28);
     irisGrad.addColorStop(0, eyeColor.irisTop);
-    irisGrad.addColorStop(0.55, eyeColor.irisBottom);
-    irisGrad.addColorStop(1, eyeColor.highlight);
+    irisGrad.addColorStop(0.45, eyeColor.irisMid);
+    irisGrad.addColorStop(0.85, eyeColor.irisBottom);
+    irisGrad.addColorStop(1, eyeColor.glow);
     ctx.fillStyle = irisGrad;
     ctx.fill();
 
-    // Dark Pupil
+    // Inner glowing crescent reflex
     ctx.beginPath();
-    ctx.ellipse(cx + side * 2, cy + 2, 10, 14, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#080a14';
+    ctx.ellipse(cx + side * 3, cy + 14, 18, 11, side * 0.03, 0, Math.PI);
+    ctx.fillStyle = eyeColor.glow;
+    ctx.globalAlpha = 0.55;
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+
+    // Deep Dark Pupil
+    ctx.beginPath();
+    ctx.ellipse(cx + side * 3, cy + 2, 11, 15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#0a0d18';
     ctx.fill();
 
-    // Anime Specular Glints
+    // Anime Primary Sparkling Specular Glint
     ctx.beginPath();
-    ctx.arc(cx + side * 2 - 6, cy - 8, 6, 0, Math.PI * 2);
+    ctx.arc(cx + side * 3 - 7, cy - 9, 7.5, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
+
+    // Secondary Specular Glint
     ctx.beginPath();
-    ctx.arc(cx + side * 2 + 7, cy + 8, 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.arc(cx + side * 3 + 8, cy + 9, 4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.fill();
 
-    // Eyeliner / Upper Eyelid
+    // Tertiary micro sparkle
     ctx.beginPath();
-    ctx.moveTo(cx - side * 44, cy - 4);
-    ctx.quadraticCurveTo(cx, cy - 36, cx + side * 44, cy - (driverId === 'tide' ? 14 : 2));
-    ctx.lineWidth = driverId === 'tide' ? 9 : 6.5;
-    ctx.strokeStyle = '#121524';
+    ctx.arc(cx + side * 3 - 6, cy + 12, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.fill();
+
+    // Bold Crisp Upper Eyeliner & Wing
+    ctx.beginPath();
+    ctx.moveTo(cx - side * 48, cy - 2);
+    ctx.quadraticCurveTo(cx, cy - 40, cx + side * 48, cy - (driverId === 'tide' ? 12 : 3));
+    ctx.lineWidth = (driverId === 'tide' || driverId === 'sol') ? 9.5 : 8;
+    ctx.strokeStyle = '#101322';
     ctx.lineCap = 'round';
     ctx.stroke();
 
-    // Eyelashes for female drivers
+    // Double Eyelid Crease
+    ctx.beginPath();
+    ctx.moveTo(cx - side * 36, cy - 36);
+    ctx.quadraticCurveTo(cx, cy - 48, cx + side * 38, cy - 34);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(40, 25, 35, 0.45)';
+    ctx.stroke();
+
+    // Lower Lash Line
+    ctx.beginPath();
+    ctx.moveTo(cx - side * 28, cy + 28);
+    ctx.quadraticCurveTo(cx, cy + 34, cx + side * 32, cy + 26);
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = '#181b2a';
+    ctx.stroke();
+
+    // Winged Eyelashes for female drivers
     if (driverId === 'tide' || driverId === 'sol') {
       ctx.beginPath();
-      ctx.moveTo(cx + side * 38, cy - 18);
-      ctx.lineTo(cx + side * 48, cy - 28);
-      ctx.lineWidth = 4;
+      ctx.moveTo(cx + side * 42, cy - 16);
+      ctx.lineTo(cx + side * 54, cy - 28);
+      ctx.lineWidth = 4.5;
+      ctx.strokeStyle = '#101322';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cx + side * 36, cy - 24);
+      ctx.lineTo(cx + side * 46, cy - 34);
+      ctx.lineWidth = 3.5;
       ctx.stroke();
     }
     ctx.restore();
   }
 
-  // Draw Eyebrows
+  // 3. Expressive Eyebrows (y=165..185)
   for (const [side, cx] of [[-1, 160], [1, 352]] as const) {
     ctx.save();
     ctx.beginPath();
     if (driverId === 'reef') {
-      // Aggressive angled brows
-      ctx.moveTo(cx - side * 46, 192);
-      ctx.lineTo(cx + side * 36, 162);
+      // Aggressive angled combat brows
+      ctx.moveTo(cx - side * 48, 180);
+      ctx.lineTo(cx + side * 42, 146);
     } else if (driverId === 'tide') {
-      // Sleek arched brows
-      ctx.moveTo(cx - side * 42, 196);
-      ctx.quadraticCurveTo(cx + side * 6, 165, cx + side * 42, 178);
+      // Sleek haughty arched brows
+      ctx.moveTo(cx - side * 44, 180);
+      ctx.quadraticCurveTo(cx + side * 8, 146, cx + side * 44, 164);
     } else if (driverId === 'jinx') {
       // Playful raised brows
-      ctx.moveTo(cx - side * 40, 185);
-      ctx.quadraticCurveTo(cx, 160, cx + side * 40, 175);
+      ctx.moveTo(cx - side * 42, 170);
+      ctx.quadraticCurveTo(cx, 140, cx + side * 42, 160);
+    } else if (driverId === 'sol') {
+      // Radiant energetic brows
+      ctx.moveTo(cx - side * 44, 174);
+      ctx.quadraticCurveTo(cx, 147, cx + side * 44, 158);
     } else {
-      // Confident structured brows
-      ctx.moveTo(cx - side * 44, 192);
-      ctx.quadraticCurveTo(cx, 168, cx + side * 42, 174);
+      // Axle & Kai: Heroic structured brows
+      ctx.moveTo(cx - side * 46, 176);
+      ctx.quadraticCurveTo(cx, 150, cx + side * 44, 160);
     }
-    ctx.lineWidth = driverId === 'sol' ? 6 : 7.5;
+    ctx.lineWidth = 8;
     ctx.strokeStyle = hairHex;
     ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Dark contour line under eyebrow
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(10, 10, 20, 0.45)';
     ctx.stroke();
     ctx.restore();
   }
 
-  // Draw Nose
+  // 4. Stylized Anime Nose (y=295..320)
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(254, 305);
-  ctx.lineTo(258, 322);
-  ctx.lineTo(250, 324);
-  ctx.lineWidth = 3.5;
-  ctx.strokeStyle = 'rgba(120, 60, 40, 0.45)';
+  ctx.moveTo(253, 288);
+  ctx.lineTo(259, 314);
+  ctx.lineTo(248, 318);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(110, 50, 35, 0.65)';
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.stroke();
+
+  // Nose tip highlight
+  ctx.beginPath();
+  ctx.arc(252, 310, 3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+  ctx.fill();
   ctx.restore();
 
-  // Draw Mouth according to personality
+  // 5. Expressive Personality Mouth (y=370..415)
   ctx.save();
   ctx.beginPath();
   if (driverId === 'sol') {
-    // Joyful open smile
-    ctx.moveTo(215, 375);
-    ctx.quadraticCurveTo(256, 420, 297, 375);
+    // Joyful radiant open smile with teeth & tongue
+    ctx.moveTo(208, 368);
+    ctx.quadraticCurveTo(256, 424, 304, 368);
     ctx.closePath();
-    ctx.fillStyle = '#ff4081';
+    ctx.fillStyle = '#e91e63';
     ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#3a1220';
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = '#2d0c18';
     ctx.stroke();
-    // Teeth
+
+    // Clean white teeth
     ctx.beginPath();
-    ctx.moveTo(226, 377);
-    ctx.quadraticCurveTo(256, 392, 286, 377);
-    ctx.lineTo(286, 375);
-    ctx.lineTo(226, 375);
+    ctx.moveTo(218, 370);
+    ctx.quadraticCurveTo(256, 390, 294, 370);
+    ctx.lineTo(294, 368);
+    ctx.lineTo(218, 368);
     ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    // Tongue accent
+    ctx.beginPath();
+    ctx.arc(256, 408, 16, Math.PI, Math.PI * 2);
+    ctx.fillStyle = '#ff80ab';
     ctx.fill();
   } else if (driverId === 'jinx') {
-    // Playful mischievous grin with canine
-    ctx.moveTo(218, 380);
-    ctx.quadraticCurveTo(256, 415, 294, 376);
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#201530';
+    // Playful mischievous grin with cute vampire canine/fang
+    ctx.moveTo(214, 372);
+    ctx.quadraticCurveTo(256, 418, 298, 368);
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#221232';
     ctx.stroke();
+
+    // Cute canine fang
     ctx.beginPath();
-    ctx.moveTo(278, 381);
-    ctx.lineTo(284, 393);
-    ctx.lineTo(290, 380);
+    ctx.moveTo(280, 371);
+    ctx.lineTo(287, 388);
+    ctx.lineTo(294, 370);
+    ctx.closePath();
     ctx.fillStyle = '#ffffff';
     ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#221232';
+    ctx.stroke();
   } else if (driverId === 'reef') {
-    // Fierce battle grin / clenched teeth
-    ctx.moveTo(218, 385);
-    ctx.lineTo(294, 385);
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#201010';
+    // Fierce battle grin / clenched gritted teeth
+    ctx.moveTo(212, 378);
+    ctx.lineTo(300, 378);
+    ctx.lineWidth = 5.5;
+    ctx.strokeStyle = '#240a0a';
+    ctx.stroke();
+
+    // Clenched teeth line
+    ctx.beginPath();
+    ctx.moveTo(226, 378);
+    ctx.lineTo(286, 378);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ffffff';
     ctx.stroke();
   } else if (driverId === 'tide') {
-    // Haughty subtle smirk
-    ctx.moveTo(225, 384);
-    ctx.quadraticCurveTo(256, 394, 288, 380);
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#c2185b';
+    // Haughty cool smirk with glossy lip tint
+    ctx.moveTo(220, 378);
+    ctx.quadraticCurveTo(256, 391, 292, 372);
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = '#ad1457';
     ctx.stroke();
+
+    // Lower lip shine
+    ctx.beginPath();
+    ctx.ellipse(256, 394, 16, 5, 0, 0, Math.PI);
+    ctx.fillStyle = 'rgba(255, 64, 129, 0.4)';
+    ctx.fill();
   } else {
-    // Axle & Kai: Calm confident smirk
-    ctx.moveTo(226, 382);
-    ctx.quadraticCurveTo(256, 396, 286, 380);
-    ctx.lineWidth = 4;
+    // Axle & Kai: Calm confident hero smirk
+    ctx.moveTo(222, 376);
+    ctx.quadraticCurveTo(256, 392, 290, 372);
+    ctx.lineWidth = 4.5;
+    ctx.strokeStyle = '#3e2723';
+    ctx.stroke();
+
+    // Mouth corner dimple
+    ctx.beginPath();
+    ctx.moveTo(290, 372);
+    ctx.lineTo(294, 369);
+    ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#3e2723';
     ctx.stroke();
   }
   ctx.restore();
 
-  // 3. Driver-Specific Iconic Face / Head Accessories
+  // 6. Driver-Specific Iconic Face / Head Accessories
   if (driverId === 'axle') {
-    // Tang Dynasty Cyber Forehead Ribbon with Jadeite Diamond
+    // Tang Dynasty Cyber Forehead Ribbon with Center Jadeite Diamond (y=90..130)
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(60, 142);
-    ctx.quadraticCurveTo(256, 122, 452, 142);
-    ctx.lineWidth = 14;
+    ctx.moveTo(50, 110);
+    ctx.quadraticCurveTo(256, 86, 462, 110);
+    ctx.lineWidth = 18;
     ctx.strokeStyle = '#182434';
     ctx.stroke();
-    ctx.lineWidth = 4;
+
+    ctx.lineWidth = 4.5;
     ctx.strokeStyle = '#39ff88';
     ctx.stroke();
+
     // Center Jadeite Gem
     ctx.beginPath();
-    ctx.moveTo(256, 114);
-    ctx.lineTo(268, 132);
-    ctx.lineTo(256, 150);
-    ctx.lineTo(244, 132);
+    ctx.moveTo(256, 78);
+    ctx.lineTo(272, 100);
+    ctx.lineTo(256, 122);
+    ctx.lineTo(240, 100);
     ctx.closePath();
     ctx.fillStyle = '#00e676';
     ctx.shadowColor = '#39ff88';
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 16;
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
     ctx.restore();
   } else if (driverId === 'tide') {
-    // Left-Eye Holographic Smart Monocle & HUD Reticle [ ⌖ ]
+    // Left-Eye Holographic Smart Monocle & HUD Reticle [ ⌖ ] (cx=352, cy=232)
     ctx.save();
     const cx = 352;
-    const cy = 248;
+    const cy = 232;
     ctx.strokeStyle = '#00f0ff';
     ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 12;
-    ctx.lineWidth = 2.5;
+    ctx.shadowBlur = 14;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(cx, cy, 38, -Math.PI * 0.4, Math.PI * 0.4);
+    ctx.arc(cx, cy, 40, -Math.PI * 0.42, Math.PI * 0.42);
     ctx.stroke();
     ctx.beginPath();
-    ctx.arc(cx, cy, 38, Math.PI * 0.6, Math.PI * 1.4);
+    ctx.arc(cx, cy, 40, Math.PI * 0.58, Math.PI * 1.42);
     ctx.stroke();
-    // Reticle brackets
+
+    // Reticle brackets & crosshair
     ctx.beginPath();
-    ctx.moveTo(cx - 14, cy); ctx.lineTo(cx + 14, cy);
-    ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy + 14);
+    ctx.moveTo(cx - 16, cy); ctx.lineTo(cx + 16, cy);
+    ctx.moveTo(cx, cy - 16); ctx.lineTo(cx, cy + 16);
     ctx.stroke();
-    ctx.font = '700 11px monospace';
+
+    ctx.font = '900 12px monospace';
     ctx.fillStyle = '#00f0ff';
-    ctx.fillText('TARGET: LOCKED', cx - 40, cy + 54);
+    ctx.fillText('TARGET: LOCKED', cx - 44, cy + 58);
     ctx.restore();
   } else if (driverId === 'sol') {
-    // Solar Forehead Sunglasses & Sun-Glow Cheeks
+    // Solar Forehead Sunglasses (y=90..130)
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(110, 145);
-    ctx.quadraticCurveTo(256, 125, 402, 145);
-    ctx.lineWidth = 12;
+    ctx.moveTo(90, 112);
+    ctx.quadraticCurveTo(256, 88, 422, 112);
+    ctx.lineWidth = 15;
     ctx.strokeStyle = '#ffd700';
     ctx.stroke();
+
     // Amber glass lenses
-    for (const sx of [175, 337]) {
+    for (const sx of [172, 340]) {
       ctx.beginPath();
-      ctx.roundRect(sx - 48, 128, 96, 28, 8);
-      ctx.fillStyle = 'rgba(255, 136, 0, 0.85)';
+      ctx.roundRect(sx - 52, 94, 104, 32, 10);
+      const amberGrad = ctx.createLinearGradient(sx, 94, sx, 126);
+      amberGrad.addColorStop(0, 'rgba(255, 200, 0, 0.92)');
+      amberGrad.addColorStop(1, 'rgba(255, 80, 0, 0.88)');
+      ctx.fillStyle = amberGrad;
       ctx.fill();
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = '#ffe082';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#fff59d';
       ctx.stroke();
-    }
-    // Cute blush
-    for (const bx of [145, 367]) {
-      ctx.beginPath();
-      ctx.arc(bx, 285, 18, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 64, 129, 0.28)';
-      ctx.fill();
     }
     ctx.restore();
   } else if (driverId === 'reef') {
     // Combat Nose Bridge Tape & Tactical Forehead Strap
     ctx.save();
     // Nose tape
-    ctx.fillStyle = '#e0c8b0';
-    ctx.strokeStyle = '#8d6e63';
-    ctx.lineWidth = 2;
+    ctx.fillStyle = '#e8cfba';
+    ctx.strokeStyle = '#6d4c41';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.roundRect(234, 290, 44, 16, 3);
+    ctx.roundRect(230, 280, 52, 18, 4);
     ctx.fill();
     ctx.stroke();
+
+    // Stitching
+    ctx.strokeStyle = '#ff1744';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(246, 282); ctx.lineTo(246, 296);
+    ctx.moveTo(266, 282); ctx.lineTo(266, 296);
+    ctx.stroke();
+
     // Forehead Tactical Strap
     ctx.beginPath();
-    ctx.moveTo(60, 148);
-    ctx.quadraticCurveTo(256, 130, 452, 148);
-    ctx.lineWidth = 16;
-    ctx.strokeStyle = '#263238';
+    ctx.moveTo(50, 114);
+    ctx.quadraticCurveTo(256, 92, 462, 114);
+    ctx.lineWidth = 18;
+    ctx.strokeStyle = '#212121';
     ctx.stroke();
-    ctx.lineWidth = 3;
+
+    ctx.lineWidth = 4;
     ctx.strokeStyle = '#ff1744';
     ctx.stroke();
     ctx.restore();
   } else if (driverId === 'kai') {
-    // Sleek Purple AR HUD Visor Line
+    // Sleek Purple/Blue AR HUD Visor Line
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(100, 215);
-    ctx.quadraticCurveTo(256, 195, 412, 215);
-    ctx.lineWidth = 5;
+    ctx.moveTo(80, 196);
+    ctx.quadraticCurveTo(256, 174, 432, 196);
+    ctx.lineWidth = 6;
     ctx.strokeStyle = '#448aff';
     ctx.shadowColor = '#82b1ff';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 12;
     ctx.stroke();
-    ctx.font = '700 10px monospace';
+
+    ctx.font = '900 11px monospace';
     ctx.fillStyle = '#82b1ff';
-    ctx.fillText('SYS.CALIB: 99.8%', 205, 202);
+    ctx.fillText('SYS.CALIB: 99.8%', 202, 182);
     ctx.restore();
   } else if (driverId === 'jinx') {
     // Cute Pixel Cheek Blush & Cyber Goggle Strap
     ctx.save();
     // Digital pixel blush
-    for (const [side, bx] of [[-1, 140], [1, 372]] as const) {
-      ctx.fillStyle = '#e040fb';
-      ctx.fillRect(bx - 10, 278, 8, 8);
-      ctx.fillRect(bx + 2, 278, 8, 8);
-      ctx.fillRect(bx - 4, 288, 8, 8);
+    for (const [side, bx] of [[-1, 138], [1, 374]] as const) {
+      ctx.fillStyle = '#ea80fc';
+      ctx.fillRect(bx - 12, 268, 9, 9);
+      ctx.fillRect(bx + 2, 268, 9, 9);
+      ctx.fillRect(bx - 5, 279, 9, 9);
     }
+
     // Goggle leather strap
     ctx.beginPath();
-    ctx.moveTo(50, 138);
-    ctx.quadraticCurveTo(256, 115, 462, 138);
-    ctx.lineWidth = 14;
+    ctx.moveTo(40, 106);
+    ctx.quadraticCurveTo(256, 82, 472, 106);
+    ctx.lineWidth = 16;
     ctx.strokeStyle = '#3e2723';
     ctx.stroke();
-    ctx.lineWidth = 3;
+
+    ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#ea80fc';
     ctx.stroke();
     ctx.restore();
@@ -813,25 +958,26 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
 
   const xmin = -0.118;
   const xmax = 0.118;
-  const ymin = 0.046;
-  const ymax = 0.195;
+  const ymin = -0.012;
+  const ymax = 0.212;
 
-  const numCols = 16;
-  const numRows = 10;
+  const numCols = 18;
+  const numRows = 16;
 
   for (let row = 0; row < numRows; row++) {
     const tY = row / (numRows - 1);
     const y = ymin + tY * (ymax - ymin);
-    const v = 1 - tY;
+    // Correct upright UV: bottom of face (y=ymin, tY=0) is v=0 (bottom of canvas); top is v=1
+    const v = tY;
     for (let col = 0; col < numCols; col++) {
       const tX = col / (numCols - 1);
       const x = xmin + tX * (xmax - xmin);
       const u = tX;
 
-      const nx = x / 0.136;
-      const ny = (y - 0.115) / 0.150;
+      const nx = x / 0.118;
+      const ny = (y - 0.105) / 0.134;
       const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
-      const z = 0.024 + 0.142 * nz + 0.008;
+      const z = 0.015 + 0.126 * nz + 0.004;
 
       positions.push(x, y, z);
       uvs.push(u, v);
@@ -882,14 +1028,15 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
 
 function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
   const rings = [
-    { y: 0.242, z: -0.006, rx: 0.032, rz: 0.036 }, // crown close
-    { y: 0.225, z: 0.015, rx: 0.082, rz: 0.090 }, // crown
-    { y: 0.175, z: 0.020, rx: 0.132, rz: 0.136 }, // parietal
-    { y: 0.105, z: 0.025, rx: 0.136, rz: 0.132 }, // temple/hairline
-    { y: 0.035, z: -0.040, rx: 0.098, rz: 0.075 }, // nape
+    { y: 0.242, z: -0.006, rx: 0.035, rz: 0.038 }, // crown close
+    { y: 0.225, z: 0.015, rx: 0.088, rz: 0.095 }, // crown
+    { y: 0.175, z: 0.020, rx: 0.134, rz: 0.138 }, // parietal
+    { y: 0.105, z: 0.025, rx: 0.138, rz: 0.135 }, // temple/hairline
+    { y: 0.035, z: -0.040, rx: 0.100, rz: 0.078 }, // nape
   ];
-  const sides = detailed ? 12 : 8;
-  const frontGap = 0.72; // radians on each side of +Z; leave face open
+  const sides = detailed ? 14 : 10;
+  // Sweep snugly around temples and forehead to ensure full head volume without bald gaps
+  const frontGap = 0.52;
   const sweep = Math.PI * 2 - frontGap * 2;
   const vertices: number[] = [];
   const indices: number[] = [];
@@ -899,7 +1046,7 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
       const theta = frontGap + (sweep * i) / sides;
       const x = ring.rx * Math.sin(theta);
       const z = ring.z + ring.rz * Math.cos(theta);
-      vertices.push(x, ring.y, z - 0.006);
+      vertices.push(x, ring.y, z - 0.004);
     }
   }
   for (let ring = 0; ring < rings.length - 1; ring++) {
@@ -914,7 +1061,7 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
 
   // Close crown arc
   const crownCenter = vertices.length / 3;
-  vertices.push(0, 0.252, -0.014);
+  vertices.push(0, 0.254, -0.012);
   for (let i = 0; i < sides; i++) indices.push(crownCenter, i, i + 1);
 
   const geometry = new THREE.BufferGeometry();
@@ -957,8 +1104,15 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
   out.append(buildSkullLoftGeometry(detailed), hairRoot, Role.Hair);
 
   if (bobBones) {
-    // ---- Tide (ChatGPT / 山姆傲慢) ----
+    // ---- Tide (ChatGPT / 山姆傲慢) — Chic Asymmetric Bob with Forehead Bangs & Cyan Dip ----
     const [back, left, right] = bobBones;
+
+    // Full 3D Forehead Bangs & Fringe (Covers forehead, no baldness)
+    appendHairBlade(out, hairRoot, [-0.035, 0.188, 0.108], 0.085, 0.045, 0.075, 0.055, [0.18, -0.12, 0.15], Role.Hair);
+    appendHairBlade(out, hairRoot, [0.045, 0.192, 0.102], 0.080, 0.040, 0.070, 0.050, [0.16, 0.14, -0.12], Role.HairLight);
+    appendHairBlade(out, hairRoot, [-0.085, 0.165, 0.088], 0.065, 0.030, 0.090, 0.045, [0.12, -0.22, 0.25], Role.Hair);
+    appendHairBlade(out, hairRoot, [0.085, 0.165, 0.088], 0.065, 0.030, 0.090, 0.045, [0.12, 0.22, -0.25], Role.HairLight);
+
     // Asymmetric swinging bob locks
     appendHairBlade(out, hairRoot, [0, 0.015, -0.115], 0.28, 0.22, 0.25, 0.08, [0.02, 0, 0]);
     appendHairBlade(out, hairRoot, [0, -0.135, -0.18], 0.24, 0.28, 0.14, 0.035, [0.02, 0, 0], Role.HairLight);
@@ -966,58 +1120,92 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendCurvedHairLock(out, back, [-0.065, -0.025, -0.045], [0.04, 0.13, 0.16], 0.37, 0.1, -0.04, [0.08, 0, 0.05]);
     appendCurvedHairLock(out, left, [0.045, -0.015, -0.06], [0.065, 0.18, 0.22], 0.34, 0.115, -0.035, [0.07, 0, -0.12]);
     appendCurvedHairLock(out, right, [-0.045, -0.015, -0.06], [0.065, 0.18, 0.22], 0.34, 0.115, -0.035, [0.07, 0, 0.12]);
+
     // Cyan-dipped hair overlays
     appendCurvedHairLock(out, back, [0.065, -0.245, -0.095], [0.025, 0.07, 0.085], 0.12, 0.035, -0.018, [0.07, 0, -0.05], Role.HairLight);
     appendCurvedHairLock(out, back, [-0.065, -0.255, -0.1], [0.025, 0.07, 0.085], 0.12, 0.035, -0.018, [0.08, 0, 0.05], Role.HairLight);
     appendCurvedHairLock(out, left, [0.045, -0.215, -0.14], [0.035, 0.11, 0.14], 0.12, 0.04, -0.016, [0.07, 0, -0.12], Role.HairLight);
     appendCurvedHairLock(out, right, [-0.045, -0.215, -0.14], [0.035, 0.11, 0.14], 0.12, 0.04, -0.016, [0.07, 0, 0.12], Role.HairLight);
+
     // 3D Accessory: Left Holographic Smart Monocle & Right Cyber Ear-Cuff
     appendPanel(out, hairRoot, Role.HairLight, [0.058, 0.125, 0.132], [0.045, 0.045, 0.038, 0.016], [0.06, -0.08, 0]);
     appendPanel(out, hairRoot, Role.Metal, [-0.136, 0.108, 0.008], [0.018, 0.018, 0.042, 0.018], [0, 0, 0.15]);
   } else if (braidBones) {
-    // ---- Sol (Gemini / 美国豆包) ----
+    // ---- Sol (Gemini / 美国豆包) — Golden Bangs & Voluminous Ponytail ----
     const [tie, braid1, braid2, braid3, braid4] = braidBones;
+
+    // Full 3D Golden Front Bangs (Covers forehead, no baldness)
+    appendHairBlade(out, hairRoot, [-0.038, 0.188, 0.110], 0.085, 0.045, 0.075, 0.055, [0.18, -0.12, 0.14], Role.Hair);
+    appendHairBlade(out, hairRoot, [0.040, 0.188, 0.110], 0.085, 0.045, 0.075, 0.055, [0.18, 0.12, -0.14], Role.HairLight);
+    appendHairBlade(out, hairRoot, [-0.085, 0.155, 0.082], 0.065, 0.030, 0.085, 0.045, [0.14, -0.18, 0.22], Role.HairLight);
+    appendHairBlade(out, hairRoot, [0.085, 0.155, 0.082], 0.065, 0.030, 0.085, 0.045, [0.14, 0.18, -0.22], Role.Hair);
+
     // Voluminous golden ponytail braid
     appendCurvedHairLock(out, tie, [0, 0, 0], [0.1, 0.125, 0.1], 0.15, 0.1, -0.055, [0.08, 0, -0.12]);
     appendCurvedHairLock(out, braid1, [0, 0, 0], [0.09, 0.115, 0.1], 0.18, 0.1, -0.07, [-0.06, 0, -0.06]);
     appendCurvedHairLock(out, braid2, [0, 0, 0], [0.075, 0.1, 0.09], 0.17, 0.09, -0.065, [0.05, 0, 0.05]);
     appendCurvedHairLock(out, braid3, [0, 0, 0], [0.055, 0.08, 0.07], 0.16, 0.075, -0.055, [-0.04, 0, -0.04]);
     appendCurvedHairLock(out, braid4, [0, 0, 0], [0.022, 0.052, 0.062], 0.14, 0.062, -0.045, [0.03, 0, 0], Role.HairLight);
+
     // 3D Accessory: High Golden Hair Ring & Forehead Cyber Sunglasses
     appendPanel(out, tie, Role.Metal, [0, 0.025, 0], [0.075, 0.065, 0.045, 0.075], [0, 0, 0]);
     appendPanel(out, hairRoot, Role.Accent, [0, 0.192, 0.108], [0.165, 0.145, 0.038, 0.032], [0.22, 0, 0]);
   } else if (look.driverId === 'reef') {
-    // ---- Reef (KK / Kimi) — Fierce Punk Mohawk & Tactical Headband ----
+    // ---- Reef (KK / Kimi) — Fierce Punk Mohawk, Front Fringe & Tactical Headband ----
+    // Front spiked fringe (Covers forehead)
+    appendHairBlade(out, hairRoot, [0, 0.198, 0.112], 0.078, 0.035, 0.068, 0.055, [0.26, 0, 0], Role.Hair);
+    appendHairBlade(out, hairRoot, [0.052, 0.182, 0.095], 0.060, 0.028, 0.062, 0.048, [0.18, 0.18, -0.16], Role.HairLight);
+    appendHairBlade(out, hairRoot, [-0.052, 0.182, 0.095], 0.060, 0.028, 0.062, 0.048, [0.18, -0.18, 0.16], Role.HairLight);
+
     // Sharp layered crimson mohawk crests
     appendHairBlade(out, hairRoot, [0, 0.245, 0.02], 0.075, 0.045, 0.11, 0.085, [0.16, 0, 0], Role.Hair);
     appendHairBlade(out, hairRoot, [0, 0.235, -0.06], 0.078, 0.042, 0.12, 0.095, [-0.08, 0, 0], Role.HairLight);
     appendHairBlade(out, hairRoot, [0, 0.185, -0.13], 0.072, 0.038, 0.10, 0.085, [-0.32, 0, 0], Role.Hair);
+
     // Side spike tufts
     appendHairBlade(out, hairRoot, [0.065, 0.21, -0.02], 0.055, 0.025, 0.08, 0.06, [0.08, 0.18, -0.22], Role.HairLight);
     appendHairBlade(out, hairRoot, [-0.065, 0.21, -0.02], 0.055, 0.025, 0.08, 0.06, [0.08, -0.18, 0.22], Role.HairLight);
+
     // 3D Accessory: Combat Tactical Bandana & Left Ear Antenna
     appendPanel(out, hairRoot, Role.SuitDark, [0, 0.168, 0.096], [0.185, 0.185, 0.038, 0.038], [0.14, 0, 0]);
     appendPanel(out, hairRoot, Role.Metal, [0.078, 0.170, 0.112], [0.028, 0.028, 0.032, 0.018], [0.14, 0, 0]);
     appendPanel(out, hairRoot, Role.Metal, [-0.138, 0.122, -0.008], [0.010, 0.006, 0.115, 0.010], [0.32, 0, -0.15]);
   } else if (look.driverId === 'kai') {
-    // ---- Kai (Claude / 打你嗷) — Clean Swept Hair & AR Visor Wings ----
+    // ---- Kai (Claude / 打你嗷) — Clean Layered Side-Parted Hair & AR Visor Wings ----
+    // Forehead Swept Fringe & Sideburns (Covers forehead)
+    appendHairBlade(out, hairRoot, [0.028, 0.190, 0.110], 0.092, 0.042, 0.072, 0.055, [0.18, 0.12, -0.12], Role.Hair);
+    appendHairBlade(out, hairRoot, [-0.045, 0.192, 0.104], 0.082, 0.038, 0.068, 0.050, [0.16, -0.14, 0.15], Role.HairLight);
+    appendHairBlade(out, hairRoot, [-0.082, 0.158, 0.085], 0.062, 0.028, 0.085, 0.045, [0.12, -0.22, 0.22], Role.Hair);
+    appendHairBlade(out, hairRoot, [0.082, 0.158, 0.085], 0.062, 0.028, 0.085, 0.045, [0.12, 0.22, -0.22], Role.Hair);
+
     // Swept anime hair layers
     appendHairBlade(out, hairRoot, [0, 0.225, -0.02], 0.11, 0.06, 0.08, 0.09, [0.06, 0, 0], Role.Hair);
     appendHairBlade(out, hairRoot, [0.065, 0.21, -0.03], 0.075, 0.04, 0.07, 0.07, [0.06, 0.14, -0.16], Role.Hair);
     appendHairBlade(out, hairRoot, [-0.065, 0.21, -0.03], 0.075, 0.04, 0.07, 0.07, [0.06, -0.14, 0.16], Role.Hair);
     appendHairBlade(out, hairRoot, [0.035, 0.19, 0.085], 0.065, 0.03, 0.055, 0.045, [0.22, 0.1, -0.1], Role.HairLight);
+
     // 3D Accessory: AR Visor Frame & Dual Titanium Ear Wings
     appendPanel(out, hairRoot, Role.Accent, [0, 0.142, 0.126], [0.175, 0.155, 0.026, 0.020], [0.08, 0, 0]);
     for (const side of [-1, 1]) {
       appendPanel(out, hairRoot, Role.Metal, [side * 0.138, 0.108, -0.01], [0.016, 0.012, 0.062, 0.018], [0.16, 0, side * 0.22]);
     }
   } else if (look.driverId === 'jinx') {
-    // ---- Jinx (DeepSeek / 梁圣梁子) — Messy Indigo Spikes & Overhead Goggles ----
+    // ---- Jinx (DeepSeek / 梁圣梁子) — Wild Tousled Spikes, Ahoge & Overhead Goggles ----
+    // Forehead Bangs & Temple Tufts (Covers forehead)
+    appendHairBlade(out, hairRoot, [-0.035, 0.192, 0.110], 0.082, 0.040, 0.072, 0.055, [0.20, -0.16, 0.18], Role.HairLight);
+    appendHairBlade(out, hairRoot, [0.042, 0.190, 0.106], 0.085, 0.042, 0.070, 0.052, [0.18, 0.18, -0.16], Role.Hair);
+    appendHairBlade(out, hairRoot, [-0.080, 0.160, 0.082], 0.065, 0.030, 0.082, 0.048, [0.12, -0.25, 0.28], Role.Hair);
+    appendHairBlade(out, hairRoot, [0.080, 0.160, 0.082], 0.065, 0.030, 0.082, 0.048, [0.12, 0.25, -0.28], Role.HairLight);
+
+    // Cute bouncing Ahoge (呆毛 cowlick on top)
+    appendCurvedHairLock(out, hairRoot, [0.015, 0.255, 0.02], [0.02, 0.035, 0.045], 0.09, 0.025, 0.035, [0.25, 0.1, 0.15], Role.HairLight);
+
     // Messy tousled spikes
     appendHairBlade(out, hairRoot, [-0.055, 0.235, 0.01], 0.08, 0.04, 0.09, 0.08, [0.12, -0.18, 0.24], Role.HairLight);
     appendHairBlade(out, hairRoot, [0.055, 0.225, -0.02], 0.075, 0.038, 0.085, 0.075, [0.08, 0.15, -0.18], Role.Hair);
     appendHairBlade(out, hairRoot, [0, 0.22, -0.09], 0.085, 0.045, 0.08, 0.085, [-0.22, 0, 0], Role.HairLight);
     appendHairBlade(out, hairRoot, [0.07, 0.19, 0.06], 0.055, 0.025, 0.06, 0.05, [0.18, 0.22, -0.15], Role.Hair);
+
     // 3D Accessory: Overhead Dual-Lens Steampunk Cyber Goggles & Ear Antenna
     for (const side of [-1, 1]) {
       appendEllipsoid(out, hairRoot, Role.Metal, [side * 0.055, 0.215, 0.075], [0.032, 0.032, 0.026], sides);
@@ -1026,15 +1214,22 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendPanel(out, hairRoot, Role.SuitDark, [0, 0.185, 0.09], [0.18, 0.18, 0.032, 0.03], [0.18, 0, 0]);
     appendPanel(out, hairRoot, Role.Accent, [0.138, 0.128, -0.018], [0.008, 0.006, 0.085, 0.008], [-0.18, 0, 0.28]);
   } else {
-    // ---- Axle (GLM / 盛唐俊杰) — Tang Dynasty Headband & Temple Comm ----
+    // ---- Axle (GLM / 盛唐俊杰) — Tang Dynasty Cyber Headband, Forehead Bangs & Comm ----
+    // Forehead Textured Bangs & Temple Locks (Covers forehead)
+    appendHairBlade(out, hairRoot, [0.025, 0.190, 0.110], 0.088, 0.042, 0.072, 0.055, [0.18, 0.10, -0.10], Role.Hair);
+    appendHairBlade(out, hairRoot, [-0.038, 0.192, 0.106], 0.082, 0.038, 0.068, 0.050, [0.16, -0.12, 0.14], Role.HairLight);
+    appendHairBlade(out, hairRoot, [-0.080, 0.160, 0.085], 0.062, 0.028, 0.082, 0.045, [0.12, -0.22, 0.22], Role.HairLight);
+    appendHairBlade(out, hairRoot, [0.080, 0.160, 0.085], 0.062, 0.028, 0.082, 0.045, [0.12, 0.22, -0.22], Role.Hair);
+
     // Styled short hair locks
     appendHairBlade(out, hairRoot, [0, 0.225, -0.01], 0.095, 0.05, 0.08, 0.085, [0.06, 0, 0], Role.Hair);
     appendHairBlade(out, hairRoot, [0.055, 0.21, -0.03], 0.068, 0.032, 0.065, 0.065, [0.06, 0.12, -0.14], Role.HairLight);
     appendHairBlade(out, hairRoot, [-0.055, 0.21, -0.03], 0.068, 0.032, 0.065, 0.065, [0.06, -0.12, 0.14], Role.HairLight);
     appendHairBlade(out, hairRoot, [0, 0.19, 0.085], 0.075, 0.035, 0.055, 0.045, [0.2, 0, 0], Role.Hair);
+
     // 3D Accessory: Tang Dynasty Cyber Headband with Central Jade Gem & Right Comm Rig
     appendPanel(out, hairRoot, Role.SuitDark, [0, 0.172, 0.092], [0.182, 0.182, 0.034, 0.036], [0.12, 0, 0]);
-    appendPanel(out, hairRoot, Role.Accent, [0, 0.174, 0.126], [0.030, 0.030, 0.030, 0.022], [0.12, 0, 0]);
+    appendPanel(out, hairRoot, Role.HairLight, [0, 0.174, 0.126], [0.030, 0.030, 0.030, 0.022], [0.12, 0, 0]);
     appendEllipsoid(out, hairRoot, Role.Metal, [0.136, 0.095, 0.008], [0.018, 0.032, 0.018], sides);
   }
 

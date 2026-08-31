@@ -4947,6 +4947,40 @@ function scenario(name: string): void {
       armHarnessFinale();
       loop.advance(FINALE_MIN_READ_S + 0.4);
       break;
+    case "finale-orbit-front":
+      armHarnessFinale();
+      loop.advance(2.5);
+      break;
+    case "finale-orbit-side":
+      armHarnessFinale();
+      loop.advance(5.0);
+      break;
+    case "finale-orbit-close":
+      armHarnessFinale();
+      loop.advance(2.5);
+      {
+        const face = getRiderFaceTarget();
+        harnessCameraOverride = {
+          target: face,
+          offset: [0.85, 0.25, 1.4],
+          lookAt: [0, 0.02, 0],
+          fov: 32,
+        };
+      }
+      break;
+    case "finale-orbit-face":
+      armHarnessFinale();
+      loop.advance(2.5);
+      {
+        const face = getRiderFaceTarget();
+        harnessCameraOverride = {
+          target: face,
+          offset: [0.45, 0.10, 0.75],
+          lookAt: [0, 0.02, 0],
+          fov: 30,
+        };
+      }
+      break;
     case "finale-honors":
       // Capture-only scenario: leave the honor wall settled on screen so
       // desktop and 844x390 visual review can inspect the second result beat.
