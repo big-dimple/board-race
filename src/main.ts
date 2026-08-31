@@ -1355,6 +1355,11 @@ function completeRetryLesson(): void {
 function startHighlightVideoReplay(): void {
   const clip = highlightRecorder.getBestClip(race.raceTime);
   highlightDirector.start(clip);
+  highlightRecorder.sampleAt(clip, clip.startTime, highlightReplayPos, highlightReplayQuat);
+  boats[0].object.position.copy(highlightReplayPos);
+  boats[0].object.quaternion.copy(highlightReplayQuat);
+  boats[0].state.position.copy(highlightReplayPos);
+  boats[0].state.quaternion.copy(highlightReplayQuat);
   highlightVideo.show(clip);
   highlightReplayActive = true;
   hud.setVisible(false);
@@ -1377,16 +1382,9 @@ function completeHighlightVideo(): void {
 function updateHighlightVideoPresentation(dt: number): void {
   const clip = highlightDirector.currentClip;
   if (!clip) return;
-  const state = highlightDirector.update(
-    dt,
-    stage.camera,
-    highlightReplayPos,
-    highlightReplayQuat,
-    boats[0].state.speed,
-  );
   const sample = highlightRecorder.sampleAt(
     clip,
-    state.currentReplayTime,
+    highlightDirector.currentTime,
     highlightReplayPos,
     highlightReplayQuat,
   );
@@ -1399,6 +1397,14 @@ function updateHighlightVideoPresentation(dt: number): void {
   boats[0].state.boosting = sample.mode === 'boost';
   boats[0].state.flightPhase = sample.mode === 'flight' || sample.mode === 'ascending' || sample.mode === 'cruise' || sample.mode === 'descending' || sample.mode === 'spool' ? (sample.mode as any) : 'surface';
   riders[0].update(dt, boats[0].state, presentationTime);
+
+  const state = highlightDirector.update(
+    dt,
+    stage.camera,
+    highlightReplayPos,
+    highlightReplayQuat,
+    sample.speed,
+  );
   highlightVideo.update(state, dt);
   ocean.update(presentationTime, stage.camera.position);
   sky.update(presentationTime, stage.camera.position);

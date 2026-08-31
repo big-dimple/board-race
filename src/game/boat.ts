@@ -1685,11 +1685,11 @@ export class Boat implements IBoat {
       const p = 1 - (this.tumbleSpinTimer / Math.max(1e-3, this.tumbleSpinTotal));
       // 720 degrees = Math.PI * 4 radians along inertia
       extraYaw = p * Math.PI * 4;
-      extraPitch = Math.sin(p * Math.PI * 4) * 0.72;
-      extraRoll = Math.sin(p * Math.PI * 6) * 0.85;
+      extraPitch = Math.sin(p * Math.PI * 4) * 0.95;
+      extraRoll = Math.sin(p * Math.PI * 6) * 1.15;
       if (this.tumbleSpinTimer === 0) {
         _v2.set(this.object.position.x, surfaceY, this.object.position.z);
-        this.spray.burst(_v2, 28, 11.5);
+        this.spray.burst(_v2, 42, 14.0);
       }
     }
 
@@ -2628,16 +2628,19 @@ export class Boat implements IBoat {
     this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.018, -2.4, 2.4);
   }
 
-  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 14.5): void {
+  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 16.5): void {
     this.vy = verticalPop;
-    this.object.position.y += 0.55;
+    this.object.position.y += 0.85;
     this.state.airborne = true;
-    this.tumbleSpinTimer = 1.6;
-    this.tumbleSpinTotal = 1.6;
-    this.velX += impulseX;
-    this.velZ += impulseZ;
-    this.yawRate = 4.2;
-    this.spray.burst(this.object.position, 36, 14.0);
+    this.state.airTime = 0.1;
+    this.state.flightPhase = 'surface';
+    this.tumbleSpinTimer = 2.0;
+    this.tumbleSpinTotal = 2.0;
+    this.velX = impulseX;
+    this.velZ = impulseZ;
+    this.state.speed = Math.hypot(this.velX, this.velZ) * 0.35;
+    this.yawRate = 6.2;
+    this.spray.burst(this.object.position, 64, 18.0);
   }
 
   /** Deterministic collision-harness hook. Gameplay never calls this method. */

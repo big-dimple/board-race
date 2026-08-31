@@ -39,9 +39,9 @@ export interface ActiveMissileInfo {
 const MAX_CHARGES = 7;
 const COOLDOWN_S = 3.5;
 const PRANK_IMPULSE = 2.4;
-const PRANK_SPEED = 45;
-const PRANK_LIFETIME_S = 4.8;
-const PRANK_HIT_RADIUS = 3.4;
+const PRANK_SPEED = 58;
+const PRANK_LIFETIME_S = 5.2;
+const PRANK_HIT_RADIUS = 5.5;
 const MAX_PROJECTILES = 4;
 
 // Lighthouse reef launch complex position coordinates
@@ -445,26 +445,36 @@ export class DuoInteractionController {
       const tx = targetBoat.state.position.x;
       const ty = targetBoat.state.position.y + 0.8;
       const tz = targetBoat.state.position.z;
+      const heading = targetBoat.state.heading;
+      const targetSpeed = targetBoat.state.speed;
+      const velX = targetSpeed * Math.sin(heading);
+      const velZ = targetSpeed * Math.cos(heading);
 
-      const dx = tx - shot.x;
-      const dy = ty - shot.y;
-      const dz = tz - shot.z;
+      // Lead intercept aim point
+      const leadTime = Math.min(0.35, Math.hypot(tx - shot.x, tz - shot.z) / PRANK_SPEED);
+      const aimX = tx + velX * leadTime;
+      const aimY = ty;
+      const aimZ = tz + velZ * leadTime;
+
+      const dx = aimX - shot.x;
+      const dy = aimY - shot.y;
+      const dz = aimZ - shot.z;
       const distance = Math.hypot(dx, dy, dz) || 1;
 
       // Proportional homing guidance towards survivor boat
-      if (shot.age < 0.65) {
+      if (shot.age < 0.45) {
         // Initial ignition climb phase from lighthouse battery
-        shot.vy += (-9.8 + 28.0) * dt;
+        shot.vy += (-9.8 + 32.0) * dt;
         const horizDist = Math.hypot(dx, dz) || 1;
-        const steer = dt * 3.5;
+        const steer = dt * 4.5;
         shot.vx += ((dx / horizDist) * PRANK_SPEED - shot.vx) * steer;
         shot.vz += ((dz / horizDist) * PRANK_SPEED - shot.vz) * steer;
       } else {
-        // Homing cruise phase at PRANK_SPEED (45 m/s)
+        // High-agility terminal cruise homing phase
         const desiredX = (dx / distance) * PRANK_SPEED;
         const desiredY = (dy / distance) * PRANK_SPEED;
         const desiredZ = (dz / distance) * PRANK_SPEED;
-        const steer = Math.min(1, dt * 5.2);
+        const steer = Math.min(1, dt * 9.5);
         shot.vx += (desiredX - shot.vx) * steer;
         shot.vy += (desiredY - shot.vy) * steer;
         shot.vz += (desiredZ - shot.vz) * steer;
@@ -488,31 +498,33 @@ export class DuoInteractionController {
       shot.historyY[0] = shot.y;
       shot.historyZ[0] = shot.z;
 
-      const hitDistHoriz = Math.hypot(targetBoat.state.position.x - shot.x, targetBoat.state.position.z - shot.z);
-      const hitDistVert = Math.abs(targetBoat.state.position.y - shot.y);
-      if (hitDistHoriz <= PRANK_HIT_RADIUS && hitDistVert <= 3.8) {
-        if (isSafeSurfaceWindow(targetBoat)) {
-          // 60% Lethal Hit Rate with massive explosion launch
-          const isHit = Math.random() < 0.60;
-          if (isHit) {
-            const heading = targetBoat.state.heading;
-            const forwardX = Math.sin(heading) * PRANK_IMPULSE * 2.2;
-            const forwardZ = Math.cos(heading) * PRANK_IMPULSE * 2.2;
-            const sideSign = ((shot.actorId + Math.round(shot.age * 10)) % 2 === 0) ? 1 : -1;
-            const sideX = sideSign * Math.cos(heading) * 4.2;
-            const sideZ = sideSign * -Math.sin(heading) * 4.2;
-            targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 14.5);
-            emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
-            shot.isDwell = true;
-            shot.dwellTimer = 0.55; // 0.55s dwell for dramatic explosion viewing
-          } else {
-            emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
-            shot.isDwell = true;
-            shot.dwellTimer = 0.55;
-          }
+      const directDist = Math.hypot(tx - shot.x, ty - shot.y, tz - shot.z);
+      const hitDistHoriz = Math.hypot(tx - shot.x, tz - shot.z);
+      const hitDistVert = Math.abs(ty - shot.y);
+
+      // Terminal detonation trigger
+      const reachedTarget = directDist <= PRANK_HIT_RADIUS ||
+        (hitDistHoriz <= PRANK_HIT_RADIUS && hitDistVert <= 6.5) ||
+        (shot.age > 0.8 && directDist <= 7.5 && (shot.vx * (tx - shot.x) + shot.vz * (tz - shot.z) < 0));
+
+      if (reachedTarget) {
+        // 60% Lethal Hit Rate with massive explosion launch
+        const isHit = Math.random() < 0.60;
+        const sideSign = ((shot.actorId + Math.round(shot.age * 10)) % 2 === 0) ? 1 : -1;
+        const forwardX = Math.sin(heading) * 16.0;
+        const forwardZ = Math.cos(heading) * 16.0;
+        const sideX = sideSign * Math.cos(heading) * 9.5;
+        const sideZ = sideSign * -Math.sin(heading) * 9.5;
+
+        if (isHit) {
+          targetBoat.applyScudHit(forwardX + sideX, forwardZ + sideZ, 16.5);
+          emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
         } else {
-          shot.active = false;
+          targetBoat.applyCollisionResponse(0, 0, sideX * 0.4, sideZ * 0.4);
+          emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
         }
+        shot.isDwell = true;
+        shot.dwellTimer = 0.65; // 0.65s dwell for dramatic explosion viewing
       }
       this.syncProjectileVisual(index, shot);
     }

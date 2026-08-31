@@ -78,6 +78,10 @@ export class HighlightDirector {
     return this.clip;
   }
 
+  get currentTime(): number {
+    return this.replayTime;
+  }
+
   update(
     dt: number,
     camera: THREE.PerspectiveCamera,
@@ -132,71 +136,85 @@ export class HighlightDirector {
     this.forward.set(0, 0, 1).applyQuaternion(this.boatQuat).normalize();
     this.right.set(1, 0, 0).applyQuaternion(this.boatQuat).normalize();
 
-    // Multi-angle Cinematic Camera Director
+    // Extract planar track heading from horizontal direction (isolated from hull pitch & roll)
+    const heading = Math.atan2(this.forward.x, this.forward.z);
+
+    // Multi-angle Cinematic Camera Director (TRUE GOD'S-EYE / AERIAL BROADCAST VIEWS)
     let camIndex: 1 | 2 | 3 = 1;
-    let camLabel = '[ CAM 01 // PANORAMIC ESTABLISHING TRACK ]';
-    let targetFov = 72;
+    let camLabel = '[ CAM 01 // GODS-EYE OVERHEAD BROADCAST ]';
+    let targetFov = 62;
 
     if (this.elapsed < 1.8) {
-      // Angle 1: Wide-Angle Panoramic Establishing Track Cam (大景深全景建立追焦)
-      // Camera is elevated and set back to show the boat carving through waves, mist gates & scenery
+      // Angle 1: High-Altitude God's-Eye Drone Track (上帝视角 / 高空俯瞰大景深建立追焦)
+      // Camera is high in the sky (13.5m above, 18m back-diagonal in track plane)
+      // looking down at a ~40 deg broadcast angle directly at the boat & water!
       camIndex = 1;
-      camLabel = '[ CAM 01 // PANORAMIC ESTABLISHING TRACK ]';
-      targetFov = 72;
+      camLabel = '[ CAM 01 // GODS-EYE OVERHEAD BROADCAST ]';
+      targetFov = 62;
 
-      const sideDist = -8.5;
-      const backDist = -7.5;
-      const height = 3.8;
-      this.targetCamPos.copy(this.boatPos)
-        .addScaledVector(this.right, sideDist)
-        .addScaledVector(this.forward, backDist);
-      this.targetCamPos.y = Math.max(1.8, this.boatPos.y + height);
+      const sideAngle = heading - 0.55;
+      const backDist = 18.0;
+      const height = 13.5;
 
-      this.targetLookAt.copy(this.boatPos)
-        .addScaledVector(this.forward, 5.0)
-        .addScaledVector(this.up, 0.8);
+      this.targetCamPos.set(
+        this.boatPos.x - Math.sin(sideAngle) * backDist,
+        Math.max(6.0, this.boatPos.y + height),
+        this.boatPos.z - Math.cos(sideAngle) * backDist,
+      );
+
+      // Lock camera lookAt straight at the center of the boat/rider in world space!
+      this.targetLookAt.set(
+        this.boatPos.x,
+        this.boatPos.y + 0.85,
+        this.boatPos.z,
+      );
 
     } else if (this.elapsed < 3.8) {
-      // Angle 2: Aero Drone Swoop & Bullet-Time Orbit (空中无人机大俯冲 / 子弹时间慢镜头定格回旋)
-      // Elevated aerial angle sweeping around with cinematic dolly in and focal breathing
+      // Angle 2: 360° Sky Orbit & Bullet-Time (上帝高空360度大回旋 / 子弹时间慢镜头定格)
+      // Elevated aerial helicopter camera smoothly sweeps 360 around the climax from high above
       camIndex = 2;
-      camLabel = '[ CAM 02 // AERO DRONE BULLET-TIME ORBIT ]';
+      camLabel = '[ CAM 02 // 360° SKY-ORBIT BULLET-TIME ]';
+      targetFov = 56;
+
       const orbitPhase = (this.elapsed - 1.8) / 2.0;
-      const orbitAngle = -0.55 + orbitPhase * 1.15; // Sweeping from 3/4 front to side
-      const orbitRadius = 9.2 - Math.sin(orbitPhase * Math.PI) * 2.2; // Smooth dolly in at climax
-      const orbitHeight = 4.2 - orbitPhase * 1.6; // High-altitude swoop down
+      const orbitAngle = heading + Math.PI * 0.75 + orbitPhase * Math.PI * 1.5;
+      const radius = 17.5;
+      const height = 11.5 - Math.sin(orbitPhase * Math.PI) * 3.5; // High aerial swoop
 
-      targetFov = 66 + Math.sin(orbitPhase * Math.PI) * 6; // Dynamic focal zoom
+      this.targetCamPos.set(
+        this.boatPos.x + Math.sin(orbitAngle) * radius,
+        Math.max(5.0, this.boatPos.y + height),
+        this.boatPos.z + Math.cos(orbitAngle) * radius,
+      );
 
-      const cosA = Math.cos(orbitAngle);
-      const sinA = Math.sin(orbitAngle);
-
-      this.targetCamPos.copy(this.boatPos)
-        .addScaledVector(this.right, cosA * orbitRadius)
-        .addScaledVector(this.forward, sinA * orbitRadius + 3.2);
-      this.targetCamPos.y = Math.max(1.5, this.boatPos.y + orbitHeight);
-
-      this.targetLookAt.copy(this.boatPos)
-        .addScaledVector(this.up, 0.7);
+      this.targetLookAt.set(
+        this.boatPos.x,
+        this.boatPos.y + 0.85,
+        this.boatPos.z,
+      );
 
     } else {
-      // Angle 3: Outro Flyaway & Telephoto Pass (长焦高速前迎掠影 / 绝尘而去)
-      // Camera looks back down the course as the boat blasts past and rockets off into the distance!
+      // Angle 3: High Telephoto Flyunder Pass (高空长焦前迎过顶俯拍 / 绝尘而去)
+      // Camera is positioned high ahead looking back, watching the boat race underneath into the sunset!
       camIndex = 3;
-      camLabel = '[ CAM 03 // OUTRO FLYAWAY & TELEPHOTO PASS ]';
-      targetFov = 68;
+      camLabel = '[ CAM 03 // SKY OVERLOOK TELEPHOTO PASS ]';
+      targetFov = 52;
 
       const flybyPhase = (this.elapsed - 3.8) / 1.4;
-      const aheadDist = 18.0 - flybyPhase * 32.0; // Long distance pass
-      const sideOffset = 4.8;
+      const aheadDist = 26.0 - flybyPhase * 40.0;
+      const sideDist = 9.0;
 
-      this.targetCamPos.copy(this.boatPos)
-        .addScaledVector(this.forward, aheadDist)
-        .addScaledVector(this.right, sideOffset);
-      this.targetCamPos.y = Math.max(1.2, this.boatPos.y + 2.2);
+      this.targetCamPos.set(
+        this.boatPos.x + Math.sin(heading) * aheadDist + Math.cos(heading) * sideDist,
+        Math.max(4.5, this.boatPos.y + 9.5),
+        this.boatPos.z + Math.cos(heading) * aheadDist - Math.sin(heading) * sideDist,
+      );
 
-      this.targetLookAt.copy(this.boatPos)
-        .addScaledVector(this.up, 0.6);
+      this.targetLookAt.set(
+        this.boatPos.x,
+        this.boatPos.y + 0.6,
+        this.boatPos.z,
+      );
     }
 
     // Smooth camera transition
@@ -204,7 +222,7 @@ export class HighlightDirector {
       this.camPosSmooth.copy(this.targetCamPos);
       this.lookAtSmooth.copy(this.targetLookAt);
     } else {
-      const lerpFactor = Math.min(1, dt * 12);
+      const lerpFactor = Math.min(1, dt * 14);
       this.camPosSmooth.lerp(this.targetCamPos, lerpFactor);
       this.lookAtSmooth.lerp(this.targetLookAt, lerpFactor);
     }
