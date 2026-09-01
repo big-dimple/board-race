@@ -187,10 +187,10 @@
 .highlight-broadcast-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: clamp(13px, 1.7vw, 18px);
+  gap: 6px;
+  font-size: clamp(11px, 1.3vw, 16px);
   font-weight: 900;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   background: linear-gradient(135deg, #ffd700 0%, #ffffff 50%, #55e7ff 100%);
   -webkit-background-clip: text;
@@ -224,7 +224,7 @@
 /* Center Stunt Action Banner - Macho Medal Style Typography */
 .highlight-stunt-banner {
   position: absolute;
-  top: 15%;
+  top: clamp(48px, 9.5vh, 72px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 15;
@@ -232,47 +232,48 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 14px 38px;
-  border-radius: 16px;
-  background: rgba(12, 16, 42, 0.92);
-  border: 2.5px solid #ffcf4a;
-  box-shadow: 0 10px 42px rgba(0, 0, 0, 0.8), 0 0 32px rgba(255, 207, 74, 0.35), inset 0 0 20px rgba(255, 207, 74, 0.2);
+  padding: 8px 30px;
+  max-width: min(88vw, 560px);
+  border-radius: 14px;
+  background: rgba(12, 16, 42, 0.90);
+  border: 2px solid #ffcf4a;
+  box-shadow: 0 8px 36px rgba(0, 0, 0, 0.85), 0 0 28px rgba(255, 207, 74, 0.35), inset 0 0 16px rgba(255, 207, 74, 0.18);
   backdrop-filter: blur(16px);
   animation: bannerEnter 0.52s cubic-bezier(0.12, 1.45, 0.2, 1) forwards;
   pointer-events: none;
 }
 @keyframes bannerEnter {
-  0% { opacity: 0; transform: translate(-50%, -24px) scale(0.88); }
+  0% { opacity: 0; transform: translate(-50%, -18px) scale(0.92); }
   100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
 
 .highlight-stunt-rating {
-  font: italic 900 clamp(11px, 1.4vw, 15px) / 1 'Arial Black', Impact, system-ui, sans-serif;
-  letter-spacing: 0.16em;
+  font: italic 900 clamp(10px, 1.2vw, 13px) / 1 'Arial Black', Impact, system-ui, sans-serif;
+  letter-spacing: 0.14em;
   color: #ffcf4a;
   background: rgba(255, 207, 74, 0.22);
-  padding: 4px 14px;
-  border-radius: 20px;
-  margin-bottom: 8px;
-  border: 1.5px solid rgba(255, 207, 74, 0.6);
+  padding: 3px 12px;
+  border-radius: 16px;
+  margin-bottom: 5px;
+  border: 1px solid rgba(255, 207, 74, 0.6);
   text-transform: uppercase;
   text-shadow: 0 2px 4px rgba(12, 12, 37, 0.9);
 }
 
 .highlight-stunt-title {
-  font: italic 900 clamp(24px, 3.8vw, 48px) / 1 'Arial Black', Impact, system-ui, sans-serif;
+  font: italic 900 clamp(18px, 2.6vw, 36px) / 1.1 'Arial Black', Impact, system-ui, sans-serif;
   letter-spacing: 0.04em;
   color: #ffffff;
   text-transform: uppercase;
-  text-shadow: 0 4px 0 rgba(12, 12, 37, 0.95), 0 0 36px rgba(255, 207, 74, 0.75);
-  margin-bottom: 6px;
+  text-shadow: 0 3px 0 rgba(12, 12, 37, 0.95), 0 0 28px rgba(255, 207, 74, 0.75);
+  margin-bottom: 4px;
 }
 
 .highlight-stunt-detail {
-  font: italic 800 clamp(13px, 1.6vw, 20px) / 1.25 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font: italic 800 clamp(11px, 1.3vw, 15px) / 1.25 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   color: #ffcf4a;
-  letter-spacing: 0.05em;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+  letter-spacing: 0.04em;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
 }
 
 /* Slow-Mo Indicator Pill */
@@ -460,12 +461,27 @@
     width: 20px;
     height: 20px;
   }
+  .highlight-rec-specs {
+    display: none;
+  }
+  .highlight-broadcast-title {
+    font-size: 12px;
+    letter-spacing: 0.05em;
+  }
+  .highlight-cam-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+  }
+  .highlight-speed-tag {
+    font-size: 10px;
+    padding: 1px 5px;
+  }
   .highlight-stunt-banner {
-    top: 12%;
-    padding: 6px 16px;
+    top: 32px;
+    padding: 4px 14px;
   }
   .highlight-stunt-title {
-    font-size: 16px;
+    font-size: 15px;
   }
   .highlight-stunt-detail {
     font-size: 10px;

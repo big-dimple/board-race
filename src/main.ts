@@ -3338,6 +3338,7 @@ interface Harness {
   duoGuidanceCase(): Record<string, unknown>;
   duoFeedbackCase(): Record<string, unknown>;
   duoImpactCase(): Record<string, unknown>;
+  playHighlightReplay(): void;
   duoNoticeCase(): Record<string, unknown>;
   duoDriverPowerCase(): Record<string, unknown>;
   qualityGovernorCase(): Record<string, unknown>;
@@ -5936,6 +5937,7 @@ if (HARNESS) {
     duoGuidanceCase: runDuoGuidanceCase,
     duoFeedbackCase: runDuoFeedbackCase,
     duoImpactCase: runDuoImpactCase,
+    playHighlightReplay: () => startHighlightVideoReplay(),
     duoNoticeCase: runDuoNoticeCase,
     duoDriverPowerCase: runDuoDriverPowerCase,
     qualityGovernorCase: runQualityGovernorCase,

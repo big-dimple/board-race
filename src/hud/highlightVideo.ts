@@ -164,7 +164,7 @@ export class HighlightVideo {
 
     this.stuntRatingEl.textContent = clip.stuntRating;
     this.stuntTitleEl.textContent = clip.stuntTitle;
-    this.stuntDetailEl.textContent = `★ ${clip.stuntDetail} · 斩获 ${clip.stuntScore} 荣耀点`;
+    this.stuntDetailEl.textContent = `★ ${clip.stuntDetail} · 斩获 ${Math.round(clip.stuntScore)} 荣耀点`;
 
     // Re-trigger entrance animation
     this.stuntBannerEl.style.animation = 'none';
