@@ -148,68 +148,72 @@ export class HighlightDirector {
     let targetFov = 60;
 
     if (this.elapsed < 2.8) {
-      // Angle 1: Rear-Diagonal Elevated Skycam Follow (侧后方45°高空俯瞰上帝视角跟进)
+      // Angle 1: Rear-Diagonal Elevated Skycam Follow (侧后方45°高空俯瞰上帝视角跟进 - 3x Distance)
       // Elevated aerial camera tracking from the rear-diagonal side looking down at ~30 deg pitch
       newCamIndex = 1;
       camLabel = '[ CAM 01 // REAR-DIAGONAL SKYCAM FOLLOW ]';
-      targetFov = 58;
+      targetFov = 52;
 
       const rearSideAngle = heading - 0.44;
-      const dist = 7.5;
-      const height = 4.2;
+      const dist = 22.5;
+      const height = 12.6;
 
       this.targetCamPos.set(
         this.boatPos.x - Math.sin(rearSideAngle) * dist,
-        Math.max(3.8, this.boatPos.y + height),
+        Math.max(6.5, this.boatPos.y + height),
         this.boatPos.z - Math.cos(rearSideAngle) * dist,
       );
-      this.targetLookAt.set(this.boatPos.x, this.boatPos.y + 0.55, this.boatPos.z);
+      this.targetLookAt.set(
+        this.boatPos.x + this.forward.x * 3.2,
+        this.boatPos.y + 0.5,
+        this.boatPos.z + this.forward.z * 3.2,
+      );
 
     } else if (this.elapsed < 5.4) {
-      // Angle 2: Rear-Quarter Slow-Mo Dramatic Swoop (侧后方高空弧形慢镜头特写俯瞰)
+      // Angle 2: Rear-Quarter Slow-Mo Dramatic Swoop (侧后方高空弧形慢镜头特写俯瞰 - 3x Distance)
       // Elevated aerial camera smoothly sweeping in a rear-quarter arc during the stunt climax
       newCamIndex = 2;
       camLabel = '[ CAM 02 // REAR-QUARTER SLOW-MO SWOOP ]';
-      targetFov = 54;
+      targetFov = 48;
 
       const orbitPhase = (this.elapsed - 2.8) / 2.6;
       const rearSwoopAngle = heading - 0.40 + orbitPhase * 0.80;
-      const dist = 6.6;
-      const height = 3.6 + Math.sin(orbitPhase * Math.PI) * 0.5;
+      const dist = 19.8;
+      const height = 10.8 + Math.sin(orbitPhase * Math.PI) * 1.6;
 
       this.targetCamPos.set(
         this.boatPos.x - Math.sin(rearSwoopAngle) * dist,
-        Math.max(3.4, this.boatPos.y + height),
+        Math.max(6.0, this.boatPos.y + height),
         this.boatPos.z - Math.cos(rearSwoopAngle) * dist,
       );
 
       this.targetLookAt.set(
-        this.boatPos.x,
-        this.boatPos.y + 0.65,
-        this.boatPos.z,
+        this.boatPos.x + this.forward.x * 2.0,
+        this.boatPos.y + 0.5,
+        this.boatPos.z + this.forward.z * 2.0,
       );
 
     } else {
-      // Angle 3: Pure Rear Elevated Sky Chase (正后方高空极速追焦冲刺俯瞰)
+      // Angle 3: Pure Rear Elevated Sky Chase (正后方高空极速追焦冲刺俯瞰 - 3x Distance)
       // Elevated behind tracking the boat as it blazes forward into the horizon
       newCamIndex = 3;
       camLabel = '[ CAM 03 // PURE REAR SKY CHASE ]';
-      targetFov = 60;
+      targetFov = 54;
 
       const rearChaseAngle = heading - 0.05;
-      const dist = 7.8;
-      const height = 3.9;
+      const dist = 23.4;
+      const height = 11.7;
 
       this.targetCamPos.set(
         this.boatPos.x - Math.sin(rearChaseAngle) * dist,
-        Math.max(3.5, this.boatPos.y + height),
+        Math.max(6.0, this.boatPos.y + height),
         this.boatPos.z - Math.cos(rearChaseAngle) * dist,
       );
 
       this.targetLookAt.set(
-        this.boatPos.x + this.forward.x * 1.5,
+        this.boatPos.x + this.forward.x * 4.2,
         this.boatPos.y + 0.5,
-        this.boatPos.z + this.forward.z * 1.5,
+        this.boatPos.z + this.forward.z * 4.2,
       );
     }
 

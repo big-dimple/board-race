@@ -59,17 +59,31 @@ function createEmptyBoatSample(): BoatReplaySample {
   };
 }
 
+export interface HighlightCandidate {
+  time: number;
+  kind: StuntKind;
+  weight: number; // 0 - 100
+  score: number;  // 100 - 1500
+  title: string;
+  detail: string;
+  badge: string;
+  rating: string;
+}
+
 export class HighlightRecorder {
   private readonly samples: HighlightSample[] = [];
+  private readonly candidates: HighlightCandidate[] = [];
   private sampleCursor = 0;
   private sampleCount = 0;
+
+  // Fallback defaults
   private peakStuntScore = 0;
   private peakStuntTime = 0;
   private peakStuntKind: StuntKind = 'flight';
   private peakStuntTitle = '🚀 破空翱翔 · 极速穿云';
   private peakStuntDetail = '天际雾桥 · 完美腾空穿透光门';
-  private peakStuntBadge = '👑 绝顶破空';
-  private peakStuntRating = '[ SSS · 极速传说 ]';
+  private peakStuntBadge = '👑 破空神话';
+  private peakStuntRating = '[ SSS · 破空神话 ]';
 
   // Scratch quaternions for slerp
   private readonly qA = new THREE.Quaternion();
@@ -89,13 +103,14 @@ export class HighlightRecorder {
   reset(): void {
     this.sampleCursor = 0;
     this.sampleCount = 0;
+    this.candidates.length = 0;
     this.peakStuntScore = 0;
     this.peakStuntTime = 0;
     this.peakStuntKind = 'flight';
     this.peakStuntTitle = '🚀 破空翱翔 · 极速穿云';
     this.peakStuntDetail = '天际雾桥 · 完美腾空穿透光门';
-    this.peakStuntBadge = '👑 绝顶破空';
-    this.peakStuntRating = '[ SSS · 极速传说 ]';
+    this.peakStuntBadge = '👑 破空神话';
+    this.peakStuntRating = '[ SSS · 破空神话 ]';
   }
 
   recordFrame(boats: readonly IBoat[], time: number, waveHeight = 0): void {
@@ -137,28 +152,73 @@ export class HighlightRecorder {
       rSample.mode = rivalState.flightPhase !== 'surface' ? rivalState.flightPhase : rivalState.boosting ? 'boost' : rivalState.drifting ? 'drift' : 'surface';
     }
 
-    // Evaluate dynamic positive stunts
+    // Evaluate dynamic positive stunts (High Weight Candidates)
     if (p.flightPhase !== 'surface') {
+      // 1. SSS Flight Corridor Gate Pass (Weight: 100)
       const speedKmh = Math.round(p.speed * 3.6);
-      const score = 190 + Math.min(50, Math.max(0, p.speed - 24) * 3);
-      if (score > this.peakStuntScore) {
-        this.tagEvent('flight', score, time, `🚀 破空翱翔 · ${speedKmh} km/h 穿云过门`, '天际雾桥 · 完美腾空穿透光门', '👑 绝顶破空', '[ SSS · 极速传说 ]');
-      }
-    } else if (p.boosting) {
+      const score = 1200 + Math.min(300, Math.max(0, p.speed - 22) * 15);
+      this.tagCandidate('flight', score, 100, time, `🚀 破空翱翔 · ${speedKmh} KM/H 穿云过门`, '天际雾桥 · 完美腾空穿透光门', '👑 破空神话', '[ SSS · 破空神话 ]');
+    } else if (p.drifting && Math.abs(p.lateralG) > 6.5 && p.speed > 10) {
+      // 2. SSS Apex High-G Power Drift (Weight: 85)
       const speedKmh = Math.round(p.speed * 3.6);
-      const score = 160 + Math.min(40, p.speed * 1.5);
-      if (score > this.peakStuntScore) {
-        this.tagEvent('speed_burst', score, time, `⚡ 极速狂飙 · ${speedKmh} km/h 破空喷射`, '尾焰全开 · 狂暴冲刺', '🔥 破风之刃', '[ SS · 极速破空 ]');
-      }
-    } else if (p.drifting && Math.abs(p.lateralG) > 9) {
-      const score = 170 + Math.min(40, Math.abs(p.lateralG) * 2.5);
-      if (score > this.peakStuntScore) {
-        this.tagEvent('apex_drift', score, time, `🏎️ 极限贴弯 · 完美弯心过弯`, '牢牢咬住弯心 · 侧舷水花漫天', '⚡ 弯心狂鲨', '[ SS · 破浪狂鲨 ]');
-      }
+      const score = 900 + Math.min(300, Math.abs(p.lateralG) * 15 + Math.max(0, p.speed - 12) * 8);
+      this.tagCandidate('apex_drift', score, 85, time, `⚡ 极限贴弯 · ${speedKmh} KM/H 完美过弯`, '牢牢咬住弯心 · 侧舷水花漫天', '⚡ 弯道主宰', '[ SSS · 弯道主宰 ]');
+    } else if (p.boosting && p.speed > 16) {
+      // 3. SS Jet Boost / Overtake Burst (Weight: 75)
+      const speedKmh = Math.round(p.speed * 3.6);
+      const score = 800 + Math.min(250, p.speed * 6);
+      this.tagCandidate('speed_burst', score, 75, time, `🔥 绝影突袭 · ${speedKmh} KM/H 破风喷射`, '尾焰全开 · 狂暴推进超速破浪', '🔥 破风之刃', '[ SS · 猎风突袭 ]');
+    } else if (p.position.y > 1.2 && !p.drifting && p.flightPhase === 'surface') {
+      // 4. S Wave Crest Jump (Weight: 65)
+      const speedKmh = Math.round(p.speed * 3.6);
+      const score = 700 + Math.min(200, Math.max(0, p.position.y) * 40 + p.speed * 3);
+      this.tagCandidate('coin_frenzy', score, 65, time, `🌊 惊涛腾跃 · ${speedKmh} KM/H 踏浪起飞`, '逐浪腾空绝美滑翔 · 极致水花视觉拉满', '🌊 逐浪之魂', '[ S · 逐浪飞仙 ]');
     }
 
     this.sampleCursor = (this.sampleCursor + 1) % MAX_SAMPLES;
     if (this.sampleCount < MAX_SAMPLES) this.sampleCount++;
+  }
+
+  tagCandidate(
+    kind: StuntKind,
+    score: number,
+    weight: number,
+    time: number,
+    title: string,
+    detail: string,
+    badge: string,
+    rating: string,
+  ): void {
+    // Deduplicate or update candidate within 1.5s window
+    const existing = this.candidates.find((c) => Math.abs(c.time - time) < 1.5 && c.kind === kind);
+    if (existing) {
+      if (score > existing.score) {
+        existing.score = score;
+        existing.weight = weight;
+        existing.time = time;
+        existing.title = title;
+        existing.detail = detail;
+        existing.badge = badge;
+        existing.rating = rating;
+      }
+      return;
+    }
+
+    this.candidates.push({
+      time,
+      kind,
+      weight,
+      score,
+      title,
+      detail,
+      badge,
+      rating,
+    });
+
+    // Keep candidate buffer bounded
+    if (this.candidates.length > 50) {
+      this.candidates.shift();
+    }
   }
 
   tagEvent(
@@ -170,41 +230,50 @@ export class HighlightRecorder {
     badge = '★ 精彩高光',
     rating = '[ S · 荣耀瞬间 ]',
   ): void {
-    if (score >= this.peakStuntScore) {
-      this.peakStuntScore = score;
-      this.peakStuntTime = time;
-      this.peakStuntKind = kind;
-      this.peakStuntTitle = title;
-      this.peakStuntDetail = detail;
-      this.peakStuntBadge = badge;
-      this.peakStuntRating = rating;
-    }
+    this.tagCandidate(kind, score, 80, time, title, detail, badge, rating);
   }
 
   tagDefeat(failure: FlightFailureSnapshot | null | undefined, time: number, speed: number, isDuo = false): void {
     const isFlightCorridor = failure !== null && failure !== undefined;
-    const score = isFlightCorridor ? 280 : 40;
-    if (score >= this.peakStuntScore) {
-      this.peakStuntScore = score;
-      this.peakStuntTime = Math.max(0, time - 0.8);
-      this.peakStuntKind = 'crash_climax';
-      if (isDuo && isFlightCorridor) {
-        this.peakStuntTitle = '💥 我挂了你也别想好过！';
-        this.peakStuntDetail = '空中走廊遭遇核弹级背刺 · 华丽翻车同归于尽';
-        this.peakStuntBadge = '🎪 喜剧之神';
-        this.peakStuntRating = '[ EX · 喜剧之神 ]';
-      } else if (isFlightCorridor) {
-        this.peakStuntTitle = '💥 极限空翻 · 华丽翻车！';
-        this.peakStuntDetail = '空中走廊极限翻车 · 华丽姿态喜剧拉满';
-        this.peakStuntBadge = '🎪 喜剧之神';
-        this.peakStuntRating = '[ EX · 喜剧之神 ]';
-      } else {
-        const speedKmh = Math.round(speed * 3.6);
-        this.peakStuntTitle = `💥 弹力四射 · ${speedKmh} km/h 极限回弹 720°`;
-        this.peakStuntDetail = '高强度防撞橡胶梁拉满 · 经典喜剧弹射';
-        this.peakStuntBadge = '🎪 喜剧之王';
-        this.peakStuntRating = '[ EX · 喜剧之王 ]';
-      }
+    // Defeat has low weight (15) so it only plays if no positive achievements occurred
+    const weight = 15;
+    const score = isFlightCorridor ? 120 : 60;
+    const peakTime = Math.max(0, time - 0.8);
+
+    if (isDuo && isFlightCorridor) {
+      this.tagCandidate(
+        'crash_climax',
+        score,
+        weight,
+        peakTime,
+        '💥 我挂了你也别想好过！',
+        '空中走廊遭遇核弹级背刺 · 华丽翻车同归于尽',
+        '🎪 喜剧之神',
+        '[ EX · 喜剧之神 ]',
+      );
+    } else if (isFlightCorridor) {
+      this.tagCandidate(
+        'crash_climax',
+        score,
+        weight,
+        peakTime,
+        '💥 极限空翻 · 华丽翻车！',
+        '空中走廊极限翻车 · 华丽姿态喜剧拉满',
+        '🎪 喜剧之神',
+        '[ EX · 喜剧之神 ]',
+      );
+    } else {
+      const speedKmh = Math.round(speed * 3.6);
+      this.tagCandidate(
+        'crash_climax',
+        score,
+        weight,
+        peakTime,
+        `💥 弹力四射 · ${speedKmh} km/h 极限回弹 720°`,
+        '高强度防撞橡胶梁拉满 · 经典喜剧弹射',
+        '🎪 喜剧之王',
+        '[ EX · 喜剧之王 ]',
+      );
     }
   }
 
@@ -226,8 +295,23 @@ export class HighlightRecorder {
       };
     }
 
-    let peakTime = this.peakStuntTime;
     const earliestTime = this.getEarliestSampleTime();
+
+    // Find highest weighted candidate within the available buffer window
+    let bestCandidate: HighlightCandidate | null = null;
+    let bestEffectiveScore = -1;
+
+    for (const c of this.candidates) {
+      if (c.time >= earliestTime - 0.5 && c.time <= currentTime + 0.5) {
+        const effectiveScore = c.score * (c.weight / 100);
+        if (effectiveScore > bestEffectiveScore) {
+          bestEffectiveScore = effectiveScore;
+          bestCandidate = c;
+        }
+      }
+    }
+
+    let peakTime = bestCandidate ? bestCandidate.time : this.peakStuntTime;
     if (peakTime <= 0 || peakTime < earliestTime || peakTime > currentTime) {
       peakTime = Math.max(earliestTime + CLIP_DURATION * 0.5, currentTime - 2.0);
     }
@@ -261,17 +345,24 @@ export class HighlightRecorder {
       }
     }
 
+    const stuntKind = bestCandidate ? bestCandidate.kind : this.peakStuntKind;
+    const stuntScore = bestCandidate ? Math.round(bestCandidate.score) : 100;
+    const stuntTitle = bestCandidate ? bestCandidate.title : this.peakStuntTitle;
+    const stuntDetail = bestCandidate ? bestCandidate.detail : this.peakStuntDetail;
+    const stuntBadge = bestCandidate ? bestCandidate.badge : this.peakStuntBadge;
+    const stuntRating = bestCandidate ? bestCandidate.rating : this.peakStuntRating;
+
     return {
       startTime,
       endTime,
       peakTime,
       duration: Math.max(1.0, endTime - startTime),
-      stuntKind: this.peakStuntKind,
-      stuntScore: this.peakStuntScore,
-      stuntTitle: this.peakStuntTitle,
-      stuntDetail: this.peakStuntDetail,
-      stuntBadge: this.peakStuntBadge,
-      stuntRating: this.peakStuntRating,
+      stuntKind,
+      stuntScore,
+      stuntTitle,
+      stuntDetail,
+      stuntBadge,
+      stuntRating,
       samples: clipSamples,
     };
   }
