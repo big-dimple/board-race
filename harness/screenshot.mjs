@@ -484,7 +484,7 @@ async function verifyMode(browser, mobile) {
     daylightBeam: lighthouse.daylightBeam,
     solidMeshes: lighthouse.solidMeshes,
     effectMeshes: lighthouse.effectMeshes,
-  }, { x: 110, z: 190, height: 34, daylightBeam: false, solidMeshes: 5, effectMeshes: 1 },
+  }, { x: 110, z: 190, height: 34, daylightBeam: false, solidMeshes: 5, effectMeshes: 4 },
   `${label}: lighthouse landmark contract drifted`);
 
   const flaps = await page.evaluate(() => window.__harness.flapCase());

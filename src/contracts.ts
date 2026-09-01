@@ -143,7 +143,8 @@ export type FlightRouteFailReason =
   | 'late'
   | 'landing'
   | 'exit'
-  | 'teleport';
+  | 'teleport'
+  | 'missile_blast';
 
 /** Immutable evidence captured on the exact frame a flight attempt fails. */
 export interface FlightFailureSnapshot {

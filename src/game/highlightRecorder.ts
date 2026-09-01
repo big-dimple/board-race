@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { IBoat, FlightFailureSnapshot } from '../contracts';
+import type { ReplayMissileSnapshot } from './duoInteraction';
 
-export type StuntKind = 'flight' | 'apex_drift' | 'coin_frenzy' | 'speed_burst' | 'airbrake' | 'crash_climax';
+export type StuntKind = 'flight' | 'apex_drift' | 'coin_frenzy' | 'speed_burst' | 'airbrake' | 'crash_climax' | 'missile_strike';
 
 export interface BoatReplaySample {
   x: number;
@@ -22,6 +23,7 @@ export interface HighlightSample {
   time: number;
   player: BoatReplaySample;
   rivals: BoatReplaySample[];
+  missiles: ReplayMissileSnapshot[];
   waveHeight: number;
 }
 
@@ -59,11 +61,27 @@ function createEmptyBoatSample(): BoatReplaySample {
   };
 }
 
+function createEmptyMissileSample(index: number): ReplayMissileSnapshot {
+  return {
+    x: 0,
+    y: 0,
+    z: 0,
+    qx: 0,
+    qy: 0,
+    qz: 0,
+    qw: 1,
+    active: false,
+    isDwell: false,
+    dwellProgress: 0,
+    kind: index % 2 === 1 ? 'shark' : 'tomahawk',
+  };
+}
+
 export interface HighlightCandidate {
   time: number;
   kind: StuntKind;
   weight: number; // 0 - 100
-  score: number;  // 100 - 1500
+  score: number;  // 100 - 1800
   title: string;
   detail: string;
   badge: string;
@@ -88,6 +106,7 @@ export class HighlightRecorder {
   // Scratch quaternions for slerp
   private readonly qA = new THREE.Quaternion();
   private readonly qB = new THREE.Quaternion();
+  private readonly scratchQuat = new THREE.Quaternion();
 
   constructor() {
     for (let i = 0; i < MAX_SAMPLES; i++) {
@@ -95,6 +114,7 @@ export class HighlightRecorder {
         time: 0,
         player: createEmptyBoatSample(),
         rivals: Array.from({ length: 5 }, () => createEmptyBoatSample()),
+        missiles: Array.from({ length: 4 }, (_, m) => createEmptyMissileSample(m)),
         waveHeight: 0,
       });
     }
@@ -113,7 +133,12 @@ export class HighlightRecorder {
     this.peakStuntRating = '[ SSS · 破空神话 ]';
   }
 
-  recordFrame(boats: readonly IBoat[], time: number, waveHeight = 0): void {
+  recordFrame(
+    boats: readonly IBoat[],
+    time: number,
+    waveHeight = 0,
+    missiles?: readonly ReplayMissileSnapshot[],
+  ): void {
     if (boats.length === 0) return;
     const sample = this.samples[this.sampleCursor];
     sample.time = time;
@@ -150,6 +175,25 @@ export class HighlightRecorder {
       rSample.drifting = rivalState.drifting;
       rSample.boosting = rivalState.boosting;
       rSample.mode = rivalState.flightPhase !== 'surface' ? rivalState.flightPhase : rivalState.boosting ? 'boost' : rivalState.drifting ? 'drift' : 'surface';
+    }
+
+    // Record Active Missiles
+    if (missiles) {
+      for (let m = 0; m < missiles.length && m < sample.missiles.length; m++) {
+        const src = missiles[m];
+        const dst = sample.missiles[m];
+        dst.active = src.active;
+        dst.isDwell = src.isDwell;
+        dst.dwellProgress = src.dwellProgress;
+        dst.kind = src.kind;
+        dst.x = src.x;
+        dst.y = src.y;
+        dst.z = src.z;
+        dst.qx = src.qx;
+        dst.qy = src.qy;
+        dst.qz = src.qz;
+        dst.qw = src.qw;
+      }
     }
 
     // Evaluate dynamic positive stunts (High Weight Candidates)
@@ -234,40 +278,50 @@ export class HighlightRecorder {
   }
 
   tagDefeat(failure: FlightFailureSnapshot | null | undefined, time: number, speed: number, isDuo = false): void {
+    const isMissile = failure?.reason === 'missile_blast';
     const isFlightCorridor = failure !== null && failure !== undefined;
-    // Defeat has low weight (15) so it only plays if no positive achievements occurred
-    const weight = 15;
-    const score = isFlightCorridor ? 120 : 60;
-    const peakTime = Math.max(0, time - 0.8);
+    const peakTime = Math.max(0, time);
 
-    if (isDuo && isFlightCorridor) {
+    if (isMissile) {
+      // Missile Strike Climax: Maximum Weight (100) & Score (1680) so it 100% takes the highlight spot!
+      this.tagCandidate(
+        'missile_strike',
+        1680,
+        100,
+        peakTime,
+        '💥 遭遇超音速导弹轰杀 · 翻滚 720°',
+        '飞行空域遭遇战斧/鲨鱼导弹精准直击 · 720° 腾云爆炸坠海',
+        '🎪 喜剧之神',
+        '[ EX · 喜剧之神 // 凌空轰炸 ]',
+      );
+    } else if (isDuo && isFlightCorridor) {
       this.tagCandidate(
         'crash_climax',
-        score,
-        weight,
+        1350,
+        90,
         peakTime,
-        '💥 我挂了你也别想好过！',
-        '空中走廊遭遇核弹级背刺 · 华丽翻车同归于尽',
+        '💥 极限空翻 · 华丽坠海！',
+        '双人竞技遭遇极限失误 · 华丽翻滚喜剧拉满',
         '🎪 喜剧之神',
         '[ EX · 喜剧之神 ]',
       );
     } else if (isFlightCorridor) {
       this.tagCandidate(
         'crash_climax',
-        score,
-        weight,
+        1250,
+        85,
         peakTime,
-        '💥 极限空翻 · 华丽翻车！',
-        '空中走廊极限翻车 · 华丽姿态喜剧拉满',
-        '🎪 喜剧之神',
-        '[ EX · 喜剧之神 ]',
+        '💥 极限腾空 · 华丽坠海！',
+        '空中走廊极限挑战 · 华丽姿态喜剧拉满',
+        '🎪 喜剧之王',
+        '[ EX · 喜剧之王 ]',
       );
     } else {
       const speedKmh = Math.round(speed * 3.6);
       this.tagCandidate(
         'crash_climax',
-        score,
-        weight,
+        1100,
+        70,
         peakTime,
         `💥 弹力四射 · ${speedKmh} km/h 极限回弹 720°`,
         '高强度防撞橡胶梁拉满 · 经典喜剧弹射',
@@ -316,9 +370,9 @@ export class HighlightRecorder {
       peakTime = Math.max(earliestTime + CLIP_DURATION * 0.5, currentTime - 2.0);
     }
 
-    const half = CLIP_DURATION * 0.5;
-    let startTime = peakTime - half;
-    let endTime = peakTime + half;
+    // Lead-in 2.8s before peak, 4.7s after peak (total 7.5s clip)
+    let startTime = peakTime - 2.8;
+    let endTime = peakTime + 4.7;
 
     if (startTime < earliestTime) {
       const shift = earliestTime - startTime;
@@ -340,6 +394,7 @@ export class HighlightRecorder {
           time: s.time,
           player: { ...s.player },
           rivals: s.rivals.map((r) => ({ ...r })),
+          missiles: s.missiles.map((m) => ({ ...m })),
           waveHeight: s.waveHeight,
         });
       }
@@ -373,6 +428,7 @@ export class HighlightRecorder {
     outPlayerPos: THREE.Vector3,
     outPlayerQuat: THREE.Quaternion,
     outRivals?: Array<{ pos: THREE.Vector3; quat: THREE.Quaternion; speed: number; mode: string }>,
+    outMissiles?: ReplayMissileSnapshot[],
   ): BoatReplaySample {
     const list = clip.samples;
     if (list.length === 0) {
@@ -393,6 +449,23 @@ export class HighlightRecorder {
           outRivals[r].mode = riv.mode;
         }
       }
+      if (outMissiles) {
+        for (let m = 0; m < outMissiles.length && m < s.missiles.length; m++) {
+          const sm = s.missiles[m];
+          const om = outMissiles[m];
+          om.active = sm.active;
+          om.isDwell = sm.isDwell;
+          om.dwellProgress = sm.dwellProgress;
+          om.kind = sm.kind;
+          om.x = sm.x;
+          om.y = sm.y;
+          om.z = sm.z;
+          om.qx = sm.qx;
+          om.qy = sm.qy;
+          om.qz = sm.qz;
+          om.qw = sm.qw;
+        }
+      }
       return s.player;
     }
     const last = list[list.length - 1];
@@ -406,6 +479,23 @@ export class HighlightRecorder {
           outRivals[r].quat.set(riv.qx, riv.qy, riv.qz, riv.qw);
           outRivals[r].speed = riv.speed;
           outRivals[r].mode = riv.mode;
+        }
+      }
+      if (outMissiles) {
+        for (let m = 0; m < outMissiles.length && m < last.missiles.length; m++) {
+          const sm = last.missiles[m];
+          const om = outMissiles[m];
+          om.active = sm.active;
+          om.isDwell = sm.isDwell;
+          om.dwellProgress = sm.dwellProgress;
+          om.kind = sm.kind;
+          om.x = sm.x;
+          om.y = sm.y;
+          om.z = sm.z;
+          om.qx = sm.qx;
+          om.qy = sm.qy;
+          om.qz = sm.qz;
+          om.qw = sm.qw;
         }
       }
       return last.player;
@@ -450,6 +540,28 @@ export class HighlightRecorder {
         outRivals[r].quat.copy(this.qA).slerp(this.qB, alpha);
         outRivals[r].speed = ra.speed + (rb.speed - ra.speed) * alpha;
         outRivals[r].mode = alpha > 0.5 ? rb.mode : ra.mode;
+      }
+    }
+
+    if (outMissiles) {
+      for (let m = 0; m < outMissiles.length && m < sa.missiles.length && m < sb.missiles.length; m++) {
+        const ma = sa.missiles[m];
+        const mb = sb.missiles[m];
+        const om = outMissiles[m];
+        om.active = alpha > 0.5 ? mb.active : ma.active;
+        om.isDwell = alpha > 0.5 ? mb.isDwell : ma.isDwell;
+        om.dwellProgress = ma.dwellProgress + (mb.dwellProgress - ma.dwellProgress) * alpha;
+        om.kind = mb.kind;
+        om.x = ma.x + (mb.x - ma.x) * alpha;
+        om.y = ma.y + (mb.y - ma.y) * alpha;
+        om.z = ma.z + (mb.z - ma.z) * alpha;
+        this.qA.set(ma.qx, ma.qy, ma.qz, ma.qw);
+        this.qB.set(mb.qx, mb.qy, mb.qz, mb.qw);
+        this.scratchQuat.copy(this.qA).slerp(this.qB, alpha);
+        om.qx = this.scratchQuat.x;
+        om.qy = this.scratchQuat.y;
+        om.qz = this.scratchQuat.z;
+        om.qw = this.scratchQuat.w;
       }
     }
 

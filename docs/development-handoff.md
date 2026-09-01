@@ -1,15 +1,34 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“高光运镜 3 倍拉远高空全景上帝视角、全量成就候选池高权重评分引擎（围绕穿云过门/弯道主宰/绝影突袭优先回放，杜绝频繁翻车回放）（3x Pulled-Back Panoramic Camera & Weighted Achievement Highlight Engine）”。
+状态：主分支当前工作包已圆满交付“高光时刻视频与回放底层逻辑重构（导弹击落与720°爆炸翻滚实录回放）、霸气战斧巡航导弹与超萌卡通大鲨鱼导弹全尺寸 3D 造型与实弹呈现、灯塔唯美三层体积光束与星芒透镜光晕（POTG Missile Replay, Dominator Tomahawk & Chibi Shark 3D Models, Tri-Layer Aesthetic Lighthouse Beam）”。
 
 ## 当前工作包
 
-- **高光全景上帝视角 3 倍距离拉远（3x Pulled-Back God's-Eye Panoramic Camera）**：
-  1. **3 段式宏大电竞上帝视角矩阵（3x Distance & Height）**：
-     - **Angle 1（0.0s – 2.8s · 侧后方45°高空上帝俯瞰）**：距离提升至 $22.5\text{m}$，高度提升至 $12.6\text{m}$，视场角 $52^\circ$，镜头前推下压锁定快艇前方海域，将宏大过云门拱、海天远景、多船编队冲刺尽收眼底；
-     - **Angle 2（2.8s – 5.4s · 侧后方高空弧形慢镜头俯瞰）**：距离提升至 $19.8\text{m}$，高度提升至 $10.8\text{m}$，视场角 $48^\circ$，$0.35\times$ 子弹时间围绕成就高光顶点高空俯旋；
-     - **Angle 3（5.4s – 7.5s · 正后方高空极速追焦冲刺）**：距离提升至 $23.4\text{m}$，高度提升至 $11.7\text{m}$，视场角 $54^\circ$，正后方高空俯冲追送，快艇绝尘冲刺向终点海平面；
-  2. **视点黄金居中校准（Golden Framing LookAt Offset）**：前置 LookAt 目标点 $2.0\text{m}\sim 4.2\text{m}$，赛艇位于屏幕下三分之一黄金区域，彻底告别船体遮挡与局促感。
+- **高光时刻视频与回放底层逻辑重构（POTG Missile Replay & Climax Explosion Tracking）**：
+  1. **全量导弹与爆炸火球环形缓冲录像**：`HighlightRecorder`（`src/game/highlightRecorder.ts`）与 `HighlightSample` 全面纳入导弹 3D 空间轨迹、四元数姿态与爆炸火球（`missiles: ReplayMissileSnapshot[]`），彻底解决“空中被导弹炸回放播放不了/突然掉到底上/没有被炸飞”的底层阉割问题；
+  2. **高光回放实时渲染导弹飞行与空中爆炸**：`main.ts` 在 `updateHighlightVideoPresentation` 中实时插值并同步导弹飞行网格与爆炸火球膨胀，高光回放可完整重现导弹从发射、超音速逼近、凌空精准命中直击到 720° 腾云爆炸翻滚坠海的全过程；
+  3. **导弹击落高光候选专属权重与 0.20x 极度慢动作子弹时间**：
+     - 当发生导弹击落时，`tagDefeat` 自动打上最高权重 **100**、得分 **1680** 的专属高光标签：`💥 遭遇超音速导弹轰杀 · 翻滚 720°`（副标题：`飞行空域遭遇战斧/鲨鱼导弹精准直击 · 720° 腾云爆炸坠海`，评级：`[ EX · 喜剧之神 // 凌空轰炸 ]`）；
+     - 回放自动将镜头焦点精准居中对齐导弹命中的爆炸峰值时间点（`peakTime`），在命中瞬间执行 **0.20x 极度子弹时间慢动作** 与近景俯冲盘旋特写，视觉冲击力与喜剧效果拉满！
+  4. **失败语录精准对齐导弹命中**：`src/contracts.ts`、`src/game/boat.ts` 与 `src/hud/hud.ts` 新增 `'missile_blast'` 专属失败类型，失败结算界面与复盘教训精准展示 `💥 遭遇导弹超音速轰杀 · 翻滚 720°` 及针对性的漂移规避教学建议，彻底告别与事实不符的无关失败信息。
+
+- **霸气战斧巡航导弹与超萌卡通大鲨鱼导弹 3D 造型与实弹呈现（Dominator Tomahawk & Chibi Shark 3D Models & Full Visibility）**：
+  1. **2.2 倍全尺寸霸气重装战斧巡航导弹（Dominator Dark Tactical Tomahawk）**：
+     - $5.2\text{m}$ 哑光碳黑与钛灰涂装长圆柱弹体、红宝石发光红外导引头（`0xff1e00`）、明黄警示斜纹带、4 片前置鸭翼 + 4 片警告红尖尾翼；
+     - 双层超音速马赫环（Mach Shockwave Rings）与三层金橙+白金核芯火箭喷射尾焰；
+  2. **2.2 倍全尺寸超萌Q版大眼鲨鱼导弹（Chibi Kawaii Shark Banger）**：
+     - $4.2\text{m}$ 饱满圆润的青蓝色海洋弹体、珠光白腹皮、超萌大眼珠配专属高光星芒、粉红萌系腮红面颊、大嘴鲨鱼利齿锯齿涂装、背部高挺背鳍与流线胸鳍、金黄色火箭喷火尾焰；
+  3. **单人与双人模式全场景导弹发射与更新**：`src/main.ts` 确保在单人竞速与双人对决中，导弹物理轨迹与发射架点火均高频更新，赛道两侧导轨与空域均可清晰观赏两大神级导弹外观。
+
+- **灯塔唯美细腻三层体积光束与星芒透镜光晕（Aesthetic Tri-Layer Volumetric Beam & Starburst Lens Flare）**：
+  1. **三层同心体积光锥架构（Tri-Layer Volumetric Cones）**：
+     - **Layer 1（钻石针状准直光芯）**：长度 $320\text{m}$，半径 $0.28\text{m}\sim 2.6\text{m}$，纯净炽热白金发光核心（`0xfff8e0`），高强度穿透力；
+     - **Layer 2（暖金琥珀丁达尔光柱）**：长度 $340\text{m}$，半径 $0.55\text{m}\sim 7.8\text{m}$，暖金琥珀色（`0xffaa33`）大气 Mie 散射柱身，细腻指数级纵向衰减（$e^{-1.85 t}$）与微粒粉尘动态呼吸；
+     - **Layer 3（唯美晨雾透光光晕）**：长度 $360\text{m}$，半径 $0.95\text{m}\sim 14.5\text{m}$，如梦如幻的轻柔外层空气晕（`0xff8811`），边缘与夜空无缝自然过渡；
+  2. **解析连续体积截面着色器（Analytic Smooth Cross-Section Shader）**：
+     - 彻底消除以往折叠拼缝与镂空圆筒硬边缘，基于圆柱体线视径解析公式计算光深，截面呈现 100% 丝滑柔和的摄影级高斯过渡；
+  3. **六芒星金辉透镜光晕与变形宽荧幕眩光（6-Point Starburst & Anamorphic Lens Flare）**：
+     - 在灯塔灯室核心架设自适应朝向摄像机的六芒星芒耀斑与水平宽荧幕变形眩光条带；当旋转光束扫过玩家摄像机视角时，触发犹如真实海岸灯塔摄影般震撼夺目的金光闪耀效果！
 
 - **全量高光成就候选池高权重评分引擎（Weighted Achievement Highlight Candidate Engine）**：
   1. **告别单点覆盖，建立候选池动态评分机制**：

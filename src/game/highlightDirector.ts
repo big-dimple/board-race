@@ -109,15 +109,17 @@ export class HighlightDirector {
     const clipProgress = Math.max(0, Math.min(1, this.elapsed / duration));
 
     // Commercial AAA Speed Ramping (7.5s duration):
-    // 0.0s - 2.8s: 1.0x panoramic approach (establishing environment & race context)
-    // 2.8s - 5.4s: 0.35x slow-mo climax (bullet time at peak jump / apex drift)
+    // 0.0s - 2.8s: 1.0x panoramic approach (establishing environment, missile in-flight & race context)
+    // 2.8s - 5.4s: 0.22x slow-mo climax (bullet time at peak missile explosion / aerial 720 / apex drift)
     // 5.4s - 7.5s: 1.15x speed recovery burst & outro flyaway
     let timeScale = 1.0;
     let slowMoActive = false;
+    const isImpactStunt = this.clip.stuntKind === 'missile_strike' || this.clip.stuntKind === 'crash_climax';
+    const minSlowMo = isImpactStunt ? 0.20 : 0.32;
+
     if (this.elapsed >= 2.8 && this.elapsed <= 5.4) {
       const slowPhase = (this.elapsed - 2.8) / 2.6;
-      // Smooth bell curve dip to 0.35
-      timeScale = 0.35 + 0.65 * Math.pow(Math.abs(slowPhase - 0.5) * 2, 2);
+      timeScale = minSlowMo + (1.0 - minSlowMo) * Math.pow(Math.abs(slowPhase - 0.5) * 2, 2);
       slowMoActive = true;
     } else if (this.elapsed > 5.4) {
       timeScale = 1.15;
@@ -149,9 +151,8 @@ export class HighlightDirector {
 
     if (this.elapsed < 2.8) {
       // Angle 1: Rear-Diagonal Elevated Skycam Follow (侧后方45°高空俯瞰上帝视角跟进 - 3x Distance)
-      // Elevated aerial camera tracking from the rear-diagonal side looking down at ~30 deg pitch
       newCamIndex = 1;
-      camLabel = '[ CAM 01 // REAR-DIAGONAL SKYCAM FOLLOW ]';
+      camLabel = isImpactStunt ? '[ CAM 01 // TACTICAL MISSILE INCOMING TRACK ]' : '[ CAM 01 // REAR-DIAGONAL SKYCAM FOLLOW ]';
       targetFov = 52;
 
       const rearSideAngle = heading - 0.44;
@@ -171,14 +172,13 @@ export class HighlightDirector {
 
     } else if (this.elapsed < 5.4) {
       // Angle 2: Rear-Quarter Slow-Mo Dramatic Swoop (侧后方高空弧形慢镜头特写俯瞰 - 3x Distance)
-      // Elevated aerial camera smoothly sweeping in a rear-quarter arc during the stunt climax
       newCamIndex = 2;
-      camLabel = '[ CAM 02 // REAR-QUARTER SLOW-MO SWOOP ]';
-      targetFov = 48;
+      camLabel = isImpactStunt ? '[ CAM 02 // 0.20X BULLET-TIME IMPACT DETONATION ]' : '[ CAM 02 // REAR-QUARTER SLOW-MO SWOOP ]';
+      targetFov = isImpactStunt ? 46 : 48;
 
       const orbitPhase = (this.elapsed - 2.8) / 2.6;
       const rearSwoopAngle = heading - 0.40 + orbitPhase * 0.80;
-      const dist = 19.8;
+      const dist = isImpactStunt ? 17.5 : 19.8;
       const height = 10.8 + Math.sin(orbitPhase * Math.PI) * 1.6;
 
       this.targetCamPos.set(
@@ -195,9 +195,8 @@ export class HighlightDirector {
 
     } else {
       // Angle 3: Pure Rear Elevated Sky Chase (正后方高空极速追焦冲刺俯瞰 - 3x Distance)
-      // Elevated behind tracking the boat as it blazes forward into the horizon
       newCamIndex = 3;
-      camLabel = '[ CAM 03 // PURE REAR SKY CHASE ]';
+      camLabel = isImpactStunt ? '[ CAM 03 // CRASH SPLASHDOWN & RUN OUTRO ]' : '[ CAM 03 // PURE REAR SKY CHASE ]';
       targetFov = 54;
 
       const rearChaseAngle = heading - 0.05;

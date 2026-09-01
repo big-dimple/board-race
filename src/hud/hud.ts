@@ -1687,6 +1687,7 @@ export class HUD {
       landing: '通过飞行门前已经落水',
       exit: '离开飞行区时仍未通过门',
       teleport: '航线状态已重置',
+      missile_blast: '遭遇战术巡航导弹空中直击',
     };
     return why[reason];
   }
@@ -1720,6 +1721,8 @@ export class HUD {
         return ` · 目标门前未进入飞行 · 已过 ${f.gatesPassed}/${f.gateCount} 门`;
       case 'exit':
         return ' · 离开飞行区时未完成门序';
+      case 'missile_blast':
+        return ` · 遭遇战术巡航导弹直击 · 炸飞 ${f.clearanceM.toFixed(1)}m · 720° 腾空翻转`;
       default:
         return '';
     }
@@ -1741,6 +1744,16 @@ export class HUD {
       metric: '',
     };
     switch (failure.reason) {
+      case 'missile_blast':
+        return {
+          title: '💥 遭遇导弹超音速轰杀 · 翻滚 720°',
+          copy: mobile
+            ? '下一次：听到 🚨 锁定预警立即按住「漂 / 空刹」（享 50% 规避豁免）；空中被锁定时听天由命！'
+            : gamepad
+            ? `下一次：听到 🚨 锁定预警立即按住 ${drift} 极限漂移（享 50% 规避豁免）；空中被锁定时听天由命！`
+            : `下一次：听到 🚨 锁定预警立即按住 ${drift} 极限漂移（享 50% 规避豁免）；空中被锁定时听天由命！`,
+          metric: '',
+        };
       case 'off_course':
         return {
           title: `偏离绿色主线 · ${failure.corridorDistanceM?.toFixed(0) ?? '?'}m`,

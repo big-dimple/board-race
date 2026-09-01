@@ -469,6 +469,19 @@ const highlightReplayRivalStates = Array.from({ length: 5 }, () => ({
   speed: 0,
   mode: 'surface',
 }));
+const highlightReplayMissileStates = Array.from({ length: 4 }, (_, m) => ({
+  x: 0,
+  y: 0,
+  z: 0,
+  qx: 0,
+  qy: 0,
+  qz: 0,
+  qw: 1,
+  active: false,
+  isDwell: false,
+  dwellProgress: 0,
+  kind: (m % 2 === 1 ? 'shark' : 'tomahawk') as 'tomahawk' | 'shark',
+}));
 let pendingFailureNewBest = false;
 let newBestThisRun = false;
 let medalEarnedThisRun = false;
@@ -1361,7 +1374,14 @@ function completeRetryLesson(): void {
 function startHighlightVideoReplay(): void {
   const clip = highlightRecorder.getBestClip(race.raceTime);
   highlightDirector.start(clip);
-  const sample = highlightRecorder.sampleAt(clip, clip.startTime, highlightReplayPos, highlightReplayQuat, highlightReplayRivalStates);
+  const sample = highlightRecorder.sampleAt(
+    clip,
+    clip.startTime,
+    highlightReplayPos,
+    highlightReplayQuat,
+    highlightReplayRivalStates,
+    highlightReplayMissileStates,
+  );
   boats[0].object.position.copy(highlightReplayPos);
   boats[0].object.quaternion.copy(highlightReplayQuat);
   boats[0].state.position.copy(highlightReplayPos);
@@ -1383,6 +1403,8 @@ function startHighlightVideoReplay(): void {
     }
   }
 
+  duoInteractions.syncReplayVisuals(highlightReplayMissileStates);
+
   highlightVideo.show(clip);
   highlightReplayActive = true;
   hud.setVisible(false);
@@ -1397,6 +1419,7 @@ function completeHighlightVideo(): void {
   if (!highlightReplayActive) return;
   highlightDirector.stop();
   highlightVideo.hide();
+  duoInteractions.hideAllVisuals();
   highlightReplayActive = false;
   hud.setVisible(true);
   startRetryLesson(true);
@@ -1411,6 +1434,7 @@ function updateHighlightVideoPresentation(dt: number): void {
     highlightReplayPos,
     highlightReplayQuat,
     highlightReplayRivalStates,
+    highlightReplayMissileStates,
   );
   boats[0].object.position.copy(highlightReplayPos);
   boats[0].object.quaternion.copy(highlightReplayQuat);
@@ -1438,6 +1462,8 @@ function updateHighlightVideoPresentation(dt: number): void {
       if (riders[r]) riders[r].update(dt, boats[r].state, presentationTime);
     }
   }
+
+  duoInteractions.syncReplayVisuals(highlightReplayMissileStates);
 
   const state = highlightDirector.update(
     dt,
@@ -2646,7 +2672,12 @@ function step(dt: number, _t: number): void {
   }
 
   if (racing) {
-    highlightRecorder.recordFrame(boats, race.raceTime, waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime));
+    highlightRecorder.recordFrame(
+      boats,
+      race.raceTime,
+      waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime),
+      duoInteractions.getAllActiveMissiles(),
+    );
     // Each screen keeps its fixed seat layer while global coach/audio feedback
     // follows the surviving human promoted by Race.
     if (isDuoMode()) course.setGuidanceOwners([0, 1], race.player().id);
@@ -2663,6 +2694,7 @@ function step(dt: number, _t: number): void {
       if (duoMode && i < 2 && routeState === 'failed' && state.flightPhase === 'surface') {
         if (state.flightFailure) eliminateDuoSeat(i, state.flightFailure);
         routeLifecycleStates[i] = state.flightRouteState;
+        harnessPrevRouteStates[i] = boats[i].state.flightRouteState;
         continue;
       }
       if ((i > 0 || (HARNESS && harnessKeepFlightMissRunning)) &&
@@ -3339,6 +3371,7 @@ interface Harness {
   duoFeedbackCase(): Record<string, unknown>;
   duoImpactCase(): Record<string, unknown>;
   playHighlightReplay(): void;
+  launchMissile(targetId?: number, style?: 'tomahawk' | 'shark'): boolean;
   duoNoticeCase(): Record<string, unknown>;
   duoDriverPowerCase(): Record<string, unknown>;
   qualityGovernorCase(): Record<string, unknown>;
@@ -5938,6 +5971,7 @@ if (HARNESS) {
     duoFeedbackCase: runDuoFeedbackCase,
     duoImpactCase: runDuoImpactCase,
     playHighlightReplay: () => startHighlightVideoReplay(),
+    launchMissile: (targetId = 0, style?: 'tomahawk' | 'shark') => duoInteractions.launchPrankMissile(1, targetId, style),
     duoNoticeCase: runDuoNoticeCase,
     duoDriverPowerCase: runDuoDriverPowerCase,
     qualityGovernorCase: runQualityGovernorCase,
