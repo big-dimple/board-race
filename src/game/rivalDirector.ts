@@ -1,11 +1,11 @@
 import type { RacerDefinition, RacerState, RivalPaceDirective } from '../contracts';
 
-const MAX_CHASE = 1.16;
-const FORMATION_PACE = 1.06;
-const BASE_PACE = 1;
-const CHASE_RATE = 0.9;
-const RELEASE_RATE = 0.18;
-const CLOSING_FILTER_RATE = 7;
+const MAX_CHASE = 1.22;
+const FORMATION_PACE = 1.10;
+const BASE_PACE = 1.02;
+const CHASE_RATE = 1.2;
+const RELEASE_RATE = 0.22;
+const CLOSING_FILTER_RATE = 8;
 const CLOSING_LOOKAHEAD_S = 0.85;
 const DEFICIT_BAND_M = 10;
 const MAX_TRACKED_GAP_STEP_M = 3;
@@ -82,7 +82,7 @@ export class RivalDirector {
     }));
     this.rivalIds = definitions.filter((definition) => !definition.isPlayer)
       .sort((a, b) => b.pace - a.pace)
-      .slice(0, 2)
+      .slice(0, 4)
       .map((definition) => definition.id);
     this.openingPressureId = -1;
     this.runTime = 0;
@@ -163,7 +163,7 @@ export class RivalDirector {
         continue;
       }
 
-      const protectedRoles = 2;
+      const protectedRoles = 4;
       if (role >= protectedRoles) {
         this.biases[id] = approachAsymmetric(this.biases[id], 1, dt);
         this.closingSpeeds[id] = approach(this.closingSpeeds[id], 0, CLOSING_FILTER_RATE * dt);
@@ -174,10 +174,14 @@ export class RivalDirector {
       }
 
       const ahead = racer.progress - player.progress;
-      // In late race (flightsCleared >= 3), keep a thrilling dogfight gap (12~24m)
+      // In late race (flightsCleared >= 3), keep a thrilling dogfight gap (10~22m)
       const isLateRace = playerFlightsCleared >= 3;
-      const minAhead = isLateRace ? (role === 0 ? 12 : 8) : (role === 0 ? 18 : 10);
-      const maxAhead = isLateRace ? (role === 0 ? 24 : 18) : (role === 0 ? 32 : 24);
+      const minAhead = isLateRace
+        ? (role === 0 ? 10 : role === 1 ? 7 : role === 2 ? 4 : 2)
+        : (role === 0 ? 16 : role === 1 ? 11 : role === 2 ? 7 : 4);
+      const maxAhead = isLateRace
+        ? (role === 0 ? 22 : role === 1 ? 16 : role === 2 ? 12 : 9)
+        : (role === 0 ? 28 : role === 1 ? 21 : role === 2 ? 15 : 11);
       const gapStep = this.previousGaps[id] - ahead;
       // Route-owner rebases, harness staging and resume frames are not physical
       // relative velocity. Reject their discontinuities instead of turning one

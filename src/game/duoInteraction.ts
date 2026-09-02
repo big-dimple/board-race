@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { IBoat, RacerState } from '../contracts';
 import type { LocalDeviceId, LocalMultiplayerInput } from '../core/localMultiplayerInput';
+import { TacticalReticle } from './tacticalReticle';
 
 export type DuoInteractionAction = 'support' | 'prank';
 export type DuoInteractionPhase = 'support' | 'prank-launch' | 'prank-impact' | 'prank-miss' | 'blocked';
@@ -142,11 +143,20 @@ export class DuoInteractionController {
     kind: (i % 2 === 1 ? 'shark' : 'tomahawk') as 'tomahawk' | 'shark',
   }));
 
+  private readonly reticles: TacticalReticle[];
+  private readonly fallbackCamera = new THREE.PerspectiveCamera();
+
   constructor() {
     this.object = new THREE.Group();
     this.object.name = 'duo-interaction-projectiles';
     this.object.userData.noInk = true;
     this.object.userData.noOutline = true;
+
+    this.reticles = Array.from({ length: MAX_PROJECTILES }, () => {
+      const reticle = new TacticalReticle();
+      this.object.add(reticle.object);
+      return reticle;
+    });
 
     // --- High-Contrast Vibrant Materials for Dominator Dark Tactical Tomahawk ---
     const domBodyMat = new THREE.MeshBasicMaterial({ color: 0x283038, toneMapped: false });
@@ -588,15 +598,17 @@ export class DuoInteractionController {
     shot.isDwell = false;
     shot.dwellTimer = 0;
 
+    for (let i = 0; i < 16; i++) {
+      shot.historyX[i] = spawnX;
+      shot.historyY[i] = spawnY;
+      shot.historyZ[i] = spawnZ;
+    }
+
     if (this.staticMissiles[padIndex]) {
       this.staticMissiles[padIndex].visible = false;
     }
 
-    shot.historyX.fill(spawnX);
-    shot.historyY.fill(spawnY);
-    shot.historyZ.fill(spawnZ);
-
-    this.counts.prank++;
+    this.syncProjectileVisual(this.projectileState.indexOf(shot), shot);
     return true;
   }
 
@@ -607,8 +619,9 @@ export class DuoInteractionController {
     devices: readonly [LocalDeviceId, LocalDeviceId] | null,
     input: LocalMultiplayerInput | null,
     emit: (event: DuoInteractionEvent) => void,
+    camera?: THREE.Camera,
   ): void {
-    this.updateProjectiles(dt, racers, boats, emit);
+    this.updateProjectiles(dt, racers, boats, emit, camera);
     if (!devices || !input) return;
 
     for (let actor = 0; actor < 2; actor++) {
@@ -665,11 +678,13 @@ export class DuoInteractionController {
     racers: readonly RacerState[],
     boats: readonly IBoat[],
     emit: (event: DuoInteractionEvent) => void,
+    camera?: THREE.Camera,
   ): void {
     for (let index = 0; index < MAX_PROJECTILES; index++) {
       const shot = this.projectileState[index];
       if (!shot.active) {
         this.projectileVisuals[index].group.visible = false;
+        this.reticles[index].setVisible(false);
         continue;
       }
 
@@ -677,6 +692,7 @@ export class DuoInteractionController {
       if (shot.isDwell) {
         shot.dwellTimer -= dt;
         this.projectileVisuals[index].group.visible = true;
+        this.reticles[index].setVisible(false);
         if (shot.dwellTimer <= 0) {
           shot.active = false;
           shot.isDwell = false;
@@ -696,6 +712,7 @@ export class DuoInteractionController {
       if (!targetBoat || !targetState || targetState.eliminated || targetState.finished || shot.age > PRANK_LIFETIME_S) {
         shot.active = false;
         this.projectileVisuals[index].group.visible = false;
+        this.reticles[index].setVisible(false);
         if (this.staticMissiles[shot.padIndex]) {
           this.staticMissiles[shot.padIndex].visible = true;
         }
@@ -720,6 +737,20 @@ export class DuoInteractionController {
       const dy = aimY - shot.y;
       const dz = aimZ - shot.z;
       const distance = Math.hypot(dx, dy, dz) || 1;
+
+      // Update tactical holographic reticle on target boat
+      const activeCam = camera ?? this.fallbackCamera;
+      this.reticles[index].setVisible(true);
+      this.reticles[index].update({
+        targetPos: targetBoat.state.position,
+        targetQuat: targetBoat.state.quaternion,
+        distance,
+        timeRemaining: Math.max(0, PRANK_LIFETIME_S - shot.age),
+        isEvadeWindow: distance < 25 || shot.age > 2.8,
+        isPlayer: Boolean(targetState?.isPlayer),
+        state: 'approaching',
+        elapsed: shot.age,
+      }, activeCam);
 
       // Proportional homing guidance towards target boat
       if (shot.age < 0.45) {
@@ -768,6 +799,7 @@ export class DuoInteractionController {
         (shot.age > 0.8 && directDist <= 8.5 && (shot.vx * (tx - shot.x) + shot.vz * (tz - shot.z) < 0));
 
       if (reachedTarget) {
+        this.reticles[index].setVisible(false);
         // 90% Base precision hit rate; ONLY true water surface drifting grants 50% dodge exemption.
         // Airborne/flying/jumping/cruising is ALWAYS 90% direct hit & blast out of the sky!
         const isSurfaceDrifting = targetBoat.state.drifting && targetBoat.state.flightPhase === 'surface' && !targetBoat.state.airborne && targetBoat.state.speed > 8.0;
@@ -788,8 +820,10 @@ export class DuoInteractionController {
         }
         shot.isDwell = true;
         shot.dwellTimer = 0.85; // 0.85s dwell for dramatic explosion viewing
+        this.syncProjectileVisual(index, shot);
+      } else {
+        this.syncProjectileVisual(index, shot);
       }
-      this.syncProjectileVisual(index, shot);
     }
   }
 

@@ -53,29 +53,29 @@ interface PersonalityTune {
 }
 
 const PERSONALITIES: Record<Personality, PersonalityTune> = {
-  // Kimi / KK - sends it: +12% corner speeds, short lookahead, late braking, hugs
+  // Kimi / KK - sends it: +22% corner speeds, short lookahead, late braking, hugs
   // apexes, drifts to charge boost and boosts out of corners.
   aggressive: {
-    cornerMul: 1.12, lookMul: 0.78, steerGain: 2.8, steerRate: 9, brake: 8.0,
-    apexHug: 2.8, driftKappa: 0.018, driftMinSpeed: 13,
+    cornerMul: 1.22, lookMul: 0.82, steerGain: 3.2, steerRate: 11, brake: 9.0,
+    apexHug: 3.2, driftKappa: 0.016, driftMinSpeed: 12,
     wanderAmp: 0, paceJitter: 0,
-    mistakeEvery: [42, 65], mistakeDur: [0.35, 0.6], mistakeSteer: 0.4,
+    mistakeEvery: [42, 65], mistakeDur: [0.35, 0.6], mistakeSteer: 0.35,
   },
   // Claude / 打你嗷 - textbook: full table speeds, longest smoothest lookahead, earliest
   // braking, tiny apex trim, essentially never drifts, rarest mistakes.
   clean: {
-    cornerMul: 1.05, lookMul: 1.0, steerGain: 2.1, steerRate: 5, brake: 6.0,
-    apexHug: 0.6, driftKappa: 0.021, driftMinSpeed: 14,
+    cornerMul: 1.15, lookMul: 1.0, steerGain: 2.6, steerRate: 7, brake: 7.5,
+    apexHug: 1.0, driftKappa: 0.019, driftMinSpeed: 13,
     wanderAmp: 0, paceJitter: 0,
-    mistakeEvery: [60, 90], mistakeDur: [0.3, 0.5], mistakeSteer: 0.25,
+    mistakeEvery: [60, 90], mistakeDur: [0.3, 0.5], mistakeSteer: 0.2,
   },
   // DeepSeek / 梁圣梁子 - wanders the course on smooth noise, random over/understeer events,
   // pace comes and goes, bins it often but never for long.
   erratic: {
-    cornerMul: 1.0, lookMul: 0.92, steerGain: 2.4, steerRate: 6, brake: 5.5,
-    apexHug: 0, driftKappa: 0.024, driftMinSpeed: 15,
-    wanderAmp: 2.6, paceJitter: 0.05,
-    mistakeEvery: [16, 28], mistakeDur: [0.55, 0.9], mistakeSteer: 0.7,
+    cornerMul: 1.10, lookMul: 0.95, steerGain: 2.8, steerRate: 8, brake: 7.0,
+    apexHug: 0.5, driftKappa: 0.021, driftMinSpeed: 13,
+    wanderAmp: 2.2, paceJitter: 0.04,
+    mistakeEvery: [20, 35], mistakeDur: [0.45, 0.75], mistakeSteer: 0.5,
   },
 };
 

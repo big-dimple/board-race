@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import type { IBoat, RacerState, ICourse } from '../contracts';
 import type { ReplayMissileSnapshot } from './duoInteraction';
 import { CHECKPOINT_US } from './course';
+import { TacticalReticle } from './tacticalReticle';
+
+const TOTAL_LIFETIME = 4.2;
 
 // Reuse materials and geometries for the missile
 const domBodyMat = new THREE.MeshBasicMaterial({ color: 0x283038, toneMapped: false });
@@ -132,13 +135,14 @@ export class SinglePlayerMissilesSystem {
     vy: number;
     vz: number;
     mesh: THREE.Group;
-    reticle: THREE.Group;
+    tacticalReticle: TacticalReticle;
     locked: boolean;
     state: 'idle' | 'approaching' | 'deflected' | 'hit';
     dismissTimer: number;
   } | null = null;
   private hudNotice: (msg: string, title: string) => void;
   private playBeep: () => void;
+  private readonly fallbackCamera = new THREE.PerspectiveCamera();
 
   private telemetry: SinglePlayerMissileTelemetry = {
     active: false,
@@ -165,11 +169,8 @@ export class SinglePlayerMissilesSystem {
     mesh.visible = false;
     this.object.add(mesh);
 
-    const reticleGeo = new THREE.RingGeometry(2.5, 3.0, 16);
-    const reticleMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide, transparent: true, opacity: 0.8, toneMapped: false });
-    const reticle = new THREE.Mesh(reticleGeo, reticleMat);
-    reticle.visible = false;
-    this.object.add(reticle);
+    const tacticalReticle = new TacticalReticle();
+    this.object.add(tacticalReticle.object);
 
     this.activeMissile = {
       active: false,
@@ -179,7 +180,7 @@ export class SinglePlayerMissilesSystem {
       x: 0, y: 0, z: 0,
       vx: 0, vy: 0, vz: 0,
       mesh,
-      reticle: reticle as any, // lazy group wrap
+      tacticalReticle,
       locked: false,
       state: 'idle',
       dismissTimer: 0,
@@ -230,7 +231,7 @@ export class SinglePlayerMissilesSystem {
     if (!this.activeMissile) return;
     if (!snap || !snap.active) {
       this.activeMissile.mesh.visible = false;
-      this.activeMissile.reticle.visible = false;
+      this.activeMissile.tacticalReticle.setVisible(false);
       return;
     }
     this.activeMissile.mesh.visible = true;
@@ -241,7 +242,7 @@ export class SinglePlayerMissilesSystem {
   public hideAllVisuals(): void {
     if (this.activeMissile) {
       this.activeMissile.mesh.visible = false;
-      this.activeMissile.reticle.visible = false;
+      this.activeMissile.tacticalReticle.setVisible(false);
     }
   }
 
@@ -258,7 +259,7 @@ export class SinglePlayerMissilesSystem {
     }
   }
 
-  public update(dt: number, racers: readonly RacerState[], boats: readonly IBoat[]): void {
+  public update(dt: number, racers: readonly RacerState[], boats: readonly IBoat[], camera?: THREE.Camera): void {
     for (let i = this.scanTimers.length - 1; i >= 0; i--) {
       const scan = this.scanTimers[i];
       scan.timer -= dt;
@@ -285,7 +286,7 @@ export class SinglePlayerMissilesSystem {
     }
 
     if (this.activeMissile && this.activeMissile.active) {
-      this.updateMissile(dt, racers, boats);
+      this.updateMissile(dt, racers, boats, camera);
     } else {
       this.telemetry.active = false;
       this.telemetry.state = 'idle';
@@ -328,7 +329,7 @@ export class SinglePlayerMissilesSystem {
     }
   }
 
-  private updateMissile(dt: number, racers: readonly RacerState[], boats: readonly IBoat[]): void {
+  private updateMissile(dt: number, racers: readonly RacerState[], boats: readonly IBoat[], camera?: THREE.Camera): void {
     const m = this.activeMissile!;
 
     if (m.dismissTimer > 0) {
@@ -339,7 +340,7 @@ export class SinglePlayerMissilesSystem {
       if (m.dismissTimer <= 0) {
         m.active = false;
         m.mesh.visible = false;
-        m.reticle.visible = false;
+        m.tacticalReticle.setVisible(false);
         this.telemetry.active = false;
         this.telemetry.state = 'idle';
       }
@@ -352,7 +353,7 @@ export class SinglePlayerMissilesSystem {
     if (!targetBoat || racers[m.targetId]?.eliminated || racers[m.targetId]?.finished) {
       m.active = false;
       m.mesh.visible = false;
-      m.reticle.visible = false;
+      m.tacticalReticle.setVisible(false);
       this.telemetry.active = false;
       this.telemetry.state = 'idle';
       return;
@@ -360,19 +361,9 @@ export class SinglePlayerMissilesSystem {
 
     if (m.timer >= 1.0 && !m.locked) {
       m.locked = true;
-      m.reticle.visible = true;
+      m.tacticalReticle.setVisible(true);
       if (m.isPlayer) {
         this.hudNotice('⚠️ 拦截飞弹已锁定领跑目标 [ 3.0秒 ]', '');
-        this.playBeep();
-      }
-    }
-
-    if (m.locked) {
-      m.reticle.position.copy(targetBoat.state.position);
-      m.reticle.position.y += 1.5;
-      m.reticle.lookAt(this.course.object.position);
-      m.reticle.quaternion.copy(targetBoat.state.quaternion);
-      if (m.isPlayer && Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
         this.playBeep();
       }
     }
@@ -386,6 +377,23 @@ export class SinglePlayerMissilesSystem {
     const dz = tz - m.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
     const TRACK_SPEED = 52; // Steady readable speed
+
+    if (m.locked) {
+      const activeCam = camera ?? this.fallbackCamera;
+      m.tacticalReticle.update({
+        targetPos: targetBoat.state.position,
+        targetQuat: targetBoat.state.quaternion,
+        distance: dist,
+        timeRemaining: Math.max(0, TOTAL_LIFETIME - m.timer),
+        isEvadeWindow: m.timer >= 2.8 && m.timer < TOTAL_LIFETIME,
+        isPlayer: m.isPlayer,
+        state: m.state,
+        elapsed: m.timer,
+      }, activeCam);
+      if (m.isPlayer && Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
+        this.playBeep();
+      }
+    }
 
     // Climb arc in first 1.0s from lighthouse, then homing dive
     if (m.timer < 1.0) {
@@ -410,7 +418,6 @@ export class SinglePlayerMissilesSystem {
     m.mesh.quaternion.setFromRotationMatrix(mat);
 
     // Telemetry update: 4.2s total lifecycle, final 1.2s is evade window
-    const TOTAL_LIFETIME = 4.2;
     this.telemetry.active = true;
     this.telemetry.targetedPlayer = m.isPlayer;
     this.telemetry.targetId = m.targetId;
@@ -432,7 +439,7 @@ export class SinglePlayerMissilesSystem {
         m.state = 'deflected';
         m.dismissTimer = 1.1;
         m.mesh.visible = false;
-        m.reticle.visible = false;
+        m.tacticalReticle.setVisible(false);
         return;
       }
 
@@ -445,7 +452,7 @@ export class SinglePlayerMissilesSystem {
         m.state = 'deflected';
         m.dismissTimer = 1.1;
         m.mesh.visible = false;
-        m.reticle.visible = false;
+        m.tacticalReticle.setVisible(false);
         return;
       }
 
@@ -473,7 +480,7 @@ export class SinglePlayerMissilesSystem {
       }
       m.dismissTimer = 1.1;
       m.mesh.visible = false;
-      m.reticle.visible = false;
+      m.tacticalReticle.setVisible(false);
     }
   }
 
@@ -482,7 +489,7 @@ export class SinglePlayerMissilesSystem {
     if (this.activeMissile) {
       this.activeMissile.active = false;
       this.activeMissile.mesh.visible = false;
-      this.activeMissile.reticle.visible = false;
+      this.activeMissile.tacticalReticle.setVisible(false);
       this.activeMissile.locked = false;
       this.activeMissile.state = 'idle';
       this.activeMissile.dismissTimer = 0;

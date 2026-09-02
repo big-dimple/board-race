@@ -2888,9 +2888,9 @@ function step(dt: number, _t: number): void {
     }
   }
   if (duoMode && race.phase === 'racing') {
-    duoInteractions.update(dt, race.racers, boats, duoDevices, localInput, handleDuoInteraction);
+    duoInteractions.update(dt, race.racers, boats, duoDevices, localInput, handleDuoInteraction, stage.camera);
   } else if (!duoMode && race.phase === 'racing') {
-    singlePlayerMissiles.update(dt, race.racers, boats);
+    singlePlayerMissiles.update(dt, race.racers, boats, stage.camera);
   }
   if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
     const excellent = records.recordExcellent(race.raceTime);
