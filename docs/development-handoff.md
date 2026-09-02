@@ -1,15 +1,26 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“开场立绘巡礼与倒计时镜头动线环环相扣丝滑接应、玩家角色精准对焦入位与本人标识高亮、开场整体时长延长 1 秒适配手机浏览器（Seamless Opening Showcase & Countdown Camera Choreography, Focused Player Alignment & Mobile Delay Calibration）”。
+状态：主分支当前工作包已圆满交付“开场由远及近史诗级全景运镜、角色金色边框顺时针循环流动金火花、被击毁 720° 腾云空中翻滚与海面激浪实况实录、高光回放真正高光 1.8 秒子弹时间与全速冲击（Epic Establishing Opening Swoop, Clockwise Golden Spark Orbit, 720° Mid-Air Tumble Physics & High-Energy Climax Bullet Time）”。
 
 ## 当前工作包
 
-- **开场立绘巡礼与倒计时镜头动线环环相扣丝滑接应（Seamless Opening Showcase & Countdown Camera Choreography）**：
-  1. **开场立绘巡礼环绕机位重构（Showcase Trajectory）**：`CameraRig`（`src/game/chaseCamera.ts`）与 `OpeningShowcase`（`src/hud/openingShowcase.ts`）告别以往生硬随意旋转的 generic orbit，建立基于船队阵型与赛道朝向的专属巡礼轨道（$-50^\circ$ 前侧广角全局建景 $\to -168^\circ$ 后方俯视进位），6 位车手立绘卡片错落优雅浮现并在尾声自然渐隐；
-  2. **倒计时平滑俯冲接应与视角锁定（Countdown Smooth Swoop & Lock-On）**：倒计时阶段（3 $\to$ 2 $\to$ 1 $\to$ GO）摄像机从巡礼结束机位丝滑俯冲归位至玩家快艇正后方（半径 $10.8\text{m} \to 9.5\text{m}$，高度 $3.9\text{m} \to 3.6\text{m}$，角度 $-168^\circ \to -180^\circ$），视野紧紧锁定前方 `START` 起跑拱门与水面绿线；
-  3. **GO 冲刺零突变无缝衔接（Zero-Jerk Transition on GO）**：倒计时归零发车的瞬间，摄像机位置、角度与 FOV 已 100.0% 精准契合第三人称追踪相机（Chase Cam）初始基线，$\Delta\text{pos} = 0, \Delta\text{look} = 0, \Delta\text{fov} = 0$，彻底消除发车瞬间镜头剧烈抽动与眩晕感，起步手感如丝般顺滑；
-  4. **玩家角色精准识别与黄金光环（Focused Player Identification）**：`OpeningShowcase` 为玩家自驾快艇的立绘卡片配置专属高亮黄金外框、光晕与 `★ 本人出击` 醒目标签，巡礼归位时镜头正对着玩家后颈与驾驶姿态，让玩家在发车前 100% 找准自己是谁；
-  5. **开场总时长延长 1 秒（Mobile Browser Bottom Prompt Delay）**：`OPENING_SHOWCASE_S` 由 $3.6\text{s}$ 延长至 $4.6\text{s}$，开场整体时长扩展至 $8.8\text{s}$，为手机 Chrome 等浏览器底部弹出的系统提示条（退出全屏/手势导航条）留出充足的自动隐藏与平复窗口，彻底避免玩家在发车瞬间被底部提示遮挡操作。
+- **开场由远及近史诗级全景运镜与顺时针流动金火花（Epic Establishing Opening Swoop & Clockwise Golden Sparks）**：
+  1. **开场 34 米超高空全景由远及近（Grand Establishing Shot）**：`CameraRig`（`src/game/chaseCamera.ts`）开场机位从 $34.0\text{m}$ 超远距离、$12.5\text{m}$ 高空及 $56^\circ$ 电影级长焦广角建立（$-42^\circ$ 前左侧视角），将整支六船编队、起点浮漂鸭鸭、START 拱门与壮丽海平线尽收眼底，随后沿宏大螺旋弧线平滑由远及近俯冲切入玩家快艇后方（$-168^\circ, R=11.2\text{m}, H=3.9\text{m}$），气势磅礴高端大气；
+  2. **自驾立绘卡片顺时针循环流光金火花（Clockwise Golden Spark Orbit）**：`OpeningShowcase`（`src/hud/openingShowcase.ts` / `openingShowcase.css`）为玩家所选角色立绘卡片配备专属多级金色流光火花粒子（`opening-driver-spark-dot`），带着明亮白金核心与橙金拖尾粒子顺时针沿着卡片外框高速流转循环，配合黄金外框发光呼吸，自驾身份光芒四射；
+  3. **倒计时 3-2-1 丝滑俯冲与 GO 零突变（Countdown 3-2-1 Smooth Swoop & Zero-Jerk GO）**：倒计时阶段摄像机从 $-168^\circ$ 丝滑对正快艇中轴线（$-180^\circ, R \to 9.5\text{m}, H \to 3.6\text{m}$），视线锁定前方拱门与绿线，发车瞬间姿态与追尾相机 100.0% 严丝合缝对齐（$\Delta=0$）；
+  4. **开场时长延长 1 秒保障手机纯净视野（+1s Mobile Chrome Comfort Window）**：开场总时长达 $8.8\text{s}$，让手机端浏览器底部提示条完全自然隐退，发车时触控区 100% 畅通无阻。
+
+- **被击毁 720° 腾云空中翻滚实况与下一局原地打转 Bug 修复（Full 720° Mid-Air Tumble Physics & Teleport Cleanup）**：
+  1. **被炸/击毁后 2.0 秒真机实况物理翻滚与录像（2.0s Live Tumble Simulation & Recording）**：快艇遭遇导弹命中或失误被击毁时，`defeatFreezeTimer` 保持 2.0 秒真实物理模拟，快艇在空中完整执行 720° 杂技式剧烈空翻、惯性抛物线下坠并重重砸入海面爆出漫天水花与气浪，同时 `HighlightRecorder` 高频记录下翻滚与落水的每一帧；
+  2. **彻底修复下把游戏开场原地翻滚的 Bug**：`Boat.teleport()` 在开场与重置时彻底重置清零 `tumbleSpinTimer = 0` 与 `tumbleSpinTotal = 0`，确保下一局开场赛艇 100% 水平稳健列阵，绝无任何残留翻滚打转动作。
+
+- **高光时刻商业广播级速度曲线与全流程回放（Highlight Replay Climax 1.8s Bullet Time & Full Aftermath）**：
+  1. **拒绝全片慢动作，精准锁定真正高光瞬间 1.8 秒子弹时间（Precise 1.8s Bullet Time）**：`HighlightDirector`（`src/game/highlightDirector.ts`）重构速度曲线：
+     - **0.0s - 2.0s（快速入场）**：1.0x 全速推进，高空天眼俯瞰导弹逼近锁定与战局态势；
+     - **2.0s - 3.8s（峰值子弹时间）**：仅在高光爆发与导弹命中爆炸瞬间以正弦平滑曲线下探至 0.30x-0.35x 极度特写慢镜头，让玩家看清爆炸火球与腾云起飞的精彩细节；
+     - **3.8s - 6.5s（全速后劲冲击）**：立刻恢复 1.05x 全速，完整播放赛艇 720° 翻滚砸海漫天激浪、对手疾驰掠过或赛艇重整冲刺的震撼全景！
+  2. **全流程回放无缺失**：高光片段涵盖从遭遇逼近、中弹爆发、腾空 720° 到砸海落水的完整连续镜头，观感利落刺激、张弛有度。
+
 
 
 - **高光时刻视频与回放底层逻辑重构（POTG Missile Replay & Climax Explosion Tracking）**：

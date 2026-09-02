@@ -456,14 +456,14 @@ export class CameraRig {
       const p = this.showcaseDuration > 0 ? this.showcaseElapsed / this.showcaseDuration : 1;
       const e = p * p * (3 - 2 * p); // smoothstep 0..1
 
-      // Start at front-left (-55 deg relative to heading, looking back-right across the fleet)
-      // End at rear-left (-160 deg relative to heading, staged for countdown swoop)
-      const angleStart = -0.9599; // -55 deg
-      const angleEnd = -2.7925; // -160 deg
+      // Grand establishing aerial shot sweeping from far-left to rear-left
+      const angleStart = -0.733; // -42 deg (front-left grand establishing view)
+      const angleEnd = -2.932; // -168 deg (rear-left staging for countdown swoop)
       const psi = angleStart + (angleEnd - angleStart) * e;
 
-      const radius = 15.5 + (11.5 - 15.5) * e;
-      const height = 4.8 + (4.0 - 4.8) * e;
+      // 34m far-and-high panorama swooping dynamically down-and-in to 11.2m
+      const radius = 34.0 + (11.2 - 34.0) * e;
+      const height = 12.5 + (3.9 - 12.5) * e;
 
       const rx = fz;
       const rz = -fx;
@@ -476,15 +476,16 @@ export class CameraRig {
         bz + fz * forwardOffset + rz * rightOffset,
       );
 
-      const lookForward = 2.5 + 1.5 * e;
-      const lookUp = 1.0 * (1 - e);
+      const lookForward = 3.5 + 0.5 * e;
+      const lookRight = 2.0 * (1 - e);
+      const lookUp = 1.2 * (1 - e);
       look.set(
-        bx + fx * lookForward,
+        bx + fx * lookForward + rx * lookRight,
         by + lookUp + waterHeight(bx + fx * lookForward, bz + fz * lookForward, t),
-        bz + fz * lookForward,
+        bz + fz * lookForward + rz * lookRight,
       );
 
-      fovTarget = 64 + (68 - 64) * e;
+      fovTarget = 56 + (68 - 56) * e;
       rollTarget = 0;
       this.heaveAnchor = by;
     } else if (this.activeMode === 'countdown') {
@@ -492,13 +493,13 @@ export class CameraRig {
       const s = this.countdownDuration > 0 ? this.countdownElapsed / this.countdownDuration : 1;
       const e = s * s * (3 - 2 * s); // smoothstep 0..1
 
-      // Starts at -160 deg (where showcase ended) and smoothly rotates to -180 deg (directly behind boat)
-      const angleStart = -2.7925; // -160 deg
+      // Starts at -168 deg (exact pickup from showcase) and smoothly rotates to -180 deg (directly behind boat)
+      const angleStart = -2.932; // -168 deg
       const angleEnd = -Math.PI; // -180 deg (behind boat)
       const psi = angleStart + (angleEnd - angleStart) * e;
 
-      const radius = 11.5 + (this.chaseBack - 11.5) * e; // 11.5 -> 9.5
-      const height = 4.0 + (this.chaseUp - 4.0) * e; // 4.0 -> 3.6
+      const radius = 11.2 + (this.chaseBack - 11.2) * e; // 11.2 -> 9.5
+      const height = 3.9 + (this.chaseUp - 3.9) * e; // 3.9 -> 3.6
 
       const rx = fz;
       const rz = -fx;

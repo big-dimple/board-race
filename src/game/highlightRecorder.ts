@@ -42,7 +42,7 @@ export interface HighlightClip {
 }
 
 const MAX_SAMPLES = 720; // 12 seconds ring buffer at 60 Hz
-export const CLIP_DURATION = 7.5; // 7.5 seconds complete broadcast clip
+export const CLIP_DURATION = 6.5; // 6.5 seconds complete broadcast clip
 
 function createEmptyBoatSample(): BoatReplaySample {
   return {
@@ -370,9 +370,9 @@ export class HighlightRecorder {
       peakTime = Math.max(earliestTime + CLIP_DURATION * 0.5, currentTime - 2.0);
     }
 
-    // Lead-in 2.8s before peak, 4.7s after peak (total 7.5s clip)
-    let startTime = peakTime - 2.8;
-    let endTime = peakTime + 4.7;
+    // Lead-in 2.5s before peak, 4.0s after peak (total 6.5s clip)
+    let startTime = peakTime - 2.5;
+    let endTime = peakTime + 4.0;
 
     if (startTime < earliestTime) {
       const shift = earliestTime - startTime;

@@ -91,7 +91,18 @@ export class OpeningShowcase {
       headline.className = 'opening-driver-echo-headline';
       headline.append(name, selfBadge, badge);
       copy.append(headline, model);
-      echoRoot.append(rail, portrait, copy);
+      const sparkContainer = document.createElement('div');
+      sparkContainer.className = 'opening-driver-spark-container';
+      const sparkHead = document.createElement('span');
+      sparkHead.className = 'opening-driver-spark-dot head';
+      const sparkTrail1 = document.createElement('span');
+      sparkTrail1.className = 'opening-driver-spark-dot trail-1';
+      const sparkTrail2 = document.createElement('span');
+      sparkTrail2.className = 'opening-driver-spark-dot trail-2';
+      const sparkTrail3 = document.createElement('span');
+      sparkTrail3.className = 'opening-driver-spark-dot trail-3';
+      sparkContainer.append(sparkHead, sparkTrail1, sparkTrail2, sparkTrail3);
+      echoRoot.append(sparkContainer, rail, portrait, copy);
       this.root.appendChild(echoRoot);
       this.echoes.push({ root: echoRoot, portrait, name, badge, selfBadge, model, anchor: new THREE.Vector3() });
     }

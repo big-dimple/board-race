@@ -2828,6 +2828,8 @@ export class Boat implements IBoat {
     this.pitchVel = 0;
     this.roll = 0;
     this.rollVel = 0;
+    this.tumbleSpinTimer = 0;
+    this.tumbleSpinTotal = 0;
     this.flapPitchL = 0;
     this.flapPitchVelL = 0;
     this.flapPitchR = 0;

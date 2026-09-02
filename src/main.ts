@@ -443,7 +443,7 @@ teamExperience.setSavedDrivers(teamSave.leftDriverId, teamSave.rightDriverId);
 // -------------------------------------------------------------- race events
 let resultsShown = false;
 let honorsSettled = false;
-const DEFEAT_FREEZE_S = 0.35;
+const DEFEAT_FREEZE_S = HARNESS ? 0.35 : 2.0;
 const FAILURE_REVIEW_AUTO_S = 5;
 const FAILURE_REVIEW_MIN_READ_S = 1.15;
 const MEDAL_CEREMONY_S = 6.5;
@@ -1378,7 +1378,7 @@ function completeRetryLesson(): void {
 }
 
 function startHighlightVideoReplay(): void {
-  const clip = highlightRecorder.getBestClip(race.raceTime);
+  const clip = highlightRecorder.getBestClip(race.raceTime + DEFEAT_FREEZE_S);
   highlightDirector.start(clip);
   const sample = highlightRecorder.sampleAt(
     clip,
@@ -2482,7 +2482,39 @@ function step(dt: number, _t: number): void {
   if (defeatFreezeTimer > 0) {
     mobileInput.consumeAnyPress();
     defeatFreezeTimer = Math.max(0, defeatFreezeTimer - dt);
-    updateFrozenPresentation(dt);
+    worldTime += dt;
+    presentationTime += dt;
+
+    // Simulate active boat physics, 720 tumble & water deceleration
+    for (let i = 0; i < boats.length; i++) {
+      boats[i].update(
+        dt,
+        ZERO_INPUT,
+        worldTime,
+        'drift',
+        1,
+        1,
+        wakes,
+      );
+      if (riders[i]) riders[i].update(dt, boats[i].state, worldTime);
+    }
+
+    highlightRecorder.recordFrame(
+      boats,
+      race.raceTime + (DEFEAT_FREEZE_S - defeatFreezeTimer),
+      waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime),
+      duoInteractions.getAllActiveMissiles(),
+    );
+
+    updateRaceCamera(dt, worldTime, primaryBoat());
+    applyHarnessCameraOverride();
+    ocean.update(worldTime, stage.camera.position);
+    sky.update(worldTime, stage.camera.position);
+    course.update(dt, worldTime);
+    pipeline.update(dt, worldTime, boats[0].state, 'defeated');
+    hud.update(dt, race, boats[0], boats);
+    audio.update(dt);
+
     if (defeatFreezeTimer <= 0) startHighlightVideoReplay();
     localInput.endFrame();
     return;

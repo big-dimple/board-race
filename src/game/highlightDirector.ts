@@ -108,21 +108,22 @@ export class HighlightDirector {
     const duration = this.clip.duration;
     const clipProgress = Math.max(0, Math.min(1, this.elapsed / duration));
 
-    // Commercial AAA Speed Ramping (7.5s duration):
-    // 0.0s - 2.8s: 1.0x panoramic approach (establishing environment, missile in-flight & race context)
-    // 2.8s - 5.4s: 0.22x slow-mo climax (bullet time at peak missile explosion / aerial 720 / apex drift)
-    // 5.4s - 7.5s: 1.15x speed recovery burst & outro flyaway
+    // Commercial AAA Speed Ramping (6.5s duration):
+    // 0.0s - 2.0s: 1.0x Full Speed approach & tactical setup
+    // 2.0s - 3.8s: 1.8s Bullet Time around climax (dips smoothly to 0.30x-0.35x at peak)
+    // 3.8s - 6.5s: 1.05x Full Speed aftermath (720 flip splashdown, wake burst, recovery)
     let timeScale = 1.0;
     let slowMoActive = false;
     const isImpactStunt = this.clip.stuntKind === 'missile_strike' || this.clip.stuntKind === 'crash_climax';
-    const minSlowMo = isImpactStunt ? 0.20 : 0.32;
+    const minSlowMo = isImpactStunt ? 0.30 : 0.36;
 
-    if (this.elapsed >= 2.8 && this.elapsed <= 5.4) {
-      const slowPhase = (this.elapsed - 2.8) / 2.6;
-      timeScale = minSlowMo + (1.0 - minSlowMo) * Math.pow(Math.abs(slowPhase - 0.5) * 2, 2);
-      slowMoActive = true;
-    } else if (this.elapsed > 5.4) {
-      timeScale = 1.15;
+    if (this.elapsed >= 2.0 && this.elapsed <= 3.8) {
+      const slowPhase = (this.elapsed - 2.0) / 1.8;
+      const dip = Math.sin(slowPhase * Math.PI); // 0 -> 1 -> 0
+      timeScale = 1.0 - (1.0 - minSlowMo) * dip;
+      slowMoActive = dip > 0.35;
+    } else if (this.elapsed > 3.8) {
+      timeScale = 1.05;
     }
 
     if (this.isPlaying) {
@@ -149,8 +150,8 @@ export class HighlightDirector {
     let camLabel = '[ CAM 01 // REAR-DIAGONAL SKYCAM FOLLOW ]';
     let targetFov = 60;
 
-    if (this.elapsed < 2.8) {
-      // Angle 1: Rear-Diagonal Elevated Skycam Follow (侧后方45°高空俯瞰上帝视角跟进 - 3x Distance)
+    if (this.elapsed < 2.0) {
+      // Angle 1: Rear-Diagonal Elevated Skycam Follow (侧后方45°高空俯瞰上帝视角跟进)
       newCamIndex = 1;
       camLabel = isImpactStunt ? '[ CAM 01 // TACTICAL MISSILE INCOMING TRACK ]' : '[ CAM 01 // REAR-DIAGONAL SKYCAM FOLLOW ]';
       targetFov = 52;
@@ -170,13 +171,13 @@ export class HighlightDirector {
         this.boatPos.z + this.forward.z * 3.2,
       );
 
-    } else if (this.elapsed < 5.4) {
-      // Angle 2: Rear-Quarter Slow-Mo Dramatic Swoop (侧后方高空弧形慢镜头特写俯瞰 - 3x Distance)
+    } else if (this.elapsed < 3.8) {
+      // Angle 2: Rear-Quarter Slow-Mo Dramatic Swoop (侧后方高空弧形慢镜头特写俯瞰)
       newCamIndex = 2;
-      camLabel = isImpactStunt ? '[ CAM 02 // 0.20X BULLET-TIME IMPACT DETONATION ]' : '[ CAM 02 // REAR-QUARTER SLOW-MO SWOOP ]';
+      camLabel = isImpactStunt ? '[ CAM 02 // BULLET-TIME IMPACT DETONATION ]' : '[ CAM 02 // REAR-QUARTER SLOW-MO SWOOP ]';
       targetFov = isImpactStunt ? 46 : 48;
 
-      const orbitPhase = (this.elapsed - 2.8) / 2.6;
+      const orbitPhase = (this.elapsed - 2.0) / 1.8;
       const rearSwoopAngle = heading - 0.40 + orbitPhase * 0.80;
       const dist = isImpactStunt ? 17.5 : 19.8;
       const height = 10.8 + Math.sin(orbitPhase * Math.PI) * 1.6;
@@ -194,7 +195,7 @@ export class HighlightDirector {
       );
 
     } else {
-      // Angle 3: Pure Rear Elevated Sky Chase (正后方高空极速追焦冲刺俯瞰 - 3x Distance)
+      // Angle 3: Pure Rear Elevated Sky Chase (正后方高空极速追焦冲刺俯瞰)
       newCamIndex = 3;
       camLabel = isImpactStunt ? '[ CAM 03 // CRASH SPLASHDOWN & RUN OUTRO ]' : '[ CAM 03 // PURE REAR SKY CHASE ]';
       targetFov = 54;
