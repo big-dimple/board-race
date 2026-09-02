@@ -242,31 +242,27 @@ export class SinglePlayerMissilesSystem {
     m.state = 'approaching';
     m.dismissTimer = 0;
 
-    // Launch from gate gantry (gate coordinate + height)
-    const u = CHECKPOINT_US[gateIndex];
-    const spawnPt = new THREE.Vector3();
-    this.course.pointAt(u, spawnPt);
-    m.x = spawnPt.x;
-    m.y = spawnPt.y + 30;
-    m.z = spawnPt.z;
+    // Launch from lighthouse reef missile battery base
+    m.x = 114.2;
+    m.y = 4.5;
+    m.z = 186.8;
 
     const targetBoat = boats[targetId];
     if (targetBoat) {
       const dx = targetBoat.state.position.x - m.x;
-      const dy = targetBoat.state.position.y - m.y;
       const dz = targetBoat.state.position.z - m.z;
-      const dist = Math.hypot(dx, dy, dz) || 1;
-      const speed = 35;
-      m.vx = (dx / dist) * speed;
-      m.vy = (dy / dist) * speed;
-      m.vz = (dz / dist) * speed;
+      const horizDist = Math.hypot(dx, dz) || 1;
+      const horizSpeed = 38.0;
+      m.vx = (dx / horizDist) * horizSpeed;
+      m.vy = 28.0; // Initial ignition climb from lighthouse
+      m.vz = (dz / horizDist) * horizSpeed;
     }
 
     m.mesh.visible = true;
     m.mesh.position.set(m.x, m.y, m.z);
 
     // Pure Chinese broadcast at t=0
-    this.hudNotice('📺【赛事特发】领跑快艇触发防空拦截飞弹！', '');
+    this.hudNotice('📺【灯塔防空启动】灯塔基地发射拦截飞弹！锁定领跑者！', '');
     this.playBeep();
   }
 
@@ -325,11 +321,13 @@ export class SinglePlayerMissilesSystem {
     const dy = ty - m.y;
     const dz = tz - m.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
-    const TRACK_SPEED = 50; // Steady readable speed
+    const TRACK_SPEED = 52; // Steady readable speed
 
-    // Terminal homing in the final seconds
-    if (m.timer > 2.0) {
-      const steer = Math.min(1, dt * 10.0);
+    // Climb arc in first 1.0s from lighthouse, then homing dive
+    if (m.timer < 1.0) {
+      m.vy = Math.max(8.0, 28.0 - m.timer * 22.0);
+    } else {
+      const steer = Math.min(1, dt * 8.0);
       m.vx += ((dx / dist) * TRACK_SPEED - m.vx) * steer;
       m.vy += ((dy / dist) * TRACK_SPEED - m.vy) * steer;
       m.vz += ((dz / dist) * TRACK_SPEED - m.vz) * steer;
