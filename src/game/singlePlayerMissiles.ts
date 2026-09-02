@@ -101,6 +101,20 @@ function buildDominatorModel() {
   return g;
 }
 
+export interface SinglePlayerMissileTelemetry {
+  active: boolean;
+  targetedPlayer: boolean;
+  targetId: number;
+  missilePos: THREE.Vector3;
+  missileDir: THREE.Vector3;
+  targetPos: THREE.Vector3;
+  distance: number;
+  timeRemaining: number;
+  isEvadeWindow: boolean;
+  state: 'idle' | 'approaching' | 'deflected' | 'hit';
+  dismissTimer: number;
+}
+
 export class SinglePlayerMissilesSystem {
   public readonly object: THREE.Group;
   private course: ICourse;
@@ -109,6 +123,7 @@ export class SinglePlayerMissilesSystem {
     active: boolean;
     timer: number;
     targetId: number;
+    isPlayer: boolean;
     x: number;
     y: number;
     z: number;
@@ -118,9 +133,25 @@ export class SinglePlayerMissilesSystem {
     mesh: THREE.Group;
     reticle: THREE.Group;
     locked: boolean;
+    state: 'idle' | 'approaching' | 'deflected' | 'hit';
+    dismissTimer: number;
   } | null = null;
   private hudNotice: (msg: string, title: string) => void;
   private playBeep: () => void;
+
+  private telemetry: SinglePlayerMissileTelemetry = {
+    active: false,
+    targetedPlayer: false,
+    targetId: -1,
+    missilePos: new THREE.Vector3(),
+    missileDir: new THREE.Vector3(0, 0, 1),
+    targetPos: new THREE.Vector3(),
+    distance: 0,
+    timeRemaining: 0,
+    isEvadeWindow: false,
+    state: 'idle',
+    dismissTimer: 0,
+  };
 
   constructor(course: ICourse, hudNotice: (msg: string, title: string) => void, playBeep: () => void) {
     this.object = new THREE.Group();
@@ -143,12 +174,19 @@ export class SinglePlayerMissilesSystem {
       active: false,
       timer: 0,
       targetId: -1,
+      isPlayer: false,
       x: 0, y: 0, z: 0,
       vx: 0, vy: 0, vz: 0,
       mesh,
       reticle: reticle as any, // lazy group wrap
       locked: false,
+      state: 'idle',
+      dismissTimer: 0,
     };
+  }
+
+  public getTelemetry(): SinglePlayerMissileTelemetry {
+    return this.telemetry;
   }
 
   public onCheckpoint(racer: RacerState, gateIndex: number): void {
@@ -168,7 +206,7 @@ export class SinglePlayerMissilesSystem {
         // scan elapsed, check if they are still Rank 1
         const racer = racers[scan.racerId];
         if (racer && racer.place === 1 && !this.activeMissile!.active && !racer.eliminated && !racer.finished) {
-          this.launchMissile(scan.racerId, scan.gateIndex, boats);
+          this.launchMissile(scan.racerId, scan.gateIndex, racers, boats);
         }
         this.scanTimers.splice(i, 1);
       }
@@ -176,15 +214,21 @@ export class SinglePlayerMissilesSystem {
 
     if (this.activeMissile && this.activeMissile.active) {
       this.updateMissile(dt, racers, boats);
+    } else {
+      this.telemetry.active = false;
+      this.telemetry.state = 'idle';
     }
   }
 
-  private launchMissile(targetId: number, gateIndex: number, boats: readonly IBoat[]): void {
+  private launchMissile(targetId: number, gateIndex: number, racers: readonly RacerState[], boats: readonly IBoat[]): void {
     const m = this.activeMissile!;
     m.active = true;
     m.timer = 0;
     m.targetId = targetId;
+    m.isPlayer = Boolean(racers[targetId]?.isPlayer);
     m.locked = false;
+    m.state = 'approaching';
+    m.dismissTimer = 0;
 
     // Launch from gate gantry (gate coordinate + height)
     const u = CHECKPOINT_US[gateIndex];
@@ -211,19 +255,36 @@ export class SinglePlayerMissilesSystem {
 
     // Audio and banner at t=0
     this.hudNotice('📺【收视率拯救计划】第 1 名太装了！导弹升空！', '');
-    // Rocket launch audio is handled externally or just beep
     this.playBeep();
   }
 
   private updateMissile(dt: number, racers: readonly RacerState[], boats: readonly IBoat[]): void {
     const m = this.activeMissile!;
+
+    if (m.dismissTimer > 0) {
+      m.dismissTimer -= dt;
+      this.telemetry.active = true;
+      this.telemetry.state = m.state;
+      this.telemetry.dismissTimer = m.dismissTimer;
+      if (m.dismissTimer <= 0) {
+        m.active = false;
+        m.mesh.visible = false;
+        m.reticle.visible = false;
+        this.telemetry.active = false;
+        this.telemetry.state = 'idle';
+      }
+      return;
+    }
+
     m.timer += dt;
 
     const targetBoat = boats[m.targetId];
-    if (!targetBoat || racers[m.targetId].eliminated || racers[m.targetId].finished) {
+    if (!targetBoat || racers[m.targetId]?.eliminated || racers[m.targetId]?.finished) {
       m.active = false;
       m.mesh.visible = false;
       m.reticle.visible = false;
+      this.telemetry.active = false;
+      this.telemetry.state = 'idle';
       return;
     }
 
@@ -238,10 +299,8 @@ export class SinglePlayerMissilesSystem {
       // update reticle position
       m.reticle.position.copy(targetBoat.state.position);
       m.reticle.position.y += 2.0;
-      m.reticle.lookAt(this.course.object.position); // face up or something
-      // For simple reticle facing:
+      m.reticle.lookAt(this.course.object.position);
       m.reticle.quaternion.copy(targetBoat.state.quaternion);
-      // Play beep occasionally
       if (Math.floor((m.timer - dt) * 5) !== Math.floor(m.timer * 5)) {
         this.playBeep();
       }
@@ -277,18 +336,30 @@ export class SinglePlayerMissilesSystem {
     const mat = new THREE.Matrix4().makeBasis(right, newUp, dir);
     m.mesh.quaternion.setFromRotationMatrix(mat);
 
-    if (m.timer >= 2.0 || dist < 4.0) {
-      // IMPACT
-      m.active = false;
-      m.mesh.visible = false;
-      m.reticle.visible = false;
+    // Update Telemetry
+    this.telemetry.active = true;
+    this.telemetry.targetedPlayer = m.isPlayer;
+    this.telemetry.targetId = m.targetId;
+    this.telemetry.missilePos.set(m.x, m.y, m.z);
+    this.telemetry.missileDir.copy(dir);
+    this.telemetry.targetPos.copy(targetBoat.state.position);
+    this.telemetry.distance = dist;
+    this.telemetry.timeRemaining = Math.max(0, 2.0 - m.timer);
+    this.telemetry.isEvadeWindow = m.timer >= 1.4 && m.timer < 2.0;
+    this.telemetry.state = 'approaching';
+    this.telemetry.dismissTimer = 0;
 
+    if (m.timer >= 2.0 || dist < 4.0) {
       // 4. Counterplay: Drift Wake Deflection
       const isDrifting = targetBoat.state.drifting;
-      if (isDrifting && m.timer >= 1.5) { // final 0.5s window
+      if (isDrifting && m.timer >= 1.4) { // final window
         this.hudNotice('💥 浪花诱爆！MISSILE DEFLECTED!', '');
-        targetBoat.activateTechniqueBoost(); // +15% turbo short boost (technique boost is appropriate)
+        targetBoat.activateTechniqueBoost(); // +15% turbo short boost
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
+        m.state = 'deflected';
+        m.dismissTimer = 0.8;
+        m.mesh.visible = false;
+        m.reticle.visible = false;
         return;
       }
 
@@ -297,7 +368,7 @@ export class SinglePlayerMissilesSystem {
       for (const otherBoat of boats) {
         if (otherBoat.id === targetBoat.id) continue;
         const otherDist = targetBoat.state.position.distanceTo(otherBoat.state.position);
-        if (otherDist <= 4.5 && !racers[otherBoat.id].eliminated && !racers[otherBoat.id].isPlayer) {
+        if (otherDist <= 4.5 && !racers[otherBoat.id]?.eliminated && !racers[otherBoat.id]?.isPlayer) {
           hitTarget = otherBoat;
           break;
         }
@@ -308,6 +379,11 @@ export class SinglePlayerMissilesSystem {
       const forwardX = Math.sin(heading) * 5.0; // small push
       const forwardZ = Math.cos(heading) * 5.0;
       hitTarget.applyScudHit(forwardX, forwardZ, 17.5);
+
+      m.state = 'hit';
+      m.dismissTimer = 0.8;
+      m.mesh.visible = false;
+      m.reticle.visible = false;
     }
   }
 
@@ -318,6 +394,10 @@ export class SinglePlayerMissilesSystem {
       this.activeMissile.mesh.visible = false;
       this.activeMissile.reticle.visible = false;
       this.activeMissile.locked = false;
+      this.activeMissile.state = 'idle';
+      this.activeMissile.dismissTimer = 0;
     }
+    this.telemetry.active = false;
+    this.telemetry.state = 'idle';
   }
 }

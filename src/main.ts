@@ -58,7 +58,7 @@ import {
   type PcControlPrimerPresentation,
 } from './game/pcControlPrimer';
 import { Race, COUNTDOWN_S } from './game/race';
-import { SinglePlayerMissilesSystem } from './game/singlePlayerMissiles';
+import { SinglePlayerMissilesSystem, type SinglePlayerMissileTelemetry } from './game/singlePlayerMissiles';
 import { DuoInteractionController, type DuoInteractionEvent } from './game/duoInteraction';
 import {
   HonorLedger,
@@ -215,6 +215,7 @@ stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
 const cameraRig = new CameraRig(stage.camera);
+const missilePipCamera = new THREE.PerspectiveCamera(72, 16 / 9, 0.1, 3000);
 const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 const teamRightCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 // The 50/50 viewport is substantially narrower than independent play. Keep a
@@ -3022,6 +3023,7 @@ function step(dt: number, _t: number): void {
     pcPrimerPresentation !== null,
     pcControlPrimer.active || coachPresentation?.focus === 'flight-control',
   );
+  if (!duoMode) hud.updateMissilePip(singlePlayerMissiles.getTelemetry());
 
   // Landing feedback: the controller thuds on every real water re-entry
   // (floored so soft flight recoveries still read); camera shake + audio
@@ -3201,12 +3203,59 @@ function render(frameMs: number): void {
     ocean.uniforms.uDepthTex.value = prePass.depthTexture;
     ocean.setResolution(renderDrawingSize.x, renderDrawingSize.y, stage.camera.fov);
     pipeline.render();
+
+    const missileTelemetry = singlePlayerMissiles.getTelemetry();
+    if (!isDuoMode() && missileTelemetry.active && missileTelemetry.targetedPlayer && missileTelemetry.state !== 'idle') {
+      renderMissilePipView(missileTelemetry);
+    }
+
     processCaptureQueue();
   }
   // Split play renders the frame twice inside one rAF budget. Without the view
   // count the governor reads that as a slow machine and shaves resolution until
   // both halves look soft.
   stage.updatePerf(frameMs, splitFrame ? 2 : 1);
+}
+
+function renderMissilePipView(telemetry: SinglePlayerMissileTelemetry): void {
+  const dw = renderDrawingSize.x;
+  const dh = renderDrawingSize.y;
+  const isMobile = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+  const pipW = Math.round(dw * (isMobile ? 0.20 : 0.22));
+  const pipH = Math.round(pipW * (9 / 16));
+  const pipMarginX = Math.round(dw * (isMobile ? 0.012 : 0.016));
+  const pipMarginY = Math.round(dh * (isMobile ? 0.02 : 0.026));
+  const pipX = dw - pipW - pipMarginX;
+  const pipY = dh - pipH - pipMarginY;
+
+  const mx = telemetry.missilePos.x;
+  const my = telemetry.missilePos.y;
+  const mz = telemetry.missilePos.z;
+  const dx = telemetry.missileDir.x;
+  const dy = telemetry.missileDir.y;
+  const dz = telemetry.missileDir.z;
+
+  if (telemetry.state === 'approaching') {
+    missilePipCamera.position.set(mx - dx * 4.2, my - dy * 4.2 + 1.4, mz - dz * 4.2);
+    missilePipCamera.lookAt(mx + dx * 16, my + dy * 16, mz + dz * 16);
+  } else {
+    const bx = telemetry.targetPos.x;
+    const by = telemetry.targetPos.y;
+    const bz = telemetry.targetPos.z;
+    missilePipCamera.position.set(bx - dx * 6.0, by + 3.0, bz - dz * 6.0);
+    missilePipCamera.lookAt(bx, by + 1.0, bz);
+  }
+
+  missilePipCamera.aspect = pipW / pipH;
+  missilePipCamera.updateProjectionMatrix();
+
+  stage.renderer.setViewport(pipX, pipY, pipW, pipH);
+  stage.renderer.setScissor(pipX, pipY, pipW, pipH);
+  stage.renderer.setScissorTest(true);
+  stage.renderer.clearDepth();
+  stage.renderer.render(stage.scene, missilePipCamera);
+  stage.renderer.setScissorTest(false);
+  stage.renderer.setViewport(0, 0, dw, dh);
 }
 
 function renderTeamSplit(): void {

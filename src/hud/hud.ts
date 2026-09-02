@@ -25,6 +25,7 @@ import { MAX_FLIGHT_CHARGES } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
 import machoMedalUrl from '../assets/achievements/macho-medal.webp';
+import type { SinglePlayerMissileTelemetry } from '../game/singlePlayerMissiles';
 import { MedalCeremonyCanvas } from './medalCeremony';
 import { deriveAbilityHudState } from '../core/abilityTelemetry';
 import type { CoachFocus, CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
@@ -284,6 +285,12 @@ export class HUD {
   private readonly lessonDisable: HTMLButtonElement;
   private readonly lessonPips: HTMLDivElement[] = [];
   private bestFlights: number;
+
+  // missile pip
+  private readonly missilePipEl: HTMLDivElement;
+  private readonly missilePipHeader: HTMLSpanElement;
+  private readonly missilePipDist: HTMLSpanElement;
+  private readonly missilePipCue: HTMLDivElement;
 
   // change-detection state (no per-frame DOM string churn)
   private lastSpeed = -1;
@@ -668,6 +675,41 @@ export class HUD {
     this.coachClose.setAttribute('aria-label', '跳过全部驾驶引导');
     this.coachClose.addEventListener('click', onCoachDisable);
     this.coachEl.appendChild(this.coachClose);
+
+    // ---- missile pip tactical rear-view ----------------------------------------------
+    this.missilePipEl = h('div', 'hud-missile-pip', this.root);
+    const pipHeaderRow = h('div', 'hud-missile-pip-header', this.missilePipEl);
+    this.missilePipHeader = h('span', 'hud-missile-pip-tag', pipHeaderRow, '🔴 LIVE MISSILE CAM // 战术后视');
+    this.missilePipDist = h('span', 'hud-missile-pip-dist', pipHeaderRow, 'DIST: --');
+    const pipSlot = h('div', 'hud-missile-pip-slot', this.missilePipEl);
+    h('div', 'hud-missile-pip-crosshair', pipSlot);
+    this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '⚡ 立即漂移！DRIFT TO DEFLECT!');
+  }
+
+  updateMissilePip(telemetry: SinglePlayerMissileTelemetry): void {
+    if (!telemetry.active || !telemetry.targetedPlayer || telemetry.state === 'idle') {
+      this.missilePipEl.classList.remove('on', 'evade-alert', 'deflected', 'hit');
+      return;
+    }
+    this.missilePipEl.classList.add('on');
+    this.missilePipDist.textContent = `DIST: ${telemetry.distance.toFixed(1)}m`;
+
+    if (telemetry.state === 'deflected') {
+      this.missilePipEl.classList.remove('evade-alert', 'hit');
+      this.missilePipEl.classList.add('deflected');
+      this.missilePipCue.textContent = '💥 威胁已诱爆！THREAT DEFLECTED';
+    } else if (telemetry.state === 'hit') {
+      this.missilePipEl.classList.remove('evade-alert', 'deflected');
+      this.missilePipEl.classList.add('hit');
+      this.missilePipCue.textContent = '⚠️ 信号丢失 / SIGNAL LOST';
+    } else if (telemetry.isEvadeWindow) {
+      this.missilePipEl.classList.add('evade-alert');
+      this.missilePipEl.classList.remove('deflected', 'hit');
+      this.missilePipCue.textContent = '⚡ 立即漂移！DRIFT TO DEFLECT!';
+    } else {
+      this.missilePipEl.classList.remove('evade-alert', 'deflected', 'hit');
+      this.missilePipCue.textContent = '🎯 导弹逼近中 · 准备内切漂移';
+    }
   }
 
   /** Spool, extension, gate, and route-clear edges for one seat's own card slot. */
