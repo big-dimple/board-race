@@ -321,9 +321,11 @@ export class SinglePlayerMissilesSystem {
     m.mesh.visible = true;
     m.mesh.position.set(m.x, m.y, m.z);
 
-    // Pure Chinese broadcast at t=0
-    this.hudNotice('📺【灯塔防空启动】灯塔基地发射拦截飞弹！锁定领跑者！', '');
-    this.playBeep();
+    // Only broadcast notice & sound alarm if the player is targeted!
+    if (m.isPlayer) {
+      this.hudNotice('📺【灯塔防空启动】灯塔基地发射拦截飞弹！锁定领跑者！', '');
+      this.playBeep();
+    }
   }
 
   private updateMissile(dt: number, racers: readonly RacerState[], boats: readonly IBoat[]): void {
@@ -359,8 +361,10 @@ export class SinglePlayerMissilesSystem {
     if (m.timer >= 1.0 && !m.locked) {
       m.locked = true;
       m.reticle.visible = true;
-      this.hudNotice('⚠️ 拦截飞弹已锁定领跑目标 [ 3.0秒 ]', '');
-      this.playBeep();
+      if (m.isPlayer) {
+        this.hudNotice('⚠️ 拦截飞弹已锁定领跑目标 [ 3.0秒 ]', '');
+        this.playBeep();
+      }
     }
 
     if (m.locked) {
@@ -368,7 +372,7 @@ export class SinglePlayerMissilesSystem {
       m.reticle.position.y += 1.5;
       m.reticle.lookAt(this.course.object.position);
       m.reticle.quaternion.copy(targetBoat.state.quaternion);
-      if (Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
+      if (m.isPlayer && Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
         this.playBeep();
       }
     }
@@ -423,7 +427,7 @@ export class SinglePlayerMissilesSystem {
       // 1. AIRBORNE IMMUNITY: If target is in flight or airborne, missile CANNOT hit!
       const isAirborne = targetBoat.state.flightPhase !== 'surface' || targetBoat.state.airborne || targetBoat.state.position.y > 1.2;
       if (isAirborne) {
-        this.hudNotice('🌊【空中豁免】快艇凌空腾跃 · 飞弹脱锁坠海！', '');
+        if (m.isPlayer) this.hudNotice('🌊【空中豁免】快艇凌空腾跃 · 飞弹脱锁坠海！', '');
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
         m.dismissTimer = 0.9;
@@ -435,7 +439,7 @@ export class SinglePlayerMissilesSystem {
       // 2. Counterplay: Drift Wake Deflection
       const isDrifting = targetBoat.state.drifting;
       if (isDrifting && m.timer >= 2.8) {
-        this.hudNotice('💥 浪花诱爆成功 · 获得涡轮冲刺！', '');
+        if (m.isPlayer) this.hudNotice('💥 浪花诱爆成功 · 获得涡轮冲刺！', '');
         targetBoat.activateTechniqueBoost();
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
@@ -459,7 +463,7 @@ export class SinglePlayerMissilesSystem {
       // 4. Water Surface Impact: safe vertical pop retaining forward speed
       hitTarget.applyScudHit(0, 0, 14.0);
 
-      this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');
+      if (m.isPlayer) this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');
       m.state = 'hit';
       m.dismissTimer = 0.9;
       m.mesh.visible = false;

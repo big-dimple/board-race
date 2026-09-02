@@ -290,6 +290,7 @@ export class HUD {
   private readonly missilePipEl: HTMLDivElement;
   private readonly missilePipHeader: HTMLSpanElement;
   private readonly missilePipDist: HTMLSpanElement;
+  private readonly missilePipSlot: HTMLDivElement;
   private readonly missilePipCue: HTMLDivElement;
 
   // change-detection state (no per-frame DOM string churn)
@@ -681,9 +682,17 @@ export class HUD {
     const pipHeaderRow = h('div', 'hud-missile-pip-header', this.missilePipEl);
     this.missilePipHeader = h('span', 'hud-missile-pip-tag', pipHeaderRow, '【战术后视】锁定飞弹追踪中');
     this.missilePipDist = h('span', 'hud-missile-pip-dist', pipHeaderRow, '距离: --');
-    const pipSlot = h('div', 'hud-missile-pip-slot', this.missilePipEl);
-    h('div', 'hud-missile-pip-crosshair', pipSlot);
+    this.missilePipSlot = h('div', 'hud-missile-pip-slot', this.missilePipEl);
+    h('div', 'hud-missile-pip-corner-tl', this.missilePipSlot);
+    h('div', 'hud-missile-pip-corner-tr', this.missilePipSlot);
+    h('div', 'hud-missile-pip-corner-bl', this.missilePipSlot);
+    h('div', 'hud-missile-pip-corner-br', this.missilePipSlot);
     this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '⚡ 立即入弯漂移 · 浪花诱爆！');
+  }
+
+  getMissilePipSlotRect(): DOMRect | null {
+    if (!this.missilePipEl.classList.contains('on')) return null;
+    return this.missilePipSlot.getBoundingClientRect();
   }
 
   updateMissilePip(telemetry: SinglePlayerMissileTelemetry): void {

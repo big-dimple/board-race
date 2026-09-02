@@ -3221,15 +3221,20 @@ function render(frameMs: number): void {
 }
 
 function renderMissilePipView(telemetry: SinglePlayerMissileTelemetry): void {
-  const dw = renderDrawingSize.x;
-  const dh = renderDrawingSize.y;
-  const isMobile = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
-  const pipW = Math.round(dw * (isMobile ? 0.20 : 0.22));
-  const pipH = Math.round(pipW * (9 / 16));
-  const pipMarginX = Math.round(dw * (isMobile ? 0.012 : 0.016));
-  const pipMarginY = Math.round(dh * (isMobile ? 0.02 : 0.026));
-  const pipX = dw - pipW - pipMarginX;
-  const pipY = dh - pipH - pipMarginY;
+  const slotRect = hud.getMissilePipSlotRect();
+  const canvas = stage.renderer.domElement;
+  const canvasRect = canvas.getBoundingClientRect();
+  if (!slotRect || canvasRect.width <= 0 || canvasRect.height <= 0) return;
+
+  const scaleX = renderDrawingSize.x / canvasRect.width;
+  const scaleY = renderDrawingSize.y / canvasRect.height;
+
+  const pipX = Math.round((slotRect.left - canvasRect.left) * scaleX);
+  const pipY = Math.round((canvasRect.bottom - slotRect.bottom) * scaleY);
+  const pipW = Math.round(slotRect.width * scaleX);
+  const pipH = Math.round(slotRect.height * scaleY);
+
+  if (pipW <= 0 || pipH <= 0) return;
 
   const mx = telemetry.missilePos.x;
   const my = telemetry.missilePos.y;
@@ -3239,13 +3244,14 @@ function renderMissilePipView(telemetry: SinglePlayerMissileTelemetry): void {
   const dz = telemetry.missileDir.z;
 
   if (telemetry.state === 'approaching') {
-    missilePipCamera.position.set(mx - dx * 4.2, my - dy * 4.2 + 1.4, mz - dz * 4.2);
-    missilePipCamera.lookAt(mx + dx * 16, my + dy * 16, mz + dz * 16);
+    // Camera is 4.8m behind the missile, elevated 1.6m, looking directly forward towards target boat
+    missilePipCamera.position.set(mx - dx * 4.8, my - dy * 4.8 + 1.6, mz - dz * 4.8);
+    missilePipCamera.lookAt(mx + dx * 20, my + dy * 20, mz + dz * 20);
   } else {
     const bx = telemetry.targetPos.x;
     const by = telemetry.targetPos.y;
     const bz = telemetry.targetPos.z;
-    missilePipCamera.position.set(bx - dx * 6.0, by + 3.0, bz - dz * 6.0);
+    missilePipCamera.position.set(bx - dx * 6.5, by + 3.2, bz - dz * 6.5);
     missilePipCamera.lookAt(bx, by + 1.0, bz);
   }
 
@@ -3258,7 +3264,7 @@ function renderMissilePipView(telemetry: SinglePlayerMissileTelemetry): void {
   stage.renderer.clearDepth();
   stage.renderer.render(stage.scene, missilePipCamera);
   stage.renderer.setScissorTest(false);
-  stage.renderer.setViewport(0, 0, dw, dh);
+  stage.renderer.setViewport(0, 0, renderDrawingSize.x, renderDrawingSize.y);
 }
 
 function renderTeamSplit(): void {
