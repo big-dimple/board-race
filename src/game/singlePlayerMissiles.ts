@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { IBoat, RacerState, ICourse } from '../contracts';
+import type { ReplayMissileSnapshot } from './duoInteraction';
 import { CHECKPOINT_US } from './course';
 
 // Reuse materials and geometries for the missile
@@ -183,6 +184,65 @@ export class SinglePlayerMissilesSystem {
       state: 'idle',
       dismissTimer: 0,
     };
+  }
+
+  private readonly replaySnapshotsScratch: ReplayMissileSnapshot[] = [
+    {
+      x: 0,
+      y: 0,
+      z: 0,
+      qx: 0,
+      qy: 0,
+      qz: 0,
+      qw: 1,
+      active: false,
+      isDwell: false,
+      dwellProgress: 0,
+      kind: 'tomahawk',
+    },
+  ];
+
+  public getAllActiveMissiles(): readonly ReplayMissileSnapshot[] {
+    const snap = this.replaySnapshotsScratch[0];
+    if (this.activeMissile && this.activeMissile.active) {
+      const m = this.activeMissile;
+      snap.x = m.x;
+      snap.y = m.y;
+      snap.z = m.z;
+      snap.qx = m.mesh.quaternion.x;
+      snap.qy = m.mesh.quaternion.y;
+      snap.qz = m.mesh.quaternion.z;
+      snap.qw = m.mesh.quaternion.w;
+      snap.active = true;
+      snap.isDwell = m.dismissTimer > 0;
+      snap.dwellProgress = m.dismissTimer > 0 ? (1 - m.dismissTimer / 0.9) : 0;
+      snap.kind = 'tomahawk';
+    } else {
+      snap.active = false;
+      snap.isDwell = false;
+      snap.dwellProgress = 0;
+    }
+    return this.replaySnapshotsScratch;
+  }
+
+  public syncReplayVisuals(snapshots: readonly ReplayMissileSnapshot[]): void {
+    const snap = snapshots[0];
+    if (!this.activeMissile) return;
+    if (!snap || !snap.active) {
+      this.activeMissile.mesh.visible = false;
+      this.activeMissile.reticle.visible = false;
+      return;
+    }
+    this.activeMissile.mesh.visible = true;
+    this.activeMissile.mesh.position.set(snap.x, snap.y, snap.z);
+    this.activeMissile.mesh.quaternion.set(snap.qx, snap.qy, snap.qz, snap.qw);
+  }
+
+  public hideAllVisuals(): void {
+    if (this.activeMissile) {
+      this.activeMissile.mesh.visible = false;
+      this.activeMissile.reticle.visible = false;
+    }
   }
 
   public getTelemetry(): SinglePlayerMissileTelemetry {

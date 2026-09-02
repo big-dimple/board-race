@@ -1432,6 +1432,7 @@ function completeHighlightVideo(): void {
   highlightDirector.stop();
   highlightVideo.hide();
   duoInteractions.hideAllVisuals();
+  singlePlayerMissiles.hideAllVisuals();
   highlightReplayActive = false;
   hud.setVisible(true);
   startRetryLesson(true);
@@ -1475,7 +1476,8 @@ function updateHighlightVideoPresentation(dt: number): void {
     }
   }
 
-  duoInteractions.syncReplayVisuals(highlightReplayMissileStates);
+  if (isDuoMode()) duoInteractions.syncReplayVisuals(highlightReplayMissileStates);
+  else singlePlayerMissiles.syncReplayVisuals(highlightReplayMissileStates);
 
   const state = highlightDirector.update(
     dt,
@@ -2510,7 +2512,7 @@ function step(dt: number, _t: number): void {
       boats,
       race.raceTime + (DEFEAT_FREEZE_S - defeatFreezeTimer),
       waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime),
-      duoInteractions.getAllActiveMissiles(),
+      isDuoMode() ? duoInteractions.getAllActiveMissiles() : singlePlayerMissiles.getAllActiveMissiles(),
     );
 
     updateRaceCamera(dt, worldTime, primaryBoat());
@@ -2721,7 +2723,7 @@ function step(dt: number, _t: number): void {
       boats,
       race.raceTime,
       waterHeight(boats[0].state.position.x, boats[0].state.position.z, worldTime),
-      duoInteractions.getAllActiveMissiles(),
+      isDuoMode() ? duoInteractions.getAllActiveMissiles() : singlePlayerMissiles.getAllActiveMissiles(),
     );
     // Each screen keeps its fixed seat layer while global coach/audio feedback
     // follows the surviving human promoted by Race.
