@@ -24,6 +24,7 @@ import type {
 import { MAX_FLIGHT_CHARGES } from '../contracts';
 import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
+import machoMedalUrl from '../assets/achievements/macho-medal.webp';
 import { MedalCeremonyCanvas } from './medalCeremony';
 import { deriveAbilityHudState } from '../core/abilityTelemetry';
 import type { CoachFocus, CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
@@ -270,6 +271,7 @@ export class HUD {
   private readonly resultsRows: HTMLDivElement;
   private readonly resultsReason: HTMLDivElement;
   private readonly resultsMedal: HTMLDivElement;
+  private readonly resultsMachoMedal: HTMLImageElement;
   private readonly retryButton: HTMLButtonElement;
   private readonly lessonEl: HTMLDivElement;
   private readonly lessonAttempt: HTMLDivElement;
@@ -607,6 +609,10 @@ export class HUD {
     this.resultsReason = h('div', 'hud-results-reason', this.resultsPanel, '');
     this.resultsMedal = h('div', 'hud-results-medal hud-inked', this.resultsPanel, '');
     this.resultsRows = h('div', 'hud-results-rows', this.resultsPanel);
+    this.resultsMachoMedal = h('img', 'hud-results-macho-medal', this.resultsPanel) as HTMLImageElement;
+    this.resultsMachoMedal.src = machoMedalUrl;
+    this.resultsMachoMedal.alt = '猛男勋章';
+    this.resultsMachoMedal.style.display = 'none';
     this.retryButton = document.createElement('button');
     this.retryButton.className = 'hud-retry';
     this.retryButton.type = 'button';
@@ -1325,6 +1331,13 @@ export class HUD {
     this.resultStat('TIME', fmtTime(result.raceTime));
     this.resultStat('OVERTAKES', String(result.overtakes));
     this.resultStat('FLIGHTS', `${result.flightsCleared} / 3`);
+    if (result.flightsCleared >= 3 || result.manMedalEarned) {
+      this.resultsMachoMedal.style.display = 'block';
+      this.resultsPanel.classList.add('has-macho-medal');
+    } else {
+      this.resultsMachoMedal.style.display = 'none';
+      this.resultsPanel.classList.remove('has-macho-medal');
+    }
     this.root.classList.add('results-on');
     this.resultsEl.classList.add('on');
     window.setTimeout(() => {
@@ -1337,6 +1350,8 @@ export class HUD {
     this.resultsEl.classList.remove('on');
     this.resultsEl.removeAttribute('data-outcome');
     this.resultsEl.removeAttribute('data-failure-reason');
+    this.resultsMachoMedal.style.display = 'none';
+    this.resultsPanel.classList.remove('has-macho-medal');
     this.clearBattle();
     this.turnWarning.classList.remove('on', 'braking');
   }

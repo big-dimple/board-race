@@ -40,7 +40,7 @@ export interface RaceEvents {
   countdownTick(n: number): void; // 3,2,1
   go(resuming: boolean): void;
   lapDone(r: RacerState): void;
-  checkpoint(r: RacerState, splitDelta: number): void; // split vs leader, seconds
+  checkpoint(r: RacerState, splitDelta: number, gateIndex: number): void; // split vs leader, seconds
   finish(r: RacerState): void;
   courseWarning(r: RacerState, warning: CourseWarning): void;
   battle(event: RaceBattleEvent): void;
@@ -716,7 +716,7 @@ export class Race implements RaceView {
           const best = this.cpLeaderTimes.get(key) ?? Infinity;
           r.splitDelta = this.raceTime <= best ? 0 : this.raceTime - best;
           if (this.raceTime < best) this.cpLeaderTimes.set(key, this.raceTime);
-          this.events.checkpoint(r, r.splitDelta);
+          this.events.checkpoint(r, r.splitDelta, this.nextCp[id] - 1);
         }
 
         // start/finish line, with checkpoint sanity

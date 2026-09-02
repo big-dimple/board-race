@@ -1881,6 +1881,23 @@
 
 .hud-results-panel.defeated .hud-results-medal { color: var(--warn); }
 
+.hud-results-macho-medal {
+  position: absolute;
+  top: -24px;
+  right: -24px;
+  width: clamp(90px, 16vw, 140px);
+  height: auto;
+  z-index: 10;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.75)) drop-shadow(0 0 20px rgba(255, 207, 74, 0.5));
+  animation: hud-macho-in 0.75s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  pointer-events: none;
+}
+
+@keyframes hud-macho-in {
+  0% { transform: scale(0) rotate(-35deg); opacity: 0; }
+  100% { transform: scale(1) rotate(12deg); opacity: 1; }
+}
+
 .hud-results-rows {
   margin: 22px auto 18px;
   display: grid;

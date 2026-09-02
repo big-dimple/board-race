@@ -2358,6 +2358,13 @@ export class Boat implements IBoat {
       : this.boostTimer;
   }
 
+  /** Special 3.0s golden boost awarded for earning the Macho Medal during a run. */
+  applyGoldenBoost(duration: number): void {
+    const wasBoosting = this.boostTimer > 0;
+    this.boostTimer = Math.max(this.boostTimer, duration);
+    this.boostTotal = wasBoosting ? Math.max(this.boostTotal, duration) : duration;
+  }
+
   /** Main-thread visual LOD; has no effect on physics or AI input. */
   setOpponentEffectDistance(distance: number): void {
     this.opponentFxScale = this.playerOwned ? 1 : clamp(1 - (distance - 24) / 150, 0.3, 1);

@@ -58,6 +58,7 @@ import {
   type PcControlPrimerPresentation,
 } from './game/pcControlPrimer';
 import { Race, COUNTDOWN_S } from './game/race';
+import { SinglePlayerMissilesSystem } from './game/singlePlayerMissiles';
 import { DuoInteractionController, type DuoInteractionEvent } from './game/duoInteraction';
 import {
   HonorLedger,
@@ -208,6 +209,8 @@ rivalDirector.setRoster(roster);
 let ais = buildAiControllers();
 const collisions = new BoatCollisionSystem();
 const duoInteractions = new DuoInteractionController();
+const singlePlayerMissiles = new SinglePlayerMissilesSystem(course, (msg, title) => hud.showTransientNotice(msg, title), () => audio.countdownBeep(true));
+stage.scene.add(singlePlayerMissiles.object);
 stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
@@ -583,8 +586,9 @@ const race = new Race(course, boats, {
     if (!resuming && !drivingCoach.progress.mastery.airBrakedInTurn) tower.announceTechniqueTip();
   },
   lapDone: () => {},
-  checkpoint: () => {
+  checkpoint: (r, splitDelta, gateIndex) => {
     if (HARNESS) harnessCheckpointEvents++;
+    singlePlayerMissiles.onCheckpoint(r, gateIndex);
   },
   finish: (r) => {
     course.pulseFinalStation();
@@ -1598,6 +1602,7 @@ function resetRace(): void {
   // A retry, mode switch, or return from the accolade wall must not leave the
   // previous run's Final Station glowing in the READY/front-door scene.
   course.resetFinalStation();
+  singlePlayerMissiles.reset();
   honorTargets.reset();
   honors.reset(boats.length);
   coinStreakCounts.length = 0;
@@ -2862,8 +2867,12 @@ function step(dt: number, _t: number): void {
             passLane,
           );
         } else {
-          startMedalCeremony(tier, qualification.manMedalsTotal, pass.bestFlights);
-          enteredMedal = true;
+          hud.showTransientNotice(
+            `🏅【猛男勋章达成】基础及格线已破！继续向 7 门全满贯冲刺！`,
+            '资格已记录',
+            passLane,
+          );
+          boats[passedId].applyGoldenBoost(3.0);
         }
       }
     } else if (!harnessEndlessMode && flights > 0 && flights % course.flightRoutes.length === 0 && race.armFinale()) {
@@ -2876,6 +2885,8 @@ function step(dt: number, _t: number): void {
   }
   if (duoMode && race.phase === 'racing') {
     duoInteractions.update(dt, race.racers, boats, duoDevices, localInput, handleDuoInteraction);
+  } else if (!duoMode && race.phase === 'racing') {
+    singlePlayerMissiles.update(dt, race.racers, boats);
   }
   if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
     const excellent = records.recordExcellent(race.raceTime);
