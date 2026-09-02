@@ -215,7 +215,8 @@ stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
 const cameraRig = new CameraRig(stage.camera);
-const missilePipCamera = new THREE.PerspectiveCamera(72, 16 / 9, 0.1, 3000);
+const missilePipCamera = new THREE.PerspectiveCamera(72, 16 / 9, 0.4, 380);
+try { stage.renderer.compile(stage.scene, missilePipCamera); } catch {}
 const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 const teamRightCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 // The 50/50 viewport is substantially narrower than independent play. Keep a

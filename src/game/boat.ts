@@ -2635,18 +2635,22 @@ export class Boat implements IBoat {
     this.yawRate = clamp(this.yawRate + (impulseX * Math.cos(this.heading) - impulseZ * Math.sin(this.heading)) * 0.018, -2.4, 2.4);
   }
 
-  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 18.5): void {
+  applyScudHit(impulseX: number, impulseZ: number, verticalPop = 14.0): void {
     this.vy = verticalPop;
-    this.object.position.y += 1.15;
+    this.object.position.y += 1.0;
     this.state.airborne = true;
     this.state.airTime = 0.1;
-    this.tumbleSpinTimer = 2.0;
-    this.tumbleSpinTotal = 2.0;
-    this.velX = impulseX;
-    this.velZ = impulseZ;
-    this.state.speed = Math.max(6.0, Math.hypot(this.velX, this.velZ) * 0.35);
-    this.yawRate = 6.5;
-    this.spray.burst(this.object.position, 80, 22.0);
+    this.tumbleSpinTimer = 1.1;
+    this.tumbleSpinTotal = 1.1;
+    // Retain forward momentum along current heading so the boat never stalls or loses course
+    const safeForwardSpeed = Math.max(18.0, this.state.speed * 0.85);
+    const forwardX = Math.sin(this.heading) * safeForwardSpeed;
+    const forwardZ = Math.cos(this.heading) * safeForwardSpeed;
+    this.velX = forwardX + impulseX * 0.3;
+    this.velZ = forwardZ + impulseZ * 0.3;
+    this.state.speed = safeForwardSpeed;
+    this.yawRate = 4.0;
+    this.spray.burst(this.object.position, 80, 20.0);
   }
 
   applyScudNearMiss(waterPointX: number, waterPointZ: number, impulseX: number, impulseZ: number): void {

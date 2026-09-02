@@ -679,11 +679,11 @@ export class HUD {
     // ---- missile pip tactical rear-view ----------------------------------------------
     this.missilePipEl = h('div', 'hud-missile-pip', this.root);
     const pipHeaderRow = h('div', 'hud-missile-pip-header', this.missilePipEl);
-    this.missilePipHeader = h('span', 'hud-missile-pip-tag', pipHeaderRow, '🔴 LIVE MISSILE CAM // 战术后视');
-    this.missilePipDist = h('span', 'hud-missile-pip-dist', pipHeaderRow, 'DIST: --');
+    this.missilePipHeader = h('span', 'hud-missile-pip-tag', pipHeaderRow, '【战术后视】锁定飞弹追踪中');
+    this.missilePipDist = h('span', 'hud-missile-pip-dist', pipHeaderRow, '距离: --');
     const pipSlot = h('div', 'hud-missile-pip-slot', this.missilePipEl);
     h('div', 'hud-missile-pip-crosshair', pipSlot);
-    this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '⚡ 立即漂移！DRIFT TO DEFLECT!');
+    this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '⚡ 立即入弯漂移 · 浪花诱爆！');
   }
 
   updateMissilePip(telemetry: SinglePlayerMissileTelemetry): void {
@@ -692,23 +692,23 @@ export class HUD {
       return;
     }
     this.missilePipEl.classList.add('on');
-    this.missilePipDist.textContent = `DIST: ${telemetry.distance.toFixed(1)}m`;
+    this.missilePipDist.textContent = `距离: ${telemetry.distance.toFixed(1)}米`;
 
     if (telemetry.state === 'deflected') {
       this.missilePipEl.classList.remove('evade-alert', 'hit');
       this.missilePipEl.classList.add('deflected');
-      this.missilePipCue.textContent = '💥 威胁已诱爆！THREAT DEFLECTED';
+      this.missilePipCue.textContent = '💥 浪花诱爆成功 · 获得涡轮冲刺！';
     } else if (telemetry.state === 'hit') {
       this.missilePipEl.classList.remove('evade-alert', 'deflected');
       this.missilePipEl.classList.add('hit');
-      this.missilePipCue.textContent = '⚠️ 信号丢失 / SIGNAL LOST';
+      this.missilePipCue.textContent = '⚠️ 受到水浪冲击 · 保持操舵！';
     } else if (telemetry.isEvadeWindow) {
       this.missilePipEl.classList.add('evade-alert');
       this.missilePipEl.classList.remove('deflected', 'hit');
-      this.missilePipCue.textContent = '⚡ 立即漂移！DRIFT TO DEFLECT!';
+      this.missilePipCue.textContent = '⚡ 立即入弯漂移 · 浪花诱爆！';
     } else {
       this.missilePipEl.classList.remove('evade-alert', 'deflected', 'hit');
-      this.missilePipCue.textContent = '🎯 导弹逼近中 · 准备内切漂移';
+      this.missilePipCue.textContent = '🎯 飞弹逼近中 · 准备进弯漂移';
     }
   }
 

@@ -203,12 +203,24 @@ export class SinglePlayerMissilesSystem {
       const scan = this.scanTimers[i];
       scan.timer -= dt;
       if (scan.timer <= 0) {
-        // scan elapsed, check if they are still Rank 1
         const racer = racers[scan.racerId];
-        if (racer && racer.place === 1 && !this.activeMissile!.active && !racer.eliminated && !racer.finished) {
-          this.launchMissile(scan.racerId, scan.gateIndex, racers, boats);
+        const targetBoat = boats[scan.racerId];
+        // CRITICAL: Only target when the leader is on the WATER SURFACE (never during airborne flight)
+        const isSurface = targetBoat && targetBoat.state.flightPhase === 'surface' && targetBoat.state.flightRouteState === 'idle';
+
+        if (racer && racer.place === 1 && !racer.eliminated && !racer.finished) {
+          if (isSurface) {
+            if (!this.activeMissile!.active) {
+              this.launchMissile(scan.racerId, scan.gateIndex, racers, boats);
+            }
+            this.scanTimers.splice(i, 1);
+          } else {
+            // Still in flight: wait 0.5s and check again until safely landed on water
+            scan.timer = 0.5;
+          }
+        } else {
+          this.scanTimers.splice(i, 1);
         }
-        this.scanTimers.splice(i, 1);
       }
     }
 
@@ -235,7 +247,7 @@ export class SinglePlayerMissilesSystem {
     const spawnPt = new THREE.Vector3();
     this.course.pointAt(u, spawnPt);
     m.x = spawnPt.x;
-    m.y = spawnPt.y + 25;
+    m.y = spawnPt.y + 30;
     m.z = spawnPt.z;
 
     const targetBoat = boats[targetId];
@@ -243,8 +255,8 @@ export class SinglePlayerMissilesSystem {
       const dx = targetBoat.state.position.x - m.x;
       const dy = targetBoat.state.position.y - m.y;
       const dz = targetBoat.state.position.z - m.z;
-      const dist = Math.hypot(dx, dy, dz);
-      const speed = 40;
+      const dist = Math.hypot(dx, dy, dz) || 1;
+      const speed = 35;
       m.vx = (dx / dist) * speed;
       m.vy = (dy / dist) * speed;
       m.vz = (dz / dist) * speed;
@@ -253,8 +265,8 @@ export class SinglePlayerMissilesSystem {
     m.mesh.visible = true;
     m.mesh.position.set(m.x, m.y, m.z);
 
-    // Audio and banner at t=0
-    this.hudNotice('📺【收视率拯救计划】第 1 名太装了！导弹升空！', '');
+    // Pure Chinese broadcast at t=0
+    this.hudNotice('📺【赛事特发】领跑快艇触发防空拦截飞弹！', '');
     this.playBeep();
   }
 
@@ -288,40 +300,39 @@ export class SinglePlayerMissilesSystem {
       return;
     }
 
-    if (m.timer >= 0.8 && !m.locked) {
+    if (m.timer >= 1.0 && !m.locked) {
       m.locked = true;
       m.reticle.visible = true;
-      this.hudNotice('⚠️ MISSILE LOCK-ON [ 2.0s ]', '');
+      this.hudNotice('⚠️ 拦截飞弹已锁定领跑目标 [ 3.0秒 ]', '');
       this.playBeep();
     }
 
     if (m.locked) {
-      // update reticle position
       m.reticle.position.copy(targetBoat.state.position);
-      m.reticle.position.y += 2.0;
+      m.reticle.position.y += 1.5;
       m.reticle.lookAt(this.course.object.position);
       m.reticle.quaternion.copy(targetBoat.state.quaternion);
-      if (Math.floor((m.timer - dt) * 5) !== Math.floor(m.timer * 5)) {
+      if (Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
         this.playBeep();
       }
     }
 
-    // Guidance
+    // Guidance towards target boat
     const tx = targetBoat.state.position.x;
-    const ty = targetBoat.state.position.y + 1.0;
+    const ty = targetBoat.state.position.y + 0.8;
     const tz = targetBoat.state.position.z;
     const dx = tx - m.x;
     const dy = ty - m.y;
     const dz = tz - m.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
-    const PRANK_SPEED = 65; // Terminal supersonic
+    const TRACK_SPEED = 50; // Steady readable speed
 
-    // terminal supersonic descent
-    if (m.timer > 1.5) {
-      const steer = Math.min(1, dt * 15.0);
-      m.vx += ((dx / dist) * PRANK_SPEED - m.vx) * steer;
-      m.vy += ((dy / dist) * PRANK_SPEED - m.vy) * steer;
-      m.vz += ((dz / dist) * PRANK_SPEED - m.vz) * steer;
+    // Terminal homing in the final seconds
+    if (m.timer > 2.0) {
+      const steer = Math.min(1, dt * 10.0);
+      m.vx += ((dx / dist) * TRACK_SPEED - m.vx) * steer;
+      m.vy += ((dy / dist) * TRACK_SPEED - m.vy) * steer;
+      m.vz += ((dz / dist) * TRACK_SPEED - m.vz) * steer;
     }
 
     m.x += m.vx * dt;
@@ -336,7 +347,8 @@ export class SinglePlayerMissilesSystem {
     const mat = new THREE.Matrix4().makeBasis(right, newUp, dir);
     m.mesh.quaternion.setFromRotationMatrix(mat);
 
-    // Update Telemetry
+    // Telemetry update: 4.2s total lifecycle, final 1.2s is evade window
+    const TOTAL_LIFETIME = 4.2;
     this.telemetry.active = true;
     this.telemetry.targetedPlayer = m.isPlayer;
     this.telemetry.targetId = m.targetId;
@@ -344,20 +356,20 @@ export class SinglePlayerMissilesSystem {
     this.telemetry.missileDir.copy(dir);
     this.telemetry.targetPos.copy(targetBoat.state.position);
     this.telemetry.distance = dist;
-    this.telemetry.timeRemaining = Math.max(0, 2.0 - m.timer);
-    this.telemetry.isEvadeWindow = m.timer >= 1.4 && m.timer < 2.0;
+    this.telemetry.timeRemaining = Math.max(0, TOTAL_LIFETIME - m.timer);
+    this.telemetry.isEvadeWindow = m.timer >= 3.0 && m.timer < TOTAL_LIFETIME;
     this.telemetry.state = 'approaching';
     this.telemetry.dismissTimer = 0;
 
-    if (m.timer >= 2.0 || dist < 4.0) {
-      // 4. Counterplay: Drift Wake Deflection
+    if (m.timer >= TOTAL_LIFETIME || dist < 4.0) {
+      // Counterplay: Drift Wake Deflection
       const isDrifting = targetBoat.state.drifting;
-      if (isDrifting && m.timer >= 1.4) { // final window
-        this.hudNotice('💥 浪花诱爆！MISSILE DEFLECTED!', '');
-        targetBoat.activateTechniqueBoost(); // +15% turbo short boost
+      if (isDrifting && m.timer >= 2.8) {
+        this.hudNotice('💥 浪花诱爆成功 · 获得涡轮冲刺！', '');
+        targetBoat.activateTechniqueBoost();
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
-        m.dismissTimer = 0.8;
+        m.dismissTimer = 0.9;
         m.mesh.visible = false;
         m.reticle.visible = false;
         return;
@@ -368,20 +380,18 @@ export class SinglePlayerMissilesSystem {
       for (const otherBoat of boats) {
         if (otherBoat.id === targetBoat.id) continue;
         const otherDist = targetBoat.state.position.distanceTo(otherBoat.state.position);
-        if (otherDist <= 4.5 && !racers[otherBoat.id]?.eliminated && !racers[otherBoat.id]?.isPlayer) {
+        if (otherDist <= 5.0 && !racers[otherBoat.id]?.eliminated && !racers[otherBoat.id]?.isPlayer) {
           hitTarget = otherBoat;
           break;
         }
       }
 
-      // Impact Physics: Non-fatal vertical blast vy = 17.5 m/s, 720 deg tumble spin, water geyser
-      const heading = hitTarget.state.heading;
-      const forwardX = Math.sin(heading) * 5.0; // small push
-      const forwardZ = Math.cos(heading) * 5.0;
-      hitTarget.applyScudHit(forwardX, forwardZ, 17.5);
+      // Impact: safe vertical pop retaining forward speed
+      hitTarget.applyScudHit(0, 0, 14.0);
 
+      this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');
       m.state = 'hit';
-      m.dismissTimer = 0.8;
+      m.dismissTimer = 0.9;
       m.mesh.visible = false;
       m.reticle.visible = false;
     }
