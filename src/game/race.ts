@@ -48,8 +48,8 @@ export interface RaceEvents {
   eliminated?(r: RacerState, failure: FlightFailureSnapshot): void;
 }
 
-const COUNTDOWN_S = 4.2;
-const TICK_S = 1.4;
+export const COUNTDOWN_S = 4.2;
+export const TICK_S = 1.4;
 /** Per-frame |du| above this = cut/teleport. */
 const JUMP_U = 0.02;
 /** Must be this close to the spline (m) for a gate / the line to count. */

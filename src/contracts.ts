@@ -642,7 +642,7 @@ export interface RaceBattleEvent {
 
 // --------------------------------------------------------------- camera ----
 
-export type CameraMode = 'orbit' | 'chase' | 'results' | 'defeat';
+export type CameraMode = 'orbit' | 'showcase' | 'countdown' | 'chase' | 'results' | 'defeat';
 
 // --------------------------------------------------------------- layers ----
 

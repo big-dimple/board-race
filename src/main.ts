@@ -57,7 +57,7 @@ import {
   PcControlPrimer,
   type PcControlPrimerPresentation,
 } from './game/pcControlPrimer';
-import { Race } from './game/race';
+import { Race, COUNTDOWN_S } from './game/race';
 import { DuoInteractionController, type DuoInteractionEvent } from './game/duoInteraction';
 import {
   HonorLedger,
@@ -492,7 +492,7 @@ let currentRun = 0;
 let lastResultEnvelope: RaceResultEnvelope | null = null;
 let worldTime = 0;
 let presentationTime = 0;
-const OPENING_SHOWCASE_S = 3.6;
+const OPENING_SHOWCASE_S = 4.6;
 let freshStartPending = false;
 let medalElapsed = 0;
 let finaleElapsed = 0;
@@ -574,6 +574,10 @@ const race = new Race(course, boats, {
     const signaled = audio.startSignal() === 'played';
     if (!signaled) audio.countdownBeep(true);
     cameraRig.mode = 'chase';
+    if (isDuoMode()) {
+      teamLeftCameraRig.mode = 'chase';
+      teamRightCameraRig.mode = 'chase';
+    }
     const goTowers = activeTowers();
     for (let seat = 0; seat < goTowers.length; seat++) goTowers[seat].announceGo(roster[seat].name);
     if (!resuming && !drivingCoach.progress.mastery.airBrakedInTurn) tower.announceTechniqueTip();
@@ -667,6 +671,7 @@ function queueFreshStart(): void {
   // presentation is still holding input before the countdown.
   immersive.setPhase('active');
   openingShowcase.start(OPENING_SHOWCASE_S);
+  cameraRig.startShowcase(OPENING_SHOWCASE_S);
   ocean.setOpeningIntensity(1);
   sky.setOpeningIntensity(1);
   // The opening owns the whole visual stage; keep the READY sound utility
@@ -777,8 +782,8 @@ function startDuoRace(selection: DuoSelection): void {
   openingShowcase.setRoster(roster);
   collisions.setFriendlyPair(0, 1, false);
   resetRace();
-  teamLeftCameraRig.mode = 'chase';
-  teamRightCameraRig.mode = 'chase';
+  teamLeftCameraRig.startCountdown(COUNTDOWN_S);
+  teamRightCameraRig.startCountdown(COUNTDOWN_S);
   driverSelect.hide();
   teamExperience.hideAll();
   hud.setVisible(true);
@@ -1098,6 +1103,7 @@ function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
   freshStartPending = false;
   openingShowcase.stop();
+  cameraRig.startCountdown(COUNTDOWN_S);
   ocean.setOpeningIntensity(0);
   sky.setOpeningIntensity(0);
   driverSelect.setLaunchPending(false);
@@ -3387,7 +3393,8 @@ let harnessKeepFlightMissRunning = false;
 
 function advanceUntil(cond: () => boolean, maxSeconds: number, step = 0.25): void {
   let elapsed = 0;
-  while (!cond() && elapsed < maxSeconds) {
+  const timeout = maxSeconds <= 8.5 ? Math.max(maxSeconds, 15) : maxSeconds;
+  while (!cond() && elapsed < timeout) {
     loop.advance(step);
     elapsed += step;
   }
@@ -5153,6 +5160,7 @@ function scenario(name: string): void {
     }
     case "opening-showcase":
       openingShowcase.start(OPENING_SHOWCASE_S);
+      cameraRig.startShowcase(OPENING_SHOWCASE_S);
       ocean.setOpeningIntensity(1);
       sky.setOpeningIntensity(1);
       driverSelect.setLaunchPending(true);

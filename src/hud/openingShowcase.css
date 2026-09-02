@@ -103,6 +103,29 @@
   font: 950 8px/1 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
+.opening-driver-echo-self {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  color: #07101d;
+  background: #ffe600;
+  font: 950 8px/1 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  box-shadow: 0 0 8px rgba(255, 230, 0, .6);
+}
+
+.opening-driver-echo.is-player {
+  border-left: 3px solid #ffe600;
+  border-bottom-color: rgba(255, 230, 0, .8);
+  box-shadow: 5px 5px 0 rgba(4, 7, 20, .75), 0 0 22px rgba(255, 230, 0, .45);
+}
+
+.opening-driver-echo.is-player .opening-driver-echo-rail {
+  background: #ffe600;
+}
+
+.opening-driver-echo.is-player .opening-driver-echo-portrait {
+  border-color: #ffe600;
+}
+
 .opening-driver-echo-model {
   margin-top: 4px;
   color: rgba(244, 254, 255, .76);
@@ -125,6 +148,7 @@
 
   .opening-driver-echo-name { font-size: 11px; }
   .opening-driver-echo-badge { padding: 2px 3px; font-size: 7px; }
+  .opening-driver-echo-self { padding: 2px 3px; font-size: 7px; }
   .opening-driver-echo-model { margin-top: 3px; font-size: 7px; }
 }
 

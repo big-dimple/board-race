@@ -1,8 +1,16 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“高光时刻视频与回放底层逻辑重构（导弹击落与720°爆炸翻滚实录回放）、霸气战斧巡航导弹与超萌卡通大鲨鱼导弹全尺寸 3D 造型与实弹呈现、灯塔唯美三层体积光束与星芒透镜光晕（POTG Missile Replay, Dominator Tomahawk & Chibi Shark 3D Models, Tri-Layer Aesthetic Lighthouse Beam）”。
+状态：主分支当前工作包已圆满交付“开场立绘巡礼与倒计时镜头动线环环相扣丝滑接应、玩家角色精准对焦入位与本人标识高亮、开场整体时长延长 1 秒适配手机浏览器（Seamless Opening Showcase & Countdown Camera Choreography, Focused Player Alignment & Mobile Delay Calibration）”。
 
 ## 当前工作包
+
+- **开场立绘巡礼与倒计时镜头动线环环相扣丝滑接应（Seamless Opening Showcase & Countdown Camera Choreography）**：
+  1. **开场立绘巡礼环绕机位重构（Showcase Trajectory）**：`CameraRig`（`src/game/chaseCamera.ts`）与 `OpeningShowcase`（`src/hud/openingShowcase.ts`）告别以往生硬随意旋转的 generic orbit，建立基于船队阵型与赛道朝向的专属巡礼轨道（$-50^\circ$ 前侧广角全局建景 $\to -168^\circ$ 后方俯视进位），6 位车手立绘卡片错落优雅浮现并在尾声自然渐隐；
+  2. **倒计时平滑俯冲接应与视角锁定（Countdown Smooth Swoop & Lock-On）**：倒计时阶段（3 $\to$ 2 $\to$ 1 $\to$ GO）摄像机从巡礼结束机位丝滑俯冲归位至玩家快艇正后方（半径 $10.8\text{m} \to 9.5\text{m}$，高度 $3.9\text{m} \to 3.6\text{m}$，角度 $-168^\circ \to -180^\circ$），视野紧紧锁定前方 `START` 起跑拱门与水面绿线；
+  3. **GO 冲刺零突变无缝衔接（Zero-Jerk Transition on GO）**：倒计时归零发车的瞬间，摄像机位置、角度与 FOV 已 100.0% 精准契合第三人称追踪相机（Chase Cam）初始基线，$\Delta\text{pos} = 0, \Delta\text{look} = 0, \Delta\text{fov} = 0$，彻底消除发车瞬间镜头剧烈抽动与眩晕感，起步手感如丝般顺滑；
+  4. **玩家角色精准识别与黄金光环（Focused Player Identification）**：`OpeningShowcase` 为玩家自驾快艇的立绘卡片配置专属高亮黄金外框、光晕与 `★ 本人出击` 醒目标签，巡礼归位时镜头正对着玩家后颈与驾驶姿态，让玩家在发车前 100% 找准自己是谁；
+  5. **开场总时长延长 1 秒（Mobile Browser Bottom Prompt Delay）**：`OPENING_SHOWCASE_S` 由 $3.6\text{s}$ 延长至 $4.6\text{s}$，开场整体时长扩展至 $8.8\text{s}$，为手机 Chrome 等浏览器底部弹出的系统提示条（退出全屏/手势导航条）留出充足的自动隐藏与平复窗口，彻底避免玩家在发车瞬间被底部提示遮挡操作。
+
 
 - **高光时刻视频与回放底层逻辑重构（POTG Missile Replay & Climax Explosion Tracking）**：
   1. **全量导弹与爆炸火球环形缓冲录像**：`HighlightRecorder`（`src/game/highlightRecorder.ts`）与 `HighlightSample` 全面纳入导弹 3D 空间轨迹、四元数姿态与爆炸火球（`missiles: ReplayMissileSnapshot[]`），彻底解决“空中被导弹炸回放播放不了/突然掉到底上/没有被炸飞”的底层阉割问题；

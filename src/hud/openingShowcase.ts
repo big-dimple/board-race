@@ -9,6 +9,7 @@ type Echo = {
   readonly portrait: HTMLImageElement;
   readonly name: HTMLSpanElement;
   readonly badge: HTMLSpanElement;
+  readonly selfBadge: HTMLSpanElement;
   readonly model: HTMLSpanElement;
   readonly anchor: THREE.Vector3;
 };
@@ -81,15 +82,18 @@ export class OpeningShowcase {
       const badge = document.createElement('span');
       badge.className = 'opening-driver-echo-badge';
       badge.textContent = '女将';
+      const selfBadge = document.createElement('span');
+      selfBadge.className = 'opening-driver-echo-self';
+      selfBadge.textContent = '本人出击';
       const model = document.createElement('span');
       model.className = 'opening-driver-echo-model';
       const headline = document.createElement('span');
       headline.className = 'opening-driver-echo-headline';
-      headline.append(name, badge);
+      headline.append(name, selfBadge, badge);
       copy.append(headline, model);
       echoRoot.append(rail, portrait, copy);
       this.root.appendChild(echoRoot);
-      this.echoes.push({ root: echoRoot, portrait, name, badge, model, anchor: new THREE.Vector3() });
+      this.echoes.push({ root: echoRoot, portrait, name, badge, selfBadge, model, anchor: new THREE.Vector3() });
     }
     this.setRoster(roster);
   }
@@ -118,9 +122,12 @@ export class OpeningShowcase {
       echo.portrait.style.objectPosition = profile.portraitPosition;
       echo.name.textContent = profile.callsign;
       const female = profile.pronouns === '她';
+      const isPlayer = Boolean(racer.isPlayer);
       echo.root.classList.toggle('female', female);
+      echo.root.classList.toggle('is-player', isPlayer);
       echo.root.dataset.pronouns = profile.pronouns;
       echo.badge.hidden = !female;
+      echo.selfBadge.hidden = !isPlayer;
       echo.model.textContent = `${profile.name} // ${profile.specialty}`;
     }
   }

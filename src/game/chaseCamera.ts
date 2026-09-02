@@ -96,6 +96,12 @@ export class CameraRig {
   private activeMode: CameraMode = 'orbit';
   private initialized = false;
 
+  // mode timing
+  private showcaseElapsed = 0;
+  private showcaseDuration = 4.6;
+  private countdownElapsed = 0;
+  private countdownDuration = 4.2;
+
   // live follow state
   private readonly pos = new THREE.Vector3();
   private readonly vel = new THREE.Vector3();
@@ -139,6 +145,26 @@ export class CameraRig {
     this.chaseMinDistance = tuning.chaseMinDistance ?? CHASE_MIN_DIST;
     this.lookAhead = tuning.lookAhead ?? LOOK_AHEAD;
     this.fovBias = tuning.fovBias ?? 0;
+  }
+
+  startShowcase(duration = 4.6): void {
+    this.mode = 'showcase';
+    this.activeMode = 'showcase';
+    this.showcaseElapsed = 0;
+    this.showcaseDuration = Math.max(0.1, duration);
+    this.blendT = 0;
+    this.blendPos.copy(this.pos);
+    this.blendLook.copy(this.look);
+    this.blendFov = this.fov;
+  }
+
+  startCountdown(duration = 4.2): void {
+    this.mode = 'countdown';
+    this.activeMode = 'countdown';
+    this.countdownElapsed = 0;
+    this.countdownDuration = Math.max(0.1, duration);
+    // Seamless pickup from showcase exit: if coming straight from showcase, blendT is 1
+    this.blendT = 1;
   }
 
   /** Additive 0..1 shake impulse; decays exponentially at ~5/s. */
@@ -425,6 +451,75 @@ export class CameraRig {
             ROLL_MAX * (driftRoll + st.flightAirBrake * 0.8),
           );
       rollTarget += this.collisionRoll;
+    } else if (this.activeMode === 'showcase') {
+      this.showcaseElapsed = Math.min(this.showcaseDuration, this.showcaseElapsed + dt);
+      const p = this.showcaseDuration > 0 ? this.showcaseElapsed / this.showcaseDuration : 1;
+      const e = p * p * (3 - 2 * p); // smoothstep 0..1
+
+      // Start at front-left (-55 deg relative to heading, looking back-right across the fleet)
+      // End at rear-left (-160 deg relative to heading, staged for countdown swoop)
+      const angleStart = -0.9599; // -55 deg
+      const angleEnd = -2.7925; // -160 deg
+      const psi = angleStart + (angleEnd - angleStart) * e;
+
+      const radius = 15.5 + (11.5 - 15.5) * e;
+      const height = 4.8 + (4.0 - 4.8) * e;
+
+      const rx = fz;
+      const rz = -fx;
+      const forwardOffset = Math.cos(psi) * radius;
+      const rightOffset = Math.sin(psi) * radius;
+
+      target.set(
+        bx + fx * forwardOffset + rx * rightOffset,
+        by + height,
+        bz + fz * forwardOffset + rz * rightOffset,
+      );
+
+      const lookForward = 2.5 + 1.5 * e;
+      const lookUp = 1.0 * (1 - e);
+      look.set(
+        bx + fx * lookForward,
+        by + lookUp + waterHeight(bx + fx * lookForward, bz + fz * lookForward, t),
+        bz + fz * lookForward,
+      );
+
+      fovTarget = 64 + (68 - 64) * e;
+      rollTarget = 0;
+      this.heaveAnchor = by;
+    } else if (this.activeMode === 'countdown') {
+      this.countdownElapsed = Math.min(this.countdownDuration, this.countdownElapsed + dt);
+      const s = this.countdownDuration > 0 ? this.countdownElapsed / this.countdownDuration : 1;
+      const e = s * s * (3 - 2 * s); // smoothstep 0..1
+
+      // Starts at -160 deg (where showcase ended) and smoothly rotates to -180 deg (directly behind boat)
+      const angleStart = -2.7925; // -160 deg
+      const angleEnd = -Math.PI; // -180 deg (behind boat)
+      const psi = angleStart + (angleEnd - angleStart) * e;
+
+      const radius = 11.5 + (this.chaseBack - 11.5) * e; // 11.5 -> 9.5
+      const height = 4.0 + (this.chaseUp - 4.0) * e; // 4.0 -> 3.6
+
+      const rx = fz;
+      const rz = -fx;
+      const forwardOffset = Math.cos(psi) * radius;
+      const rightOffset = Math.sin(psi) * radius;
+
+      target.set(
+        bx + fx * forwardOffset + rx * rightOffset,
+        by + height,
+        bz + fz * forwardOffset + rz * rightOffset,
+      );
+
+      look.set(
+        bx + fx * this.lookAhead,
+        by + waterHeight(bx + fx * this.lookAhead, bz + fz * this.lookAhead, t),
+        bz + fz * this.lookAhead,
+      );
+
+      fovTarget = 68 + (BASE_FOV - 68) * e;
+      rollTarget = 0;
+      this.heaveAnchor = by;
     } else {
       // cinematic orbits around the helm
       boat.riderMount.getWorldPosition(this.helm);
@@ -470,6 +565,16 @@ export class CameraRig {
       p.y += v.y * dt;
       p.z += v.z * dt;
       const lk = 1 - Math.exp(-LOOK_RATE * dt);
+      this.look.x += (look.x - this.look.x) * lk;
+      this.look.y += (look.y - this.look.y) * lk;
+      this.look.z += (look.z - this.look.z) * lk;
+    } else if (this.activeMode === 'showcase' || this.activeMode === 'countdown') {
+      const pk = 1 - Math.exp(-24 * dt);
+      p.x += (target.x - p.x) * pk;
+      p.y += (target.y - p.y) * pk;
+      p.z += (target.z - p.z) * pk;
+      this.vel.set(0, 0, 0);
+      const lk = 1 - Math.exp(-24 * dt);
       this.look.x += (look.x - this.look.x) * lk;
       this.look.y += (look.y - this.look.y) * lk;
       this.look.z += (look.z - this.look.z) * lk;
