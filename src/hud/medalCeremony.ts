@@ -8,14 +8,14 @@ const COLORS = ['#ffcf4a', '#55e7ff', '#ff3d7f', '#39ff88', '#f4feff'];
 /** One low-resolution canvas for the entire medal ceremony. */
 export class MedalCeremonyCanvas {
   readonly canvas: HTMLCanvasElement;
-  private readonly medalArt: HTMLImageElement;
+  private readonly medalArt: HTMLImageElement | null = null;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   private width = 0;
   private height = 0;
   private ratio = 1;
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, withMedalArt = false) {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'hud-medal-canvas';
     this.canvas.setAttribute('aria-hidden', 'true');
@@ -23,12 +23,15 @@ export class MedalCeremonyCanvas {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('Medal ceremony requires Canvas2D');
     this.ctx = ctx;
-    this.medalArt = document.createElement('img');
-    this.medalArt.className = 'hud-medal-art';
-    this.medalArt.src = machoMedalUrl;
-    this.medalArt.alt = '';
-    this.medalArt.setAttribute('aria-hidden', 'true');
-    parent.appendChild(this.medalArt);
+
+    if (withMedalArt) {
+      this.medalArt = document.createElement('img');
+      this.medalArt.className = 'hud-medal-art';
+      this.medalArt.src = machoMedalUrl;
+      this.medalArt.alt = '';
+      this.medalArt.setAttribute('aria-hidden', 'true');
+      parent.appendChild(this.medalArt);
+    }
   }
 
   render(elapsed: number, duration: number, tier: MedalTier): void {
@@ -46,7 +49,9 @@ export class MedalCeremonyCanvas {
     } else {
       this.drawStaticLaurel(w, h);
     }
-    this.medalArt.dataset.tier = tier;
+    if (this.medalArt) {
+      this.medalArt.dataset.tier = tier;
+    }
 
     if (!this.reducedMotion && elapsed > duration - 0.8) {
       const fade = Math.max(0, (elapsed - (duration - 0.8)) / 0.8);

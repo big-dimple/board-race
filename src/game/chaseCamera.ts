@@ -456,14 +456,15 @@ export class CameraRig {
       const p = this.showcaseDuration > 0 ? this.showcaseElapsed / this.showcaseDuration : 1;
       const e = p * p * (3 - 2 * p); // smoothstep 0..1
 
-      // Grand establishing aerial shot sweeping from far-left to rear-left
-      const angleStart = -0.733; // -42 deg (front-left grand establishing view)
+      // Majestic Sky Descent & Clockwise Aerial Orbit around starting grid
+      // Starts from high front-right (+72 deg) and sweeps clockwise to rear-left (-168 deg / -180 deg)
+      const angleStart = 1.256; // +72 deg (front-right high aerial overview)
       const angleEnd = -2.932; // -168 deg (rear-left staging for countdown swoop)
       const psi = angleStart + (angleEnd - angleStart) * e;
 
-      // 34m far-and-high panorama swooping dynamically down-and-in to 11.2m
-      const radius = 34.0 + (11.2 - 34.0) * e;
-      const height = 12.5 + (3.9 - 12.5) * e;
+      // Descends from high sky (24.0m) down to racing water-level (3.9m)
+      const radius = 38.0 + (11.2 - 38.0) * e;
+      const height = 24.0 + (3.9 - 24.0) * e;
 
       const rx = fz;
       const rz = -fx;
@@ -476,16 +477,16 @@ export class CameraRig {
         bz + fz * forwardOffset + rz * rightOffset,
       );
 
-      const lookForward = 3.5 + 0.5 * e;
-      const lookRight = 2.0 * (1 - e);
-      const lookUp = 1.2 * (1 - e);
+      const lookForward = 2.5 + 1.5 * e;
+      const lookRight = 2.5 * (1 - e);
+      const lookUp = 1.8 * (1 - e);
       look.set(
         bx + fx * lookForward + rx * lookRight,
         by + lookUp + waterHeight(bx + fx * lookForward, bz + fz * lookForward, t),
         bz + fz * lookForward + rz * lookRight,
       );
 
-      fovTarget = 56 + (68 - 56) * e;
+      fovTarget = 52 + (68 - 52) * e;
       rollTarget = 0;
       this.heaveAnchor = by;
     } else if (this.activeMode === 'countdown') {

@@ -584,7 +584,7 @@ export class HUD {
     this.medalEl = h('div', 'hud-medal-ceremony', this.root);
     this.medalEl.setAttribute('role', 'dialog');
     this.medalEl.setAttribute('aria-modal', 'true');
-    this.medalCanvas = new MedalCeremonyCanvas(this.medalEl);
+    this.medalCanvas = new MedalCeremonyCanvas(this.medalEl, true);
     const medalCopy = h('div', 'hud-medal-copy', this.medalEl);
     this.medalKicker = h('div', 'hud-medal-kicker', medalCopy, '三飞达成 · 实力兑现');
     this.medalTitle = h('div', 'hud-medal-title hud-inked', medalCopy, '猛男');
@@ -1997,6 +1997,17 @@ export class HUD {
 
   private enqueueImpact(notice: ImpactNotice): void {
     const slot = this.slotForLane(notice.lane);
+    // Deduplication check: if identical notice is already active, just refresh duration
+    if (slot.active && (slot.active.title === notice.title && slot.active.detail === notice.detail)) {
+      slot.timer = Math.max(slot.timer, notice.duration);
+      return;
+    }
+    // Remove duplicates from queue
+    const existingIndex = slot.queue.findIndex((q) => q.title === notice.title && q.detail === notice.detail);
+    if (existingIndex !== -1) {
+      slot.queue.splice(existingIndex, 1);
+    }
+
     if (slot.timer <= 0 || notice.priority >= slot.priority) {
       if (slot.timer > 0 && slot.priority >= 50 && slot.active) {
         slot.queue.unshift({ ...slot.active, duration: Math.min(slot.timer, 0.35) });

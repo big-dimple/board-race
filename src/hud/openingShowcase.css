@@ -19,6 +19,7 @@
   --echo-color: #55e7ff;
   --echo-progress: 0;
   position: absolute;
+  z-index: 20;
   left: var(--echo-x, 50%);
   top: var(--echo-y, 50%);
   display: grid;
@@ -114,9 +115,11 @@
 }
 
 .opening-driver-echo.is-player {
-  border-left: 3px solid #ffe600;
-  border-bottom-color: rgba(255, 230, 0, .8);
-  box-shadow: 5px 5px 0 rgba(4, 7, 20, .75), 0 0 22px rgba(255, 230, 0, .45);
+  z-index: 100 !important;
+  border-left: 3.5px solid #ffe600 !important;
+  border-bottom-color: rgba(255, 230, 0, .9) !important;
+  background: rgba(8, 14, 38, 0.92) !important;
+  box-shadow: 5px 5px 0 rgba(4, 7, 20, .85), 0 0 28px rgba(255, 230, 0, .6) !important;
 }
 
 .opening-driver-echo.is-player .opening-driver-echo-rail {
