@@ -420,7 +420,19 @@ export class SinglePlayerMissilesSystem {
     this.telemetry.dismissTimer = 0;
 
     if (m.timer >= TOTAL_LIFETIME || dist < 4.0) {
-      // Counterplay: Drift Wake Deflection
+      // 1. AIRBORNE IMMUNITY: If target is in flight or airborne, missile CANNOT hit!
+      const isAirborne = targetBoat.state.flightPhase !== 'surface' || targetBoat.state.airborne || targetBoat.state.position.y > 1.2;
+      if (isAirborne) {
+        this.hudNotice('🌊【空中豁免】快艇凌空腾跃 · 飞弹脱锁坠海！', '');
+        targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
+        m.state = 'deflected';
+        m.dismissTimer = 0.9;
+        m.mesh.visible = false;
+        m.reticle.visible = false;
+        return;
+      }
+
+      // 2. Counterplay: Drift Wake Deflection
       const isDrifting = targetBoat.state.drifting;
       if (isDrifting && m.timer >= 2.8) {
         this.hudNotice('💥 浪花诱爆成功 · 获得涡轮冲刺！', '');
@@ -433,7 +445,7 @@ export class SinglePlayerMissilesSystem {
         return;
       }
 
-      // Friendly Fire Shield: check other AIs
+      // 3. Friendly Fire Shield: check other AIs
       let hitTarget = targetBoat;
       for (const otherBoat of boats) {
         if (otherBoat.id === targetBoat.id) continue;
@@ -444,7 +456,7 @@ export class SinglePlayerMissilesSystem {
         }
       }
 
-      // Impact: safe vertical pop retaining forward speed
+      // 4. Water Surface Impact: safe vertical pop retaining forward speed
       hitTarget.applyScudHit(0, 0, 14.0);
 
       this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');

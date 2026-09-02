@@ -125,7 +125,7 @@ export class PcControlPrimer {
       progress: 1, ready: true,
     };
     if (this.current === 'success') return {
-      step: 'success', key: '✓', kicker: 'FLIGHT ACCEPTED',
+      step: 'success', key: '✓', kicker: '飞行入轨达成',
       title: '起飞成功', detail: '沿白雾航道穿过两杆', tone: 'success',
       progress: 1, ready: true,
     };

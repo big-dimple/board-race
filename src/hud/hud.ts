@@ -724,14 +724,14 @@ export class HUD {
     if (race.phase === 'racing' && st.flightPhase !== this.seatFlightPhase[seat] && st.flightPhase === 'spool') {
       const flightNumber = st.flightsCleared + 1;
       this.enqueueImpact({
-        kind: 'flight-launch', kicker: flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`,
+        kind: 'flight-launch', kicker: flightNumber <= 3 ? `第 ${flightNumber} / 3 飞` : `第 ${flightNumber} 飞`,
         title: `第 ${flightNumber} 飞`, detail: '',
         color: PALETTE.flight, duration: 0.7, priority: 75, lane,
       });
     }
     if (race.phase === 'racing' && st.flightExtended) {
       this.enqueueImpact({
-        kind: 'flight-extend', kicker: 'AIR CHARGE', title: '续航 +2.4 秒', detail: '稳住空刹 · 对准入弯',
+        kind: 'flight-extend', kicker: '空中充能', title: '续航 +2.4 秒', detail: '稳住空刹 · 对准入弯',
         color: PALETTE.flight, duration: 0.72, priority: 78, lane,
       });
     }
@@ -740,7 +740,7 @@ export class HUD {
     if (race.phase === 'racing' && st.flightGateProgress > this.seatFlightGateProgress[seat] &&
         st.flightRouteState !== 'passed') {
       const flightNumber = Math.max(1, st.flightsCleared + (st.flightRouteIndex >= 0 ? 1 : 0));
-      const kicker = flightNumber <= 3 ? `FLIGHT ${flightNumber} / 3` : `FLIGHT ${flightNumber}`;
+      const kicker = flightNumber <= 3 ? `第 ${flightNumber} / 3 飞` : `第 ${flightNumber} 飞`;
       const title = flightNumber === 5 ? '卧槽，最难发卡弯过了！' : '通过';
       this.enqueueImpact({
         kind: 'gate', kicker, title, detail: flightNumber === 5 ? '大弧度发卡弯 · 稳住！' : '',
@@ -754,19 +754,19 @@ export class HUD {
         if (flightNumber < 3) {
           const title = flightNumber === 1 ? '第一飞，开局。' : '你已超过天下 80%的男人';
           this.enqueueImpact({
-            kind: 'route-clear', kicker: `${flightNumber} / 3`, title,
+            kind: 'route-clear', kicker: `${flightNumber} / 3 飞达成`, title,
             detail: flightNumber === 2 ? '最后一飞，定级。' : '',
             color: PALETTE.flight, duration: 1.1, priority: 60, lane,
           });
         } else if (flightNumber === 4) {
           this.enqueueImpact({
-            kind: 'route-clear', kicker: 'FLIGHT 4 CLEARED', title: '右切入弯 ➔ 迎战第 5 飞',
+            kind: 'route-clear', kicker: '第 4 飞达成', title: '右切入弯 ➔ 迎战第 5 飞',
             detail: '水面右转大弯心 · 对准第 5 飞天轨',
             color: PALETTE.flight, duration: 1.5, priority: 65, lane,
           });
         } else if (flightNumber === 5) {
           this.enqueueImpact({
-            kind: 'route-clear', kicker: 'FLIGHT 5 CLEARED', title: '卧槽，最难发卡弯过了！',
+            kind: 'route-clear', kicker: '第 5 飞达成', title: '卧槽，最难发卡弯过了！',
             detail: '大弧度天轨回旋完美通过 · 保持节奏迎战第 6 飞',
             color: PALETTE.flight, duration: 2.0, priority: 75, lane,
           });
@@ -1224,7 +1224,7 @@ export class HUD {
   showFinalReady(lane: 'left' | 'center' | 'right' = 'center'): void {
     const brake = this.controlDevice === 'mobile' ? '按住「刹」回港刹车' : `按住 ${this.controlLabels.drift} 回港刹车`;
     this.enqueueImpact({
-      kind: 'final-ready', kicker: 'SEVEN FLIGHTS CERTIFIED', title: '七飞完成 · 航线解除', detail: `${brake} · 穿过金色终点`,
+      kind: 'final-ready', kicker: '七飞大满贯达成', title: '七飞完成 · 航线解除', detail: `${brake} · 穿过金色终点`,
       color: PALETTE.sunFlare, duration: 2.1, priority: 96, lane,
     });
   }
@@ -1289,16 +1289,16 @@ export class HUD {
 
   showExcellentLocked(total: number): void {
     this.enqueueImpact({
-      kind: 'excellent', kicker: 'LEAD TAKEN', title: '优秀已锁定', detail: `优秀完成 × ${total}`,
+      kind: 'excellent', kicker: '领跑确立', title: '优秀已锁定', detail: `优秀完成 × ${total}`,
       color: PALETTE.uiAccent, duration: 1.2, priority: 90,
     });
   }
 
   /** Short race-direction notice. In split play it belongs to one seat's card slot. */
-  showTransientNotice(detail: string, title = '互动已触发', lane: 'left' | 'center' | 'right' = 'center'): void {
+  showTransientNotice(detail: string, title = '赛事通报', lane: 'left' | 'center' | 'right' = 'center', kicker = '赛场速递'): void {
     this.enqueueImpact({
       kind: 'duo-interaction',
-      kicker: 'DUO PLAY',
+      kicker,
       title,
       detail,
       color: PALETTE.uiAccent,
@@ -1322,7 +1322,7 @@ export class HUD {
       : `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 荣誉已记录`;
     this.enqueueImpact({
       kind: 'honor-coin',
-      kicker: safeStreak > 0 ? `COIN COMBO ×${safeStreak + 1}` : 'COIN PICKUP',
+      kicker: safeStreak > 0 ? `金币连击 ×${safeStreak + 1}` : '金币收集',
       title: `${title} +${value}`,
       detail,
       color: PALETTE.sunFlare,
@@ -1336,7 +1336,7 @@ export class HUD {
     this.setBestFlights(best, flights);
     if (flights <= 3) return;
     this.enqueueImpact({
-      kind: 'flight-pass', kicker: newBest ? 'NEW BEST' : `FLIGHT ${flights}`,
+      kind: 'flight-pass', kicker: newBest ? '历史新高' : `第 ${flights} 飞通过`,
       title: `第 ${flights} 飞通过`, detail: `本局 ${flights} 飞 · BEST ${best}`,
       color: PALETTE.flight, duration: 0.75, priority: 58, lane,
     });

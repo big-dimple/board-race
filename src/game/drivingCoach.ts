@@ -293,7 +293,7 @@ export class DrivingCoach {
     if (frame.turnWarning && state.flightsCleared >= 1 && !this.progress.mastery.airBrakedInTurn) {
       return {
         id: 'air-brake', focus: 'drift-control', stage: '空中转向', control: controls.drift,
-        kicker: '急弯 · AIR BRAKE',
+        kicker: '急弯 · 空中减速',
         title: `按住 ${controls.drift} 空刹`, detail: `${controls.steer} 对准白雾航道 · 穿过两杆`, tone: 'warning',
       };
     }
@@ -329,7 +329,7 @@ export class DrivingCoach {
         (this.preferSteerLesson || this.progress.mastery.bankedCharge)) {
       return {
         id: 'steer', focus: 'steer-control', stage: '转向', control: controls.steer,
-        kicker: 'AUTO THROTTLE', title: `船会自己冲 · 只管 ${controls.steer}`,
+        kicker: '自动巡航推进', title: `船会自己冲 · 只管 ${controls.steer}`,
         detail: '轻调方向，回到主航线', tone: 'surface',
       };
     }
@@ -341,12 +341,12 @@ export class DrivingCoach {
       };
       if (state.drifting) return {
         id: 'bank', focus: 'drift-meter', stage: '漂移蓄能', control: controls.drift,
-        kicker: 'DRIFT CHARGE', title: `继续按住 ${controls.drift}`,
+        kicker: '漂移蓄力中', title: `继续按住 ${controls.drift}`,
         detail: '看船边左条 · 到黄色刻度再松开', tone: 'surface',
       };
       return {
         id: 'drift', focus: 'drift-control', stage: controls.drift === 'SHIFT' ? 'PC 漂移' : '漂移', control: controls.drift,
-        kicker: 'DRIFT → BANK', title: controls.drift.includes('「漂」') ? `按住 ${controls.drift}` : `按住 ${controls.drift} 漂移`,
+        kicker: '入弯漂移蓄能', title: controls.drift.includes('「漂」') ? `按住 ${controls.drift}` : `按住 ${controls.drift} 漂移`,
         detail: '船边左条会开始蓄力 · 黄线后才够 1 格', tone: 'surface',
       };
     }
@@ -360,7 +360,7 @@ export class DrivingCoach {
     if (state.flightPhase === 'cruise' && state.flightsCleared === 0 && this.flightGaugeTimer > 0) {
       return {
         id: 'flight-gauge', focus: 'flight-meter', stage: '飞行读条', control: '',
-        kicker: 'FLIGHT TIMER', title: '右条 = 本次飞行剩余时间',
+        kicker: '飞行倒计时', title: '右条 = 本次飞行剩余时间',
         detail: '菱形亮起几格，就有几次可用库存', tone: 'flight',
       };
     }
