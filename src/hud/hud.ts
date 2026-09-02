@@ -706,7 +706,7 @@ export class HUD {
     if (telemetry.state === 'deflected') {
       this.missilePipEl.classList.remove('evade-alert', 'hit');
       this.missilePipEl.classList.add('deflected');
-      this.missilePipCue.textContent = '💥 浪花诱爆成功 · 获得涡轮冲刺！';
+      this.missilePipCue.textContent = '👑 成功闪避诱爆 · 技术超群！';
     } else if (telemetry.state === 'hit') {
       this.missilePipEl.classList.remove('evade-alert', 'deflected');
       this.missilePipEl.classList.add('hit');

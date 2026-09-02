@@ -154,9 +154,7 @@ export class RivalDirector {
         continue;
       }
       const role = this.rivalIds.indexOf(id);
-      if (this.formationReleased || playerFlightsCleared >= 4) {
-        // The fourth pass is the exact end of formation assistance. Fixed driver
-        // skill remains, but no later input depends on the player's gap.
+      if (this.formationReleased) {
         this.biases[id] = 1;
         this.closingSpeeds[id] = 0;
         this.gapSeen[id] = 0;
@@ -176,8 +174,10 @@ export class RivalDirector {
       }
 
       const ahead = racer.progress - player.progress;
-      const minAhead = role === 0 ? 18 : 10;
-      const maxAhead = role === 0 ? 32 : 24;
+      // In late race (flightsCleared >= 3), keep a thrilling dogfight gap (12~24m)
+      const isLateRace = playerFlightsCleared >= 3;
+      const minAhead = isLateRace ? (role === 0 ? 12 : 8) : (role === 0 ? 18 : 10);
+      const maxAhead = isLateRace ? (role === 0 ? 24 : 18) : (role === 0 ? 32 : 24);
       const gapStep = this.previousGaps[id] - ahead;
       // Route-owner rebases, harness staging and resume frames are not physical
       // relative velocity. Reject their discontinuities instead of turning one
@@ -203,7 +203,7 @@ export class RivalDirector {
       const techniqueTarget = role === 0 ? 1 : 0.92;
       this.techniquePressure[id] = approach(this.techniquePressure[id], techniqueTarget, 2.4 * dt);
       const flightTargetScale = 1 + (this.biases[id] - 1) * (0.02 / (MAX_CHASE - 1));
-      const surfaceThrottleAssist = role === 1 || predictedAhead < maxAhead - 4 || closingPressure > 0.08;
+      const surfaceThrottleAssist = role === 1 || predictedAhead < maxAhead - 4 || closingPressure > 0.08 || isLateRace;
       setDirective(
         this.directives[id],
         this.biases[id],

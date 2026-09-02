@@ -427,10 +427,10 @@ export class SinglePlayerMissilesSystem {
       // 1. AIRBORNE IMMUNITY: If target is in flight or airborne, missile CANNOT hit!
       const isAirborne = targetBoat.state.flightPhase !== 'surface' || targetBoat.state.airborne || targetBoat.state.position.y > 1.2;
       if (isAirborne) {
-        if (m.isPlayer) this.hudNotice('🌊【空中豁免】快艇凌空腾跃 · 飞弹脱锁坠海！', '');
+        if (m.isPlayer) this.hudNotice('🌊【万幸腾空 · 绝妙凌空闪避！】千钧一发凌空拔起脱离制导！万幸绝技，大呼过瘾！', '');
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
-        m.dismissTimer = 0.9;
+        m.dismissTimer = 1.1;
         m.mesh.visible = false;
         m.reticle.visible = false;
         return;
@@ -439,11 +439,11 @@ export class SinglePlayerMissilesSystem {
       // 2. Counterplay: Drift Wake Deflection
       const isDrifting = targetBoat.state.drifting;
       if (isDrifting && m.timer >= 2.8) {
-        if (m.isPlayer) this.hudNotice('💥 浪花诱爆成功 · 获得涡轮冲刺！', '');
+        if (m.isPlayer) this.hudNotice('👑【神技诱爆 · 绝地反击！】毫秒级弯道漂移掀起水幕诱爆飞弹！技术超群，全场沸腾！', '');
         targetBoat.activateTechniqueBoost();
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
-        m.dismissTimer = 0.9;
+        m.dismissTimer = 1.1;
         m.mesh.visible = false;
         m.reticle.visible = false;
         return;
@@ -460,12 +460,18 @@ export class SinglePlayerMissilesSystem {
         }
       }
 
-      // 4. Water Surface Impact: safe vertical pop retaining forward speed
+      // 4. Impact execution
       hitTarget.applyScudHit(0, 0, 14.0);
 
-      if (m.isPlayer) this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');
-      m.state = 'hit';
-      m.dismissTimer = 0.9;
+      if (hitTarget.id !== targetBoat.id) {
+        // Successfully led missile into opponent!
+        if (m.isPlayer) this.hudNotice('🎯【借刀炸人 · 走位成仙！】极限走位引诱飞弹轰飞身旁对手！这波在大气层！', '');
+        m.state = 'deflected';
+      } else {
+        if (m.isPlayer) this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');
+        m.state = 'hit';
+      }
+      m.dismissTimer = 1.1;
       m.mesh.visible = false;
       m.reticle.visible = false;
     }
