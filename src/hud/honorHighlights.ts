@@ -1,5 +1,7 @@
 import type { HonorSummary, RaceMode } from '../contracts';
 import type { HonorHighlight } from '../game/honors';
+import machoMedalUrl from '../assets/achievements/macho-medal.webp';
+import { MedalCeremonyCanvas } from './medalCeremony';
 import './honorHighlights.css';
 
 const HONOR_AUTO_CONTINUE_S = 5;
@@ -32,12 +34,12 @@ export interface HonorReviewPayload {
 }
 
 /**
- * A short post-race accolade sequence inspired by hero-shooter end cards:
- * one spotlight, then several readable cards, then an explicit action row.
- * It never owns race state; callbacks decide when the next run starts.
+ * Grand Macho Medal & Accolades Ceremony (猛男勋章 · 终局荣耀大典)
  */
 export class HonorHighlights {
   private readonly root: HTMLElement;
+  private readonly medalCanvas: MedalCeremonyCanvas;
+  private readonly medalIcon: HTMLImageElement;
   private readonly kicker: HTMLDivElement;
   private readonly title: HTMLDivElement;
   private readonly result: HTMLDivElement;
@@ -75,12 +77,13 @@ export class HonorHighlights {
     this.root.className = 'honor-review';
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
-    this.root.setAttribute('aria-label', '赛后成就墙');
+    this.root.setAttribute('aria-label', '猛男勋章 · 终局荣耀大典');
     this.root.innerHTML = `
       <div class="honor-review-sheen" aria-hidden="true"></div>
       <header class="honor-review-head">
-        <div class="honor-review-kicker"></div>
-        <h2 class="honor-review-title"></h2>
+        <img class="honor-review-medal-icon" src="${machoMedalUrl}" alt="猛男勋章" draggable="false">
+        <div class="honor-review-kicker">🏅 MACHO MEDAL AWARD // 猛男勋章 · 终局荣耀大典</div>
+        <h2 class="honor-review-title">猛男勋章授予</h2>
         <div class="honor-review-result"></div>
       </header>
       <div class="honor-review-standings" role="list" aria-label="本局名次"></div>
@@ -102,11 +105,13 @@ export class HonorHighlights {
       <footer class="honor-review-foot">
         <span class="honor-review-score"></span>
         <span class="honor-review-hint"></span>
-        <button class="honor-review-continue" type="button"><span aria-hidden="true">▶</span> 游戏尚未结束</button>
-        <button class="honor-review-retry" type="button"><span aria-hidden="true">↻</span> 再来一局</button>
+        <button class="honor-review-continue" type="button"><span aria-hidden="true">🚀</span> 进入下一轮</button>
+        <button class="honor-review-retry" type="button"><span aria-hidden="true">↻</span> 重新起航</button>
         <button class="honor-review-exit" type="button"><span aria-hidden="true">←</span> 玩法目录</button>
       </footer>`;
     parent.appendChild(this.root);
+    this.medalCanvas = new MedalCeremonyCanvas(this.root);
+    this.medalIcon = this.root.querySelector('.honor-review-medal-icon')!;
     this.kicker = this.root.querySelector('.honor-review-kicker')!;
     this.title = this.root.querySelector('.honor-review-title')!;
     this.result = this.root.querySelector('.honor-review-result')!;
@@ -155,11 +160,14 @@ export class HonorHighlights {
     this.root.dataset.mode = payload.mode;
     this.root.style.setProperty('--honor-progress', '0');
     this.root.classList.add('on', 'spotlight');
-    this.kicker.textContent = payload.mode === 'duo' ? 'DUO RACE · ACCOLADES // 成就墙' : 'RACE · ACCOLADES // 成就墙';
-    this.title.textContent = '成就墙';
+    const isWinner = payload.racers[0]?.place === 1;
+    this.kicker.textContent = isWinner
+      ? '🏅 MACHO MEDAL AWARD // 猛男勋章 · 终局荣耀大典'
+      : '🏅 BRAVERY MEDAL // 勇者勋章 · 虽败犹荣大典';
+    this.title.textContent = isWinner ? '猛男勋章授予' : '勇者勋章嘉奖';
     this.result.textContent = payload.resultLabel;
-    this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · 历史荣誉 ${Math.round(payload.historyHonorScore)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次记录`;
-    this.hint.textContent = '成就墙展示中';
+    this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · 历史荣誉 ${Math.round(payload.historyHonorScore)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次高光记录`;
+    this.hint.textContent = '荣誉大典展示中';
     this.renderStandings();
     this.renderSpotlight();
     this.renderCards();
@@ -180,6 +188,7 @@ export class HonorHighlights {
   update(dt: number): void {
     if (!this.visible()) return;
     this.timer += Math.max(0, dt);
+    this.medalCanvas.render(this.timer, 12, 'excellent');
     if (this.phase === 'spotlight' && this.timer >= 2.65) this.revealCards();
     if (this.phase === 'cards' && this.timer >= 4.8) this.settle();
     if (this.phase === 'settled' && this.payload?.canContinue && !this.autoContinueTriggered) {
@@ -205,6 +214,7 @@ export class HonorHighlights {
     this.autoContinueRemaining = 0;
     this.autoContinueTriggered = false;
     this.autoContinueDisplayedSecond = -1;
+    this.medalCanvas.clear();
     this.root.classList.remove('on', 'spotlight', 'cards', 'settled');
     this.root.setAttribute('aria-hidden', 'true');
     this.autoOnly = false;
