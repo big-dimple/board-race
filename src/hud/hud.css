@@ -3092,27 +3092,26 @@ body:has(.hud-medal-ceremony.on) .mobile-controls,
     z-index: 6;
     left: max(20px, env(safe-area-inset-left));
     bottom: max(22px, env(safe-area-inset-bottom));
-    display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
-    align-items: center;
-    column-gap: 15px;
-    width: 440px;
-    min-height: 108px;
-    padding: 13px 38px 13px 13px;
+    display: flex;
+    flex-direction: column;
+    width: 450px;
+    min-height: 120px;
+    padding: 10px 14px 12px;
     overflow: hidden;
-    border: 0;
+    border: 1.5px solid rgba(85, 231, 255, 0.4);
     border-left: 4px solid var(--primer-color);
-    border-bottom: 2px solid var(--primer-color);
-    border-radius: 0;
+    border-radius: 8px;
     color: var(--text);
-    background: rgba(7, 12, 35, .9);
-    box-shadow: 0 9px 24px rgba(4, 7, 20, .32);
-    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    background: linear-gradient(135deg, rgba(8, 16, 42, 0.94), rgba(4, 8, 24, 0.98));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12);
     opacity: 0;
     visibility: hidden;
     transform: translateX(calc(-100% - 28px));
     transition: opacity 130ms linear, transform 210ms cubic-bezier(.2,.8,.2,1), visibility 0s 210ms;
     pointer-events: none;
+    box-sizing: border-box;
   }
   .hud-pc-primer.on {
     opacity: 1;
@@ -3123,71 +3122,113 @@ body:has(.hud-medal-ceremony.on) .mobile-controls,
   .hud-pc-primer[data-tone='flight'] { --primer-color: var(--flight); }
   .hud-pc-primer[data-tone='success'] { --primer-color: var(--accent); }
   .hud-pc-primer[data-tone='warning'] { --primer-color: var(--warn); }
-  .hud-pc-primer::before {
-    content:'';
-    position:absolute;
-    top:0;
-    left:0;
-    width:58%;
-    height:2px;
-    background:var(--primer-color);
-    opacity:.78;
+
+  /* 3-Step Flow Pills at Top */
+  .hud-pc-primer-steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
-  .hud-pc-primer::after {
-    content:'';
-    position:absolute;
-    right:15px;
-    bottom:8px;
-    width:22px;
-    height:2px;
-    background:var(--primer-color);
-    box-shadow:-30px 0 0 var(--primer-color),-52px 0 0 var(--primer-color);
-    opacity:.38;
+  .hud-pc-step-item {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(244, 254, 255, 0.5);
+    font: 800 10.5px/1 system-ui, sans-serif;
+    letter-spacing: 0.02em;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .hud-pc-step-item.active {
+    background: rgba(45, 228, 224, 0.18);
+    color: #2de4e0;
+    border: 1px solid #2de4e0;
+    box-shadow: 0 0 8px rgba(45, 228, 224, 0.35);
+  }
+  .hud-pc-step-item.s1.active {
+    background: rgba(255, 207, 74, 0.2);
+    color: #ffcf4a;
+    border: 1px solid #ffcf4a;
+    box-shadow: 0 0 8px rgba(255, 207, 74, 0.4);
+  }
+  .hud-pc-step-item.s2.active {
+    background: rgba(45, 228, 224, 0.2);
+    color: #2de4e0;
+    border: 1px solid #2de4e0;
+    box-shadow: 0 0 8px rgba(45, 228, 224, 0.4);
+  }
+  .hud-pc-step-item.s3.active {
+    background: rgba(56, 239, 125, 0.2);
+    color: #38ef7d;
+    border: 1px solid #38ef7d;
+    box-shadow: 0 0 8px rgba(56, 239, 125, 0.4);
+  }
+  .hud-pc-step-item.completed {
+    color: rgba(244, 254, 255, 0.85);
+  }
+  .hud-pc-step-arrow {
+    color: rgba(244, 254, 255, 0.3);
+    font-size: 9px;
+    font-style: normal;
+  }
+
+  /* Main Body */
+  .hud-pc-primer-main {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 14px;
+    width: 100%;
   }
   .hud-pc-primer-control {
-    display:grid;
-    gap:9px;
-    width:96px;
+    display: grid;
+    gap: 7px;
+    width: 92px;
   }
   .hud-pc-primer-key {
     display: grid;
     place-items: center;
-    width: 96px;
-    height: 50px;
-    border: 2px solid var(--primer-color);
-    border-radius: 2px;
+    width: 92px;
+    height: 44px;
+    border: 1.5px solid var(--primer-color);
+    border-radius: 4px;
     color: var(--primer-color);
-    background: rgba(4, 7, 20, .9);
-    box-shadow: inset 0 -3px 0 rgba(4,7,20,.7), 2px 2px 0 var(--ink);
-    font: 950 15px/1 system-ui, sans-serif;
-    clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px);
+    background: rgba(4, 7, 20, .92);
+    box-shadow: inset 0 -2px 0 rgba(4,7,20,.7), 0 2px 8px rgba(0, 0, 0, 0.5);
+    font: 950 14px/1 system-ui, sans-serif;
   }
   .hud-pc-primer-meter {
-    position:relative;
-    width:96px;
-    height:10px;
-    overflow:hidden;
-    border:1px solid rgba(244,254,255,.38);
-    background:rgba(4,7,20,.9);
+    position: relative;
+    width: 92px;
+    height: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(244,254,255,.38);
+    border-radius: 2px;
+    background: rgba(4,7,20,.9);
   }
   .hud-pc-primer-meter i {
-    position:absolute;
-    inset:1px auto 1px 1px;
-    width:calc((100% - 2px) * var(--primer-progress, 0));
-    background:var(--primer-color);
-    transition:width 80ms linear;
+    position: absolute;
+    inset: 1px auto 1px 1px;
+    width: calc((100% - 2px) * var(--primer-progress, 0));
+    background: var(--primer-color);
+    border-radius: 1px;
+    transition: width 80ms linear;
   }
   .hud-pc-primer-meter b {
-    position:absolute;
-    z-index:1;
-    top:-1px;
-    bottom:-1px;
-    left:32%;
-    width:2px;
-    background:#ffcf4a;
-    box-shadow:0 0 5px rgba(255,207,74,.8);
+    position: absolute;
+    z-index: 1;
+    top: -1px;
+    bottom: -1px;
+    left: 32%;
+    width: 2px;
+    background: #ffcf4a;
+    box-shadow: 0 0 5px rgba(255,207,74,.8);
   }
-  .hud-pc-primer-meter.ready { border-color:#ffcf4a; }
+  .hud-pc-primer-meter.ready { border-color: #ffcf4a; }
   .hud-pc-primer-copy { min-width: 0; }
   .hud-pc-primer-kicker {
     overflow: hidden;
@@ -3197,28 +3238,28 @@ body:has(.hud-medal-ceremony.on) .mobile-controls,
     white-space: nowrap;
   }
   .hud-pc-primer-title {
-    margin-top: 5px;
-    font: 950 24px/1.05 system-ui, sans-serif;
+    margin-top: 3px;
+    font: 950 22px/1.1 system-ui, sans-serif;
     white-space: nowrap;
   }
   .hud-pc-primer-detail {
-    margin-top: 6px;
+    margin-top: 4px;
     overflow: visible;
-    color: rgba(244, 254, 255, .8);
-    font: 800 16px/1.2 system-ui, sans-serif;
+    color: rgba(244, 254, 255, .82);
+    font: 800 14px/1.25 system-ui, sans-serif;
     white-space: nowrap;
   }
   .hud-pc-primer-close {
     position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 24px;
-    height: 24px;
+    top: 6px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
     padding: 0;
     border: 0;
     color: rgba(244, 254, 255, .62);
     background: transparent;
-    font: 500 20px/1 system-ui, sans-serif;
+    font: 500 18px/1 system-ui, sans-serif;
     cursor: pointer;
     pointer-events: auto;
   }

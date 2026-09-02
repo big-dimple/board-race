@@ -6,7 +6,9 @@
   align-items: center;
   justify-content: center;
   padding: max(12px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
-  background: rgba(4, 7, 20, 0.94);
+  background: rgba(3, 6, 16, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: #f4feff;
   font-family: 'Arial Black', Impact, system-ui, sans-serif;
   letter-spacing: 0;
@@ -25,51 +27,115 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(940px, 94vw);
-  max-height: calc(100vh - 24px);
-  padding: clamp(16px, 3.2vh, 28px) clamp(16px, 3vw, 36px);
-  background: linear-gradient(180deg, rgba(14, 22, 54, 0.96), rgba(8, 12, 32, 0.98));
-  border: 2px solid #55e7ff;
-  border-top-width: 6px;
-  border-radius: 4px;
-  box-shadow: 0 0 32px rgba(85, 231, 255, 0.22), 0 16px 40px rgba(0, 0, 0, 0.7);
+  width: min(960px, 94vw);
+  max-height: calc(100vh - 20px);
+  padding: clamp(14px, 2.8vh, 26px) clamp(16px, 2.8vw, 34px);
+  background: linear-gradient(180deg, rgba(12, 20, 48, 0.96), rgba(6, 10, 26, 0.98));
+  border: 1.5px solid rgba(85, 231, 255, 0.45);
+  border-top: 4px solid #2de4e0;
+  border-radius: 8px;
+  box-shadow: 0 0 36px rgba(45, 228, 224, 0.18), 0 20px 50px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.15);
   box-sizing: border-box;
   text-align: center;
 }
 
 .kickstart-guide-header {
-  margin-bottom: clamp(10px, 2vh, 18px);
+  margin-bottom: clamp(8px, 1.6vh, 14px);
 }
 
 .kickstart-guide-kicker {
-  display: inline-block;
-  color: #55e7ff;
-  font-size: 11px;
-  letter-spacing: 0.12em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: rgba(45, 228, 224, 0.12);
+  border: 1px solid rgba(45, 228, 224, 0.38);
+  border-radius: 20px;
+  color: #2de4e0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
   font-family: system-ui, sans-serif;
   font-weight: 900;
 }
 
 .kickstart-guide-title {
-  margin: 4px 0 2px;
-  color: #fff3ae;
-  font-size: clamp(28px, 4.8vh, 44px);
-  line-height: 1;
-  text-shadow: 0 3px 0 rgba(12, 12, 37, 0.88), 0 0 24px rgba(255, 207, 74, 0.4);
+  margin: 6px 0 2px;
+  color: #ffffff;
+  font-size: clamp(26px, 4.4vh, 40px);
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  text-shadow: 0 2px 0 rgba(12, 12, 37, 0.88), 0 0 24px rgba(255, 207, 74, 0.35);
 }
 
 .kickstart-guide-subtitle {
   margin: 0;
   color: rgba(244, 254, 255, 0.72);
-  font: 700 13px/1.2 system-ui, sans-serif;
+  font: 700 12.5px/1.3 system-ui, sans-serif;
 }
 
+/* Connected 3-Step Flow Pipeline */
+.kickstart-cycle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1.8vw, 18px);
+  width: 100%;
+  max-width: 640px;
+  margin: clamp(8px, 1.5vh, 14px) 0 clamp(10px, 1.8vh, 16px);
+  padding: 6px 14px;
+  background: rgba(6, 11, 28, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  box-sizing: border-box;
+}
+
+.kickstart-cycle-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kickstart-cycle-node.step-1 .cycle-pill {
+  background: rgba(45, 228, 224, 0.2);
+  color: #2de4e0;
+  border: 1px solid #2de4e0;
+}
+.kickstart-cycle-node.step-2 .cycle-pill {
+  background: rgba(255, 207, 74, 0.2);
+  color: #ffcf4a;
+  border: 1px solid #ffcf4a;
+}
+.kickstart-cycle-node.step-3 .cycle-pill {
+  background: rgba(56, 239, 125, 0.2);
+  color: #38ef7d;
+  border: 1px solid #38ef7d;
+}
+
+.cycle-pill {
+  padding: 2px 7px;
+  border-radius: 12px;
+  font: 900 10px/1 system-ui, sans-serif;
+  letter-spacing: 0.05em;
+}
+
+.cycle-label {
+  color: rgba(244, 254, 255, 0.9);
+  font: 800 11.5px/1 system-ui, sans-serif;
+}
+
+.kickstart-cycle-link {
+  color: rgba(244, 254, 255, 0.4);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+/* 3 Cards Grid */
 .kickstart-guide-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(8px, 1.6vw, 16px);
+  gap: clamp(10px, 1.6vw, 16px);
   width: 100%;
-  margin-bottom: clamp(12px, 2.4vh, 20px);
+  margin-bottom: clamp(10px, 1.8vh, 16px);
 }
 
 .kickstart-guide-card {
@@ -78,65 +144,99 @@
   flex-direction: column;
   align-items: center;
   padding: clamp(12px, 2vh, 18px) clamp(10px, 1.4vw, 14px);
-  background: rgba(18, 28, 64, 0.72);
-  border: 1px solid rgba(85, 231, 255, 0.35);
-  border-radius: 4px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  background: rgba(14, 22, 54, 0.72);
+  border: 1.5px solid rgba(85, 231, 255, 0.28);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   box-sizing: border-box;
-  transition: transform 0.15s ease, border-color 0.15s ease;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.kickstart-guide-card.step-card-1 {
+  border-top: 3px solid #2de4e0;
+}
+.kickstart-guide-card.step-card-2 {
+  border-top: 3px solid #ffcf4a;
+}
+.kickstart-guide-card.step-card-3 {
+  border-top: 3px solid #38ef7d;
 }
 
 .kickstart-guide-card:hover {
-  border-color: #ffcf4a;
   transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
 }
+.kickstart-guide-card.step-card-1:hover { border-color: #2de4e0; }
+.kickstart-guide-card.step-card-2:hover { border-color: #ffcf4a; }
+.kickstart-guide-card.step-card-3:hover { border-color: #38ef7d; }
 
 .kickstart-guide-badge {
   position: absolute;
   top: 8px;
   left: 10px;
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  background: #ffcf4a;
-  color: #0c0c25;
-  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11px;
   font-weight: 950;
-  border-radius: 50%;
+  line-height: 1;
 }
+.step-card-1 .kickstart-guide-badge { background: #2de4e0; color: #07101d; }
+.step-card-2 .kickstart-guide-badge { background: #ffcf4a; color: #07101d; }
+.step-card-3 .kickstart-guide-badge { background: #38ef7d; color: #07101d; }
 
 .kickstart-guide-icon {
-  font-size: clamp(28px, 4.5vh, 40px);
+  font-size: clamp(26px, 4vh, 36px);
   line-height: 1;
   margin-bottom: 6px;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45));
 }
 
 .kickstart-guide-card-title {
-  color: #ffcf4a;
-  font-size: clamp(16px, 2.4vh, 20px);
-  line-height: 1.1;
-  margin-bottom: 6px;
+  color: #f4feff;
+  font-size: clamp(14px, 2.2vh, 17px);
+  line-height: 1.15;
+  margin-bottom: 8px;
 }
 
 .kickstart-guide-key {
   display: inline-block;
   padding: 4px 10px;
   margin-bottom: 8px;
-  background: rgba(6, 10, 28, 0.88);
-  border: 1px solid #55e7ff;
-  border-radius: 3px;
-  color: #55e7ff;
+  background: rgba(4, 8, 22, 0.92);
+  border-radius: 4px;
   font: 900 12px/1 system-ui, sans-serif;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
+.step-card-1 .kickstart-guide-key { border: 1.5px solid #2de4e0; color: #2de4e0; }
+.step-card-2 .kickstart-guide-key { border: 1.5px solid #ffcf4a; color: #ffcf4a; }
+.step-card-3 .kickstart-guide-key { border: 1.5px solid #38ef7d; color: #38ef7d; }
 
 .kickstart-guide-card-copy {
   margin: 0;
-  color: rgba(244, 254, 255, 0.82);
-  font: 600 12px/1.38 system-ui, sans-serif;
+  color: rgba(244, 254, 255, 0.78);
+  font: 600 11.5px/1.42 system-ui, sans-serif;
   text-align: center;
+}
+
+/* Connected Chain Summary Banner */
+.kickstart-guide-chain-tip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: clamp(10px, 1.8vh, 18px);
+  padding: 8px 16px;
+  background: rgba(45, 228, 224, 0.08);
+  border: 1px dashed rgba(45, 228, 224, 0.35);
+  border-radius: 6px;
+  color: rgba(244, 254, 255, 0.88);
+  font: 700 11.5px/1.3 system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.kickstart-guide-chain-tip b {
+  color: #ffcf4a;
 }
 
 .kickstart-guide-footer {
@@ -146,28 +246,28 @@
 }
 
 .kickstart-guide-start {
-  min-width: 210px;
-  min-height: 48px;
-  padding: 8px 28px;
-  background: #101b38;
+  min-width: 220px;
+  min-height: 46px;
+  padding: 8px 32px;
+  background: linear-gradient(135deg, #182c5b, #0f1c3f);
   color: #fff3ae;
   border: 2px solid #ffcf4a;
-  border-left-width: 6px;
-  border-radius: 2px;
-  font: italic 900 17px/1 'Arial Black', Impact, sans-serif;
-  box-shadow: 0 0 24px rgba(255, 207, 74, 0.22);
+  border-radius: 6px;
+  font: italic 900 16px/1 'Arial Black', Impact, sans-serif;
+  box-shadow: 0 0 20px rgba(255, 207, 74, 0.28), 0 4px 14px rgba(0, 0, 0, 0.5);
   cursor: pointer;
   pointer-events: auto;
-  transition: background 0.12s linear, transform 0.12s ease;
+  transition: background 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
 }
 
 .kickstart-guide-start:hover {
-  background: #182a56;
-  transform: scale(1.03);
+  background: linear-gradient(135deg, #223e7e, #16295a);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 28px rgba(255, 207, 74, 0.45), 0 6px 18px rgba(0, 0, 0, 0.6);
 }
 
 .kickstart-guide-start:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .kickstart-guide-start:focus-visible {
@@ -177,37 +277,28 @@
 
 @media (max-height: 520px) {
   .kickstart-guide-inner {
-    padding: 8px 16px 10px;
-    width: min(860px, 96vw);
+    padding: 6px 14px 8px;
+    width: min(880px, 96vw);
   }
-  .kickstart-guide-header {
-    margin-bottom: 6px;
-  }
-  .kickstart-guide-kicker { font-size: 9px; }
-  .kickstart-guide-title { font-size: 24px; }
-  .kickstart-guide-subtitle { font-size: 11px; }
-  .kickstart-guide-grid {
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-  .kickstart-guide-card {
-    padding: 6px 8px;
-  }
-  .kickstart-guide-badge {
-    width: 18px;
-    height: 18px;
-    font-size: 11px;
-    top: 4px;
-    left: 6px;
-  }
-  .kickstart-guide-icon { font-size: 22px; margin-bottom: 3px; }
-  .kickstart-guide-card-title { font-size: 14px; margin-bottom: 3px; }
-  .kickstart-guide-key { padding: 2px 6px; font-size: 10px; margin-bottom: 4px; }
-  .kickstart-guide-card-copy { font-size: 10px; line-height: 1.25; }
-  .kickstart-guide-start { min-height: 40px; font-size: 14px; padding: 6px 20px; }
+  .kickstart-guide-header { margin-bottom: 4px; }
+  .kickstart-guide-kicker { font-size: 8px; padding: 2px 6px; }
+  .kickstart-guide-title { font-size: 22px; }
+  .kickstart-guide-subtitle { font-size: 10.5px; }
+  .kickstart-cycle-bar { margin: 4px 0 6px; padding: 3px 10px; gap: 8px; }
+  .cycle-pill { font-size: 8.5px; padding: 1px 5px; }
+  .cycle-label { font-size: 10px; }
+  .kickstart-guide-grid { gap: 8px; margin-bottom: 6px; }
+  .kickstart-guide-card { padding: 5px 7px; }
+  .kickstart-guide-badge { font-size: 9px; padding: 1px 4px; top: 4px; left: 6px; }
+  .kickstart-guide-icon { font-size: 20px; margin-bottom: 2px; }
+  .kickstart-guide-card-title { font-size: 12.5px; margin-bottom: 3px; }
+  .kickstart-guide-key { padding: 2px 6px; font-size: 9.5px; margin-bottom: 3px; }
+  .kickstart-guide-card-copy { font-size: 9.5px; line-height: 1.25; }
+  .kickstart-guide-chain-tip { margin-bottom: 6px; padding: 4px 10px; font-size: 9.5px; }
+  .kickstart-guide-start { min-height: 36px; font-size: 13px; padding: 4px 18px; }
 }
 
 @keyframes kickstart-fade-in {
-  from { opacity: 0; transform: scale(0.96); }
+  from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }

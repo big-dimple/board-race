@@ -203,7 +203,7 @@ export class DriverSelect {
     carousel.addEventListener('pointercancel', () => { this.carouselPointerId = null; });
 
     const footer = element('div', 'driver-select-footer', this.root);
-    this.kickstartGuide = new KickstartGuide(this.root);
+    this.kickstartGuide = new KickstartGuide(document.body);
     this.coachButton = element('button', 'driver-coach-button', footer);
     this.coachButton.type = 'button';
     this.coachButton.title = '3步极速上手指南';

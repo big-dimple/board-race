@@ -23,32 +23,51 @@ export class KickstartGuide {
     this.root.innerHTML = `
       <div class="kickstart-guide-inner">
         <div class="kickstart-guide-header">
-          <span class="kickstart-guide-kicker">THREE BEATS · ONE STANDARD</span>
-          <h2 class="kickstart-guide-title">3 步极速上手指南</h2>
-          <p class="kickstart-guide-subtitle">全自动巡航 · 漂移攒电 · 冲柱飞天</p>
+          <span class="kickstart-guide-kicker">PILOT FLIGHT CYCLE // 3-STEP PROGRESSIVE PATH</span>
+          <h2 class="kickstart-guide-title">3 步飞驰循环指南</h2>
+          <p class="kickstart-guide-subtitle">水面切弯 ➔ 漂移蓄电 ➔ 破空翱翔 · 步步相扣的完整飞驰法则</p>
+        </div>
+        <div class="kickstart-cycle-bar">
+          <div class="kickstart-cycle-node step-1">
+            <span class="cycle-pill">STEP 01</span>
+            <span class="cycle-label">水面转向</span>
+          </div>
+          <div class="kickstart-cycle-link">➔</div>
+          <div class="kickstart-cycle-node step-2">
+            <span class="cycle-pill">STEP 02</span>
+            <span class="cycle-label">漂移蓄电</span>
+          </div>
+          <div class="kickstart-cycle-link">➔</div>
+          <div class="kickstart-cycle-node step-3">
+            <span class="cycle-pill">STEP 03</span>
+            <span class="cycle-label">提早起飞</span>
+          </div>
         </div>
         <div class="kickstart-guide-grid">
-          <div class="kickstart-guide-card">
-            <div class="kickstart-guide-badge">1</div>
+          <div class="kickstart-guide-card step-card-1">
+            <div class="kickstart-guide-badge">01</div>
             <div class="kickstart-guide-icon">🏎️</div>
-            <strong class="kickstart-guide-card-title">全自动前进</strong>
+            <strong class="kickstart-guide-card-title">全自动巡航 · 转向切弯</strong>
             <div class="kickstart-guide-key kickstart-key-steer">A / D · ← / →</div>
-            <p class="kickstart-guide-card-copy">无需按油门，船只自动全速前进，专心左右转向切弯走位。</p>
+            <p class="kickstart-guide-card-copy">快艇自动全速前进无需油门，专心微调方向切准弯心走位。</p>
           </div>
-          <div class="kickstart-guide-card">
-            <div class="kickstart-guide-badge">2</div>
+          <div class="kickstart-guide-card step-card-2">
+            <div class="kickstart-guide-badge">02</div>
             <div class="kickstart-guide-icon">⚡</div>
-            <strong class="kickstart-guide-card-title">过弯长按漂移</strong>
+            <strong class="kickstart-guide-card-title">内切漂移 · 蓄满存电</strong>
             <div class="kickstart-guide-key kickstart-key-drift">按住 SHIFT 漂移</div>
-            <p class="kickstart-guide-card-copy">按住漂移极速内切咬弯心，漂过黄线松手存入【飞行电池 ◇】。</p>
+            <p class="kickstart-guide-card-copy">进弯长按内切咬弯心，蓄满黄线松手即可存入【飞行电池 ◇】。</p>
           </div>
-          <div class="kickstart-guide-card">
-            <div class="kickstart-guide-badge">3</div>
+          <div class="kickstart-guide-card step-card-3">
+            <div class="kickstart-guide-badge">03</div>
             <div class="kickstart-guide-icon">🚀</div>
-            <strong class="kickstart-guide-card-title">见雾提早起飞</strong>
+            <strong class="kickstart-guide-card-title">见雾提早 · 破空入轨</strong>
             <div class="kickstart-guide-key kickstart-key-flight">按 SPACE 提前起飞</div>
-            <p class="kickstart-guide-card-copy">看到白雾桥立即提前按键起飞！提早入轨对准航道，飞晚容易错失天轨坠海！</p>
+            <p class="kickstart-guide-card-copy">消耗电池提前起跳对准天门！穿过天门自动俯冲降落完成循环。</p>
           </div>
+        </div>
+        <div class="kickstart-guide-chain-tip">
+          <span class="chain-icon">💡</span> <b>核心法则</b>：【转向切弯】 ➔ 【漂移攒电】 ➔ 【起飞入轨】 · 三阶循环缺一不可
         </div>
         <div class="kickstart-guide-footer">
           <button type="button" class="kickstart-guide-start">懂了 · 签约出发</button>

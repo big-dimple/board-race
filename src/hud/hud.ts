@@ -169,6 +169,7 @@ export class HUD {
   private flightPromptSpent = false;
   private readonly shownFlightPromptTokens = new Set<string>();
   private readonly pcPrimerEl: HTMLDivElement;
+  private readonly pcPrimerStepItems: HTMLSpanElement[] = [];
   private readonly pcPrimerKey: HTMLDivElement;
   private readonly pcPrimerMeter: HTMLDivElement;
   private readonly pcPrimerKicker: HTMLDivElement;
@@ -488,13 +489,21 @@ export class HUD {
     this.flightPromptRule = h('div', 'hud-flight-prompt-rule', promptCopy, '下一飞已就绪');
     this.pcPrimerEl = h('div', 'hud-pc-primer', this.root);
     this.pcPrimerEl.setAttribute('role', 'note');
-    const primerControl = h('div', 'hud-pc-primer-control', this.pcPrimerEl);
+    const primerSteps = h('div', 'hud-pc-primer-steps', this.pcPrimerEl);
+    const s1 = h('span', 'hud-pc-step-item s1', primerSteps, '01 漂移蓄电');
+    h('i', 'hud-pc-step-arrow', primerSteps, '➔');
+    const s2 = h('span', 'hud-pc-step-item s2', primerSteps, '02 空格起飞');
+    h('i', 'hud-pc-step-arrow', primerSteps, '➔');
+    const s3 = h('span', 'hud-pc-step-item s3', primerSteps, '03 顺势降落');
+    this.pcPrimerStepItems.push(s1, s2, s3);
+    const primerMain = h('div', 'hud-pc-primer-main', this.pcPrimerEl);
+    const primerControl = h('div', 'hud-pc-primer-control', primerMain);
     this.pcPrimerKey = h('div', 'hud-pc-primer-key', primerControl, 'SHIFT');
     this.pcPrimerKey.setAttribute('aria-hidden', 'true');
     this.pcPrimerMeter = h('div', 'hud-pc-primer-meter', primerControl);
     h('i', '', this.pcPrimerMeter);
     h('b', '', this.pcPrimerMeter);
-    const primerCopy = h('div', 'hud-pc-primer-copy', this.pcPrimerEl);
+    const primerCopy = h('div', 'hud-pc-primer-copy', primerMain);
     this.pcPrimerKicker = h('div', 'hud-pc-primer-kicker', primerCopy, 'PC 漂移');
     this.pcPrimerTitle = h('div', 'hud-pc-primer-title', primerCopy, '按住 SHIFT 漂移');
     this.pcPrimerDetail = h('div', 'hud-pc-primer-detail', primerCopy, '漂过黄线再松开 · 存入飞行库存 ◇');
@@ -1458,6 +1467,17 @@ export class HUD {
     this.pcPrimerEl.setAttribute('aria-label', `键盘操作：${presentation.title}。${presentation.detail}`);
     this.pcPrimerClose.hidden = !dismissible;
     this.root.classList.toggle('primer-meter', presentation.step === 'charging' || presentation.step === 'release');
+
+    const stepIdx = (presentation.step === 'drift' || presentation.step === 'charging' || presentation.step === 'release')
+      ? 0
+      : (presentation.step === 'banked' || presentation.step === 'waiting-launch' || presentation.step === 'launch' || presentation.step === 'success')
+      ? 1
+      : 2;
+    for (let i = 0; i < this.pcPrimerStepItems.length; i++) {
+      this.pcPrimerStepItems[i].classList.toggle('active', i === stepIdx);
+      this.pcPrimerStepItems[i].classList.toggle('completed', i < stepIdx);
+    }
+
     this.pcPrimerEl.classList.add('on');
   }
 

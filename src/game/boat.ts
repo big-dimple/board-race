@@ -2633,34 +2633,13 @@ export class Boat implements IBoat {
     this.object.position.y += 1.15;
     this.state.airborne = true;
     this.state.airTime = 0.1;
-    this.tumbleSpinTimer = 2.4;
-    this.tumbleSpinTotal = 2.4;
+    this.tumbleSpinTimer = 2.0;
+    this.tumbleSpinTotal = 2.0;
     this.velX = impulseX;
     this.velZ = impulseZ;
-    this.state.speed = Math.hypot(this.velX, this.velZ) * 0.18;
-    this.yawRate = 7.5;
+    this.state.speed = Math.max(6.0, Math.hypot(this.velX, this.velZ) * 0.35);
+    this.yawRate = 6.5;
     this.spray.burst(this.object.position, 80, 22.0);
-
-    const st = this.state;
-    st.flightRouteFailReason = 'missile_blast';
-    if (st.airborne || st.flightPhase !== 'surface' || st.flightRouteState === 'active') {
-      st.flightFailure = {
-        reason: 'missile_blast',
-        flightNumber: st.flightsCleared + 1,
-        routeSlot: Math.max(0, st.flightRouteIndex),
-        flightsCleared: st.flightsCleared,
-        gatesPassed: st.flightGateProgress,
-        gateCount: 1,
-        targetGate: 1,
-        routeU: 0,
-        lateralOffsetM: 0,
-        lateralLimitM: 0,
-        corridorDistanceM: 0,
-        clearanceM: verticalPop,
-      };
-      st.flightRouteState = 'failed';
-      st.flightRouteMiss = true;
-    }
   }
 
   applyScudNearMiss(waterPointX: number, waterPointZ: number, impulseX: number, impulseZ: number): void {

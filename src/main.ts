@@ -4795,6 +4795,7 @@ const CLEAN_EVIDENCE_SCENARIOS = new Set([
   'rider-inspection-side',
   'rider-inspection-back',
   'rider-inspection-chase',
+  'kickstart-guide',
 ]);
 
 function setHarnessEvidenceUiHidden(hidden: boolean): void {
@@ -5480,6 +5481,14 @@ function scenario(name: string): void {
       loop.advance(1.2);
       break;
     }
+    case "kickstart-guide":
+      race.phase = 'ready';
+      driverSelect.show();
+      driverSelect.kickstartGuide.updateDevice('keyboard');
+      driverSelect.kickstartGuide.show();
+      setHarnessEvidenceUiHidden(false);
+      hudLayer.style.display = '';
+      break;
     default:
       throw new Error(`unknown scenario: `);
   }

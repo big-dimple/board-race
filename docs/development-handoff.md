@@ -1,18 +1,26 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“灯塔真实探照范围与 360° 顺滑持续旋转扫海、海面动态扫光投影与多层柔和体积光锥（Realistic Maritime Lighthouse Searchlight, Continuous 360° Sweeping Rotation & Ocean Surface Light Swath）”。
+状态：主分支当前工作包已圆满交付“导弹轰炸纯物理击飞翻滚不判死、3步飞驰闭环教学卡片大厂级配色与步步相扣管线、局内操作引导3阶渐进指示与双人战况简报升级（Missile Pure Physical Blast & 720° Tumble Without Instant Defeat, 3-Step Flight Cycle Cohesive AAA UI & Live Progressive In-Race Primer）”。
 
 ## 当前工作包
 
-- **灯塔探照技术路线重构与 360° 旋转循环扫海（Realistic Maritime Lighthouse Searchlight & 360° Sweeping Rotation）**：
-  1. **真实海事探照距离与自然大气消光（Realistic Range & Atmospheric Dissipation）**：告别以往 $360\text{m}$ 贯穿全图的不真实激光剑，采用基于灯塔实际高度（$28\text{m}$）与海况比例的 $72\text{m}$ 真实海事探照光锥（顶口径 $0.85\text{m} \to$ 底口径 $7.2\text{m}$，微幅向下俯角 $-3.15^\circ$），末端通过高斯指数衰减（$e^{-2.6 t}$）与双平滑步自然消散于夜空海雾中，视觉真实自然；
-  2. **主渲染管线 360° 顺滑连续旋转扫海（Continuous 360° Sweeping Rotation）**：在 `main.ts` 主渲染函数 `render()` 与 `step()` 中每帧稳定调用 `lighthouse.update(dt, t, camera)`，灯塔探照光束以 $\omega = 0.42\text{ rad/s}$（约 $15.0\text{s}$ 一周）在海面与空域执行 360° 优雅循环巡航扫射，彻底解决此前机位旋转未每帧调用的静态假定问题；
-  3. **海面动态扫光投影光斑（Ocean Surface Sweeping Light Swath）**：在水面与光锥交汇处（$R \approx 44\text{m}$）新增柔和椭圆扫光光斑（`LighthouseSeaSpot`），随着探照灯光柱旋转在海面上同步扫过波浪浪尖，呈现栩栩如生的真实夜航海面探照体验；
-  4. **三层柔和体积光锥与视线对齐爆闪（Tri-Layer Volumetric Cones & Lens Flare Flash）**：
-     - **Layer 1（核心金光光柱）**：$65\text{m}$ 纯净温润白金核芯，照亮灯室与前段海域；
-     - **Layer 2（温暖琥珀 Mie 散射体）**：$72\text{m}$ 暖金琥珀色丁达尔光柱，柔和圆柱截面光深；
-     - **Layer 3（夜航晨雾光晕）**：$76\text{m}$ 柔美外层海雾晕，边缘极致丝滑；
-     - **视线对齐透镜爆闪**：当旋转光束扫过玩家摄像机主视线方向时，触发六芒星芒透镜光晕与宽荧幕变形眩光。
+- **导弹轰炸机制回归纯物理击飞（Missile Pure Physical Blast & Air Tumble, No Instant Defeat）**：
+  1. **海面中弹绝不直接判负**：彻底剔除中弹强制触发 `flightRouteState = 'failed'` 与 `race.defeatFlight` 的秒杀逻辑，中弹仅施加剧烈冲量（$v_y = 18.5$）、空中 720° 特技翻滚、巨型水柱激浪与减速惩罚；
+  2. **水面落水自然恢复控制**：快艇中弹翻滚落地后，物理引擎平稳缓冲落水，玩家可立即重掌龙头、继续漂移加速争夺第一；
+  3. **空道真实边界裁决**：若在空中航道中弹，物理冲量将快艇炸出空道边界（或错过天门），由航道物理边界自然判定是否过门或出界，绝无莫须有的“中弹即死”代码死锁。
+
+- **3 步飞驰循环指南大厂级配色与步步相扣连贯设计（3-Step Pilot Flight Cycle Cohesive UI）**：
+  1. **3 阶闭环贯通管线（Progressive Step Pipeline）**：开场及指引卡片全面升级为统一闭环视觉条 `[ STEP 01 水面转向 ] ➔ [ STEP 02 漂移蓄电 ] ➔ [ STEP 03 提早起飞 ]`，让玩家清晰理解“切弯 ➔ 漂移 ➔ 起飞”是一整套环环相扣的核心技能链；
+  2. **大厂级专业配色与磨砂玻璃质感（Obsidian Glassmorphism & Tri-Tone Hierarchy）**：
+     - **Step 01（水面转向）**：冰晶青蓝（`#2de4e0`），专注龙头微调与弯心咬合；
+     - **Step 02（漂移蓄电）**：赛博金辉（`#ffcf4a`），长按蓄满黄线存入飞行能量 ◇；
+     - **Step 03（提早起飞）**：极速翡翠（`#38ef7d`），见白雾提早破空对准天门；
+     - **底部法则标语**：`💡 核心法则：【转向切弯】 ➔ 【漂移攒电】 ➔ 【起飞入轨】 · 三阶循环缺一不可`；
+  3. **局内 live 引导卡片 3 阶高亮联动（Live In-Race 3-Step Pill Bar）**：局内左下角操作引导卡片（`.hud-pc-primer`）顶部新增 3 阶流光进度条，随着玩家当前所处阶段（蓄力中、已存电待起飞、空中飞行）动态点亮对应节点，步步相扣。
+
+- **双人模式战况简报与操作指南升级（Duo Mode Prologue Briefing & Unified Aesthetics）**：
+  1. **双人出击战况简报（Team Expedition Briefing）**：`team-transition` 升级磨砂玻璃全景视窗、霓虹荧光边框与双席位作战目标（`CONTROL CALIBRATION` / `TEAM CO-OP`），强化团队集结感；
+  2. **双人操作指南文案修正**：导弹整蛊文案修正为“炸飞 720° 腾空激浪”，对齐物理非秒杀体验。
 
 
 
