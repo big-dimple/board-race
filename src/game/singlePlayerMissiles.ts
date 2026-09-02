@@ -324,7 +324,7 @@ export class SinglePlayerMissilesSystem {
 
     // Only broadcast notice & sound alarm if the player is targeted!
     if (m.isPlayer) {
-      this.hudNotice('📺【灯塔防空启动】灯塔基地发射拦截飞弹！锁定领跑者！', '');
+      this.hudNotice('灯塔防空发射拦截飞弹锁定领跑者', '🚀 防空启动 · 飞弹来袭！');
       this.playBeep();
     }
   }
@@ -363,7 +363,7 @@ export class SinglePlayerMissilesSystem {
       m.locked = true;
       m.tacticalReticle.setVisible(true);
       if (m.isPlayer) {
-        this.hudNotice('⚠️ 拦截飞弹已锁定领跑目标 [ 3.0秒 ]', '');
+        this.hudNotice('准备入弯漂移诱爆飞弹', '⚠️ 拦截飞弹已锁定！');
         this.playBeep();
       }
     }
@@ -434,7 +434,7 @@ export class SinglePlayerMissilesSystem {
       // 1. AIRBORNE IMMUNITY: If target is in flight or airborne, missile CANNOT hit!
       const isAirborne = targetBoat.state.flightPhase !== 'surface' || targetBoat.state.airborne || targetBoat.state.position.y > 1.2;
       if (isAirborne) {
-        if (m.isPlayer) this.hudNotice('🌊【万幸腾空 · 绝妙凌空闪避！】千钧一发凌空拔起脱离制导！万幸绝技，大呼过瘾！', '');
+        if (m.isPlayer) this.hudNotice('千钧一发凌空拔起脱离制导！', '🌊 万幸腾空 · 绝妙闪避！');
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
         m.dismissTimer = 1.1;
@@ -446,7 +446,7 @@ export class SinglePlayerMissilesSystem {
       // 2. Counterplay: Drift Wake Deflection
       const isDrifting = targetBoat.state.drifting;
       if (isDrifting && m.timer >= 2.8) {
-        if (m.isPlayer) this.hudNotice('👑【神技诱爆 · 绝地反击！】毫秒级弯道漂移掀起水幕诱爆飞弹！技术超群，全场沸腾！', '');
+        if (m.isPlayer) this.hudNotice('掀起水幕诱爆飞弹 · 获得涡轮冲刺！', '👑 神技诱爆 · 极限反击！');
         targetBoat.activateTechniqueBoost();
         targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
         m.state = 'deflected';
@@ -472,10 +472,10 @@ export class SinglePlayerMissilesSystem {
 
       if (hitTarget.id !== targetBoat.id) {
         // Successfully led missile into opponent!
-        if (m.isPlayer) this.hudNotice('🎯【借刀炸人 · 走位成仙！】极限走位引诱飞弹轰飞身旁对手！这波在大气层！', '');
+        if (m.isPlayer) this.hudNotice('极限走位引诱飞弹轰飞对手！', '🎯 借刀炸人 · 走位成仙！');
         m.state = 'deflected';
       } else {
-        if (m.isPlayer) this.hudNotice('⚠️ 受到水浪冲击 · 保持操舵！', '');
+        if (m.isPlayer) this.hudNotice('受到水浪冲击 · 保持操舵！', '⚠️ 飞弹冲击警报');
         m.state = 'hit';
       }
       m.dismissTimer = 1.1;

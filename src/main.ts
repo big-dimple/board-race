@@ -1224,9 +1224,6 @@ function continueAfterHonorReview(): void {
  */
 function continueAfterFinale(auto = false): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
-  // The Final Station is the first reading beat. Only after it is dismissed do
-  // we construct/show the accolade wall; no result layer can peek through the
-  // cinematic or consume time while the player is reading it.
   if (honorReviewPending || honorHighlights.visible()) {
     const shouldShowHonors = honorReviewPending && !honorHighlights.visible();
     honorReviewPending = false;
@@ -2019,9 +2016,6 @@ function showHonorReview(autoEntered = false): void {
   const names = roster.map((racer) => racer.name);
   const allIds = roster.map((racer) => racer.id);
   const summary = honors.summaryFor(humanIds);
-  // AI still appears in the six-racer standings, but the accolade wall should
-  // celebrate the people in this local room rather than letting a bot steal
-  // the Play-of-the-Run spotlight.
   const highlights = honors.highlightCards(humanIds, names, 4);
   const displayIds = [...allIds]
     .sort((a, b) => race.racers[a].place - race.racers[b].place || a - b)

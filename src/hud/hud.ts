@@ -1194,15 +1194,26 @@ export class HUD {
     this.bestFlights = Math.max(this.bestFlights, best);
     this.currentMedalTier = tier;
     this.medalEl.dataset.tier = tier;
-    this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力兑现';
-    this.medalTitle.textContent = '猛男';
-    this.medalCount.textContent = `男人勋章 +1 · 累计 ${medals}`;
-    this.medalTier.textContent = tier === 'excellent'
-      ? '第一名 · 优秀已经锁定'
-      : '勋章已入账 · 下一局冲上第一';
-    this.medalNext.textContent = best > 3
-      ? `远海档案 BEST ${best} 飞 · 下一目标 ${best + 1} 飞`
-      : '三飞只是入场 · 远海档案现在开局';
+    const isFinale = best >= 7;
+    if (isFinale) {
+      this.medalKicker.textContent = tier === 'excellent' ? '七飞大满贯 · 终局至尊达成' : '七飞通关 · 实力登顶';
+      this.medalTitle.textContent = '猛男至尊';
+      this.medalCount.textContent = `至尊勋章 +1 · 累计 ${medals}`;
+      this.medalTier.textContent = tier === 'excellent'
+        ? '第一名冲线 · 历史最高荣誉'
+        : '完赛通关 · 顶级车手认证';
+      this.medalNext.textContent = '远海全档案已解锁 · 随时进入资料片彩蛋';
+    } else {
+      this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力兑现';
+      this.medalTitle.textContent = '猛男';
+      this.medalCount.textContent = `男人勋章 +1 · 累计 ${medals}`;
+      this.medalTier.textContent = tier === 'excellent'
+        ? '第一名 · 优秀已经锁定'
+        : '勋章已入账 · 下一局冲上第一';
+      this.medalNext.textContent = best > 3
+        ? `远海档案 BEST ${best} 飞 · 下一目标 ${best + 1} 飞`
+        : '三飞只是入场 · 远海档案现在开局';
+    }
     this.medalNext.classList.remove('on');
     this.medalContinue.hidden = true;
     // The dossier entry is available for the whole ceremony; the auto
