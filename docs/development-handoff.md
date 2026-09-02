@@ -1,25 +1,18 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“开场由远及近史诗级全景运镜、角色金色边框顺时针循环流动金火花、被击毁 720° 腾云空中翻滚与海面激浪实况实录、高光回放真正高光 1.8 秒子弹时间与全速冲击（Epic Establishing Opening Swoop, Clockwise Golden Spark Orbit, 720° Mid-Air Tumble Physics & High-Energy Climax Bullet Time）”。
+状态：主分支当前工作包已圆满交付“灯塔真实探照范围与 360° 顺滑持续旋转扫海、海面动态扫光投影与多层柔和体积光锥（Realistic Maritime Lighthouse Searchlight, Continuous 360° Sweeping Rotation & Ocean Surface Light Swath）”。
 
 ## 当前工作包
 
-- **开场由远及近史诗级全景运镜与顺时针流动金火花（Epic Establishing Opening Swoop & Clockwise Golden Sparks）**：
-  1. **开场 34 米超高空全景由远及近（Grand Establishing Shot）**：`CameraRig`（`src/game/chaseCamera.ts`）开场机位从 $34.0\text{m}$ 超远距离、$12.5\text{m}$ 高空及 $56^\circ$ 电影级长焦广角建立（$-42^\circ$ 前左侧视角），将整支六船编队、起点浮漂鸭鸭、START 拱门与壮丽海平线尽收眼底，随后沿宏大螺旋弧线平滑由远及近俯冲切入玩家快艇后方（$-168^\circ, R=11.2\text{m}, H=3.9\text{m}$），气势磅礴高端大气；
-  2. **自驾立绘卡片顺时针循环流光金火花（Clockwise Golden Spark Orbit）**：`OpeningShowcase`（`src/hud/openingShowcase.ts` / `openingShowcase.css`）为玩家所选角色立绘卡片配备专属多级金色流光火花粒子（`opening-driver-spark-dot`），带着明亮白金核心与橙金拖尾粒子顺时针沿着卡片外框高速流转循环，配合黄金外框发光呼吸，自驾身份光芒四射；
-  3. **倒计时 3-2-1 丝滑俯冲与 GO 零突变（Countdown 3-2-1 Smooth Swoop & Zero-Jerk GO）**：倒计时阶段摄像机从 $-168^\circ$ 丝滑对正快艇中轴线（$-180^\circ, R \to 9.5\text{m}, H \to 3.6\text{m}$），视线锁定前方拱门与绿线，发车瞬间姿态与追尾相机 100.0% 严丝合缝对齐（$\Delta=0$）；
-  4. **开场时长延长 1 秒保障手机纯净视野（+1s Mobile Chrome Comfort Window）**：开场总时长达 $8.8\text{s}$，让手机端浏览器底部提示条完全自然隐退，发车时触控区 100% 畅通无阻。
-
-- **被击毁 720° 腾云空中翻滚实况与下一局原地打转 Bug 修复（Full 720° Mid-Air Tumble Physics & Teleport Cleanup）**：
-  1. **被炸/击毁后 2.0 秒真机实况物理翻滚与录像（2.0s Live Tumble Simulation & Recording）**：快艇遭遇导弹命中或失误被击毁时，`defeatFreezeTimer` 保持 2.0 秒真实物理模拟，快艇在空中完整执行 720° 杂技式剧烈空翻、惯性抛物线下坠并重重砸入海面爆出漫天水花与气浪，同时 `HighlightRecorder` 高频记录下翻滚与落水的每一帧；
-  2. **彻底修复下把游戏开场原地翻滚的 Bug**：`Boat.teleport()` 在开场与重置时彻底重置清零 `tumbleSpinTimer = 0` 与 `tumbleSpinTotal = 0`，确保下一局开场赛艇 100% 水平稳健列阵，绝无任何残留翻滚打转动作。
-
-- **高光时刻商业广播级速度曲线与全流程回放（Highlight Replay Climax 1.8s Bullet Time & Full Aftermath）**：
-  1. **拒绝全片慢动作，精准锁定真正高光瞬间 1.8 秒子弹时间（Precise 1.8s Bullet Time）**：`HighlightDirector`（`src/game/highlightDirector.ts`）重构速度曲线：
-     - **0.0s - 2.0s（快速入场）**：1.0x 全速推进，高空天眼俯瞰导弹逼近锁定与战局态势；
-     - **2.0s - 3.8s（峰值子弹时间）**：仅在高光爆发与导弹命中爆炸瞬间以正弦平滑曲线下探至 0.30x-0.35x 极度特写慢镜头，让玩家看清爆炸火球与腾云起飞的精彩细节；
-     - **3.8s - 6.5s（全速后劲冲击）**：立刻恢复 1.05x 全速，完整播放赛艇 720° 翻滚砸海漫天激浪、对手疾驰掠过或赛艇重整冲刺的震撼全景！
-  2. **全流程回放无缺失**：高光片段涵盖从遭遇逼近、中弹爆发、腾空 720° 到砸海落水的完整连续镜头，观感利落刺激、张弛有度。
+- **灯塔探照技术路线重构与 360° 旋转循环扫海（Realistic Maritime Lighthouse Searchlight & 360° Sweeping Rotation）**：
+  1. **真实海事探照距离与自然大气消光（Realistic Range & Atmospheric Dissipation）**：告别以往 $360\text{m}$ 贯穿全图的不真实激光剑，采用基于灯塔实际高度（$28\text{m}$）与海况比例的 $72\text{m}$ 真实海事探照光锥（顶口径 $0.85\text{m} \to$ 底口径 $7.2\text{m}$，微幅向下俯角 $-3.15^\circ$），末端通过高斯指数衰减（$e^{-2.6 t}$）与双平滑步自然消散于夜空海雾中，视觉真实自然；
+  2. **主渲染管线 360° 顺滑连续旋转扫海（Continuous 360° Sweeping Rotation）**：在 `main.ts` 主渲染函数 `render()` 与 `step()` 中每帧稳定调用 `lighthouse.update(dt, t, camera)`，灯塔探照光束以 $\omega = 0.42\text{ rad/s}$（约 $15.0\text{s}$ 一周）在海面与空域执行 360° 优雅循环巡航扫射，彻底解决此前机位旋转未每帧调用的静态假定问题；
+  3. **海面动态扫光投影光斑（Ocean Surface Sweeping Light Swath）**：在水面与光锥交汇处（$R \approx 44\text{m}$）新增柔和椭圆扫光光斑（`LighthouseSeaSpot`），随着探照灯光柱旋转在海面上同步扫过波浪浪尖，呈现栩栩如生的真实夜航海面探照体验；
+  4. **三层柔和体积光锥与视线对齐爆闪（Tri-Layer Volumetric Cones & Lens Flare Flash）**：
+     - **Layer 1（核心金光光柱）**：$65\text{m}$ 纯净温润白金核芯，照亮灯室与前段海域；
+     - **Layer 2（温暖琥珀 Mie 散射体）**：$72\text{m}$ 暖金琥珀色丁达尔光柱，柔和圆柱截面光深；
+     - **Layer 3（夜航晨雾光晕）**：$76\text{m}$ 柔美外层海雾晕，边缘极致丝滑；
+     - **视线对齐透镜爆闪**：当旋转光束扫过玩家摄像机主视线方向时，触发六芒星芒透镜光晕与宽荧幕变形眩光。
 
 
 

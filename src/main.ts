@@ -3179,6 +3179,8 @@ function render(frameMs: number): void {
   ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  lighthouse.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  lighthouse.update(1 / 60, presentationTime || worldTime, stage.camera);
   const splitFrame = appMode === 'team-play' || isDuoSplitPhase();
   if (splitFrame) {
     renderTeamSplit();
@@ -4783,6 +4785,7 @@ const CLEAN_EVIDENCE_SCENARIOS = new Set([
   'tail-airbrake-left',
   'tail-airbrake-right',
   'lighthouse-inspection',
+  'lighthouse-night',
   'landing-straight-drop',
   'landing-left-drop',
   'landing-right-drop',
@@ -5125,6 +5128,26 @@ function scenario(name: string): void {
         offset: [-54, 11, -38],
         lookAt: [0, 15.2, 0],
         fov: 36,
+      };
+      break;
+    case "lighthouse-night":
+      timeOfDayManager.setOverride('night', true);
+      sky.setTimeOfDay('night', 1.0);
+      ocean.setTimeOfDay('night', 1.0);
+      course.setTimeOfDay('night', 1.0);
+      lighthouse.setTimeOfDay('night', 1.0);
+      advanceUntil(() => race.phase === 'racing', 8);
+      loop.advance(1.5);
+      course.object.visible = false;
+      spray.object.visible = false;
+      jetTrail.object.visible = false;
+      for (const boat of boats) boat.object.visible = false;
+      for (const wake of wakes) wake.object.visible = false;
+      harnessCameraOverride = {
+        target: lighthouse.object,
+        offset: [-72, 16, -58],
+        lookAt: [0, 18.0, 0],
+        fov: 44,
       };
       break;
     case "lighthouse-chase":
@@ -6027,6 +6050,7 @@ if (HARNESS) {
       ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
       course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
       honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+      lighthouse.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
     },
   };
   (window as unknown as { __harness: Harness }).__harness = harness;

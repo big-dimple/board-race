@@ -163,11 +163,11 @@ function makeNavyGeometry(): THREE.BufferGeometry {
   return mergeParts(parts);
 }
 
-function makeSearchlightBeamGeometry(length = 340.0, radiusTop = 0.45, radiusBottom = 7.8): THREE.BufferGeometry {
+function makeSearchlightBeamGeometry(length = 72.0, radiusTop = 0.85, radiusBottom = 7.2): THREE.BufferGeometry {
   const geo = new THREE.CylinderGeometry(radiusTop, radiusBottom, length, 32, 16, true);
-  // Extend forward from apex (0, 0, 0) along +Z, tilted down slightly (~0.042 rad / ~2.4 deg)
+  // Extend forward from apex (0, 0, 0) along +Z, tilted down toward the sea (~0.055 rad / ~3.15 deg)
   geo.translate(0, -length / 2, 0);
-  geo.rotateX(-Math.PI / 2 + 0.042);
+  geo.rotateX(-Math.PI / 2 + 0.055);
   return geo;
 }
 
@@ -199,27 +199,31 @@ varying vec3 vViewPos;
 
 void main() {
   if (uBlend <= 0.001) discard;
-  // In CylinderGeometry, uv.y goes 1.0 (top/apex) -> 0.0 (bottom/tip)
+  // In CylinderGeometry, uv.y goes 1.0 (top/apex at lantern) -> 0.0 (bottom/tip)
   float tAxis = 1.0 - vUv.y; // 0.0 at lantern apex -> 1.0 at distant tip
 
-  // Delicate exponential atmospheric Mie scattering extinction
-  float apexRamp = smoothstep(0.0, 0.012, tAxis);
-  float axialScatter = exp(-tAxis * 1.85) * (1.0 - smoothstep(0.78, 1.0, tAxis));
-  float axial = apexRamp * axialScatter;
+  // Natural maritime atmospheric extinction & smooth dissipation
+  float apexRamp = smoothstep(0.0, 0.04, tAxis);
+  float axialFalloff = exp(-tAxis * 2.6) * (1.0 - smoothstep(0.55, 0.98, tAxis));
+  float axial = apexRamp * axialFalloff;
 
-  // Analytic smooth volumetric cross-section (limb-brightened soft cylindrical depth)
+  // Soft cylindrical volumetric cross-section (soft Gaussian limb)
   float theta = vUv.x * 6.2831853;
   float rho = abs(sin(theta)); // 0 at edges, 1 at center
   float volumeDepth = sqrt(max(0.001, 1.0 - pow(1.0 - rho, 2.0)));
-  float gaussianProfile = pow(volumeDepth, 1.6);
+  float profile = pow(volumeDepth, 1.8);
 
-  // Delicate dancing micro-atmospheric particle dust
-  float dust = 0.94 + 0.06 * sin(tAxis * 28.0 - uTime * 1.2 + vUv.x * 12.0)
-                     + 0.04 * cos(tAxis * 42.0 + uTime * 0.9 + vWorldPos.y * 0.5);
+  // View-dependent Mie forward-scattering (looking towards lighthouse enhances brightness)
+  vec3 V = normalize(-vViewPos);
+  float mieForward = 0.85 + 0.35 * max(0.0, dot(V, vec3(0.0, 0.0, 1.0)));
 
-  // Silky soft ethereal luminosity
-  float intensity = axial * gaussianProfile * dust * uBlend * uDensityMul;
-  vec3 col = mix(uColorHalo, uColorCore, exp(-tAxis * 1.6));
+  // Subtle natural floating sea-mist shimmer
+  float mist = 0.95 + 0.05 * sin(tAxis * 18.0 - uTime * 1.5 + vUv.x * 8.0);
+
+  float intensity = axial * profile * mieForward * mist * uBlend * uDensityMul;
+  if (intensity <= 0.001) discard;
+
+  vec3 col = mix(uColorHalo, uColorCore, exp(-tAxis * 2.2));
   gl_FragColor = vec4(col * intensity, 1.0);
 }
 `;
@@ -301,6 +305,8 @@ export class LighthouseLandmark {
   private readonly beamShaftMaterial: THREE.ShaderMaterial;
   private readonly beamHaloMesh: THREE.Mesh;
   private readonly beamHaloMaterial: THREE.ShaderMaterial;
+  private readonly seaSpotMesh: THREE.Mesh;
+  private readonly seaSpotMaterial: THREE.ShaderMaterial;
 
   private readonly lanternCoreMesh: THREE.Mesh;
   private readonly lanternCoreMaterial: THREE.ShaderMaterial;
@@ -385,15 +391,15 @@ export class LighthouseLandmark {
     this.beamAnchor.position.set(0, 27.76, 0);
     this.beamAnchor.visible = false;
 
-    // Layer 1: Needle Core Beam (Brilliant diamond gold laser-collimated center)
+    // Layer 1: Needle Core Beam (Brilliant diamond gold laser-collimated center, 65m)
     this.beamCoreMaterial = new THREE.ShaderMaterial({
       name: 'LighthouseBeamCore',
       uniforms: {
         uTime: { value: 0 },
         uBlend: { value: 0 },
-        uColorCore: { value: new THREE.Color(1.0, 0.98, 0.88) }, // diamond incandescent white-gold
+        uColorCore: { value: new THREE.Color(1.0, 0.98, 0.88) },
         uColorHalo: { value: new THREE.Color(1.0, 0.88, 0.48) },
-        uDensityMul: { value: 0.48 },
+        uDensityMul: { value: 0.52 },
       },
       vertexShader: beamVertexShader,
       fragmentShader: beamFragmentShader,
@@ -404,7 +410,7 @@ export class LighthouseLandmark {
       toneMapped: false,
     });
     this.beamCoreMesh = new THREE.Mesh(
-      makeSearchlightBeamGeometry(320.0, 0.28, 2.6),
+      makeSearchlightBeamGeometry(65.0, 0.55, 4.2),
       this.beamCoreMaterial,
     );
     this.beamCoreMesh.name = 'lighthouse-beam-core';
@@ -413,7 +419,7 @@ export class LighthouseLandmark {
     this.beamCoreMesh.layers.set(0);
     this.beamAnchor.add(this.beamCoreMesh);
 
-    // Layer 2: Atmospheric Tyndall Shaft (Warm golden amber scattering body)
+    // Layer 2: Atmospheric Tyndall Shaft (Warm golden amber scattering body, 72m)
     this.beamShaftMaterial = new THREE.ShaderMaterial({
       name: 'LighthouseBeamShaft',
       uniforms: {
@@ -421,7 +427,7 @@ export class LighthouseLandmark {
         uBlend: { value: 0 },
         uColorCore: { value: new THREE.Color(1.0, 0.92, 0.65) },
         uColorHalo: { value: new THREE.Color(1.0, 0.72, 0.25) },
-        uDensityMul: { value: 0.32 },
+        uDensityMul: { value: 0.36 },
       },
       vertexShader: beamVertexShader,
       fragmentShader: beamFragmentShader,
@@ -432,7 +438,7 @@ export class LighthouseLandmark {
       toneMapped: false,
     });
     this.beamShaftMesh = new THREE.Mesh(
-      makeSearchlightBeamGeometry(340.0, 0.55, 7.8),
+      makeSearchlightBeamGeometry(72.0, 0.85, 7.2),
       this.beamShaftMaterial,
     );
     this.beamShaftMesh.name = 'lighthouse-beam-shaft';
@@ -441,7 +447,7 @@ export class LighthouseLandmark {
     this.beamShaftMesh.layers.set(0);
     this.beamAnchor.add(this.beamShaftMesh);
 
-    // Layer 3: Wide Ethereal Mist Halo (Dreamy soft atmospheric outer bloom)
+    // Layer 3: Wide Ethereal Mist Halo (Dreamy soft atmospheric outer bloom, 76m)
     this.beamHaloMaterial = new THREE.ShaderMaterial({
       name: 'LighthouseBeamHalo',
       uniforms: {
@@ -449,7 +455,7 @@ export class LighthouseLandmark {
         uBlend: { value: 0 },
         uColorCore: { value: new THREE.Color(1.0, 0.78, 0.35) },
         uColorHalo: { value: new THREE.Color(1.0, 0.55, 0.15) },
-        uDensityMul: { value: 0.14 },
+        uDensityMul: { value: 0.18 },
       },
       vertexShader: beamVertexShader,
       fragmentShader: beamFragmentShader,
@@ -460,7 +466,7 @@ export class LighthouseLandmark {
       toneMapped: false,
     });
     this.beamHaloMesh = new THREE.Mesh(
-      makeSearchlightBeamGeometry(360.0, 0.95, 14.5),
+      makeSearchlightBeamGeometry(76.0, 1.20, 10.5),
       this.beamHaloMaterial,
     );
     this.beamHaloMesh.name = 'lighthouse-beam-halo';
@@ -468,6 +474,50 @@ export class LighthouseLandmark {
     this.beamHaloMesh.userData.noOutline = true;
     this.beamHaloMesh.layers.set(0);
     this.beamAnchor.add(this.beamHaloMesh);
+
+    // Layer 4: Sea-Surface Sweeping Spotlight Swath (海面动态扫光投影)
+    const seaSpotGeo = new THREE.PlaneGeometry(18.0, 32.0);
+    seaSpotGeo.rotateX(-Math.PI / 2);
+    seaSpotGeo.translate(0, -27.64, 44.0);
+    this.seaSpotMaterial = new THREE.ShaderMaterial({
+      name: 'LighthouseSeaSpot',
+      uniforms: {
+        uBlend: { value: 0 },
+        uColor: { value: new THREE.Color(1.0, 0.85, 0.45) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uBlend;
+        uniform vec3 uColor;
+        varying vec2 vUv;
+        void main() {
+          if (uBlend <= 0.001) discard;
+          vec2 p = vUv * 2.0 - 1.0;
+          float r = length(p);
+          float spot = exp(-r * r * 2.4) * (1.0 - smoothstep(0.6, 1.0, r));
+          float intensity = spot * uBlend * 0.42;
+          if (intensity <= 0.002) discard;
+          gl_FragColor = vec4(uColor * intensity, 1.0);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    this.seaSpotMesh = new THREE.Mesh(seaSpotGeo, this.seaSpotMaterial);
+    this.seaSpotMesh.name = 'lighthouse-sea-spot';
+    this.seaSpotMesh.userData.noInk = true;
+    this.seaSpotMesh.userData.noOutline = true;
+    this.seaSpotMesh.layers.set(0);
+    this.beamAnchor.add(this.seaSpotMesh);
 
     // Lantern Glow Core
     this.lanternCoreMaterial = new THREE.ShaderMaterial({
@@ -525,35 +575,6 @@ export class LighthouseLandmark {
     this.object.add(this.lanternCoreMesh);
     this.object.add(this.starburstFlareMesh);
 
-    // Auto-update hook in render loop to ensure smooth continuous sweeping rotation
-    this.object.onBeforeRender = (_, __, camera) => {
-      if (this._blend > 0) {
-        const now = performance.now() * 0.001;
-        const t = this._lastTime > 0 ? this._lastTime : now;
-        const rotY = t * 0.32;
-        this.beamAnchor.rotation.y = rotY;
-        this.beamCoreMaterial.uniforms.uTime.value = t;
-        this.beamShaftMaterial.uniforms.uTime.value = t;
-        this.beamHaloMaterial.uniforms.uTime.value = t;
-
-        // Orient starburst lens flare quad to face camera
-        this.starburstFlareMesh.quaternion.copy(camera.quaternion);
-
-        // Calculate direct alignment between searchlight beam direction and camera vector
-        this._beamForward.set(Math.sin(rotY), 0, Math.cos(rotY)).normalize();
-        this._toCam.set(
-          camera.position.x - (WORLD_X),
-          camera.position.y - 27.76,
-          camera.position.z - (WORLD_Z),
-        ).normalize();
-
-        const beamAlignment = Math.max(0, this._beamForward.dot(this._toCam));
-        const flareStrength = Math.pow(beamAlignment, 7.5) * this._blend * 1.6;
-        this.starburstFlareMaterial.uniforms.uIntensity.value = flareStrength;
-        this.starburstFlareMesh.visible = flareStrength > 0.005;
-      }
-    };
-
     activeLighthouses.add(this);
   }
 
@@ -568,16 +589,36 @@ export class LighthouseLandmark {
     this.beamShaftMaterial.uniforms.uBlend.value = this._blend;
     this.beamHaloMaterial.uniforms.uBlend.value = this._blend;
     this.lanternCoreMaterial.uniforms.uBlend.value = this._blend;
+    this.seaSpotMaterial.uniforms.uBlend.value = this._blend;
   }
 
-  update(dt: number, t: number): void {
+  update(dt: number, t: number, camera?: THREE.Camera): void {
     this._lastTime = t;
+    const rotY = t * 0.42; // Continuous 360° sweeping rotation (~15.0s per revolution)
+    this.beamAnchor.rotation.y = rotY;
+
     if (this._blend > 0.001) {
-      const rotY = t * 0.32;
-      this.beamAnchor.rotation.y = rotY;
       this.beamCoreMaterial.uniforms.uTime.value = t;
       this.beamShaftMaterial.uniforms.uTime.value = t;
       this.beamHaloMaterial.uniforms.uTime.value = t;
+
+      if (camera) {
+        // Orient starburst lens flare quad to face camera
+        this.starburstFlareMesh.quaternion.copy(camera.quaternion);
+
+        // Calculate direct alignment between searchlight beam direction and camera vector
+        this._beamForward.set(Math.sin(rotY), 0, Math.cos(rotY)).normalize();
+        this._toCam.set(
+          camera.position.x - (WORLD_X),
+          camera.position.y - 27.76,
+          camera.position.z - (WORLD_Z),
+        ).normalize();
+
+        const beamAlignment = Math.max(0, this._beamForward.dot(this._toCam));
+        const flareStrength = Math.pow(beamAlignment, 6.0) * this._blend * 1.8;
+        this.starburstFlareMaterial.uniforms.uIntensity.value = flareStrength;
+        this.starburstFlareMesh.visible = flareStrength > 0.005;
+      }
     }
   }
 
