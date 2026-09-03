@@ -141,7 +141,7 @@ export class SinglePlayerMissilesSystem {
     dismissTimer: number;
   } | null = null;
   private hudNotice: (msg: string, title: string) => void;
-  private onMissileAudio: (kind: 'launch' | 'lock' | 'tracking') => void;
+  private onMissileAudio: (kind: 'launch' | 'lock' | 'tracking' | 'impact' | 'near-miss') => void;
   private readonly fallbackCamera = new THREE.PerspectiveCamera();
 
   private telemetry: SinglePlayerMissileTelemetry = {
@@ -158,7 +158,11 @@ export class SinglePlayerMissilesSystem {
     dismissTimer: 0,
   };
 
-  constructor(course: ICourse, hudNotice: (msg: string, title: string) => void, onMissileAudio: (kind: 'launch' | 'lock' | 'tracking') => void) {
+  constructor(
+    course: ICourse,
+    hudNotice: (msg: string, title: string) => void,
+    onMissileAudio: (kind: 'launch' | 'lock' | 'tracking' | 'impact' | 'near-miss') => void,
+  ) {
     this.object = new THREE.Group();
     this.object.name = 'sp-missile-system';
     this.course = course;
@@ -265,20 +269,11 @@ export class SinglePlayerMissilesSystem {
       scan.timer -= dt;
       if (scan.timer <= 0) {
         const racer = racers[scan.racerId];
-        const targetBoat = boats[scan.racerId];
-        // CRITICAL: Only target when the leader is on the WATER SURFACE (never during airborne flight)
-        const isSurface = targetBoat && targetBoat.state.flightPhase === 'surface' && targetBoat.state.flightRouteState === 'idle';
-
         if (racer && racer.place === 1 && !racer.eliminated && !racer.finished) {
-          if (isSurface) {
-            if (!this.activeMissile!.active) {
-              this.launchMissile(scan.racerId, scan.gateIndex, racers, boats);
-            }
-            this.scanTimers.splice(i, 1);
-          } else {
-            // Still in flight: wait 0.5s and check again until safely landed on water
-            scan.timer = 0.5;
+          if (!this.activeMissile!.active) {
+            this.launchMissile(scan.racerId, scan.gateIndex, racers, boats);
           }
+          this.scanTimers.splice(i, 1);
         } else {
           this.scanTimers.splice(i, 1);
         }
@@ -433,11 +428,31 @@ export class SinglePlayerMissilesSystem {
     this.telemetry.dismissTimer = 0;
 
     if (m.timer >= TOTAL_LIFETIME || dist < 4.0) {
-      // 1. AIRBORNE IMMUNITY: If target is in flight or airborne, missile CANNOT hit!
+      // 1. Calculate lateral blast vectors perpendicular to boat heading so near-miss visually and physically detonates to the side ("炸到边上")
+      const heading = targetBoat.state.heading;
+      const sideDirX = Math.cos(heading);
+      const sideDirZ = -Math.sin(heading);
+      const sideSign = (m.x - targetBoat.state.position.x) * sideDirX + (m.z - targetBoat.state.position.z) * sideDirZ >= 0 ? 1 : -1;
+      const blastX = targetBoat.state.position.x + sideDirX * sideSign * 6.5;
+      const blastZ = targetBoat.state.position.z + sideDirZ * sideSign * 6.5;
+      const impulseX = sideDirX * sideSign * 3.5;
+      const impulseZ = sideDirZ * sideSign * 3.5;
+
+      // 2. AIRBORNE TECHNICAL EVASION:
+      // When flying in the air, the player's high-speed flight maneuvers technically evade the homing track,
+      // detonating the missile right alongside the cloud track as an epic near-miss!
       const isAirborne = targetBoat.state.flightPhase !== 'surface' || targetBoat.state.airborne || targetBoat.state.position.y > 1.2;
+      const isDrifting = targetBoat.state.drifting;
+
       if (isAirborne) {
-        if (m.isPlayer) this.hudNotice('千钧一发凌空拔起脱离制导！', '🌊 万幸腾空 · 绝妙闪避！');
-        targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
+        if (isDrifting) {
+          if (m.isPlayer) this.hudNotice('凌空空刹切角 · 飞弹擦肩诱爆！', '👑 空刹神技 · 极限闪避！');
+          targetBoat.activateTechniqueBoost();
+        } else {
+          if (m.isPlayer) this.hudNotice('千钧一发凌空拔起 · 飞弹侧旁诱爆！', '🌊 凌空天轨 · 绝妙避让！');
+        }
+        targetBoat.applyScudNearMiss(blastX, blastZ, impulseX, impulseZ);
+        this.onMissileAudio('near-miss');
         m.state = 'deflected';
         m.dismissTimer = 1.1;
         m.mesh.visible = false;
@@ -445,12 +460,12 @@ export class SinglePlayerMissilesSystem {
         return;
       }
 
-      // 2. Counterplay: Drift Wake Deflection
-      const isDrifting = targetBoat.state.drifting;
-      if (isDrifting && m.timer >= 2.8) {
+      // 3. Counterplay on water: Drift Wake Deflection (水面漂移水幕诱爆)
+      if (isDrifting && m.timer >= 2.6) {
         if (m.isPlayer) this.hudNotice('掀起水幕诱爆飞弹 · 获得涡轮冲刺！', '👑 神技诱爆 · 极限反击！');
         targetBoat.activateTechniqueBoost();
-        targetBoat.applyScudNearMiss(m.x, m.z, 0, 0);
+        targetBoat.applyScudNearMiss(blastX, blastZ, impulseX, impulseZ);
+        this.onMissileAudio('near-miss');
         m.state = 'deflected';
         m.dismissTimer = 1.1;
         m.mesh.visible = false;
@@ -458,7 +473,7 @@ export class SinglePlayerMissilesSystem {
         return;
       }
 
-      // 3. Friendly Fire Shield: check other AIs
+      // 4. Friendly Fire Shield: check other AIs
       let hitTarget = targetBoat;
       for (const otherBoat of boats) {
         if (otherBoat.id === targetBoat.id) continue;
@@ -469,14 +484,17 @@ export class SinglePlayerMissilesSystem {
         }
       }
 
-      // 4. Impact execution
-      hitTarget.applyScudHit(0, 0, 14.0);
-
+      // 5. Impact execution
       if (hitTarget.id !== targetBoat.id) {
         // Successfully led missile into opponent!
+        hitTarget.applyScudHit(0, 0, 14.0);
+        this.onMissileAudio('impact');
         if (m.isPlayer) this.hudNotice('极限走位引诱飞弹轰飞对手！', '🎯 借刀炸人 · 走位成仙！');
         m.state = 'deflected';
       } else {
+        // Did not drift or evade on water: took direct blast
+        hitTarget.applyScudHit(0, 0, 14.0);
+        this.onMissileAudio('impact');
         if (m.isPlayer) this.hudNotice('受到水浪冲击 · 保持操舵！', '⚠️ 飞弹冲击警报');
         m.state = 'hit';
       }

@@ -1,24 +1,17 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“猛男勋章直接显示继续游戏按钮与移除资料片入口、防空/双打导弹发射与锁定音效全新重塑修复、飞出边缘红色警告声频与鸣响频率双提升（Macho Medal Direct Continue & Dossier Removal, Tactical Missile Launch Audio Overhaul & Trigger Bug Fix, Corridor Storm Warning Audio Frequency & Cadence Boost）”。
+状态：主分支当前工作包已圆满交付“防空飞弹全工况必发与空中技术避让侧旁诱爆重构、猛男勋章直接继续、导弹发射音效与出界警报声频提升（Universal Missile Launch Under All Flight Conditions, Airborne Technical Evasion & Lateral Blast, Macho Medal Direct Continue, Audible Tactical Launch Synthesizer & Corridor Alert Boost）”。
 
 ## 当前工作包
 
-- **猛男勋章直接显示继续游戏按钮并移除神秘资料片（Macho Medal Direct Continue & Dossier Removal）**：
-  1. **移除资料片入口**：从猛男勋章界面（`src/hud/hud.ts`、`src/hud/hud.css`）彻底移除“神秘资料片”按钮，界面聚焦于荣耀勋章呈现；
-  2. **直接显示继续游戏**：猛男勋章典礼开启后直接展示居中的“继续游戏”大按钮，不再经过初始隐藏等待；
-  3. **即时响应继续操作**：在 `src/main.ts` 中允许玩家随时点击“继续游戏”或按下 Enter/Space/手柄确认键立即继续，不再受 `MEDAL_MIN_READ_S` 锁定阻拦。
-
-- **导弹发射音效穿透力与触发 Bug 彻底修复（Tactical Missile Launch Audio Overhaul & Trigger Bug Fix）**：
-  1. **重构重装点火轰鸣与高穿透军用空袭警报（Audible Blast & High-Tech Siren）**：
-     - 火箭点火重音：$240\text{Hz} \to 52\text{Hz}$ 深度下潜低频锯齿波（Gain 0.55）+ 低通滤波；
-     - 尾喷管排气暴鸣：$1400\text{Hz} \to 420\text{Hz}$ 带通白噪声喷流（Gain 0.45）；
-     - 高科技战术空袭警报和弦：$640\text{Hz} \to 1080\text{Hz} \to 1320\text{Hz}$ 三段式锐利警报（Gain $0.36 \sim 0.42$）；
-     - 瞬态避让（Audio Ducking）：发射时瞬间将背景音乐闪避至 0.25，同时将快艇引擎噪音闪避至 0.20（持续 0.75s），彻底解决发射音效被引擎与音乐掩盖而完全听不到的问题；
-  2. **单人与双人发射音效全场景覆盖**：
-     - 修复 `singlePlayerMissiles.ts` 中仅在玩家领跑时才调用发射音效的 Bug，赛道上任意领跑者触发防空飞弹时均会全场轰鸣点火；
-     - 在双打模式淘汰玩家发射飞毛腿导弹（`prank-launch`）时同步触发 `audio.missileLaunchAlert()`；
-     - 修复 `duoInteraction.ts` 中发射飞毛腿导弹未递增 `counts.prank` 导致快照统计和导轨轮询异常的底层 Bug。
+- **防空拦截飞弹全工况必发与技术避让“炸到边上”重构（Universal Launch & Technical Near-Miss Evasion）**：
+  1. **任何情况下必定发射（Universal Launch Guarantee）**：彻底移除此前在空中不发射飞弹的限制（删去 `isSurface` 检测与 `0.5s` 延迟循环）。只要领跑者冲过门标触发防空警报，灯塔必定点火升空并呼啸爬升追猎目标，无论是水面疾驰还是穿行于白雾空轨均不例外，保留完整追逐张力；
+  2. **空中“技术”避让侧旁诱爆（Airborne Technical Evasion & Side Blast）**：
+     - **凌空空刹切角**：空中按住漂移键执行空刹（`drifting`）时，通过精准减速切角使超音速飞弹失准擦肩而过，触发【👑 空刹神技 · 极限闪避！】并激活涡轮冲刺（`activateTechniqueBoost`）；
+     - **凌空天轨走位**：空中飞翔通过雾轨弧线时，飞弹被天轨机动规避甩开，触发【🌊 凌空天轨 · 绝妙避让！】；
+     - **物理与视觉“炸到边上”（Lateral Near-Miss Blast）**：计算垂直于船体航向的法向横向向量，在快艇侧旁约 $6.5\text{m}$ 处引爆 100 颗高压水花/爆风粒子，并施加 $3.5\text{m/s}$ 横向推力脉冲（`applyScudNearMiss`），伴随剧烈侧向晃动与镜头微震，绝不破坏前向动量与空轨飞行，既惊险刺激又成就感拉满；
+  3. **水面技术诱爆与借刀炸人保持有效**：水面漂移水幕诱爆（`activateTechniqueBoost`）与贴身引诱飞弹轰飞对手（`hitTarget !== targetBoat`）无缝保留；若无任何技术机动直行发呆则承受垂直腾空水浪冲击；
+  4. **全套爆炸音效与镜头震颤闭环**：单人飞弹系统接入 `near-miss`（深沉钝击 `thud(0.8)` + 水浪暴鸣 `splash(2.2)` + 镜头震颤 `shake(0.65)`）与 `impact`（`thud(1.0)` + `splash(2.6)` + `stormKick()`），彻底告别哑炮。
 
 - **飞出边缘红色警告声音频与鸣响频率双提升（Corridor Storm Warning Audio Frequency & Cadence Boost）**：
   1. **提升声调音频频率（Higher Tone Pitch）**：

@@ -213,8 +213,19 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
   course,
   (msg, title) => hud.showTransientNotice(msg, title),
   (kind) => {
-    if (kind === 'launch') audio.missileLaunchAlert();
-    else audio.missileLockAlert(kind === 'lock' ? 'lock' : 'tracking');
+    if (kind === 'launch') {
+      audio.missileLaunchAlert();
+    } else if (kind === 'impact') {
+      audio.thud(1.0);
+      audio.splash(2.6);
+      cameraRig.stormKick();
+    } else if (kind === 'near-miss') {
+      audio.thud(0.8);
+      audio.splash(2.2);
+      cameraRig.shake(0.65);
+    } else {
+      audio.missileLockAlert(kind === 'lock' ? 'lock' : 'tracking');
+    }
   },
 );
 stage.scene.add(singlePlayerMissiles.object);
