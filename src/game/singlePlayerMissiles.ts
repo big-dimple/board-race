@@ -141,7 +141,7 @@ export class SinglePlayerMissilesSystem {
     dismissTimer: number;
   } | null = null;
   private hudNotice: (msg: string, title: string) => void;
-  private playBeep: () => void;
+  private onMissileAudio: (kind: 'launch' | 'lock' | 'tracking') => void;
   private readonly fallbackCamera = new THREE.PerspectiveCamera();
 
   private telemetry: SinglePlayerMissileTelemetry = {
@@ -158,12 +158,12 @@ export class SinglePlayerMissilesSystem {
     dismissTimer: 0,
   };
 
-  constructor(course: ICourse, hudNotice: (msg: string, title: string) => void, playBeep: () => void) {
+  constructor(course: ICourse, hudNotice: (msg: string, title: string) => void, onMissileAudio: (kind: 'launch' | 'lock' | 'tracking') => void) {
     this.object = new THREE.Group();
     this.object.name = 'sp-missile-system';
     this.course = course;
     this.hudNotice = hudNotice;
-    this.playBeep = playBeep;
+    this.onMissileAudio = onMissileAudio;
 
     const mesh = buildDominatorModel();
     mesh.visible = false;
@@ -325,7 +325,7 @@ export class SinglePlayerMissilesSystem {
     // Only broadcast notice & sound alarm if the player is targeted!
     if (m.isPlayer) {
       this.hudNotice('灯塔防空发射拦截飞弹锁定领跑者', '🚀 防空启动 · 飞弹来袭！');
-      this.playBeep();
+      this.onMissileAudio('launch');
     }
   }
 
@@ -364,7 +364,7 @@ export class SinglePlayerMissilesSystem {
       m.tacticalReticle.setVisible(true);
       if (m.isPlayer) {
         this.hudNotice('准备入弯漂移诱爆飞弹', '⚠️ 拦截飞弹已锁定！');
-        this.playBeep();
+        this.onMissileAudio('lock');
       }
     }
 
@@ -391,7 +391,7 @@ export class SinglePlayerMissilesSystem {
         elapsed: m.timer,
       }, activeCam);
       if (m.isPlayer && Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
-        this.playBeep();
+        this.onMissileAudio('tracking');
       }
     }
 

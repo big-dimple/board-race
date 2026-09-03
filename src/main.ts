@@ -209,7 +209,14 @@ rivalDirector.setRoster(roster);
 let ais = buildAiControllers();
 const collisions = new BoatCollisionSystem();
 const duoInteractions = new DuoInteractionController();
-const singlePlayerMissiles = new SinglePlayerMissilesSystem(course, (msg, title) => hud.showTransientNotice(msg, title), () => audio.countdownBeep(true));
+const singlePlayerMissiles = new SinglePlayerMissilesSystem(
+  course,
+  (msg, title) => hud.showTransientNotice(msg, title),
+  (kind) => {
+    if (kind === 'launch') audio.missileLaunchAlert();
+    else audio.missileLockAlert(kind === 'lock' ? 'lock' : 'tracking');
+  },
+);
 stage.scene.add(singlePlayerMissiles.object);
 stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
@@ -453,6 +460,7 @@ const FAILURE_REVIEW_AUTO_S = 5;
 const FAILURE_REVIEW_MIN_READ_S = 1.15;
 const MEDAL_CEREMONY_S = 6.5;
 const MEDAL_MIN_READ_S = 4.5;
+let medalCeremonySource: 'qualification' | 'finale' = 'qualification';
 const FINALE_REVEAL_S = 4.8;
 const FINALE_MIN_READ_S = 3.2;
 const FINALE_CAMERA_HERO_S = 0.75;
@@ -1027,7 +1035,10 @@ function activeCoachControls(): CoachControls {
 
 function requestRetry(): void {
   if (race.phase === 'medal') {
-    if (medalElapsed >= MEDAL_MIN_READ_S && !expansionGallery.visible()) startResumeCountdown();
+    if (medalElapsed >= MEDAL_MIN_READ_S && !expansionGallery.visible()) {
+      if (medalCeremonySource === 'finale') startNextRaceRound();
+      else startResumeCountdown();
+    }
     return;
   }
   if (retryLessonActive) {
@@ -1159,7 +1170,7 @@ function startResumeCountdown(): void {
 /** Resume the same run after the accolade wall without resetting flight progress. */
 function startNextRaceRound(): void {
   if (!race.startFinalContinueCountdown()) return;
-  timeOfDayManager.nextRound();
+  timeOfDayManager.nextRound(true);
   sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
@@ -1198,6 +1209,7 @@ function startNextRaceRound(): void {
   resultsShown = false;
   course.resetFinalStation();
   finale.hide();
+  hud.hideMedalCeremony();
   input.clearTransient();
   gamepadInput.clearTransient();
   mobileInput.reset();
@@ -1242,7 +1254,7 @@ function continueAfterFinale(auto = false): void {
   const tier = result?.outcome === 'excellent' ? 'excellent' : 'ordinary';
   const medals = Math.max(1, records.data.manMedalsTotal);
   const best = Math.max(7, records.data.bestFlights);
-  startMedalCeremony(tier, medals, best);
+  startMedalCeremony(tier, medals, best, 'finale');
 }
 
 /** Veteran shortcut: skip the dossier and the accolade wall, race the next round now. */
@@ -1316,7 +1328,8 @@ async function createFinaleCapture(): Promise<void> {
   }
 }
 
-function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals: number, best: number): void {
+function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals: number, best: number, source: 'qualification' | 'finale' = 'qualification'): void {
+  medalCeremonySource = source;
   if (!race.beginMedalCeremony()) return;
   medalElapsed = 0;
   retryLessonFrozenT = worldTime;
@@ -2453,7 +2466,10 @@ function step(dt: number, _t: number): void {
     const canContinue = medalElapsed >= MEDAL_MIN_READ_S;
     hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, canContinue);
     updateFrozenPresentation(dt, 'medal');
-    if (!galleryOpen && (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && canContinue))) startResumeCountdown();
+    if (!galleryOpen && (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && canContinue))) {
+      if (medalCeremonySource === 'finale') startNextRaceRound();
+      else startResumeCountdown();
+    }
     localInput.endFrame();
     return;
   }

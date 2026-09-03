@@ -364,7 +364,7 @@ export class Race implements RaceView {
 
   /** Continue the same run after the finale presentation. */
   startFinalContinueCountdown(): boolean {
-    if (this.phase !== 'finished' || !this.finaleCompleted) return false;
+    if ((this.phase !== 'finished' && this.phase !== 'medal') || !this.finaleCompleted) return false;
     this.finalStationArmed = false;
     this.finaleCompleted = false;
     this.challengeResult = null;

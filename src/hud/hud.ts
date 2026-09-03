@@ -732,7 +732,7 @@ export class HUD {
     if (!boat) return;
     const st = boat.state;
     if (race.phase === 'racing' && st.flightPhase !== this.seatFlightPhase[seat] && st.flightPhase === 'spool') {
-      const flightNumber = st.flightsCleared + 1;
+      const flightNumber = st.flightsCleared < 7 ? st.flightsCleared + 1 : (st.flightRouteCursor % 7) + 1;
       const kicker = flightNumber <= 3
         ? `起飞点 · ${flightNumber}/3 飞`
         : `天轨起飞 · 第 ${flightNumber} 飞`;
@@ -770,7 +770,10 @@ export class HUD {
 
     if (race.phase === 'racing' && st.flightGateProgress > this.seatFlightGateProgress[seat] &&
         st.flightRouteState !== 'passed') {
-      const flightNumber = Math.max(1, st.flightsCleared + (st.flightRouteIndex >= 0 ? 1 : 0));
+      const routeSlot = st.flightRouteIndex >= 0
+        ? st.flightRouteIndex
+        : (st.flightsCleared < 7 ? st.flightsCleared : st.flightRouteCursor % 7);
+      const flightNumber = routeSlot + 1;
       const kicker = flightNumber <= 3 ? `门标判定 · ${flightNumber}/3 飞` : `门标判定 · 第 ${flightNumber} 飞`;
       const title = flightNumber === 1
         ? '🎯 首门精准穿过'
@@ -799,7 +802,7 @@ export class HUD {
     this.seatFlightGateProgress[seat] = st.flightGateProgress;
     if (race.phase === 'racing' && st.flightRouteState !== this.seatFlightRouteState[seat]) {
       if (st.flightRouteState === 'passed') {
-        const flightNumber = st.flightsCleared;
+        const flightNumber = st.flightsCleared <= 7 ? st.flightsCleared : ((st.flightsCleared - 1) % 7) + 1;
         if (flightNumber === 1) {
           this.enqueueImpact({
             kind: 'route-clear',
@@ -1336,6 +1339,7 @@ export class HUD {
     this.medalContinue.hidden = true;
     this.medalGallery.hidden = true;
     this.medalNext.classList.remove('on');
+    this.finalTargetEl.classList.remove('on');
     this.medalCanvas.clear();
   }
 

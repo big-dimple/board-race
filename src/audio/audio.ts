@@ -898,6 +898,31 @@ export class GameAudio {
     for (let i = 0; i < 7; i++) this.firework(t + 0.4 + i * 0.49, i);
   }
 
+  /** Tactical missile launch alarm: powerful rocket ignition thump + dual-tone threat sweep. */
+  missileLaunchAlert(): void {
+    const c = this.ctx;
+    if (!c || !this.eventBus) return;
+    const t = c.currentTime;
+    this.impactBurst(150, 60, 0.45, 0.2);
+    this.blip(480, t, 0.14, 0.12, 'sawtooth');
+    this.blip(860, t + 0.065, 0.2, 0.14, 'triangle');
+    this.duckMusic(0.7, 0.28);
+  }
+
+  /** Tactical radar lock chirp: cyber lock-on tone or low-profile tracking chirp. */
+  missileLockAlert(urgency: 'lock' | 'tracking' = 'lock'): void {
+    const c = this.ctx;
+    if (!c || !this.eventBus) return;
+    const t = c.currentTime;
+    if (urgency === 'lock') {
+      this.blip(980, t, 0.14, 0.12, 'square');
+      this.blip(1480, t + 0.05, 0.2, 0.14, 'triangle');
+      this.duckMusic(0.75, 0.18);
+    } else {
+      this.blip(1120, t, 0.065, 0.07, 'triangle');
+    }
+  }
+
   /** Landing slam: sine 130→42 Hz pitch drop + lowpassed noise burst. */
   thud(strength: number): void {
     const c = this.ctx;

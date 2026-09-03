@@ -1221,20 +1221,21 @@
 .hud-wrongway {
   position: absolute;
   left: 50%;
-  top: max(7.5%, calc(env(safe-area-inset-top) + 8px));
+  top: max(8%, calc(env(safe-area-inset-top) + 12px));
   transform: translateX(-50%);
-  padding: 8px 24px;
-  font-size: clamp(15px, 2.2vw, 22px);
+  padding: 12px 36px;
+  font-size: clamp(22px, 2.8vw, 32px);
   font-weight: 950;
+  letter-spacing: 0.06em;
   line-height: 1.2;
   white-space: nowrap;
   color: #ff4785;
-  text-shadow: 0 2px 0 rgba(12, 12, 37, 0.95), 0 0 20px rgba(255, 71, 133, 0.65);
+  text-shadow: 0 3px 0 rgba(12, 12, 37, 0.95), 0 0 24px rgba(255, 71, 133, 0.75);
   background: rgba(36, 8, 20, 0.94);
-  border: 1.5px solid rgba(255, 71, 133, 0.85);
-  border-top: 3px solid #ff4785;
-  border-radius: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 24px rgba(255, 71, 133, 0.35);
+  border: 2px solid rgba(255, 71, 133, 0.95);
+  border-top: 5px solid #ff4785;
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8), 0 0 36px rgba(255, 71, 133, 0.6);
   backdrop-filter: blur(12px);
   opacity: 0;
   pointer-events: none;
@@ -1244,10 +1245,12 @@
 @media (pointer: coarse) and (orientation: landscape) {
   .hud-wrongway {
     left: 50%;
-    top: max(6.5%, calc(env(safe-area-inset-top) + 6px));
+    top: max(7.5%, calc(env(safe-area-inset-top) + 8px));
     transform: translateX(-50%);
-    padding: 6px 18px;
-    font-size: clamp(13px, 1.8vw, 17px);
+    padding: 8px 26px;
+    font-size: clamp(16px, 2.4vw, 22px);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), 0 0 24px rgba(255, 71, 133, 0.5);
   }
 }
 

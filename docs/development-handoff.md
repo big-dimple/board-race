@@ -1,22 +1,23 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“终点站通关替换成就墙直通经典【猛男勋章】颁奖盛典与烟花庆典、全 7 飞航段独立高光通报矩阵全量重构、移动端与桌面端勋章画幅与文字黄金分割无遮挡排版（Final Station Direct Macho Medal & Golden Confetti Ceremony, Full 7-Flight Non-Redundant Milestone Matrix, Responsive Side-by-Side Mobile Layout Without Overlap）”。
+状态：主分支当前工作包已圆满交付“终点站过线切入黑夜模式与航线重置修复、终点站残留距离指示清除与多圈飞数精准判定、出界红色警告栏尺寸比例放大重构、防空导弹发射与锁定音效全新重塑（Finale Night Cycle & Course Reset Fix, Post-Finale Stale Target Clean & Multi-Round Flight Number Mapping, Enlarged Off-Course Warning Banner, High-Tech Tactical Missile Audio Synthesizer）”。
 
 ## 当前工作包
 
-- **终点站通关替换成就墙直通经典【猛男勋章】颁奖盛典（Final Station Direct Macho Medal Celebration）**：
-  1. **彻底替换枯燥重复的成就墙**：冲过第七门进入 Final Station 资料片后，点击“继续”或倒计时结束直接进入经典而震撼的【猛男勋章 / 猛男至尊】颁奖盛典（`startMedalCeremony`），彻底移除多余无聊的成就墙与高光录像卡顿；
-  2. **至尊勋章入账与巅峰仪式感**：呈现黄金 champion 大勋章（`macho-medal.webp`）、耀金大字 `猛男至尊`（或 `猛男`）、`至尊勋章 +1 · 累计 X`、满屏金霞烟花与五彩纸屑喷发；
-  3. **双核功能按键与 5 秒丝滑下一轮**：保留 `神秘资料片`（一键探索 7 大彩蛋画廊）与 `继续游戏 (5s)`（带 5 秒倒计时），倒计时结束无缝开启下一轮激情竞速。
+- **终点站过线切入黑夜模式与下一轮赛道底层重构（Finale Night Cycle & Round Reset Logic）**：
+  1. **直通黑夜模式（Night Mode Transition）**：修复了终点站通关后从猛男勋章进入下一轮未切入黑夜的严重 Bug。在勋章结算完成或点击继续时，明确判定 `medalCeremonySource === 'finale'`，严格调用 `startNextRaceRound()` 并执行 `timeOfDayManager.nextRound(true)` 强切黑夜，天色与海面、灯塔光芒瞬间转入静谧黑夜氛围；
+  2. **终点站状态与残留距离提示彻底清除**：在 `startNextRaceRound()` 与 `hideMedalCeremony()` 中重置终点站（`course.resetFinalStation()`），并彻底隐藏屏幕顶部残留的终点站距离箭头指示（`finalTargetEl`），彻底解决“随便乱飞还在提示终点站距离”的底层状态残留；
+  3. **多圈飞行通报（Flight Number Mapping）精准映射**：在 `src/hud/hud.ts` 中针对跨圈后（进入黑夜第 2 轮及以上）的飞行判断，引入 `((st.flightRouteCursor) % 7) + 1` 周期映射，确保不管冲过多少圈，起飞、门标判定与通过提示永远精准对齐当前经过的第 1~7 门。
 
-- **全 7 飞航段独立高光通报矩阵全量重构（Full 7-Flight Distinct Milestone Matrix）**：
-  1. **全 7 飞起飞提示（Launch）**：第 1 飞（`⚡ 首飞破空 · 极限冲刺`）、第 2 飞（`⚡ 二飞腾空 · 弯道侧切`）、第 3 飞（`⚡ 定级之飞 · 冲刺猛男`）、第 4-7 飞（`⚡ 拔起腾空 · 极限冲刺`），彻底清除任何“第 4 飞 / 第 4 飞”重复标题；
-  2. **全 7 飞光门穿透（Gate）**：第 1 门（`🎯 首门精准穿过`）、第 2 门（`🎯 二门精准穿过`）、第 3 门（`🎯 三门定级过关！`）、第 4 门（`🎯 进阶四门通过`）、第 5 门（`🎯 最难发卡回旋已过！`）、第 6 门（`🎯 险峻六门通过`）、第 7 门（`🎯 终极天门通过！`）；
-  3. **全 7 飞通过结算（Route Clear）**：第 1 飞（`✨ 首飞顺利达成`）、第 2 飞（`✨ 连破双关 · 状态拉满`）、第 3 飞（`🏆 男人勋章已入账！`）、第 4 飞（`🌊 右切大弯心 ➔ 迎战第 5 飞`）、第 5 飞（`🔥 大回旋发卡弯完美征服！`）、第 6 飞（`⚡ 决胜前夕 ➔ 迎战终点天门`）、第 7 飞（`👑 七飞全满贯达成！`）。
+- **超出赛道红色警告栏尺寸比例放大重构（Enlarged Off-Course Warning Banner）**：
+  1. **放大尺寸与字号**：桌面端字号大幅提升至 `clamp(22px, 2.8vw, 32px)`，内边距增至 `12px 36px`；移动端横屏（844x390）字号提升至 `clamp(16px, 2.4vw, 22px)`，内边距增至 `8px 26px`；
+  2. **端庄醒目的警报质感**：顶部红金高光加粗为 `5px`，搭配加深背景阴影与柔和脉冲，彻底解决“比例过小看不清”的体验问题。
 
-- **移动端与桌面端勋章画幅与文字黄金分割无遮挡排版（Responsive Side-by-Side Medal Layout）**：
-  1. **手机端（844x390）左右黄金分割**：左侧展示完整大尺寸纯金猛男大勋章，右侧整洁展示赛博青蓝副标题、耀金大字、勋章统计与玻璃质感按钮，彻底解决图文重叠、字画挤压堆叠的严重痛点；
-  2. **典礼期间全面隐藏多余 HUD**：勋章盛典开启时，自动隐藏左上角记分牌（`.race-tower`）与无线电对讲框，海面与星空纯净通透。
+- **防空拦截导弹警报音色全新重塑（Tactical Missile Audio Overhaul）**：
+  1. **告别刺耳微波炉滴滴声**：彻底废弃此前复用的高频倒计时蜂鸣器（`countdownBeep`）；
+  2. **两段式军事高科技声效**：
+     - **发射警报（Launch Alert）**：重装火箭点火下潜低频（$150\text{Hz} \to 60\text{Hz}$ 亚音速气爆）+ 双音雷达威胁音（$480\text{Hz} \to 860\text{Hz}$）；
+     - **雷达锁定（Lock / Tracking Alert）**：高科技赛博雷达锁定和弦（$980\text{Hz} \to 1480\text{Hz}$ 双音频调制跳跃）+ 低存在感精准追踪蜂鸣（$1120\text{Hz}$ 极短战术脉冲），听感专业、紧迫且极具大作高级感。
 
 
 
