@@ -1,23 +1,32 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“终点站过线切入黑夜模式与航线重置修复、终点站残留距离指示清除与多圈飞数精准判定、出界红色警告栏尺寸比例放大重构、防空导弹发射与锁定音效全新重塑（Finale Night Cycle & Course Reset Fix, Post-Finale Stale Target Clean & Multi-Round Flight Number Mapping, Enlarged Off-Course Warning Banner, High-Tech Tactical Missile Audio Synthesizer）”。
+状态：主分支当前工作包已圆满交付“猛男勋章直接显示继续游戏按钮与移除资料片入口、防空/双打导弹发射与锁定音效全新重塑修复、飞出边缘红色警告声频与鸣响频率双提升（Macho Medal Direct Continue & Dossier Removal, Tactical Missile Launch Audio Overhaul & Trigger Bug Fix, Corridor Storm Warning Audio Frequency & Cadence Boost）”。
 
 ## 当前工作包
 
-- **终点站过线切入黑夜模式与下一轮赛道底层重构（Finale Night Cycle & Round Reset Logic）**：
-  1. **直通黑夜模式（Night Mode Transition）**：修复了终点站通关后从猛男勋章进入下一轮未切入黑夜的严重 Bug。在勋章结算完成或点击继续时，明确判定 `medalCeremonySource === 'finale'`，严格调用 `startNextRaceRound()` 并执行 `timeOfDayManager.nextRound(true)` 强切黑夜，天色与海面、灯塔光芒瞬间转入静谧黑夜氛围；
-  2. **终点站状态与残留距离提示彻底清除**：在 `startNextRaceRound()` 与 `hideMedalCeremony()` 中重置终点站（`course.resetFinalStation()`），并彻底隐藏屏幕顶部残留的终点站距离箭头指示（`finalTargetEl`），彻底解决“随便乱飞还在提示终点站距离”的底层状态残留；
-  3. **多圈飞行通报（Flight Number Mapping）精准映射**：在 `src/hud/hud.ts` 中针对跨圈后（进入黑夜第 2 轮及以上）的飞行判断，引入 `((st.flightRouteCursor) % 7) + 1` 周期映射，确保不管冲过多少圈，起飞、门标判定与通过提示永远精准对齐当前经过的第 1~7 门。
+- **猛男勋章直接显示继续游戏按钮并移除神秘资料片（Macho Medal Direct Continue & Dossier Removal）**：
+  1. **移除资料片入口**：从猛男勋章界面（`src/hud/hud.ts`、`src/hud/hud.css`）彻底移除“神秘资料片”按钮，界面聚焦于荣耀勋章呈现；
+  2. **直接显示继续游戏**：猛男勋章典礼开启后直接展示居中的“继续游戏”大按钮，不再经过初始隐藏等待；
+  3. **即时响应继续操作**：在 `src/main.ts` 中允许玩家随时点击“继续游戏”或按下 Enter/Space/手柄确认键立即继续，不再受 `MEDAL_MIN_READ_S` 锁定阻拦。
 
-- **超出赛道红色警告栏尺寸比例放大重构（Enlarged Off-Course Warning Banner）**：
-  1. **放大尺寸与字号**：桌面端字号大幅提升至 `clamp(22px, 2.8vw, 32px)`，内边距增至 `12px 36px`；移动端横屏（844x390）字号提升至 `clamp(16px, 2.4vw, 22px)`，内边距增至 `8px 26px`；
-  2. **端庄醒目的警报质感**：顶部红金高光加粗为 `5px`，搭配加深背景阴影与柔和脉冲，彻底解决“比例过小看不清”的体验问题。
+- **导弹发射音效穿透力与触发 Bug 彻底修复（Tactical Missile Launch Audio Overhaul & Trigger Bug Fix）**：
+  1. **重构重装点火轰鸣与高穿透军用空袭警报（Audible Blast & High-Tech Siren）**：
+     - 火箭点火重音：$240\text{Hz} \to 52\text{Hz}$ 深度下潜低频锯齿波（Gain 0.55）+ 低通滤波；
+     - 尾喷管排气暴鸣：$1400\text{Hz} \to 420\text{Hz}$ 带通白噪声喷流（Gain 0.45）；
+     - 高科技战术空袭警报和弦：$640\text{Hz} \to 1080\text{Hz} \to 1320\text{Hz}$ 三段式锐利警报（Gain $0.36 \sim 0.42$）；
+     - 瞬态避让（Audio Ducking）：发射时瞬间将背景音乐闪避至 0.25，同时将快艇引擎噪音闪避至 0.20（持续 0.75s），彻底解决发射音效被引擎与音乐掩盖而完全听不到的问题；
+  2. **单人与双人发射音效全场景覆盖**：
+     - 修复 `singlePlayerMissiles.ts` 中仅在玩家领跑时才调用发射音效的 Bug，赛道上任意领跑者触发防空飞弹时均会全场轰鸣点火；
+     - 在双打模式淘汰玩家发射飞毛腿导弹（`prank-launch`）时同步触发 `audio.missileLaunchAlert()`；
+     - 修复 `duoInteraction.ts` 中发射飞毛腿导弹未递增 `counts.prank` 导致快照统计和导轨轮询异常的底层 Bug。
 
-- **防空拦截导弹警报音色全新重塑（Tactical Missile Audio Overhaul）**：
-  1. **告别刺耳微波炉滴滴声**：彻底废弃此前复用的高频倒计时蜂鸣器（`countdownBeep`）；
-  2. **两段式军事高科技声效**：
-     - **发射警报（Launch Alert）**：重装火箭点火下潜低频（$150\text{Hz} \to 60\text{Hz}$ 亚音速气爆）+ 双音雷达威胁音（$480\text{Hz} \to 860\text{Hz}$）；
-     - **雷达锁定（Lock / Tracking Alert）**：高科技赛博雷达锁定和弦（$980\text{Hz} \to 1480\text{Hz}$ 双音频调制跳跃）+ 低存在感精准追踪蜂鸣（$1120\text{Hz}$ 极短战术脉冲），听感专业、紧迫且极具大作高级感。
+- **飞出边缘红色警告声音频与鸣响频率双提升（Corridor Storm Warning Audio Frequency & Cadence Boost）**：
+  1. **提升声调音频频率（Higher Tone Pitch）**：
+     - 航道边缘警戒（Tier 1）：由 $520\text{Hz}$ 提升至 $680\text{Hz}$（方波清晰利落，音量提升至 0.20）；
+     - 失控下坠危机（Tier 2）：由 $780\text{Hz}$ 提升至 $980\text{Hz}$（极速紧迫战术警报，音量提升至 0.24）；
+  2. **提升鸣响重复频率（Higher Beep Cadence）**：
+     - 航道边缘警戒：鸣响间隔由 $0.62\text{s}$ 缩短至 $0.36\text{s}$（鸣响频率提升至 $\approx 2.8\text{Hz}$）；
+     - 失控下坠危机：鸣响间隔由 $0.27\text{s}$ 缩短至 $0.16\text{s}$（鸣响频率提升至 $\approx 6.2\text{Hz}$），与 HUD 红色警告栏脉冲紧密呼应，危险提示强烈鲜明。
 
 
 
@@ -311,8 +320,7 @@
 
 ## 唯一下一步
 
-**真机验收四大核心改进与日夜交替系统**：
-1. **日夜交替验收**：第一轮为明亮白天，完成一轮冲线 / 进入第二轮后无缝切换为深邃黑夜（赛博月牙、闪烁四芒星、灯塔 360° 体积光锥旋转、赛道与金币自发光）；第三轮自动切回白天。
-2. **飞毛腿导弹视角验收**：双人模式中一席淘汰后发射飞毛腿导弹（Y键 / 手柄 Y），淘汰席分屏无缝切换至导弹追尾第一视角，以 45m/s 黄金速率锁定追踪对手，90% 致命爆破并定格特写 720° 腾空旋转。
-3. **雾道连续性验收**：双人模式中一人或两人冲过终点站后，经过终点站后的第一雾道（Route 0）全程稳定显示并支持正常起飞。
-4. **逆向行驶 15 秒纠偏验收**：水面逆向行驶时 HUD 呈现 15 秒倒计时警报，掉头回正后平滑恢复。
+**真机验收三大改进与全流程体验**：
+1. **猛男勋章直接继续验证**：通关或达成 3 飞猛男勋章后，确认界面无“神秘资料片”按钮，居中清晰呈现“继续游戏”，支持鼠标点击或按键立即进入下一环节。
+2. **导弹发射与锁定音效验证**：当防空飞弹或飞毛腿导弹发射时，确认能清晰听到震撼低沉的火箭点火下潜轰鸣（$240\text{Hz}\to 52\text{Hz}$）、排气喷流暴鸣与高穿透战术空袭警报，音乐与引擎声音主动闪避让位，声音清脆鲜明；
+3. **飞出边缘警报声频验证**：当赛艇在空中偏离白雾空轨边缘时，确认红色警告栏伴随紧凑密集的战术报警音（$680\text{Hz} / 0.36\text{s}$ 与 $980\text{Hz} / 0.16\text{s}$），警示感显著强化。

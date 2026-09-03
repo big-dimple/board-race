@@ -699,11 +699,11 @@ export class GameAudio {
     }
     if (tier > 0 && t >= this.corridorNextBeepAt) {
       if (tier === 1) {
-        this.blip(520, t, 0.11, 0.15, 'square');
-        this.corridorNextBeepAt = t + 0.62;
+        this.blip(680, t, 0.10, 0.20, 'square');
+        this.corridorNextBeepAt = t + 0.36;
       } else {
-        this.blip(780, t, 0.085, 0.18, 'square');
-        this.corridorNextBeepAt = t + 0.27;
+        this.blip(980, t, 0.08, 0.24, 'square');
+        this.corridorNextBeepAt = t + 0.16;
       }
     }
   }
@@ -898,15 +898,58 @@ export class GameAudio {
     for (let i = 0; i < 7; i++) this.firework(t + 0.4 + i * 0.49, i);
   }
 
-  /** Tactical missile launch alarm: powerful rocket ignition thump + dual-tone threat sweep. */
+  /** Tactical missile launch alarm: heavy rocket motor blast + high-visibility military siren. */
   missileLaunchAlert(): void {
     const c = this.ctx;
     if (!c || !this.eventBus) return;
     const t = c.currentTime;
-    this.impactBurst(150, 60, 0.45, 0.2);
-    this.blip(480, t, 0.14, 0.12, 'sawtooth');
-    this.blip(860, t + 0.065, 0.2, 0.14, 'triangle');
-    this.duckMusic(0.7, 0.28);
+    this.traceEvent('missile-launch', 1.0);
+
+    // 1. Duck background music and vehicle roar so the launch is loud and dramatic
+    this.duckMusic(0.25, 0.75);
+    this.duckVehicle(0.2, 0.75);
+
+    // 2. Heavy rocket ignition thump + rumble (sub-bass 240Hz -> 52Hz drop)
+    const o0 = c.createOscillator();
+    o0.type = 'sawtooth';
+    o0.frequency.setValueAtTime(240, t);
+    o0.frequency.exponentialRampToValueAtTime(52, t + 0.45);
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(380, t);
+    lp.frequency.exponentialRampToValueAtTime(120, t + 0.5);
+    const g0 = c.createGain();
+    g0.gain.setValueAtTime(0, t);
+    g0.gain.linearRampToValueAtTime(0.55, t + 0.02);
+    g0.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    o0.connect(lp);
+    lp.connect(g0);
+    g0.connect(this.eventBus);
+    this.trackOneShot(o0, [lp, g0], t, t + 0.6);
+
+    // 3. Rocket motor exhaust noise blast
+    if (this.noiseBuf) {
+      const noise = c.createBufferSource();
+      noise.buffer = this.noiseBuf;
+      const bp = c.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(1400, t);
+      bp.frequency.exponentialRampToValueAtTime(420, t + 0.6);
+      bp.Q.value = 1.2;
+      const ng = c.createGain();
+      ng.gain.setValueAtTime(0, t);
+      ng.gain.linearRampToValueAtTime(0.45, t + 0.02);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+      noise.connect(bp);
+      bp.connect(ng);
+      ng.connect(this.eventBus);
+      this.trackOneShot(noise, [bp, ng], t, t + 0.7, this.nextNoiseOffset(0.7));
+    }
+
+    // 4. High-tech tactical threat siren (audible, crisp, cutting through)
+    this.blip(640, t, 0.16, 0.38, 'sawtooth');
+    this.blip(1080, t + 0.08, 0.22, 0.42, 'triangle');
+    this.blip(1320, t + 0.20, 0.25, 0.36, 'square');
   }
 
   /** Tactical radar lock chirp: cyber lock-on tone or low-profile tracking chirp. */
@@ -915,11 +958,12 @@ export class GameAudio {
     if (!c || !this.eventBus) return;
     const t = c.currentTime;
     if (urgency === 'lock') {
-      this.blip(980, t, 0.14, 0.12, 'square');
-      this.blip(1480, t + 0.05, 0.2, 0.14, 'triangle');
-      this.duckMusic(0.75, 0.18);
+      this.duckMusic(0.4, 0.32);
+      this.duckVehicle(0.35, 0.32);
+      this.blip(1080, t, 0.14, 0.36, 'square');
+      this.blip(1620, t + 0.06, 0.18, 0.38, 'triangle');
     } else {
-      this.blip(1120, t, 0.065, 0.07, 'triangle');
+      this.blip(1280, t, 0.08, 0.24, 'triangle');
     }
   }
 

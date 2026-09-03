@@ -322,10 +322,12 @@ export class SinglePlayerMissilesSystem {
     m.mesh.visible = true;
     m.mesh.position.set(m.x, m.y, m.z);
 
-    // Only broadcast notice & sound alarm if the player is targeted!
+    // Broadcast missile launch sound across the scene whenever a missile is fired
+    this.onMissileAudio('launch');
+
+    // Only broadcast player HUD notice if the player is targeted!
     if (m.isPlayer) {
       this.hudNotice('灯塔防空发射拦截飞弹锁定领跑者', '🚀 防空启动 · 飞弹来袭！');
-      this.onMissileAudio('launch');
     }
   }
 

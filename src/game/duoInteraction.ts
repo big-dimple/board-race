@@ -651,6 +651,7 @@ export class DuoInteractionController {
       } else {
         const launched = this.launchPrankMissile(actor, target);
         if (launched) {
+          this.counts.prank++;
           this.consumeCharge(actor);
           emit({ actorId: actor, targetId: target, action, phase: 'prank-launch', accepted: true, chargesLeft: this.charges[actor] });
         }

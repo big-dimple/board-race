@@ -1035,10 +1035,8 @@ function activeCoachControls(): CoachControls {
 
 function requestRetry(): void {
   if (race.phase === 'medal') {
-    if (medalElapsed >= MEDAL_MIN_READ_S && !expansionGallery.visible()) {
-      if (medalCeremonySource === 'finale') startNextRaceRound();
-      else startResumeCountdown();
-    }
+    if (medalCeremonySource === 'finale') startNextRaceRound();
+    else startResumeCountdown();
     return;
   }
   if (retryLessonActive) {
@@ -1337,7 +1335,7 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   gamepadInput.clearTransient();
   mobileInput.suspendForPresentation();
   hud.showQualification(tier, medals, best);
-  hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, false);
+  hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, true);
   audio.setScene('medal');
   audio.playMedalCeremony();
   haptics.cue('medal');
@@ -1898,6 +1896,7 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     hud.showTransientNotice(`${actor.name} 灵魂援手 · ${target.name} 获得飞行电池！`, '互动支援', effectLane);
     trackGameEvent('duo_interaction', { action: 'support', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-launch') {
+    audio.missileLaunchAlert();
     audio.teamSpatialCue(targetSide, 'relay');
     targetPipeline.pulse('lost', 0.55);
     localInput.rumble(duoDevices[event.actorId], 0.5, 0.65, 52);
@@ -2460,13 +2459,10 @@ function step(dt: number, _t: number): void {
 
   if (race.phase === 'medal') {
     mobileInput.consumeAnyPress();
-    // Browsing the dossier pauses the ceremony clock; it resumes on return.
-    const galleryOpen = expansionGallery.visible();
-    if (!galleryOpen) medalElapsed += dt;
-    const canContinue = medalElapsed >= MEDAL_MIN_READ_S;
-    hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, canContinue);
+    medalElapsed += dt;
+    hud.updateMedalCeremony(medalElapsed, MEDAL_CEREMONY_S, true);
     updateFrozenPresentation(dt, 'medal');
-    if (!galleryOpen && (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && canContinue))) {
+    if (medalElapsed >= MEDAL_CEREMONY_S || ((enterPressed || spaceConfirmPressed || gamepadConfirm) && medalElapsed >= 0.2)) {
       if (medalCeremonySource === 'finale') startNextRaceRound();
       else startResumeCountdown();
     }

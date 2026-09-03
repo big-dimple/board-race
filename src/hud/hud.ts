@@ -253,7 +253,6 @@ export class HUD {
   private readonly medalTier: HTMLDivElement;
   private readonly medalNext: HTMLDivElement;
   private readonly medalContinue: HTMLButtonElement;
-  private readonly medalGallery: HTMLButtonElement;
   private currentMedalTier: 'ordinary' | 'excellent' = 'ordinary';
 
   // minimap
@@ -599,13 +598,6 @@ export class HUD {
     this.medalContinue.hidden = true;
     this.medalContinue.addEventListener('click', onRetry);
     medalButtons.appendChild(this.medalContinue);
-    this.medalGallery = document.createElement('button');
-    this.medalGallery.className = 'hud-medal-continue hud-medal-gallery';
-    this.medalGallery.type = 'button';
-    this.medalGallery.textContent = '神秘资料片';
-    this.medalGallery.hidden = true;
-    this.medalGallery.addEventListener('click', onMedalGallery);
-    medalButtons.appendChild(this.medalGallery);
     h('div', 'hud-medal-foot', medalCopy, '继续后 3 · 2 · 1 · GO');
 
     // ---- results ------------------------------------------------------------------------
@@ -1316,10 +1308,7 @@ export class HUD {
         : '三飞只是入场 · 远海档案现在开局';
     }
     this.medalNext.classList.remove('on');
-    this.medalContinue.hidden = true;
-    // The dossier entry is available for the whole ceremony; the auto
-    // countdown only pauses while the gallery is actually open.
-    this.medalGallery.hidden = false;
+    this.medalContinue.hidden = false;
     this.medalEl.classList.add('on');
     this.root.classList.add('medal-on');
     this.medalContinue.blur();
@@ -1329,7 +1318,7 @@ export class HUD {
     if (!this.medalEl.classList.contains('on')) return;
     this.medalCanvas.render(elapsed, duration, this.currentMedalTier);
     this.medalEl.style.setProperty('--ceremony-progress', String(Math.max(0, Math.min(1, elapsed / duration))));
-    this.medalContinue.hidden = !canContinue;
+    this.medalContinue.hidden = false;
     this.medalNext.classList.toggle('on', elapsed >= Math.max(2.7, duration - 1.8));
   }
 
@@ -1337,7 +1326,6 @@ export class HUD {
     this.medalEl.classList.remove('on');
     this.root.classList.remove('medal-on');
     this.medalContinue.hidden = true;
-    this.medalGallery.hidden = true;
     this.medalNext.classList.remove('on');
     this.finalTargetEl.classList.remove('on');
     this.medalCanvas.clear();
