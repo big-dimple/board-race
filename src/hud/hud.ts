@@ -587,24 +587,25 @@ export class HUD {
     this.medalCanvas = new MedalCeremonyCanvas(this.medalEl, true);
     const medalCopy = h('div', 'hud-medal-copy', this.medalEl);
     this.medalKicker = h('div', 'hud-medal-kicker', medalCopy, '三飞达成 · 实力兑现');
-    this.medalTitle = h('div', 'hud-medal-title hud-inked', medalCopy, '猛男');
-    this.medalCount = h('div', 'hud-medal-count hud-inked', medalCopy);
+    this.medalTitle = h('div', 'hud-medal-title', medalCopy, '猛男');
+    this.medalCount = h('div', 'hud-medal-count', medalCopy);
     this.medalTier = h('div', 'hud-medal-tier', medalCopy);
     this.medalNext = h('div', 'hud-medal-next', medalCopy);
+    const medalButtons = h('div', 'hud-medal-buttons', medalCopy);
     this.medalContinue = document.createElement('button');
     this.medalContinue.className = 'hud-medal-continue';
     this.medalContinue.type = 'button';
     this.medalContinue.textContent = '继续游戏';
     this.medalContinue.hidden = true;
     this.medalContinue.addEventListener('click', onRetry);
-    medalCopy.appendChild(this.medalContinue);
+    medalButtons.appendChild(this.medalContinue);
     this.medalGallery = document.createElement('button');
     this.medalGallery.className = 'hud-medal-continue hud-medal-gallery';
     this.medalGallery.type = 'button';
     this.medalGallery.textContent = '神秘资料片';
     this.medalGallery.hidden = true;
     this.medalGallery.addEventListener('click', onMedalGallery);
-    medalCopy.appendChild(this.medalGallery);
+    medalButtons.appendChild(this.medalGallery);
     h('div', 'hud-medal-foot', medalCopy, '继续后 3 · 2 · 1 · GO');
 
     // ---- results ------------------------------------------------------------------------
@@ -732,10 +733,20 @@ export class HUD {
     const st = boat.state;
     if (race.phase === 'racing' && st.flightPhase !== this.seatFlightPhase[seat] && st.flightPhase === 'spool') {
       const flightNumber = st.flightsCleared + 1;
+      const kicker = flightNumber <= 3
+        ? `起飞点 · ${flightNumber}/3 飞`
+        : `天轨起飞 · 第 ${flightNumber} 飞`;
+      const title = flightNumber === 1
+        ? '⚡ 首飞破空 · 极限冲刺'
+        : flightNumber === 2
+          ? '⚡ 二飞腾空 · 弯道侧切'
+          : flightNumber === 3
+            ? '⚡ 定级之飞 · 冲刺猛男'
+            : '⚡ 拔起腾空 · 极限冲刺';
       this.enqueueImpact({
         kind: 'flight-launch',
-        kicker: flightNumber <= 3 ? `起飞点 · ${flightNumber}/3 飞` : `天轨起飞 · 第 ${flightNumber} 飞`,
-        title: '⚡ 拔起腾空 · 极限冲刺',
+        kicker,
+        title,
         detail: '对准飞行走廊 · 稳住操舵',
         color: PALETTE.flight,
         duration: 0.7,
@@ -761,7 +772,19 @@ export class HUD {
         st.flightRouteState !== 'passed') {
       const flightNumber = Math.max(1, st.flightsCleared + (st.flightRouteIndex >= 0 ? 1 : 0));
       const kicker = flightNumber <= 3 ? `门标判定 · ${flightNumber}/3 飞` : `门标判定 · 第 ${flightNumber} 飞`;
-      const title = flightNumber === 5 ? '🎯 最难发卡回旋已过！' : '🎯 精准穿门';
+      const title = flightNumber === 1
+        ? '🎯 首门精准穿过'
+        : flightNumber === 2
+          ? '🎯 二门精准穿过'
+          : flightNumber === 3
+            ? '🎯 三门定级过关！'
+            : flightNumber === 4
+              ? '🎯 进阶四门通过'
+              : flightNumber === 5
+                ? '🎯 最难发卡回旋已过！'
+                : flightNumber === 6
+                  ? '🎯 险峻六门通过'
+                  : '🎯 终极天门通过！';
       this.enqueueImpact({
         kind: 'gate',
         kicker,
@@ -777,16 +800,37 @@ export class HUD {
     if (race.phase === 'racing' && st.flightRouteState !== this.seatFlightRouteState[seat]) {
       if (st.flightRouteState === 'passed') {
         const flightNumber = st.flightsCleared;
-        if (flightNumber < 3) {
-          const title = flightNumber === 1 ? '✨ 首飞顺利达成' : '✨ 连破双关 · 状态拉满';
+        if (flightNumber === 1) {
           this.enqueueImpact({
             kind: 'route-clear',
-            kicker: `阶段通关 · ${flightNumber}/3 飞`,
-            title,
-            detail: flightNumber === 2 ? '准备迎接第 3 飞定级大关' : '稳住重心准备下一门',
+            kicker: '阶段通关 · 1/3 飞',
+            title: '✨ 首飞顺利达成',
+            detail: '稳住重心准备下一门',
             color: PALETTE.flight,
             duration: 1.1,
             priority: 60,
+            lane,
+          });
+        } else if (flightNumber === 2) {
+          this.enqueueImpact({
+            kind: 'route-clear',
+            kicker: '阶段通关 · 2/3 飞',
+            title: '✨ 连破双关 · 状态拉满',
+            detail: '准备迎接第 3 飞定级大关',
+            color: PALETTE.flight,
+            duration: 1.1,
+            priority: 60,
+            lane,
+          });
+        } else if (flightNumber === 3) {
+          this.enqueueImpact({
+            kind: 'route-clear',
+            kicker: '三飞达成 · 猛男合格',
+            title: '🏆 男人勋章已入账！',
+            detail: '无限挑战开启 · 冲刺进阶航线',
+            color: PALETTE.sunFlare,
+            duration: 1.4,
+            priority: 70,
             lane,
           });
         } else if (flightNumber === 4) {
@@ -809,6 +853,28 @@ export class HUD {
             color: PALETTE.flight,
             duration: 2.0,
             priority: 75,
+            lane,
+          });
+        } else if (flightNumber === 6) {
+          this.enqueueImpact({
+            kind: 'route-clear',
+            kicker: '远海巅峰 · 6 飞达成',
+            title: '⚡ 决胜前夕 ➔ 迎战终点天门',
+            detail: '全速冲刺 · 最后一飞冲向终点站',
+            color: PALETTE.flight,
+            duration: 1.6,
+            priority: 70,
+            lane,
+          });
+        } else if (flightNumber >= 7) {
+          this.enqueueImpact({
+            kind: 'route-clear',
+            kicker: '七飞登顶 · 猛男至尊',
+            title: '👑 七飞全满贯达成！',
+            detail: '回港冲线 · 迎接终点站加冕',
+            color: PALETTE.sunFlare,
+            duration: 2.2,
+            priority: 85,
             lane,
           });
         }

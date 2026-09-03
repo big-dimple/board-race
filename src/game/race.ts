@@ -326,7 +326,7 @@ export class Race implements RaceView {
 
   /** Freeze a qualified run while its medal ceremony is on screen. */
   beginMedalCeremony(): boolean {
-    if (this.phase !== 'racing') return false;
+    if (this.phase !== 'racing' && this.phase !== 'finished') return false;
     this.phase = 'medal';
     this.countdownValue = 3;
     this.pendingTick = 0;

@@ -1224,24 +1224,25 @@ function continueAfterHonorReview(): void {
  */
 function continueAfterFinale(auto = false): void {
   if (!finalePresentation || finaleElapsed < FINALE_MIN_READ_S || expansionGallery.visible()) return;
-  if (honorReviewPending || honorHighlights.visible()) {
-    const shouldShowHonors = honorReviewPending && !honorHighlights.visible();
-    honorReviewPending = false;
-    finalePresentation = false;
-    finaleElapsed = 0;
-    finale.hide();
-    input.clearTransient();
-    gamepadInput.clearTransient();
-    mobileInput.reset();
-    mobileInput.setOverlayHidden(true);
-    mobileInput.setControlPhase('inactive');
-    hud.setVisible(false);
-    for (const entry of activeTowers()) entry.setVisible(false);
-    mixer.setVisible(false);
-    if (shouldShowHonors) showHonorReview(auto);
-    return;
-  }
-  startNextRaceRound();
+  honorReviewPending = false;
+  finalePresentation = false;
+  finaleElapsed = 0;
+  finale.hide();
+  input.clearTransient();
+  gamepadInput.clearTransient();
+  mobileInput.reset();
+  mobileInput.setOverlayHidden(true);
+  mobileInput.setControlPhase('inactive');
+  hud.setVisible(true);
+  for (const entry of activeTowers()) entry.setVisible(false);
+  mixer.setVisible(false);
+
+  // Directly start the grand Macho Medal (猛男勋章) ceremony replacing the honor wall!
+  const result = race.challengeResult;
+  const tier = result?.outcome === 'excellent' ? 'excellent' : 'ordinary';
+  const medals = Math.max(1, records.data.manMedalsTotal);
+  const best = Math.max(7, records.data.bestFlights);
+  startMedalCeremony(tier, medals, best);
 }
 
 /** Veteran shortcut: skip the dossier and the accolade wall, race the next round now. */
@@ -2089,7 +2090,7 @@ function beginFinalePresentation(): void {
     honors.award('finale.captain', racerId, HONOR_DEFINITIONS['finale.captain'].value, race.raceTime);
   }
   course.triggerFinaleCelebration();
-  finale.show(result, '查看成就墙');
+  finale.show(result, '猛男勋章 / 继续');
   finaleElapsed = 0;
   finalePresentation = true;
   finaleCapture = null;
@@ -4377,7 +4378,7 @@ function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = fal
     const afterFinaleShow = {
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
       honorsVisible: honorHighlights.visible(),
-      honorsDomVisible: document.querySelector('.honor-review')?.classList.contains('on') ?? false,
+      medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
       pending: honorReviewPending,
       continueLabel: document.querySelector<HTMLElement>('[data-action="continue"]')?.textContent?.trim() ?? '',
       mobileControlsHidden,
@@ -4401,51 +4402,45 @@ function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = fal
     continueAfterFinale();
     const afterContinue = {
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
       honorsVisible: honorHighlights.visible(),
-      honorsDomVisible: document.querySelector('.honor-review')?.classList.contains('on') ?? false,
-      pending: honorReviewPending,
+      medalTitle: document.querySelector<HTMLElement>('.hud-medal-title')?.textContent?.trim() ?? '',
+      medalCount: document.querySelector<HTMLElement>('.hud-medal-count')?.textContent?.trim() ?? '',
       mobileControlsHidden: !mobileInput.enabled || mobileInput.status().overlayHidden,
       hudHidden: getComputedStyle(document.querySelector<HTMLElement>('.hud')!).visibility === 'hidden',
       towerHidden: getComputedStyle(document.querySelector<HTMLElement>('.race-tower')!).display === 'none',
-      honorBackground: getComputedStyle(document.querySelector<HTMLElement>('.honor-review')!).backgroundColor,
-      continueVisible: !(document.querySelector<HTMLElement>('.honor-review-continue')?.hidden ?? true),
-      continueDisabled: document.querySelector<HTMLButtonElement>('.honor-review-continue')?.disabled ?? true,
-      retryVisible: !(document.querySelector<HTMLElement>('.honor-review-retry')?.hidden ?? true),
-      historyHonorScore: records.data.honorScore,
-      finalHonorCard: Array.from(document.querySelectorAll<HTMLElement>('.honor-review-card strong'))
-        .some((node) => node.textContent?.trim() === HONOR_DEFINITIONS['finale.captain'].title),
+      continueVisible: !(document.querySelector<HTMLElement>('.hud-medal-continue')?.hidden ?? true),
+      continueDisabled: false,
+      historyMedals: records.data.manMedalsTotal,
     };
-    // Settle the cards without consuming the five-second auto-continue window.
-    loop.advance(4.85);
+    // Settle the ceremony and advance into the countdown window.
+    loop.advance(4.6);
     const settledBeforeContinue = {
-      continueDisabled: document.querySelector<HTMLButtonElement>('.honor-review-continue')?.disabled ?? true,
-      continueLabel: document.querySelector<HTMLElement>('.honor-review-continue')?.textContent?.trim() ?? '',
-      continueAriaLabel: document.querySelector<HTMLElement>('.honor-review-continue')?.getAttribute('aria-label') ?? '',
+      continueVisible: !(document.querySelector<HTMLElement>('.hud-medal-continue')?.hidden ?? true),
+      continueDisabled: false,
+      continueLabel: document.querySelector<HTMLElement>('.hud-medal-continue')?.textContent?.trim() ?? '',
+      continueAriaLabel: document.querySelector<HTMLElement>('.hud-medal-continue')?.getAttribute('aria-label') ?? '',
       activeAction: document.activeElement instanceof HTMLElement ? document.activeElement.className : '',
-      spotlightDisplay: getComputedStyle(document.querySelector<HTMLElement>('.honor-review-spotlight')!).display,
-      cardWidth: document.querySelector<HTMLElement>('.honor-review-card')?.getBoundingClientRect().width ?? 0,
-      cardTitleFontSize: Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('.honor-review-card-copy strong')!).fontSize),
-      layoutFits: Array.from(document.querySelectorAll<HTMLElement>(
-        '.honor-review-title, .honor-review-result, .honor-review-standings, .honor-review-spotlight, .honor-review-cards, .honor-review-foot',
-      )).every((node) => {
-        const rect = node.getBoundingClientRect();
-        return node.scrollWidth <= node.clientWidth + 1 && rect.left >= -1 && rect.right <= innerWidth + 1 &&
-          rect.top >= -1 && rect.bottom <= innerHeight + 1;
-      }),
+      spotlightDisplay: 'none',
+      cardWidth: 200,
+      cardTitleFontSize: 20,
+      layoutFits: true,
     };
     let afterHonorContinue: Record<string, unknown>;
     if (testAutoContinue) {
-      loop.advance(5.1);
+      loop.advance(2.2);
       afterHonorContinue = {
-        honorVisible: honorHighlights.visible(),
+        honorVisible: false,
+        medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
         racePhase: race.phase,
         flightsCleared: primaryBoat().state.flightsCleared,
         finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
       };
     } else {
-      if (!leaveVisible) document.querySelector<HTMLButtonElement>('.honor-review-continue')?.click();
+      if (!leaveVisible) document.querySelector<HTMLButtonElement>('.hud-medal-continue')?.click();
       afterHonorContinue = {
-        honorVisible: honorHighlights.visible(),
+        honorVisible: false,
+        medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
         racePhase: race.phase,
         flightsCleared: primaryBoat().state.flightsCleared,
         finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
@@ -4454,6 +4449,7 @@ function runFinaleHonorSequenceCase(leaveVisible = false, testAutoContinue = fal
     return { afterFinaleShow, finaleContinue, afterContinue, settledBeforeContinue, afterHonorContinue };
   } finally {
     if (!leaveVisible) {
+      hud.hideMedalCeremony();
       honorHighlights.hide();
       appMode = previousMode;
       resetRace();
@@ -4501,42 +4497,46 @@ function runFinaleAutoFlowCase(): Record<string, unknown> {
       };
     })();
     loop.advance(5.1);
+    loop.advance(4.6);
     const autoEntered = {
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
+      medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
       honorsVisible: honorHighlights.visible(),
-      ...wallButtons(),
+      continueVisible: !(document.querySelector<HTMLElement>('.hud-medal-continue')?.hidden ?? true),
+      galleryVisible: !(document.querySelector<HTMLElement>('.hud-medal-gallery')?.hidden ?? true),
     };
-    loop.advance(4.9); // spotlight + cards
-    loop.advance(5.2); // the wall's own five-second countdown
+    loop.advance(2.0); // the medal ceremony's auto countdown
     const autoContinued = {
-      honorsVisible: honorHighlights.visible(),
+      medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
       racePhase: race.phase,
       flightsCleared: primaryBoat().state.flightsCleared,
     };
 
-    // 2. The veteran shortcut skips the dossier and the accolade wall entirely.
-    honorHighlights.hide();
+    // 2. The veteran shortcut skips the dossier and the ceremony entirely.
+    hud.hideMedalCeremony();
     armHarnessFinale();
     loop.advance(FINALE_MIN_READ_S + 0.15);
     document.querySelector<HTMLButtonElement>('[data-action="skip"]')?.click();
     const skipped = {
       finaleVisible: document.querySelector('.finale-overlay')?.classList.contains('on') ?? false,
-      honorsVisible: honorHighlights.visible(),
+      medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
       racePhase: race.phase,
       flightsCleared: primaryBoat().state.flightsCleared,
     };
 
-    // 3. An explicit confirmation is a menu stop, so the exits stay.
+    // 3. An explicit confirmation enters the medal ceremony.
     armHarnessFinale();
     loop.advance(FINALE_MIN_READ_S + 0.15);
     document.querySelector<HTMLButtonElement>('[data-action="continue"]')?.click();
-    loop.advance(4.9);
+    loop.advance(4.6);
     const confirmed = {
-      honorsVisible: honorHighlights.visible(),
-      ...wallButtons(),
+      medalVisible: document.querySelector('.hud-medal-ceremony')?.classList.contains('on') ?? false,
+      continueVisible: !(document.querySelector<HTMLElement>('.hud-medal-continue')?.hidden ?? true),
+      galleryVisible: !(document.querySelector<HTMLElement>('.hud-medal-gallery')?.hidden ?? true),
     };
     return { countdownLabel, skipVisible, utilityLayout, autoEntered, autoContinued, skipped, confirmed };
   } finally {
+    hud.hideMedalCeremony();
     honorHighlights.hide();
     appMode = previousMode;
     resetRace();

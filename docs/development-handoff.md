@@ -1,22 +1,22 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“开场 3 段式英雄分镜与全舰队阅兵运镜、立绘卡片手机端长名防挤压分层排版、HUD 提示文案全量去重与去黑框赛博字体升级、偏离航道红色警告栏置顶与去歪斜重构（Cinematic 3-Stage Opening Choreography, Responsive Driver Echo Cards, HUD Notice Deduplication & Cyber Typography, Top-Pinned Pure Off-Course Alert Banner）”。
+状态：主分支当前工作包已圆满交付“终点站通关替换成就墙直通经典【猛男勋章】颁奖盛典与烟花庆典、全 7 飞航段独立高光通报矩阵全量重构、移动端与桌面端勋章画幅与文字黄金分割无遮挡排版（Final Station Direct Macho Medal & Golden Confetti Ceremony, Full 7-Flight Non-Redundant Milestone Matrix, Responsive Side-by-Side Mobile Layout Without Overlap）”。
 
 ## 当前工作包
 
-- **开场 3 段式史诗运镜与自适应车手立绘卡片（Cinematic 3-Stage Opening & Responsive Hero Tag Architecture）**：
-  1. **Act 1 (0.0~3.2s) 专属特写定格（Player Hero Spotlight & Bullet-Time Orbit）**：低角度近景英雄视角（$r=6.4\text{m}\sim 8.2\text{m}, y=1.9\text{m}\sim 2.5\text{m}$，浅景深电影视角 FOV $44^\circ\sim 50^\circ$）紧密环绕玩家旗舰与引擎尾焰；立绘仅展示主角专属英雄大卡，豪华金边与环绕流光粒子璀璨夺目；
-  2. **Act 2 (3.2~6.0s) 宏观坠落到全舰队大阅兵（Cosmic-to-Fleet Macro Crane Orbit）**：摇臂摄像机平滑极速升空（$r \to 34.0\text{m}, y \to 20.0\text{m}$, FOV $66^\circ$），广角俯瞰海面与 6 艇完整起跑舰队阵列；AI 对手立绘卡依次渐进梯次浮现；
-  3. **Act 3 (6.0~8.0s) 动量匹配连击（Kinetic Match-Cut Settle into Countdown）**：摄像机高速俯冲对准玩家船尾基准机位（$\psi \to -168^\circ, r \to 11.2\text{m}, y \to 3.9\text{m}$），速度线与 FOV 丝滑收敛，零卡顿零跳跃无缝切入起跑倒计时；
-  4. **手机端长名字与双角标折行排版修复**：重构立绘卡片 DOM 为 `tagRow`（包含“本人出击”与“女将”）与独立的 `name` 姓名行，彻底解决移动端（844x390）下“美国豆包 + 女将 + 本人出击”被挤压截断成单字“美...”的 Bug。
+- **终点站通关替换成就墙直通经典【猛男勋章】颁奖盛典（Final Station Direct Macho Medal Celebration）**：
+  1. **彻底替换枯燥重复的成就墙**：冲过第七门进入 Final Station 资料片后，点击“继续”或倒计时结束直接进入经典而震撼的【猛男勋章 / 猛男至尊】颁奖盛典（`startMedalCeremony`），彻底移除多余无聊的成就墙与高光录像卡顿；
+  2. **至尊勋章入账与巅峰仪式感**：呈现黄金 champion 大勋章（`macho-medal.webp`）、耀金大字 `猛男至尊`（或 `猛男`）、`至尊勋章 +1 · 累计 X`、满屏金霞烟花与五彩纸屑喷发；
+  3. **双核功能按键与 5 秒丝滑下一轮**：保留 `神秘资料片`（一键探索 7 大彩蛋画廊）与 `继续游戏 (5s)`（带 5 秒倒计时），倒计时结束无缝开启下一轮激情竞速。
 
-- **HUD 弹窗文案全量去重与赛博纯净字体全面重构（HUD Impact Notice Deduplication & Cyber Typography Overhaul）**：
-  1. **全量清除标题与内容重复文本**：彻底删除“第 4 飞 / 第 4 飞”、“第 4 飞通过 / 第 4 飞通过”等重复废话，升级为语义明确、激情澎湃的赛况通报（`⚡ 拔起腾空 · 极限冲刺`、`✨ 第 4 飞完美通过`、`🎯 最难发卡回旋已过！`、`👑 优秀车手锁定` 等）；
-  2. **彻底剔除廉价蓝色斜体与黑粗框（No Ink / No Skew）**：废除 `hud-inked` 粗黑描边与 `skew(-8deg)` 歪斜，升级为暖金高光主标题（`#fff3ae`）+ 极速霓虹副标题（`#55e7ff`）+ 柔和环境光晕，悬浮于屏幕顶部安全区。
+- **全 7 飞航段独立高光通报矩阵全量重构（Full 7-Flight Distinct Milestone Matrix）**：
+  1. **全 7 飞起飞提示（Launch）**：第 1 飞（`⚡ 首飞破空 · 极限冲刺`）、第 2 飞（`⚡ 二飞腾空 · 弯道侧切`）、第 3 飞（`⚡ 定级之飞 · 冲刺猛男`）、第 4-7 飞（`⚡ 拔起腾空 · 极限冲刺`），彻底清除任何“第 4 飞 / 第 4 飞”重复标题；
+  2. **全 7 飞光门穿透（Gate）**：第 1 门（`🎯 首门精准穿过`）、第 2 门（`🎯 二门精准穿过`）、第 3 门（`🎯 三门定级过关！`）、第 4 门（`🎯 进阶四门通过`）、第 5 门（`🎯 最难发卡回旋已过！`）、第 6 门（`🎯 险峻六门通过`）、第 7 门（`🎯 终极天门通过！`）；
+  3. **全 7 飞通过结算（Route Clear）**：第 1 飞（`✨ 首飞顺利达成`）、第 2 飞（`✨ 连破双关 · 状态拉满`）、第 3 飞（`🏆 男人勋章已入账！`）、第 4 飞（`🌊 右切大弯心 ➔ 迎战第 5 飞`）、第 5 飞（`🔥 大回旋发卡弯完美征服！`）、第 6 飞（`⚡ 决胜前夕 ➔ 迎战终点天门`）、第 7 飞（`👑 七飞全满贯达成！`）。
 
-- **飞出赛道/逆向红色警告栏上移与平视重构（Off-Course Warning Pinned to Top & Unskewed Design）**：
-  1. **警告栏上移至顶部安全区**：`.hud-wrongway` 移至屏幕顶部上方通知栏（`top: max(7.5%, env(safe-area-inset-top) + 8px)`），彻底解放中央赛道与船体视线，绝不遮挡前方航路；
-  2. **剔除歪斜与晃动旋转**：删除 `skew(-8deg)` 与旋转晃动动画，重构为端庄高科技暗红半透明警报胶囊（`#ff4785` + 细腻呼吸脉冲），兼顾醒目警示与 100% 纯净视野。
+- **移动端与桌面端勋章画幅与文字黄金分割无遮挡排版（Responsive Side-by-Side Medal Layout）**：
+  1. **手机端（844x390）左右黄金分割**：左侧展示完整大尺寸纯金猛男大勋章，右侧整洁展示赛博青蓝副标题、耀金大字、勋章统计与玻璃质感按钮，彻底解决图文重叠、字画挤压堆叠的严重痛点；
+  2. **典礼期间全面隐藏多余 HUD**：勋章盛典开启时，自动隐藏左上角记分牌（`.race-tower`）与无线电对讲框，海面与星空纯净通透。
 
 
 

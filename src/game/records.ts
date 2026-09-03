@@ -133,6 +133,7 @@ export class RecordsStore {
   recordFinale(): void {
     this.data.finaleCompletions++;
     this.data.farSeaDossierUnlocked = true;
+    this.data.manMedalsTotal++;
     this.save();
   }
 

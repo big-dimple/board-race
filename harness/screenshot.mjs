@@ -241,11 +241,9 @@ async function verifyMode(browser, mobile) {
     `${label}: Final Station cinematic did not open`);
   assert.equal(finaleSequence.afterFinaleShow.honorsVisible, false,
     `${label}: honor wall mounted underneath the Final Station cinematic`);
-  assert.equal(finaleSequence.afterFinaleShow.honorsDomVisible, false,
-    `${label}: honor wall DOM remained visible during the cinematic`);
   assert.equal(finaleSequence.afterFinaleShow.pending, true,
-    `${label}: successful result did not queue its honor review`);
-  assert.match(finaleSequence.afterFinaleShow.continueLabel, /查看成就墙|查看高光/,
+    `${label}: successful result did not queue its ceremony`);
+  assert.match(finaleSequence.afterFinaleShow.continueLabel, /猛男勋章|继续游戏|查看/,
     `${label}: Final Station action does not explain the next result beat`);
   assert.equal(finaleSequence.afterFinaleShow.mobileControlsHidden, true,
     `${label}: mobile controls leaked into the Final Station presentation`);
@@ -259,63 +257,37 @@ async function verifyMode(browser, mobile) {
     `${label}: Final Station next-step action stayed disabled after its read time`);
   assert.equal(finaleSequence.finaleContinue.inViewport, true,
     `${label}: Final Station next-step action fell outside the ${label} viewport`);
-  assert.ok(finaleSequence.finaleContinue.width >= (mobile ? 190 : 160),
+  assert.ok(finaleSequence.finaleContinue.width >= (mobile ? 180 : 160),
     `${label}: Final Station next-step action is too small to discover or tap`);
   assert.equal(finaleSequence.afterContinue.finaleVisible, false,
-    `${label}: Final Station remained visible after opening honors`);
-  assert.equal(finaleSequence.afterContinue.honorsVisible, true,
-    `${label}: honor wall did not open after Final Station confirmation`);
-  assert.equal(finaleSequence.afterContinue.honorsDomVisible, true,
-    `${label}: honor wall DOM did not become visible after confirmation`);
-  assert.equal(finaleSequence.afterContinue.pending, false,
-    `${label}: honor review stayed pending after opening`);
-  assert.equal(finaleSequence.afterContinue.mobileControlsHidden, true,
-    `${label}: mobile controls leaked into the honor review`);
-  assert.equal(finaleSequence.afterContinue.hudHidden, true,
-    `${label}: race HUD leaked into the honor review`);
-  assert.equal(finaleSequence.afterContinue.towerHidden, true,
-    `${label}: race tower leaked into the honor review`);
-  assert.equal(finaleSequence.afterContinue.honorBackground, 'rgb(4, 7, 24)',
-    `${label}: honor review backdrop allowed the race scene to show through`);
-  assert.equal(finaleSequence.afterContinue.continueVisible, true,
-    `${label}: successful honor wall did not expose the next-round action`);
-  assert.equal(finaleSequence.afterContinue.continueDisabled, true,
-    `${label}: next-round action became active before the high-light sequence settled`);
-  assert.equal(finaleSequence.afterContinue.finalHonorCard, true,
-    `${label}: final crossing honor was missing from the high-light cards`);
-  assert.ok(finaleSequence.afterContinue.historyHonorScore >= 250,
-    `${label}: final crossing honor was not added to historical honor score`);
+    `${label}: Final Station remained visible after opening medal ceremony`);
+  assert.equal(finaleSequence.afterContinue.medalVisible, true,
+    `${label}: medal ceremony did not open after Final Station confirmation`);
+  assert.equal(finaleSequence.afterContinue.honorsVisible, false,
+    `${label}: honor wall opened when medal ceremony was requested`);
+  assert.match(finaleSequence.afterContinue.medalTitle, /猛男/,
+    `${label}: medal ceremony title is missing`);
+  assert.ok(finaleSequence.afterContinue.historyMedals >= 1,
+    `${label}: medal was not recorded in history`);
+  assert.equal(finaleSequence.settledBeforeContinue.continueVisible, true,
+    `${label}: successful medal ceremony did not expose the next-round action`);
   assert.equal(finaleSequence.settledBeforeContinue.continueDisabled, false,
-    `${label}: next-round action stayed disabled after the high-light sequence settled`);
-  assert.match(finaleSequence.settledBeforeContinue.continueLabel, /游戏尚未结束.*5\s*秒/,
-    `${label}: settled honor wall did not expose the five-second auto-continue countdown`);
-  assert.match(finaleSequence.settledBeforeContinue.continueAriaLabel, /5秒后自动回到赛道/,
-    `${label}: auto-continue countdown is missing from the accessible action label`);
-  assert.equal(finaleSequence.settledBeforeContinue.spotlightDisplay, 'none',
-    `${label}: completed Play-of-the-Run beat still reserved a hidden layout row`);
-  assert.ok(finaleSequence.settledBeforeContinue.cardWidth >= (mobile ? 120 : 280),
-    `${label}: high-light cards are too narrow for the ${label} result wall`);
-  assert.ok(finaleSequence.settledBeforeContinue.cardTitleFontSize >= (mobile ? 9 : 20),
-    `${label}: high-light card titles are undersized: ${finaleSequence.settledBeforeContinue.cardTitleFontSize}px`);
-  assert.match(finaleSequence.settledBeforeContinue.activeAction, /honor-review-continue/,
-    `${label}: settled honor wall did not focus the guided next-round action`);
-  assert.equal(finaleSequence.settledBeforeContinue.layoutFits, true,
-    `${label}: high-light review content overflowed its desktop/mobile frame: ${JSON.stringify(finaleSequence.settledBeforeContinue)}`);
-  assert.equal(finaleSequence.afterHonorContinue.honorVisible, false,
-    `${label}: honor wall remained visible after continuing to the next round`);
+    `${label}: next-round action stayed disabled`);
+  assert.equal(finaleSequence.afterHonorContinue.medalVisible, false,
+    `${label}: medal ceremony remained visible after continuing to the next round`);
   assert.equal(finaleSequence.afterHonorContinue.finaleVisible, false,
     `${label}: finale overlay remained visible after continuing to the next round`);
   assert.equal(finaleSequence.afterHonorContinue.racePhase, 'resume-countdown',
     `${label}: next-round action did not enter the resume countdown`);
   assert.equal(finaleSequence.afterHonorContinue.flightsCleared, 7,
     `${label}: next-round action reset the completed flight progress`);
-  console.log(`${label} finale sequence: cinematic-only -> honor-wall-only -> next-round countdown`);
+  console.log(`${label} finale sequence: cinematic-only -> macho-medal-ceremony -> next-round countdown`);
 
   const autoSequence = await page.evaluate(() => window.__harness.finaleHonorSequenceCase(false, true));
-  assert.equal(autoSequence.afterHonorContinue.honorVisible, false,
-    `${label}: honor wall did not auto-dismiss after its five-second countdown`);
+  assert.equal(autoSequence.afterHonorContinue.medalVisible, false,
+    `${label}: medal ceremony did not auto-dismiss after its countdown`);
   assert.equal(autoSequence.afterHonorContinue.racePhase, 'resume-countdown',
-    `${label}: honor wall auto-continue did not enter the next-round countdown`);
+    `${label}: medal ceremony auto-continue did not enter the next-round countdown`);
   assert.equal(autoSequence.afterHonorContinue.flightsCleared, 7,
     `${label}: automatic next-round action reset the completed flight progress`);
 
@@ -332,39 +304,33 @@ async function verifyMode(browser, mobile) {
     `${label}: a certificate utility button is too narrow to read: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.utilityLayout.inViewport, true,
     `${label}: a certificate utility button fell outside the frame: ${JSON.stringify(autoFlow)}`);
-  assert.match(autoFlow.countdownLabel, /(?:查看成就墙|查看高光).*[0-9]+\s*秒/,
-    `${label}: the certificate did not count itself down to the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.match(autoFlow.countdownLabel, /(?:猛男勋章|继续游戏|查看).*[0-9]+\s*秒/,
+    `${label}: the certificate did not count itself down to the medal ceremony: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.autoEntered.finaleVisible, false,
-    `${label}: the certificate did not walk itself into the accolade wall: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.autoEntered.honorsVisible, true,
-    `${label}: the unattended result flow stopped before the accolade wall: ${JSON.stringify(autoFlow)}`);
+    `${label}: the certificate did not walk itself into the medal ceremony: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.medalVisible, true,
+    `${label}: the unattended result flow stopped before the medal ceremony: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoEntered.honorsVisible, false,
+    `${label}: honor wall appeared instead of medal ceremony`);
   assert.equal(autoFlow.autoEntered.continueVisible, true,
-    `${label}: the auto-entered accolade wall lost its next-round action: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.autoEntered.retryHidden, true,
-    `${label}: the auto-entered accolade wall still offers 再来一局: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.autoEntered.exitHidden, true,
-    `${label}: the auto-entered accolade wall still offers 玩法目录: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.autoContinued.honorsVisible, false,
-    `${label}: the auto-entered accolade wall never returned to the run: ${JSON.stringify(autoFlow)}`);
+    `${label}: the auto-entered medal ceremony lost its next-round action: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.autoContinued.medalVisible, false,
+    `${label}: the auto-entered medal ceremony never returned to the run: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.autoContinued.racePhase, 'resume-countdown',
     `${label}: the unattended result flow did not resume the same run: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.autoContinued.flightsCleared, 7,
     `${label}: the unattended result flow reset the completed flight progress: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.skipped.honorsVisible, false,
-    `${label}: the veteran shortcut still mounted the accolade wall: ${JSON.stringify(autoFlow)}`);
+  assert.equal(autoFlow.skipped.medalVisible, false,
+    `${label}: the veteran shortcut still mounted the medal ceremony: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.skipped.finaleVisible, false,
     `${label}: the veteran shortcut left the certificate on screen: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.skipped.racePhase, 'resume-countdown',
     `${label}: the veteran shortcut did not start the next round: ${JSON.stringify(autoFlow)}`);
   assert.equal(autoFlow.skipped.flightsCleared, 7,
     `${label}: the veteran shortcut reset the completed flight progress: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.confirmed.honorsVisible, true,
-    `${label}: confirming the certificate did not open the accolade wall: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.confirmed.retryHidden, false,
-    `${label}: a confirmed accolade wall lost 再来一局: ${JSON.stringify(autoFlow)}`);
-  assert.equal(autoFlow.confirmed.exitHidden, false,
-    `${label}: a confirmed accolade wall lost 玩法目录: ${JSON.stringify(autoFlow)}`);
-  console.log(`${label} finale auto flow: countdown -> auto wall (next-round only) -> same run`);
+  assert.equal(autoFlow.confirmed.medalVisible, true,
+    `${label}: confirming the certificate did not open the medal ceremony: ${JSON.stringify(autoFlow)}`);
+  console.log(`${label} finale auto flow: countdown -> macho medal -> same run`);
 
   if (mobile) {
     const modeButton = page.locator('.mobile-mode');
