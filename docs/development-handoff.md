@@ -1,22 +1,25 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“3门前挂掉成就墙彻底清除猛男勋章遗留标志、防空飞弹全工况必发与空中技术避让侧旁诱爆重构、猛男勋章直接继续、导弹发射音效与出界警报声频提升（Purge Leftover Macho Medal Elements on Honor Wall Before Gate 3 Failure, Universal Missile Launch Under All Flight Conditions, Airborne Technical Evasion & Lateral Blast, Macho Medal Direct Continue, Audible Tactical Launch Synthesizer & Corridor Alert Boost）”。
+状态：主分支当前工作包已圆满交付“成就墙标题恒定锁定为【成就墙】彻底杜绝未过三门显示猛男勋章、终点站与三飞猛男勋章专页重构（图文比例对称居中、中文字体清除机械伪斜体、继续游戏按钮端正对称化）（Honor Wall Title Permanently Locked to 成就墙, Macho Medal Page Balanced Proportions, Upright Typography & Straight Symmetrical Continue Button）”。
 
 ## 当前工作包
 
-- **3门前挂掉成就墙彻底清除猛男勋章遗留标志（Purge Leftover Macho Medal Elements on Honor Wall Before Gate 3 Failure）**：
-  1. **底层生命周期修复（Root Failure Flag Fix）**：`Race`（`src/game/race.ts`）在 `defeatFlight` 中修正 `manMedalEarned` 赋值，由无脑写死 `true` 纠正为 `this.challengeTier !== 'unqualified' || failure.flightsCleared >= 3`，未满 3 飞即挂掉时严格输出 `manMedalEarned: false`；
-  2. **成就墙传参守卫（Honor Review Payload Guard）**：`main.ts` 在 `showHonorReview` 中严格计算 `manMedalEarned = (result?.manMedalEarned || medalEarnedThisRun) && (result?.flightsCleared ?? ...) >= 3`，确保未及格船只不携带猛男勋章标记；
-  3. **成就墙呈现层彻底清洁（Honor Highlights Clean Wall Presentation）**：
-     - `HonorReviewPayload`（`src/hud/honorHighlights.ts`）新增 `manMedalEarned?: boolean`；
-     - 未达成猛男勋章（前 3 门挂掉）时：
-       - 彻底隐藏顶部金光跳动猛男勋章大图标（`medalIcon` 设为 `hidden` 与 `display: none !important`，`honorHighlights.css` 保障不受样式覆盖）；
-       - 标题回归纯净的【成就墙】（`this.title.textContent = '成就墙'`），彻底清除“猛男勋章授予”；
-       - 副标题/Kicker 回归标准的 `RACE · ACCOLADES // 成就墙`（双人 `DUO RACE · ACCOLADES // 成就墙`），彻底清除 `MACHO MEDAL` 遗留文案；
-       - 对话框无障碍标签重置为 `赛后成就墙`（双人 `双人竞速 · 成就墙`）；
-       - 停止并清空礼花背景渲染（`medalCanvas.clear()`），不误播奖章庆典；
-     - 仅当真实达成了 3 飞猛男及格线或通关冲线时，才开启猛男勋章授予大典、勋章图标与礼花背景；
-  4. **自动化断言防护（Automated Regression Assertions）**：`src/main.ts`（`runSingleHonorCase`）与 `harness/screenshot.mjs` 接入对 3 门前失败时成就墙 `medalIconVisible: false`、`wallTitle: '成就墙'` 以及 kicker 无“猛男勋章”字样的强断言防护。
+- **成就墙恒定锁定【成就墙】三字与未过三门彻底防误显（Honor Wall Title Locked to 成就墙 & Zero Pre-Gate 3 Leaks）**：
+  1. **标题恒定锁定**：`HonorHighlights`（`src/hud/honorHighlights.ts`）的 `show()` 方法中，不论单人/双人或是否达成勋章，主标题恒定显示为【成就墙】（`this.title.textContent = '成就墙'`），副标题恒定为 `RACE · ACCOLADES // 成就墙`（双人 `DUO RACE · ACCOLADES // 成就墙`），彻底移除此前在 `hasMedal` 为真时将标题篡改为“猛男勋章达成”或“猛男勋章授予”的逻辑，符合游戏规则与设计直觉；
+  2. **成就墙礼花与奖章清退**：成就墙顶部猛男勋章图标永久隐藏，`update()` 与 `hide()` 中持续调用 `this.medalCanvas.clear()`，杜绝礼花与勋章在成就墙喧宾夺主；
+  3. **字体直立无歪斜**：`honorHighlights.css` 将 `.honor-review-title` 显式设为 `font-style: normal !important;`，消除中文机械倾斜。
+
+- **猛男勋章专页重构（图文比例端正、消除伪斜体、对称按钮）（Macho Medal Ceremony Layout & Typography Overhaul）**：
+  1. **左图右文黄金比例与垂直居中修复（Proportions & Vertical Centering）**：
+     - 修复关键帧动画覆盖 Bug：原 `@keyframes hud-medal-art-in` 仅定义 `translateX(-50%)`，覆盖了容器样式的 `translateY(-50%)`，导致图片顶部从 50% 起始而跌入屏幕下半段；现重构动画 `from` 与 `to` 均保留 `translate(-50%, -50%)`，确保动画完成后勋章图片完美停留在垂直正中 50% 高度；
+     - 桌面与移动端端正排版：`.hud-medal-art` 居中定位于左侧 28%（移动端 24%），保持 `aspect-ratio: 1 / 1; object-fit: contain;`，大小适宜、金光闪耀；`.hud-medal-copy` 定位于右侧 48%（移动端 44%），垂直居中，形成极其舒适自然的左图右文双栏布局；
+  2. **消除中文伪斜体与字形畸变（Upright Typography）**：
+     - `.hud-medal-ceremony` 与其全部子元素全局覆盖声明 `font-style: normal !important;`，根除了从 `.hud` 继承的全局 `italic`，汉字“猛男”、“猛男至尊”、“继续游戏”等恢复端庄大气的正体黑体渲染；
+     - 优化 Kicker、Title、Count、Tier、Next、Foot 各文字阶梯的字号、行高与间距，金光呼吸动效内敛耀眼；
+  3. **继续游戏按钮端正对称（Straight Symmetrical Continue Button）**：
+     - 彻底清除导致按钮视觉极度歪斜的不对称边框（移除 `border-left-width: 8px` / `border-left-width: 5px`）；
+     - 重构为四边均匀对称的 `2px solid #ffcf4a` 金色边框与平滑圆角（`border-radius: 8px` / 移动端 `6px`），文字 `display: inline-flex; align-items: center; justify-content: center;` 正中居中，按钮端正大气，彻底告别视觉倾斜；
+     - `.hud-lesson-continue` 也同步解绑并移除单侧加粗边框，保持 UI 体系一致。
 
 
 - **防空拦截飞弹全工况必发与技术避让“炸到边上”重构（Universal Launch & Technical Near-Miss Evasion）**：
@@ -328,7 +331,7 @@
 
 ## 唯一下一步
 
-**真机验收三大改进与全流程体验**：
-1. **猛男勋章直接继续验证**：通关或达成 3 飞猛男勋章后，确认界面无“神秘资料片”按钮，居中清晰呈现“继续游戏”，支持鼠标点击或按键立即进入下一环节。
-2. **导弹发射与锁定音效验证**：当防空飞弹或飞毛腿导弹发射时，确认能清晰听到震撼低沉的火箭点火下潜轰鸣（$240\text{Hz}\to 52\text{Hz}$）、排气喷流暴鸣与高穿透战术空袭警报，音乐与引擎声音主动闪避让位，声音清脆鲜明；
-3. **飞出边缘警报声频验证**：当赛艇在空中偏离白雾空轨边缘时，确认红色警告栏伴随紧凑密集的战术报警音（$680\text{Hz} / 0.36\text{s}$ 与 $980\text{Hz} / 0.16\text{s}$），警示感显著强化。
+**真机验收成就墙与猛男勋章专页排版**：
+1. **未过第 3 门成就墙显示验证**：单人或双人比赛在前 3 门失误挂掉后，确认进入成就墙时主标题恒定显示清晰端庄的【成就墙】三字，副标题为 `RACE · ACCOLADES // 成就墙`，绝不出现“猛男勋章达成”或“猛男勋章授予”，顶部无跳动奖章，背景无误播礼花；
+2. **终点站与三飞猛男勋章专页比例与文字验证**：通关七飞或达成三飞猛男勋章后，确认左侧勋章图片垂直居中（50% 高度）、无下沉跌落；右侧文案全部使用正体无衬线字体，字形端庄，无机械倾斜变形；
+3. **继续游戏按钮对称性验证**：确认“继续游戏”按钮左右边框完全对称一致，四角圆润，文字正中居中，支持点击或按键立即进入下一环节。

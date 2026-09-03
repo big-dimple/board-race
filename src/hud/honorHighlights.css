@@ -56,7 +56,7 @@
   100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
 .honor-review-kicker { color: #55e7ff; font: 900 12px/1.2 system-ui, sans-serif; letter-spacing: .12em; text-shadow: 0 0 10px rgba(85, 231, 255, 0.6); }
-.honor-review-title { margin: 2px 0 0; color: #fff3ae; font: italic 900 clamp(32px, 4.8vw, 64px)/.95 'Arial Black', Impact, system-ui, sans-serif; text-shadow: 4px 4px 0 #14122b, 0 0 24px rgba(255, 207, 74, 0.6); }
+.honor-review-title { margin: 2px 0 0; color: #fff3ae; font: 900 clamp(32px, 4.8vw, 64px)/.95 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; font-style: normal !important; text-shadow: 4px 4px 0 #14122b, 0 0 24px rgba(255, 207, 74, 0.6); }
 .honor-review-result { margin-top: 6px; color: rgba(244, 254, 255, .82); font: 800 15px/1.3 system-ui, sans-serif; }
 .honor-review-standings { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .honor-review-standing { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 9px; min-width: 0; padding: 10px 11px 9px; border-top: 2px solid rgba(244, 254, 255, .18); background: rgba(8, 13, 42, .55); }

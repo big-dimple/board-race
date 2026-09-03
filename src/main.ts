@@ -5332,6 +5332,11 @@ function scenario(name: string): void {
       startMedalCeremony("ordinary", 3, 3);
       loop.advance(2);
       break;
+    case "medal-ceremony-finale":
+      advanceUntil(() => race.phase === "racing", 8);
+      startMedalCeremony("excellent", 1, 7, "finale");
+      loop.advance(2);
+      break;
     case "finale-certificate":
       // Capture-only scenario: leave the seven-flight certificate on screen
       // with its countdown running so both frames can review the quiet

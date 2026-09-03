@@ -107,8 +107,8 @@ export class HonorHighlights {
       <footer class="honor-review-foot">
         <span class="honor-review-score"></span>
         <span class="honor-review-hint"></span>
-        <button class="honor-review-continue" type="button"><span aria-hidden="true">🚀</span> 进入下一轮</button>
-        <button class="honor-review-retry" type="button"><span aria-hidden="true">↻</span> 重新起航</button>
+        <button class="honor-review-continue" type="button"><span aria-hidden="true">▶</span> 游戏尚未结束</button>
+        <button class="honor-review-retry" type="button"><span aria-hidden="true">↻</span> 再来一局</button>
         <button class="honor-review-exit" type="button"><span aria-hidden="true">←</span> 玩法目录</button>
       </footer>`;
     parent.appendChild(this.root);
@@ -167,26 +167,15 @@ export class HonorHighlights {
     );
     const hasMedal = Boolean(payload.manMedalEarned);
 
-    if (hasMedal) {
-      this.medalIcon.hidden = false;
-      this.medalIcon.style.display = '';
-      this.kicker.textContent = humanWon
-        ? '🏅 MACHO MEDAL AWARD // 猛男勋章 · 终局荣耀大典'
-        : '🏅 MACHO MEDAL // 猛男勋章 · 荣耀大典';
-      this.title.textContent = humanWon ? '猛男勋章授予' : '猛男勋章达成';
-      this.root.setAttribute('aria-label', humanWon ? '猛男勋章 · 终局荣耀大典' : '猛男勋章 · 荣耀大典');
-      this.hint.textContent = '荣誉大典展示中';
-    } else {
-      this.medalIcon.hidden = true;
-      this.medalIcon.style.display = 'none';
-      this.kicker.textContent = payload.mode === 'duo'
-        ? 'DUO RACE · ACCOLADES // 成就墙'
-        : 'RACE · ACCOLADES // 成就墙';
-      this.title.textContent = '成就墙';
-      this.root.setAttribute('aria-label', payload.mode === 'duo' ? '双人竞速 · 成就墙' : '赛后成就墙');
-      this.hint.textContent = '成就墙展示中';
-      this.medalCanvas.clear();
-    }
+    this.medalIcon.hidden = true;
+    this.medalIcon.style.display = 'none';
+    this.kicker.textContent = payload.mode === 'duo'
+      ? 'DUO RACE · ACCOLADES // 成就墙'
+      : 'RACE · ACCOLADES // 成就墙';
+    this.title.textContent = '成就墙';
+    this.root.setAttribute('aria-label', payload.mode === 'duo' ? '双人竞速 · 成就墙' : '赛后成就墙');
+    this.hint.textContent = '成就墙展示中';
+    this.medalCanvas.clear();
     this.result.textContent = payload.resultLabel;
     this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · 历史荣誉 ${Math.round(payload.historyHonorScore)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次高光记录`;
     this.renderStandings();
@@ -209,11 +198,7 @@ export class HonorHighlights {
   update(dt: number): void {
     if (!this.visible()) return;
     this.timer += Math.max(0, dt);
-    if (this.payload?.manMedalEarned) {
-      this.medalCanvas.render(this.timer, 12, 'excellent');
-    } else {
-      this.medalCanvas.clear();
-    }
+    this.medalCanvas.clear();
     if (this.phase === 'spotlight' && this.timer >= 2.65) this.revealCards();
     if (this.phase === 'cards' && this.timer >= 4.8) this.settle();
     if (this.phase === 'settled' && this.payload?.canContinue && !this.autoContinueTriggered) {
