@@ -83,20 +83,20 @@ export class OpeningShowcase {
       portrait.decoding = 'async';
       const copy = document.createElement('span');
       copy.className = 'opening-driver-echo-copy';
-      const name = document.createElement('span');
-      name.className = 'opening-driver-echo-name';
+      const tagRow = document.createElement('div');
+      tagRow.className = 'opening-driver-echo-tag-row';
       const badge = document.createElement('span');
       badge.className = 'opening-driver-echo-badge';
       badge.textContent = '女将';
       const selfBadge = document.createElement('span');
       selfBadge.className = 'opening-driver-echo-self';
       selfBadge.textContent = '本人出击';
+      tagRow.append(selfBadge, badge);
+      const name = document.createElement('strong');
+      name.className = 'opening-driver-echo-name';
       const model = document.createElement('span');
       model.className = 'opening-driver-echo-model';
-      const headline = document.createElement('span');
-      headline.className = 'opening-driver-echo-headline';
-      headline.append(name, selfBadge, badge);
-      copy.append(headline, model);
+      copy.append(tagRow, name, model);
       const sparkContainer = document.createElement('div');
       sparkContainer.className = 'opening-driver-spark-container';
       const sparkHead = document.createElement('span');
@@ -145,17 +145,19 @@ export class OpeningShowcase {
       echo.root.dataset.pronouns = profile.pronouns;
       echo.badge.hidden = !female;
       echo.selfBadge.hidden = !isPlayer;
-      echo.model.textContent = `${profile.name} // ${profile.specialty}`;
+      echo.model.textContent = isPlayer
+        ? `领航旗舰 · ${profile.specialty}`
+        : `${profile.name} // ${profile.specialty}`;
     }
   }
 
-  start(duration = 5.6): void {
+  start(duration = 8.0): void {
     this.duration = Math.max(0.1, duration);
     this.elapsed = 0;
     this.activeValue = true;
     this.smoothInit.fill(0);
     this.root.classList.add('on');
-    this.root.dataset.beat = 'intro';
+    this.root.dataset.beat = 'hero';
     for (const echo of this.echoes) {
       echo.root.classList.remove('visible');
       echo.root.style.setProperty('--echo-progress', '0');
@@ -177,7 +179,7 @@ export class OpeningShowcase {
     if (!this.activeValue) return;
     this.elapsed = Math.min(this.duration, this.elapsed + Math.max(0, dt));
     const progress = this.duration > 0 ? this.elapsed / this.duration : 1;
-    this.root.dataset.beat = progress < 0.2 ? 'intro' : progress < 0.75 ? 'orbit' : 'lock';
+    this.root.dataset.beat = progress < 0.40 ? 'hero' : progress < 0.75 ? 'fleet' : 'lock';
     this.camera.updateMatrixWorld();
     const rect = this.viewport.getBoundingClientRect();
     const width = Math.max(1, rect.width || window.innerWidth);
@@ -188,10 +190,15 @@ export class OpeningShowcase {
       const boat = this.boats[i];
       const racer = this.roster[i];
       if (!boat || !racer) continue;
-      const reveal = smooth((this.elapsed - i * 0.12) / 0.65);
-      const outro = smooth((progress - 0.78) / 0.22);
+      const isPlayer = Boolean(racer.isPlayer);
+      const reveal = isPlayer
+        ? smooth(this.elapsed / 0.45)
+        : progress < 0.38
+          ? 0
+          : smooth((this.elapsed - 3.0 - (i - 1) * 0.12) / 0.55);
+      const outro = smooth((progress - 0.78) / 0.20);
       boat.riderMount.getWorldPosition(echo.anchor);
-      echo.anchor.y += 2.2 + (i % 2 === 1 ? 0.35 : 0);
+      echo.anchor.y += isPlayer ? 1.8 : 2.2 + (i % 2 === 1 ? 0.35 : 0);
       echo.anchor.project(this.camera);
       const visible = echo.anchor.z > -1 && echo.anchor.z < 1 && reveal > 0.01 && outro < 0.99;
       echo.root.classList.toggle('visible', visible);

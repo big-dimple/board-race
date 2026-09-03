@@ -960,35 +960,43 @@
 .hud-impact-copy {
   position: absolute;
   left: 50%;
-  top: 28%;
-  width: min(760px, calc(100% - 48px));
+  top: max(8%, calc(env(safe-area-inset-top) + 8px));
+  width: min(720px, calc(100% - 32px));
   text-align: center;
-  transform: translateX(-50%) skew(-8deg);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .hud-impact.on .hud-impact-copy {
-  animation: hud-impact-copy var(--impact-duration, 0.7s) cubic-bezier(0.18, 1.5, 0.25, 1) both;
+  animation: hud-impact-copy var(--impact-duration, 0.7s) cubic-bezier(0.18, 1.4, 0.25, 1) both;
 }
 
 .hud-impact-kicker {
-  font-size: 58px;
-  line-height: 0.9;
-  color: var(--impact);
+  font-size: clamp(14px, 2.0vw, 22px);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0.12em;
+  color: #55e7ff;
+  text-shadow: 0 2px 0 rgba(12, 12, 37, 0.95), 0 0 16px rgba(85, 231, 255, 0.65);
 }
 
 .hud-impact-title {
-  margin-top: 8px;
-  font-size: 32px;
-  line-height: 1;
-  color: var(--text);
+  margin-top: 4px;
+  font-size: clamp(24px, 4.0vw, 42px);
+  font-weight: 950;
+  line-height: 1.1;
+  color: #fff3ae;
+  text-shadow: 0 3px 0 #14122b, 0 0 28px rgba(255, 207, 74, 0.85);
+  letter-spacing: 0.03em;
 }
 
 .hud-impact-detail {
-  margin-top: 8px;
-  font-size: 18px;
-  line-height: 1;
-  color: var(--impact);
-  text-shadow: 2px 2px 0 var(--ink);
+  margin-top: 4px;
+  font-size: clamp(13px, 1.8vw, 17px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #9fe8ff;
+  text-shadow: 0 2px 8px rgba(12, 12, 37, 0.95);
 }
 
 .hud-impact[data-kind='duo-interaction'] .hud-impact-copy {
@@ -1021,28 +1029,29 @@
 
 .hud-impact[data-kind='drift'] .hud-impact-kicker,
 .hud-impact[data-kind='gate'] .hud-impact-kicker {
-  font-size: 34px;
+  font-size: clamp(14px, 2.0vw, 22px);
 }
 
 .hud-impact[data-kind='drift'] .hud-impact-copy {
-  left: 19%;
-  top: 57%;
-  width: 330px;
+  left: 50%;
+  top: max(8%, calc(env(safe-area-inset-top) + 8px));
+  width: min(640px, calc(100% - 32px));
+  transform: translateX(-50%);
 }
 
 .hud-impact[data-kind='drift'] .hud-impact-title,
 .hud-impact[data-kind='gate'] .hud-impact-title {
-  font-size: 23px;
+  font-size: clamp(22px, 3.6vw, 36px);
 }
 
 .hud-impact[data-kind='lost'] .hud-impact-kicker {
-  font-size: 43px;
+  font-size: clamp(20px, 3.2vw, 34px);
 }
 
-.hud-impact[data-kind='flight-launch'] .hud-impact-copy { top: 12%; }
-.hud-impact[data-kind='gate'] .hud-impact-copy { top: 12%; }
-.hud-impact[data-kind='route-clear'] .hud-impact-copy { top: 10%; }
-.hud-impact[data-kind='excellent'] .hud-impact-copy { top: 6%; }
+.hud-impact[data-kind='flight-launch'] .hud-impact-copy { top: max(8%, calc(env(safe-area-inset-top) + 8px)); }
+.hud-impact[data-kind='gate'] .hud-impact-copy { top: max(8%, calc(env(safe-area-inset-top) + 8px)); }
+.hud-impact[data-kind='route-clear'] .hud-impact-copy { top: max(7%, calc(env(safe-area-inset-top) + 6px)); }
+.hud-impact[data-kind='excellent'] .hud-impact-copy { top: max(6%, calc(env(safe-area-inset-top) + 4px)); }
 
 .hud-impact[data-kind='flight-pass'] .hud-impact-flash,
 .hud-impact[data-kind='flight-pass'] .hud-impact-lines { display: none; }
@@ -1089,15 +1098,15 @@
   .hud-impact[data-kind='route-clear'] .hud-impact-copy { top: 5%; }
   .hud-impact[data-kind='excellent'] .hud-impact-copy { top: 4%; }
   .hud-impact[data-kind='flight-extend'] .hud-impact-copy {
-    top: max(16%, calc(env(safe-area-inset-top) + 48px));
+    top: 15%;
     width: min(286px, calc(100% - 32px));
   }
   .hud-impact.on[data-kind='flight-extend'] .hud-impact-copy {
     animation: hud-flight-extend-copy var(--impact-duration, 0.72s) ease-out both;
   }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 16px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 3px; font-size: 34px; }
-  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 4px; font-size: 13px; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-kicker { font-size: 15px; line-height: 1; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-title { margin-top: 2px; font-size: 34px; line-height: 1; }
+  .hud-impact[data-kind='flight-extend'] .hud-impact-detail { margin-top: 2px; font-size: 13px; line-height: 1; }
 }
 
 @keyframes hud-impact-flash {
@@ -1119,11 +1128,11 @@
 }
 
 @keyframes hud-impact-copy {
-  0% { opacity: 0; transform: translateX(-50%) scale(1.65) rotate(-4deg) skew(-8deg); }
-  22% { opacity: 1; transform: translateX(-50%) scale(0.94) rotate(1deg) skew(-8deg); }
-  42% { transform: translateX(-50%) scale(1.04) rotate(-1deg) skew(-8deg); }
-  78% { opacity: 1; }
-  100% { opacity: 0; transform: translateX(-50%) translateY(-20px) scale(0.96) skew(-8deg); }
+  0% { opacity: 0; transform: translateX(-50%) translateY(-14px) scale(0.92); }
+  18% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.03); }
+  35% { transform: translateX(-50%) translateY(0) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-14px) scale(0.96); }
 }
 
 @keyframes hud-flight-pass-copy {
@@ -1169,35 +1178,41 @@
 }
 
 .hud-toast {
-  font-size: 42px;
+  font-size: clamp(24px, 3.2vw, 36px);
+  font-weight: 900;
   line-height: 1;
-  transform: skew(-8deg);
+  transform: none;
   animation: hud-toast 1.4s ease-out forwards;
 }
 
 .hud-toast.good {
   color: var(--accent);
+  text-shadow: 0 2px 0 rgba(12, 12, 37, 0.95), 0 0 16px rgba(110, 255, 184, 0.6);
 }
 
 .hud-toast.bad {
   color: var(--warn);
+  text-shadow: 0 2px 0 rgba(12, 12, 37, 0.95), 0 0 16px rgba(255, 61, 127, 0.6);
 }
 
 @keyframes hud-toast {
   0% {
     opacity: 0;
-    transform: translateY(16px) scale(1.5) skew(-8deg);
+    transform: translateY(12px) scale(0.9);
   }
   12% {
     opacity: 1;
-    transform: translateY(0) scale(1) skew(-8deg);
+    transform: translateY(0) scale(1.05);
+  }
+  24% {
+    transform: translateY(0) scale(1);
   }
   75% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translateY(-30px) scale(0.92) skew(-8deg);
+    transform: translateY(-20px) scale(0.95);
   }
 }
 
@@ -1206,35 +1221,39 @@
 .hud-wrongway {
   position: absolute;
   left: 50%;
-  top: 31%;
-  transform: translateX(-50%) skew(-8deg);
-  padding: 10px 32px;
-  font-size: 44px;
-  line-height: 1;
+  top: max(7.5%, calc(env(safe-area-inset-top) + 8px));
+  transform: translateX(-50%);
+  padding: 8px 24px;
+  font-size: clamp(15px, 2.2vw, 22px);
+  font-weight: 950;
+  line-height: 1.2;
   white-space: nowrap;
-  color: var(--warn);
-  text-shadow: 3px 3px 0 var(--ink);
-  background: var(--panel);
-  border: 4px solid var(--ink);
-  box-shadow: 8px 8px 0 var(--ink);
+  color: #ff4785;
+  text-shadow: 0 2px 0 rgba(12, 12, 37, 0.95), 0 0 20px rgba(255, 71, 133, 0.65);
+  background: rgba(36, 8, 20, 0.94);
+  border: 1.5px solid rgba(255, 71, 133, 0.85);
+  border-top: 3px solid #ff4785;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 24px rgba(255, 71, 133, 0.35);
+  backdrop-filter: blur(12px);
   opacity: 0;
+  pointer-events: none;
+  z-index: 50;
 }
 
 @media (pointer: coarse) and (orientation: landscape) {
   .hud-wrongway {
-    /* Right of center belongs to the flight extension card; keep the storm
-       banner in the clear lane left of it. */
-    left: 38%;
-    top: 27%;
-    padding: 7px 20px;
-    font-size: 30px;
-    border-width: 3px;
-    box-shadow: 5px 5px 0 var(--ink);
+    left: 50%;
+    top: max(6.5%, calc(env(safe-area-inset-top) + 6px));
+    transform: translateX(-50%);
+    padding: 6px 18px;
+    font-size: clamp(13px, 1.8vw, 17px);
   }
 }
 
 .hud-wrongway.on {
-  animation: hud-wrongflash 0.55s steps(2, jump-none) infinite;
+  opacity: 1;
+  animation: hud-wrongflash 0.6s ease-in-out infinite alternate;
 }
 
 /* Corridor losing-control band: pulsing red side light owned by the HUD, so
@@ -1320,16 +1339,14 @@
 
 @keyframes hud-wrongflash {
   0% {
-    opacity: 1;
-    transform: translateX(-50%) skew(-8deg) rotate(-1.5deg);
-  }
-  50% {
-    opacity: 0.2;
-    transform: translateX(-50%) skew(-8deg) rotate(1.5deg);
+    opacity: 0.85;
+    transform: translateX(-50%) scale(0.98);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65), 0 0 16px rgba(255, 71, 133, 0.25);
   }
   100% {
     opacity: 1;
-    transform: translateX(-50%) skew(-8deg) rotate(-1.5deg);
+    transform: translateX(-50%) scale(1.02);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.75), 0 0 32px rgba(255, 71, 133, 0.7);
   }
 }
 
@@ -2853,14 +2870,24 @@ body:has(.hud-medal-ceremony.on) .mobile-controls,
 
 .hud-finallap {
   order: -1;
-  padding-left: 12px;
-  font: italic 900 12px/1.1 'Arial Black', Impact, system-ui, sans-serif;
-  color: var(--warn);
+  padding: 2px 8px;
+  font: 900 11px/1.2 system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-style: normal;
+  color: #ff4785;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  background: rgba(36, 8, 20, 0.85);
+  border-left: 2.5px solid #ff4785;
+  border-radius: 2px;
   opacity: 1;
   transform: none;
+  margin-bottom: 2px;
 }
 
-.hud-finallap.qualified { color: var(--accent); }
+.hud-finallap.qualified {
+  color: #6effb8;
+  border-left-color: #6effb8;
+  background: rgba(8, 36, 20, 0.85);
+}
 
 .hud-pos {
   display: grid;

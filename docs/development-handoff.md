@@ -1,26 +1,22 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“导弹轰炸纯物理击飞翻滚不判死、3步飞驰闭环教学卡片大厂级配色与步步相扣管线、局内操作引导3阶渐进指示与双人战况简报升级（Missile Pure Physical Blast & 720° Tumble Without Instant Defeat, 3-Step Flight Cycle Cohesive AAA UI & Live Progressive In-Race Primer）”。
+状态：主分支当前工作包已圆满交付“开场 3 段式英雄分镜与全舰队阅兵运镜、立绘卡片手机端长名防挤压分层排版、HUD 提示文案全量去重与去黑框赛博字体升级、偏离航道红色警告栏置顶与去歪斜重构（Cinematic 3-Stage Opening Choreography, Responsive Driver Echo Cards, HUD Notice Deduplication & Cyber Typography, Top-Pinned Pure Off-Course Alert Banner）”。
 
 ## 当前工作包
 
-- **导弹轰炸机制回归纯物理击飞（Missile Pure Physical Blast & Air Tumble, No Instant Defeat）**：
-  1. **海面中弹绝不直接判负**：彻底剔除中弹强制触发 `flightRouteState = 'failed'` 与 `race.defeatFlight` 的秒杀逻辑，中弹仅施加剧烈冲量（$v_y = 18.5$）、空中 720° 特技翻滚、巨型水柱激浪与减速惩罚；
-  2. **水面落水自然恢复控制**：快艇中弹翻滚落地后，物理引擎平稳缓冲落水，玩家可立即重掌龙头、继续漂移加速争夺第一；
-  3. **空道真实边界裁决**：若在空中航道中弹，物理冲量将快艇炸出空道边界（或错过天门），由航道物理边界自然判定是否过门或出界，绝无莫须有的“中弹即死”代码死锁。
+- **开场 3 段式史诗运镜与自适应车手立绘卡片（Cinematic 3-Stage Opening & Responsive Hero Tag Architecture）**：
+  1. **Act 1 (0.0~3.2s) 专属特写定格（Player Hero Spotlight & Bullet-Time Orbit）**：低角度近景英雄视角（$r=6.4\text{m}\sim 8.2\text{m}, y=1.9\text{m}\sim 2.5\text{m}$，浅景深电影视角 FOV $44^\circ\sim 50^\circ$）紧密环绕玩家旗舰与引擎尾焰；立绘仅展示主角专属英雄大卡，豪华金边与环绕流光粒子璀璨夺目；
+  2. **Act 2 (3.2~6.0s) 宏观坠落到全舰队大阅兵（Cosmic-to-Fleet Macro Crane Orbit）**：摇臂摄像机平滑极速升空（$r \to 34.0\text{m}, y \to 20.0\text{m}$, FOV $66^\circ$），广角俯瞰海面与 6 艇完整起跑舰队阵列；AI 对手立绘卡依次渐进梯次浮现；
+  3. **Act 3 (6.0~8.0s) 动量匹配连击（Kinetic Match-Cut Settle into Countdown）**：摄像机高速俯冲对准玩家船尾基准机位（$\psi \to -168^\circ, r \to 11.2\text{m}, y \to 3.9\text{m}$），速度线与 FOV 丝滑收敛，零卡顿零跳跃无缝切入起跑倒计时；
+  4. **手机端长名字与双角标折行排版修复**：重构立绘卡片 DOM 为 `tagRow`（包含“本人出击”与“女将”）与独立的 `name` 姓名行，彻底解决移动端（844x390）下“美国豆包 + 女将 + 本人出击”被挤压截断成单字“美...”的 Bug。
 
-- **3 步飞驰循环指南大厂级配色与步步相扣连贯设计（3-Step Pilot Flight Cycle Cohesive UI）**：
-  1. **3 阶闭环贯通管线（Progressive Step Pipeline）**：开场及指引卡片全面升级为统一闭环视觉条 `[ STEP 01 水面转向 ] ➔ [ STEP 02 漂移蓄电 ] ➔ [ STEP 03 提早起飞 ]`，让玩家清晰理解“切弯 ➔ 漂移 ➔ 起飞”是一整套环环相扣的核心技能链；
-  2. **大厂级专业配色与磨砂玻璃质感（Obsidian Glassmorphism & Tri-Tone Hierarchy）**：
-     - **Step 01（水面转向）**：冰晶青蓝（`#2de4e0`），专注龙头微调与弯心咬合；
-     - **Step 02（漂移蓄电）**：赛博金辉（`#ffcf4a`），长按蓄满黄线存入飞行能量 ◇；
-     - **Step 03（提早起飞）**：极速翡翠（`#38ef7d`），见白雾提早破空对准天门；
-     - **底部法则标语**：`💡 核心法则：【转向切弯】 ➔ 【漂移攒电】 ➔ 【起飞入轨】 · 三阶循环缺一不可`；
-  3. **局内 live 引导卡片 3 阶高亮联动（Live In-Race 3-Step Pill Bar）**：局内左下角操作引导卡片（`.hud-pc-primer`）顶部新增 3 阶流光进度条，随着玩家当前所处阶段（蓄力中、已存电待起飞、空中飞行）动态点亮对应节点，步步相扣。
+- **HUD 弹窗文案全量去重与赛博纯净字体全面重构（HUD Impact Notice Deduplication & Cyber Typography Overhaul）**：
+  1. **全量清除标题与内容重复文本**：彻底删除“第 4 飞 / 第 4 飞”、“第 4 飞通过 / 第 4 飞通过”等重复废话，升级为语义明确、激情澎湃的赛况通报（`⚡ 拔起腾空 · 极限冲刺`、`✨ 第 4 飞完美通过`、`🎯 最难发卡回旋已过！`、`👑 优秀车手锁定` 等）；
+  2. **彻底剔除廉价蓝色斜体与黑粗框（No Ink / No Skew）**：废除 `hud-inked` 粗黑描边与 `skew(-8deg)` 歪斜，升级为暖金高光主标题（`#fff3ae`）+ 极速霓虹副标题（`#55e7ff`）+ 柔和环境光晕，悬浮于屏幕顶部安全区。
 
-- **双人模式战况简报与操作指南升级（Duo Mode Prologue Briefing & Unified Aesthetics）**：
-  1. **双人出击战况简报（Team Expedition Briefing）**：`team-transition` 升级磨砂玻璃全景视窗、霓虹荧光边框与双席位作战目标（`CONTROL CALIBRATION` / `TEAM CO-OP`），强化团队集结感；
-  2. **双人操作指南文案修正**：导弹整蛊文案修正为“炸飞 720° 腾空激浪”，对齐物理非秒杀体验。
+- **飞出赛道/逆向红色警告栏上移与平视重构（Off-Course Warning Pinned to Top & Unskewed Design）**：
+  1. **警告栏上移至顶部安全区**：`.hud-wrongway` 移至屏幕顶部上方通知栏（`top: max(7.5%, env(safe-area-inset-top) + 8px)`），彻底解放中央赛道与船体视线，绝不遮挡前方航路；
+  2. **剔除歪斜与晃动旋转**：删除 `skew(-8deg)` 与旋转晃动动画，重构为端庄高科技暗红半透明警报胶囊（`#ff4785` + 细腻呼吸脉冲），兼顾醒目警示与 100% 纯净视野。
 
 
 

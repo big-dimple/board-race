@@ -454,17 +454,55 @@ export class CameraRig {
     } else if (this.activeMode === 'showcase') {
       this.showcaseElapsed = Math.min(this.showcaseDuration, this.showcaseElapsed + dt);
       const p = this.showcaseDuration > 0 ? this.showcaseElapsed / this.showcaseDuration : 1;
-      const e = p * p * (3 - 2 * p); // smoothstep 0..1
 
-      // Majestic Sky Descent & Clockwise Aerial Orbit around starting grid
-      // Starts from high front-right (+72 deg) and sweeps clockwise to rear-left (-168 deg / -180 deg)
-      const angleStart = 1.256; // +72 deg (front-right high aerial overview)
-      const angleEnd = -2.932; // -168 deg (rear-left staging for countdown swoop)
-      const psi = angleStart + (angleEnd - angleStart) * e;
+      let psi: number;
+      let radius: number;
+      let height: number;
+      let lookForward: number;
+      let lookRight: number;
+      let lookUp: number;
+      let currentFov: number;
 
-      // Descends from high sky (24.0m) down to racing water-level (3.9m)
-      const radius = 38.0 + (11.2 - 38.0) * e;
-      const height = 24.0 + (3.9 - 24.0) * e;
+      if (p < 0.40) {
+        // Act 1: Bullet-Time Hero Orbit & Intimate Close-Up on Player Flagship (0.0s - 3.2s)
+        const u = p / 0.40;
+        const e = u * u * (3 - 2 * u); // smoothstep
+        const psiStart = 0.65; // +37 deg (front-right close dynamic 3/4 angle)
+        const psiEnd = 1.45; // +83 deg (right profile showcase sweep)
+        psi = psiStart + (psiEnd - psiStart) * e;
+        radius = 6.4 + (8.2 - 6.4) * e;
+        height = 1.9 + (2.5 - 1.9) * e;
+        lookForward = 1.2 + (0.8 - 1.2) * e;
+        lookRight = 0.3 * (1 - e);
+        lookUp = 0.8;
+        currentFov = 44 + (50 - 44) * e;
+      } else if (p < 0.75) {
+        // Act 2: Cosmic-to-Fleet Macro Sweep & Rival Grid Panorama (3.2s - 6.0s)
+        const u = (p - 0.40) / 0.35;
+        const e = u * u * (3 - 2 * u);
+        const psiStart = 1.45; // +83 deg
+        const psiEnd = -2.20; // -126 deg (high rear-right fleet angle)
+        psi = psiStart + (psiEnd - psiStart) * e;
+        radius = 8.2 + (34.0 - 8.2) * e;
+        height = 2.5 + (20.0 - 2.5) * e;
+        lookForward = 0.8 + (3.8 - 0.8) * e;
+        lookRight = 0.0 + (1.5 - 0.0) * e;
+        lookUp = 0.8 + (1.4 - 0.8) * e;
+        currentFov = 50 + (66 - 50) * e;
+      } else {
+        // Act 3: Kinetic Match Cut & Starting Grid Lineup (6.0s - 8.0s)
+        const u = (p - 0.75) / 0.25;
+        const e = u * u * (3 - 2 * u);
+        const psiStart = -2.20; // -126 deg
+        const psiEnd = -2.932; // -168 deg (exact pickup angle for countdown)
+        psi = psiStart + (psiEnd - psiStart) * e;
+        radius = 34.0 + (11.2 - 34.0) * e;
+        height = 20.0 + (3.9 - 20.0) * e;
+        lookForward = 3.8 + (2.5 - 3.8) * e;
+        lookRight = 1.5 * (1 - e);
+        lookUp = 1.4 * (1 - e);
+        currentFov = 66 + (68 - 66) * e;
+      }
 
       const rx = fz;
       const rz = -fx;
@@ -477,16 +515,13 @@ export class CameraRig {
         bz + fz * forwardOffset + rz * rightOffset,
       );
 
-      const lookForward = 2.5 + 1.5 * e;
-      const lookRight = 2.5 * (1 - e);
-      const lookUp = 1.8 * (1 - e);
       look.set(
         bx + fx * lookForward + rx * lookRight,
         by + lookUp + waterHeight(bx + fx * lookForward, bz + fz * lookForward, t),
         bz + fz * lookForward + rz * lookRight,
       );
 
-      fovTarget = 52 + (68 - 52) * e;
+      fovTarget = currentFov;
       rollTarget = 0;
       this.heaveAnchor = by;
     } else if (this.activeMode === 'countdown') {

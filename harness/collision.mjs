@@ -17,6 +17,7 @@ const server = spawn(process.execPath, [
 ], {
   cwd: root,
   stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, CHOKIDAR_USEPOLLING: '1' },
 });
 let serverError = '';
 server.stderr.on('data', (chunk) => { serverError += String(chunk); });
