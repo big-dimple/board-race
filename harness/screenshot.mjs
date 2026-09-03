@@ -404,6 +404,12 @@ async function verifyMode(browser, mobile) {
     assert.equal(singleHonors.mode, 'single', `${label}: single result envelope was not marked single`);
     assert.equal(singleHonors.seatCount, 1, `${label}: single result envelope gained a phantom seat`);
     assert.equal(singleHonors.wallVisible, true, `${label}: single-player honor wall did not open`);
+    assert.equal(singleHonors.medalIconVisible, false,
+      `${label}: macho medal icon remained visible when defeated before gate 3`);
+    assert.equal(singleHonors.wallTitle, '成就墙',
+      `${label}: wall title should be 成就墙 when defeated before gate 3`);
+    assert.doesNotMatch(singleHonors.wallKicker, /猛男勋章/,
+      `${label}: wall kicker should not mention 猛男勋章 when defeated before gate 3`);
     assert.equal(singleHonors.standingCount, 6, `${label}: single honor wall lost the six-racer standings`);
     assert.equal(singleHonors.resultPlace, 6,
       `${label}: failure result used a stale pre-failure place: ${JSON.stringify(singleHonors)}`);

@@ -1,8 +1,23 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“防空飞弹全工况必发与空中技术避让侧旁诱爆重构、猛男勋章直接继续、导弹发射音效与出界警报声频提升（Universal Missile Launch Under All Flight Conditions, Airborne Technical Evasion & Lateral Blast, Macho Medal Direct Continue, Audible Tactical Launch Synthesizer & Corridor Alert Boost）”。
+状态：主分支当前工作包已圆满交付“3门前挂掉成就墙彻底清除猛男勋章遗留标志、防空飞弹全工况必发与空中技术避让侧旁诱爆重构、猛男勋章直接继续、导弹发射音效与出界警报声频提升（Purge Leftover Macho Medal Elements on Honor Wall Before Gate 3 Failure, Universal Missile Launch Under All Flight Conditions, Airborne Technical Evasion & Lateral Blast, Macho Medal Direct Continue, Audible Tactical Launch Synthesizer & Corridor Alert Boost）”。
 
 ## 当前工作包
+
+- **3门前挂掉成就墙彻底清除猛男勋章遗留标志（Purge Leftover Macho Medal Elements on Honor Wall Before Gate 3 Failure）**：
+  1. **底层生命周期修复（Root Failure Flag Fix）**：`Race`（`src/game/race.ts`）在 `defeatFlight` 中修正 `manMedalEarned` 赋值，由无脑写死 `true` 纠正为 `this.challengeTier !== 'unqualified' || failure.flightsCleared >= 3`，未满 3 飞即挂掉时严格输出 `manMedalEarned: false`；
+  2. **成就墙传参守卫（Honor Review Payload Guard）**：`main.ts` 在 `showHonorReview` 中严格计算 `manMedalEarned = (result?.manMedalEarned || medalEarnedThisRun) && (result?.flightsCleared ?? ...) >= 3`，确保未及格船只不携带猛男勋章标记；
+  3. **成就墙呈现层彻底清洁（Honor Highlights Clean Wall Presentation）**：
+     - `HonorReviewPayload`（`src/hud/honorHighlights.ts`）新增 `manMedalEarned?: boolean`；
+     - 未达成猛男勋章（前 3 门挂掉）时：
+       - 彻底隐藏顶部金光跳动猛男勋章大图标（`medalIcon` 设为 `hidden` 与 `display: none !important`，`honorHighlights.css` 保障不受样式覆盖）；
+       - 标题回归纯净的【成就墙】（`this.title.textContent = '成就墙'`），彻底清除“猛男勋章授予”；
+       - 副标题/Kicker 回归标准的 `RACE · ACCOLADES // 成就墙`（双人 `DUO RACE · ACCOLADES // 成就墙`），彻底清除 `MACHO MEDAL` 遗留文案；
+       - 对话框无障碍标签重置为 `赛后成就墙`（双人 `双人竞速 · 成就墙`）；
+       - 停止并清空礼花背景渲染（`medalCanvas.clear()`），不误播奖章庆典；
+     - 仅当真实达成了 3 飞猛男及格线或通关冲线时，才开启猛男勋章授予大典、勋章图标与礼花背景；
+  4. **自动化断言防护（Automated Regression Assertions）**：`src/main.ts`（`runSingleHonorCase`）与 `harness/screenshot.mjs` 接入对 3 门前失败时成就墙 `medalIconVisible: false`、`wallTitle: '成就墙'` 以及 kicker 无“猛男勋章”字样的强断言防护。
+
 
 - **防空拦截飞弹全工况必发与技术避让“炸到边上”重构（Universal Launch & Technical Near-Miss Evasion）**：
   1. **任何情况下必定发射（Universal Launch Guarantee）**：彻底移除此前在空中不发射飞弹的限制（删去 `isSurface` 检测与 `0.5s` 延迟循环）。只要领跑者冲过门标触发防空警报，灯塔必定点火升空并呼啸爬升追猎目标，无论是水面疾驰还是穿行于白雾空轨均不例外，保留完整追逐张力；

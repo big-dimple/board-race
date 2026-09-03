@@ -47,6 +47,9 @@
   filter: drop-shadow(0 0 20px rgba(255, 207, 74, 0.85)) drop-shadow(0 6px 12px rgba(0, 0, 0, 0.75));
   animation: honor-medal-bounce .85s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
 }
+.honor-review-medal-icon[hidden] {
+  display: none !important;
+}
 @keyframes honor-medal-bounce {
   0% { transform: scale(0.2) rotate(-20deg); opacity: 0; }
   60% { transform: scale(1.15) rotate(6deg); opacity: 1; }

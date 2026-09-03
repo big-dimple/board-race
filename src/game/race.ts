@@ -420,7 +420,7 @@ export class Race implements RaceView {
       overtakes: this.totalOvertakes,
       excellentTotal: 0,
       ordinaryNew: false,
-      manMedalEarned: true,
+      manMedalEarned: this.challengeTier !== 'unqualified' || failure.flightsCleared >= 3,
       manMedalsTotal: 0,
       bestFlights: 0,
       newBest: false,

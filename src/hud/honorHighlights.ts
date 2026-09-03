@@ -31,10 +31,12 @@ export interface HonorReviewPayload {
   autoEntered: boolean;
   /** Persisted total shown beside this result for future server parity. */
   historyHonorScore: number;
+  /** True when the Macho Medal (3+ flights cleared) was achieved this run. */
+  manMedalEarned?: boolean;
 }
 
 /**
- * Grand Macho Medal & Accolades Ceremony (猛男勋章 · 终局荣耀大典)
+ * Post-race accolade wall & Macho Medal ceremony (成就墙 · 荣誉大典)
  */
 export class HonorHighlights {
   private readonly root: HTMLElement;
@@ -77,13 +79,13 @@ export class HonorHighlights {
     this.root.className = 'honor-review';
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
-    this.root.setAttribute('aria-label', '猛男勋章 · 终局荣耀大典');
+    this.root.setAttribute('aria-label', '赛后成就墙');
     this.root.innerHTML = `
       <div class="honor-review-sheen" aria-hidden="true"></div>
       <header class="honor-review-head">
-        <img class="honor-review-medal-icon" src="${machoMedalUrl}" alt="猛男勋章" draggable="false">
-        <div class="honor-review-kicker">🏅 MACHO MEDAL AWARD // 猛男勋章 · 终局荣耀大典</div>
-        <h2 class="honor-review-title">猛男勋章授予</h2>
+        <img class="honor-review-medal-icon" src="${machoMedalUrl}" alt="猛男勋章" draggable="false" style="display: none;" hidden>
+        <div class="honor-review-kicker">RACE · ACCOLADES // 成就墙</div>
+        <h2 class="honor-review-title">成就墙</h2>
         <div class="honor-review-result"></div>
       </header>
       <div class="honor-review-standings" role="list" aria-label="本局名次"></div>
@@ -160,14 +162,33 @@ export class HonorHighlights {
     this.root.dataset.mode = payload.mode;
     this.root.style.setProperty('--honor-progress', '0');
     this.root.classList.add('on', 'spotlight');
-    const isWinner = payload.racers[0]?.place === 1;
-    this.kicker.textContent = isWinner
-      ? '🏅 MACHO MEDAL AWARD // 猛男勋章 · 终局荣耀大典'
-      : '🏅 BRAVERY MEDAL // 勇者勋章 · 虽败犹荣大典';
-    this.title.textContent = isWinner ? '猛男勋章授予' : '勇者勋章嘉奖';
+    const humanWon = payload.canContinue && payload.racers.some((r) =>
+      (payload.mode === 'duo' ? r.id <= 1 : r.id === 0) && r.place === 1,
+    );
+    const hasMedal = Boolean(payload.manMedalEarned);
+
+    if (hasMedal) {
+      this.medalIcon.hidden = false;
+      this.medalIcon.style.display = '';
+      this.kicker.textContent = humanWon
+        ? '🏅 MACHO MEDAL AWARD // 猛男勋章 · 终局荣耀大典'
+        : '🏅 MACHO MEDAL // 猛男勋章 · 荣耀大典';
+      this.title.textContent = humanWon ? '猛男勋章授予' : '猛男勋章达成';
+      this.root.setAttribute('aria-label', humanWon ? '猛男勋章 · 终局荣耀大典' : '猛男勋章 · 荣耀大典');
+      this.hint.textContent = '荣誉大典展示中';
+    } else {
+      this.medalIcon.hidden = true;
+      this.medalIcon.style.display = 'none';
+      this.kicker.textContent = payload.mode === 'duo'
+        ? 'DUO RACE · ACCOLADES // 成就墙'
+        : 'RACE · ACCOLADES // 成就墙';
+      this.title.textContent = '成就墙';
+      this.root.setAttribute('aria-label', payload.mode === 'duo' ? '双人竞速 · 成就墙' : '赛后成就墙');
+      this.hint.textContent = '成就墙展示中';
+      this.medalCanvas.clear();
+    }
     this.result.textContent = payload.resultLabel;
     this.score.textContent = `本局荣誉 ${Math.round(payload.summary.score)} · 历史荣誉 ${Math.round(payload.historyHonorScore)} · ${Object.values(payload.summary.counts).reduce((sum, value) => sum + value, 0)} 次高光记录`;
-    this.hint.textContent = '荣誉大典展示中';
     this.renderStandings();
     this.renderSpotlight();
     this.renderCards();
@@ -188,7 +209,11 @@ export class HonorHighlights {
   update(dt: number): void {
     if (!this.visible()) return;
     this.timer += Math.max(0, dt);
-    this.medalCanvas.render(this.timer, 12, 'excellent');
+    if (this.payload?.manMedalEarned) {
+      this.medalCanvas.render(this.timer, 12, 'excellent');
+    } else {
+      this.medalCanvas.clear();
+    }
     if (this.phase === 'spotlight' && this.timer >= 2.65) this.revealCards();
     if (this.phase === 'cards' && this.timer >= 4.8) this.settle();
     if (this.phase === 'settled' && this.payload?.canContinue && !this.autoContinueTriggered) {
@@ -215,6 +240,8 @@ export class HonorHighlights {
     this.autoContinueTriggered = false;
     this.autoContinueDisplayedSecond = -1;
     this.medalCanvas.clear();
+    this.medalIcon.hidden = true;
+    this.medalIcon.style.display = 'none';
     this.root.classList.remove('on', 'spotlight', 'cards', 'settled');
     this.root.setAttribute('aria-hidden', 'true');
     this.autoOnly = false;

@@ -2086,6 +2086,10 @@ function showHonorReview(autoEntered = false): void {
   lastResultEnvelope = envelope;
   records.recordHonors(summary, mode, race.phase === 'finished' && (result?.place ?? 99) === 1);
   honorsSettled = true;
+  const medalEarned = Boolean(
+    (result?.manMedalEarned || medalEarnedThisRun) &&
+    (result?.flightsCleared ?? primaryBoat().state.flightsCleared) >= 3,
+  );
   honorHighlights.show({
     mode,
     racers: racerCards,
@@ -2095,6 +2099,7 @@ function showHonorReview(autoEntered = false): void {
     canContinue: race.phase === 'finished',
     autoEntered,
     historyHonorScore: records.data.honorScore,
+    manMedalEarned: medalEarned,
   });
 }
 
@@ -4696,6 +4701,10 @@ function runSingleHonorCase(): Record<string, unknown> {
       mode: lastResultEnvelope?.mode ?? '',
       seatCount: lastResultEnvelope?.seats.length ?? 0,
       wallVisible: honorHighlights.visible(),
+      wallTitle: document.querySelector('.honor-review-title')?.textContent?.trim() ?? '',
+      wallKicker: document.querySelector('.honor-review-kicker')?.textContent?.trim() ?? '',
+      medalIconVisible: getComputedStyle(document.querySelector('.honor-review-medal-icon')!).display !== 'none' &&
+        !(document.querySelector<HTMLElement>('.honor-review-medal-icon')?.hidden ?? false),
       standingCount: document.querySelectorAll('.honor-review-standing').length,
       cardCount: document.querySelectorAll('.honor-review-card').length,
       spotlight: document.querySelector('.honor-review-spotlight-title')?.textContent?.trim() ?? '',
