@@ -4,7 +4,8 @@
  * The animation rig remains code-driven in rider.ts. This module turns that
  * rig into one body SkinnedMesh plus a style-specific hair SkinnedMesh.
  * The split lets bob and braid silhouettes use secondary-motion bones while
- * face, gloves and boots retain the shared compact body palette.
+ * gloves and boots retain the shared compact body palette; the face is a
+ * feathered patch textured straight from the driver's portrait art.
  * Identity is portrait-locked: bare head, per-driver hair color/style and
  * skin, white racing suit with team-color gloves and piping.
  */
@@ -13,6 +14,12 @@ import { PALETTE } from '../core/palette';
 import { createToonMaterial } from '../cel/toonMaterial';
 import { addOutline } from '../cel/outline';
 import { LAYER_INK, markInk } from '../contracts';
+import axlePortrait from '../assets/drivers/axle.webp';
+import tidePortrait from '../assets/drivers/tide.webp';
+import solPortrait from '../assets/drivers/sol.webp';
+import reefPortrait from '../assets/drivers/reef.webp';
+import kaiPortrait from '../assets/drivers/kai.webp';
+import jinxPortrait from '../assets/drivers/jinx.webp';
 
 export interface RiderLook {
   driverId: string;
@@ -467,6 +474,30 @@ function makeHairBone(parent: THREE.Object3D, name: string, position: readonly [
 
 const sharedFaceTextureCache = new Map<string, THREE.CanvasTexture>();
 
+/**
+ * Face crop boxes inside the 640x960 driver portraits, in source pixels
+ * [x, y, w, h]. Each box spans hairline -> chin and is centered on the
+ * mid-eye axis, so once stretched over the 512x512 patch canvas the painted
+ * eyes land at the head's anatomical eye line (patch v ~ 0.54).
+ */
+const PORTRAIT_FACE: Record<string, readonly [number, number, number, number]> = {
+  axle: [219, 132, 190, 226],
+  tide: [220, 145, 290, 270],
+  sol: [240, 120, 195, 210],
+  reef: [220, 118, 250, 280],
+  kai: [205, 108, 185, 235],
+  jinx: [160, 125, 190, 235],
+};
+
+const PORTRAIT_URL: Record<string, string> = {
+  axle: axlePortrait,
+  tide: tidePortrait,
+  sol: solPortrait,
+  reef: reefPortrait,
+  kai: kaiPortrait,
+  jinx: jinxPortrait,
+};
+
 export function getFaceTextureCacheSize(): number {
   return sharedFaceTextureCache.size;
 }
@@ -484,384 +515,10 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Failed to get 2d context for face texture canvas');
 
-  ctx.clearRect(0, 0, 512, 512);
-
-  // 1. Natural Anime Skin Tone Gradient & Seamless Edge Blending
-  const skinHex = hexToString(look.skin);
-  const hairHex = hexToString(look.hair);
-
-  // Smooth seamless radial skin fill (fades to 0 alpha at outer edges)
-  const skinGrad = ctx.createRadialGradient(256, 260, 50, 256, 260, 245);
-  skinGrad.addColorStop(0, skinHex);
-  skinGrad.addColorStop(0.70, skinHex);
-  skinGrad.addColorStop(0.90, `${skinHex}b0`);
-  skinGrad.addColorStop(1, `${skinHex}00`);
-  ctx.fillStyle = skinGrad;
+  // Skin-tone base so the patch never flashes transparent before the
+  // portrait finishes decoding.
+  ctx.fillStyle = hexToString(look.skin);
   ctx.fillRect(0, 0, 512, 512);
-
-  // Forehead ambient hairline shadow (y=0..90)
-  const hairShadowGrad = ctx.createLinearGradient(256, 10, 256, 95);
-  hairShadowGrad.addColorStop(0, 'rgba(20, 15, 30, 0.30)');
-  hairShadowGrad.addColorStop(0.6, 'rgba(20, 15, 30, 0.10)');
-  hairShadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = hairShadowGrad;
-  ctx.fillRect(0, 0, 512, 100);
-
-  // Chin and jaw contour shadow (y=440..512)
-  const chinGrad = ctx.createLinearGradient(256, 440, 256, 512);
-  chinGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  chinGrad.addColorStop(1, 'rgba(30, 15, 10, 0.18)');
-  ctx.fillStyle = chinGrad;
-  ctx.fillRect(0, 440, 512, 72);
-
-  // Character-Specific Eye Colors & Sparkle Configuration
-  const eyeColors: Record<string, { irisTop: string; irisMid: string; irisBottom: string; highlight: string; glow: string }> = {
-    axle: { irisTop: '#1e140d', irisMid: '#6e421e', irisBottom: '#b8753b', highlight: '#ffffff', glow: '#39ff88' },
-    tide: { irisTop: '#061326', irisMid: '#0072aa', irisBottom: '#00d4ff', highlight: '#ffffff', glow: '#00f0ff' },
-    sol: { irisTop: '#3e1800', irisMid: '#c86a00', irisBottom: '#ffba00', highlight: '#fffde0', glow: '#ffd020' },
-    reef: { irisTop: '#3a0404', irisMid: '#ad1212', irisBottom: '#ff3050', highlight: '#ffffff', glow: '#ff3d7f' },
-    kai: { irisTop: '#080d1e', irisMid: '#1d4ea8', irisBottom: '#4d88ff', highlight: '#ffffff', glow: '#80b3ff' },
-    jinx: { irisTop: '#1f0834', irisMid: '#8c16cf', irisBottom: '#e238f8', highlight: '#ffffff', glow: '#ea80fc' },
-  };
-  const eyeColor = eyeColors[driverId] ?? { irisTop: '#101018', irisMid: '#244888', irisBottom: '#4890ee', highlight: '#ffffff', glow: '#00f0ff' };
-
-  // Soft cheeks blush
-  for (const [side, bx] of [[-1, 148], [1, 364]] as const) {
-    const blushGrad = ctx.createRadialGradient(bx, 275, 2, bx, 275, 36);
-    const blushColor = (driverId === 'sol' || driverId === 'tide' || driverId === 'jinx')
-      ? 'rgba(255, 60, 110, 0.38)'
-      : 'rgba(230, 90, 60, 0.20)';
-    blushGrad.addColorStop(0, blushColor);
-    blushGrad.addColorStop(1, 'rgba(255, 100, 100, 0)');
-    ctx.fillStyle = blushGrad;
-    ctx.beginPath();
-    ctx.arc(bx, 275, 36, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // 2. High-Definition Expressive Eyes (cy=232)
-  for (const [side, cx] of [[-1, 160], [1, 352]] as const) {
-    const cy = 232;
-
-    // Sclera (Eye White)
-    ctx.save();
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, 42, 32, side * 0.05, 0, Math.PI * 2);
-    ctx.fillStyle = '#f8fbfe';
-    ctx.fill();
-
-    // Sclera upper shadow
-    ctx.beginPath();
-    ctx.ellipse(cx, cy - 8, 40, 22, side * 0.05, Math.PI, Math.PI * 2);
-    ctx.fillStyle = 'rgba(20, 30, 60, 0.14)';
-    ctx.fill();
-
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = 'rgba(30, 20, 40, 0.25)';
-    ctx.stroke();
-
-    // Vibrant Multi-Tone Iris
-    ctx.beginPath();
-    ctx.ellipse(cx + side * 3, cy + 1, 25, 29, side * 0.03, 0, Math.PI * 2);
-    const irisGrad = ctx.createLinearGradient(cx, cy - 28, cx, cy + 28);
-    irisGrad.addColorStop(0, eyeColor.irisTop);
-    irisGrad.addColorStop(0.45, eyeColor.irisMid);
-    irisGrad.addColorStop(0.85, eyeColor.irisBottom);
-    irisGrad.addColorStop(1, eyeColor.glow);
-    ctx.fillStyle = irisGrad;
-    ctx.fill();
-
-    // Inner glowing crescent reflex
-    ctx.beginPath();
-    ctx.ellipse(cx + side * 3, cy + 14, 18, 11, side * 0.03, 0, Math.PI);
-    ctx.fillStyle = eyeColor.glow;
-    ctx.globalAlpha = 0.55;
-    ctx.fill();
-    ctx.globalAlpha = 1.0;
-
-    // Deep Dark Pupil
-    ctx.beginPath();
-    ctx.ellipse(cx + side * 3, cy + 2, 11, 15, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#0a0d18';
-    ctx.fill();
-
-    // Anime Primary Sparkling Specular Glint
-    ctx.beginPath();
-    ctx.arc(cx + side * 3 - 7, cy - 9, 7.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-
-    // Secondary Specular Glint
-    ctx.beginPath();
-    ctx.arc(cx + side * 3 + 8, cy + 9, 4, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    ctx.fill();
-
-    // Tertiary micro sparkle
-    ctx.beginPath();
-    ctx.arc(cx + side * 3 - 6, cy + 12, 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-    ctx.fill();
-
-    // Bold Crisp Upper Eyeliner & Wing
-    ctx.beginPath();
-    ctx.moveTo(cx - side * 48, cy - 2);
-    ctx.quadraticCurveTo(cx, cy - 40, cx + side * 48, cy - (driverId === 'tide' ? 12 : 3));
-    ctx.lineWidth = (driverId === 'tide' || driverId === 'sol') ? 9.5 : 8;
-    ctx.strokeStyle = '#101322';
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    // Double Eyelid Crease
-    ctx.beginPath();
-    ctx.moveTo(cx - side * 36, cy - 36);
-    ctx.quadraticCurveTo(cx, cy - 48, cx + side * 38, cy - 34);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(40, 25, 35, 0.45)';
-    ctx.stroke();
-
-    // Lower Lash Line
-    ctx.beginPath();
-    ctx.moveTo(cx - side * 28, cy + 28);
-    ctx.quadraticCurveTo(cx, cy + 34, cx + side * 32, cy + 26);
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = '#181b2a';
-    ctx.stroke();
-
-    // Winged Eyelashes for female drivers
-    if (driverId === 'tide' || driverId === 'sol') {
-      ctx.beginPath();
-      ctx.moveTo(cx + side * 42, cy - 16);
-      ctx.lineTo(cx + side * 54, cy - 28);
-      ctx.lineWidth = 4.5;
-      ctx.strokeStyle = '#101322';
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(cx + side * 36, cy - 24);
-      ctx.lineTo(cx + side * 46, cy - 34);
-      ctx.lineWidth = 3.5;
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // 3. Expressive Eyebrows (y=165..185)
-  for (const [side, cx] of [[-1, 160], [1, 352]] as const) {
-    ctx.save();
-    ctx.beginPath();
-    if (driverId === 'reef') {
-      // Aggressive angled combat brows
-      ctx.moveTo(cx - side * 48, 180);
-      ctx.lineTo(cx + side * 42, 146);
-    } else if (driverId === 'tide') {
-      // Sleek haughty arched brows
-      ctx.moveTo(cx - side * 44, 180);
-      ctx.quadraticCurveTo(cx + side * 8, 146, cx + side * 44, 164);
-    } else if (driverId === 'jinx') {
-      // Playful raised brows
-      ctx.moveTo(cx - side * 42, 170);
-      ctx.quadraticCurveTo(cx, 140, cx + side * 42, 160);
-    } else if (driverId === 'sol') {
-      // Radiant energetic brows
-      ctx.moveTo(cx - side * 44, 174);
-      ctx.quadraticCurveTo(cx, 147, cx + side * 44, 158);
-    } else {
-      // Axle & Kai: Heroic structured brows
-      ctx.moveTo(cx - side * 46, 176);
-      ctx.quadraticCurveTo(cx, 150, cx + side * 44, 160);
-    }
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = hairHex;
-    ctx.lineCap = 'round';
-    ctx.stroke();
-
-    // Dark contour line under eyebrow
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = 'rgba(10, 10, 20, 0.45)';
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // 4. Stylized Anime Nose (y=295..320)
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(253, 288);
-  ctx.lineTo(259, 314);
-  ctx.lineTo(248, 318);
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = 'rgba(110, 50, 35, 0.65)';
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.stroke();
-
-  // Nose tip highlight
-  ctx.beginPath();
-  ctx.arc(252, 310, 3, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-  ctx.fill();
-  ctx.restore();
-
-  // 5. Expressive Personality Mouth (y=370..415)
-  ctx.save();
-  ctx.beginPath();
-  if (driverId === 'sol') {
-    // Joyful radiant open smile with teeth & tongue
-    ctx.moveTo(208, 368);
-    ctx.quadraticCurveTo(256, 424, 304, 368);
-    ctx.closePath();
-    ctx.fillStyle = '#e91e63';
-    ctx.fill();
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#2d0c18';
-    ctx.stroke();
-
-    // Clean white teeth
-    ctx.beginPath();
-    ctx.moveTo(218, 370);
-    ctx.quadraticCurveTo(256, 390, 294, 370);
-    ctx.lineTo(294, 368);
-    ctx.lineTo(218, 368);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-
-    // Tongue accent
-    ctx.beginPath();
-    ctx.arc(256, 408, 16, Math.PI, Math.PI * 2);
-    ctx.fillStyle = '#ff80ab';
-    ctx.fill();
-  } else if (driverId === 'jinx') {
-    // Playful mischievous grin with cute vampire canine/fang
-    ctx.moveTo(214, 372);
-    ctx.quadraticCurveTo(256, 418, 298, 368);
-    ctx.lineWidth = 5;
-    ctx.strokeStyle = '#221232';
-    ctx.stroke();
-
-    // Cute canine fang
-    ctx.beginPath();
-    ctx.moveTo(280, 371);
-    ctx.lineTo(287, 388);
-    ctx.lineTo(294, 370);
-    ctx.closePath();
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#221232';
-    ctx.stroke();
-  } else if (driverId === 'reef') {
-    // Fierce battle grin / clenched gritted teeth
-    ctx.moveTo(212, 378);
-    ctx.lineTo(300, 378);
-    ctx.lineWidth = 5.5;
-    ctx.strokeStyle = '#240a0a';
-    ctx.stroke();
-
-    // Clenched teeth line
-    ctx.beginPath();
-    ctx.moveTo(226, 378);
-    ctx.lineTo(286, 378);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = '#ffffff';
-    ctx.stroke();
-  } else if (driverId === 'tide') {
-    // Haughty cool smirk with glossy lip tint
-    ctx.moveTo(220, 378);
-    ctx.quadraticCurveTo(256, 391, 292, 372);
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#ad1457';
-    ctx.stroke();
-
-    // Lower lip shine
-    ctx.beginPath();
-    ctx.ellipse(256, 394, 16, 5, 0, 0, Math.PI);
-    ctx.fillStyle = 'rgba(255, 64, 129, 0.4)';
-    ctx.fill();
-  } else {
-    // Axle & Kai: Calm confident hero smirk
-    ctx.moveTo(222, 376);
-    ctx.quadraticCurveTo(256, 392, 290, 372);
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#3e2723';
-    ctx.stroke();
-
-    // Mouth corner dimple
-    ctx.beginPath();
-    ctx.moveTo(290, 372);
-    ctx.lineTo(294, 369);
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = '#3e2723';
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // 6. Driver-Specific Iconic Face / Head Accessories.
-  // Forehead-worn accessories (headband, sunglasses, goggle strap, AR line)
-  // are real 3D parts on the fringe shell now — drawing them into the texture
-  // only bled through the bangs as dirty stripes, so the texture keeps only
-  // on-face accessories (monocle, nose tape, cheek pixels).
-  if (driverId === 'tide') {
-    // Left-Eye Holographic Smart Monocle & HUD Reticle [ ⌖ ] (cx=352, cy=232)
-    ctx.save();
-    const cx = 352;
-    const cy = 232;
-    ctx.strokeStyle = '#00f0ff';
-    ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 14;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 40, -Math.PI * 0.42, Math.PI * 0.42);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(cx, cy, 40, Math.PI * 0.58, Math.PI * 1.42);
-    ctx.stroke();
-
-    // Reticle brackets & crosshair (no tiny HUD text: it read as a smudge
-    // at real gameplay distance)
-    ctx.beginPath();
-    ctx.moveTo(cx - 16, cy); ctx.lineTo(cx + 16, cy);
-    ctx.moveTo(cx, cy - 16); ctx.lineTo(cx, cy + 16);
-    ctx.stroke();
-    ctx.restore();
-  } else if (driverId === 'sol') {
-    // Forehead sunglasses are the 3D panel on the fringe shell — nothing
-    // drawn into the texture for Sol.
-  } else if (driverId === 'reef') {
-    // Combat Nose Bridge Tape (the forehead tactical strap is the 3D bandana
-    // on the fringe shell — no 2D strap here)
-    ctx.save();
-    // Nose tape
-    ctx.fillStyle = '#e8cfba';
-    ctx.strokeStyle = '#6d4c41';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.roundRect(230, 280, 52, 18, 4);
-    ctx.fill();
-    ctx.stroke();
-
-    // Stitching
-    ctx.strokeStyle = '#ff1744';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(246, 282); ctx.lineTo(246, 296);
-    ctx.moveTo(266, 282); ctx.lineTo(266, 296);
-    ctx.stroke();
-    ctx.restore();
-  } else if (driverId === 'kai') {
-    // AR visor is the 3D panel hovering ahead of the eyes — nothing drawn.
-  } else if (driverId === 'jinx') {
-    // Cute Pixel Cheek Blush (the overhead goggle strap is the 3D panel on
-    // the fringe shell — no 2D strap here)
-    ctx.save();
-    // Digital pixel blush
-    for (const [side, bx] of [[-1, 138], [1, 374]] as const) {
-      ctx.fillStyle = '#ea80fc';
-      ctx.fillRect(bx - 12, 268, 9, 9);
-      ctx.fillRect(bx + 2, 268, 9, 9);
-      ctx.fillRect(bx - 5, 279, 9, 9);
-    }
-    ctx.restore();
-  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -869,6 +526,26 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
   sharedFaceTextureCache.set(driverId, texture);
+
+  const image = new Image();
+  image.src = PORTRAIT_URL[driverId] ?? axlePortrait;
+  image.onload = () => {
+    const crop = PORTRAIT_FACE[driverId] ?? PORTRAIT_FACE.axle;
+    ctx.clearRect(0, 0, 512, 512);
+    // The crop spans hairline -> chin so painted eyes land at the same head
+    // height the procedural face used. The fringe shell covers the forehead.
+    ctx.drawImage(image, crop[0], crop[1], crop[2], crop[3], 0, 0, 512, 512);
+    // Feather the patch edge so the portrait melts into the head's skin loft.
+    ctx.globalCompositeOperation = 'destination-in';
+    const mask = ctx.createRadialGradient(256, 258, 110, 256, 258, 236);
+    mask.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    mask.addColorStop(0.62, 'rgba(0, 0, 0, 1)');
+    mask.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = mask;
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.globalCompositeOperation = 'source-over';
+    texture.needsUpdate = true;
+  };
   return texture;
 }
 

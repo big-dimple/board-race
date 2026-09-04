@@ -1,16 +1,15 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“六车手头部造型系统重构：下颌收束头型 + 连续刘海壳 + 面部贴图净化 + 发型按车手重建（Rider Head System Overhaul: Jaw-Tapered Head Loft, Continuous Fringe Shells, Texture Sanitization & Per-Driver Hair Rebuild）”。
+状态：主分支当前工作包已交付“车手头像贴图改为立绘裁切（Portrait-Driven Face Patch）”——3D 脸部直接使用六张官方立绘的脸部裁切，不再是程序绘制的低配仿绘。
 
 ## 当前工作包
 
-- **六车手头部造型系统重构（Rider Head System Overhaul）**：
-  1. **头型告别气球头（Jaw-Tapered Head Loft）**：`riderMesh.ts` 头部由单椭球改为 `HEAD_PROFILE` 六环 loft（下颌 0.080 → 下巴 0.050 逐级收束），正面看有脸颊-下颌-下巴结构；头顶环收敛至 (0.230, 0.030/0.036)，全程包裹在头发颅顶 loft 之内，背面不再透出肤色弧；
-  2. **连续刘海壳取代百叶窗叶片（Continuous Fringe Shells）**：新增 `buildFringeGeometry()` + `FRINGE_SPECS`，按 `HEAD_PROFILE` 插值贴颅顶生成一整片三排环带刘海壳，底边为三角波形发丝缺口（每车手独立 span/baseY/edgeY/notch/strands/sweep/messy 参数：Axle 美人尖、Tide 侧扫+青色发梢、Sol 中分帘+金色发梢、Reef 深锯齿短刺、Kai 偏分侧扫、Jinx 凌乱锯齿）；彻底根除旧版 4-6 片悬浮梯形叶片根部露皮肤的“条形码发际线”；
-  3. **面部贴图净化（Texture Sanitization）**：删除贴图前额区的 2D 额饰涂鸦（Axle 发带+翡翠、Sol 太阳镜、Reef 额带、Kai AR 线、Jinx 护目镜带）——它们与 3D 刘海同区域打架、从叶片缝隙透成脏条纹；删除远景读成脏点的微缩文字（`TARGET: LOCKED`、`SYS.CALIB: 99.8%`）；保留眼部单镜弧线、鼻梁战术贴、像素腮红等面上配饰；
-  4. **3D 配饰坐实到刘海壳面**：新增 `Role.Gem`（翡翠绿 0x2dff8f）与 `Role.Neon`（科技青 0x59d4ff）；Axle 翡翠额宝石恢复翡翠绿、Kai AR 目镜为眉线高置发光青条（不再遮住眼睛）、Sol 太阳镜重构为双暗色镜片+金色鼻梁架（不再是大黄板）、束发环改 Accent 金、Jinx 护目镜双筒 Neon 青镜片、Tide 删除悬浮青色方块（单镜由贴图承担）；
-  5. **发型按车手重建（Per-Driver Hair Rebuild）**：修复存量 bug——`updateSkinnedRiderLook` 此前只在 `hairStyle`（short/bob/ponytail）变化时重建发型网格，同为 short 的四名车手（Axle/Reef/Kai/Jinx）互选时只换色不换型，玩家选角后船上实际是初始车手的头发染色版；`HairAccessory` 新增 `driverId` 字段，选角变化即整体重建骨架与轮廓；
-  6. **验证证据**：6 车手 × 正面/四分之三/背面/追尾四机位桌面截图 + 844x390 移动端特写与开局截图全量人工复核通过；`verify:team` 通过；`verify:smoke` 在 Windows 宿主上于基线（未改动代码）同样报 `radio text overflows`（该系统电台字体度量断言依赖此前 Linux 环境字体，属环境性既有失败，非本轮引入；其前置的发型切换断言 486-496 行在本轮改动下通过）。
+- **车手头像贴图改为立绘裁切（Portrait-Driven Face Patch）**：
+  1. **根因澄清**：开场动画“看不到五官”不是头部底层或动画问题——Face Patch 一直正常渲染（特写机位下眼鼻嘴齐全）；真实原因是开场运镜从不给正脸（用户已拍板：不修运镜，直接把脸修成立绘水准）；
+  2. **实现**：`riderMesh.ts` 的 `getOrCreateFaceTexture` 由 400 行程序绘制 canvas 改为从六张 640x960 官方立绘（`src/assets/drivers/*.webp`）按 `PORTRAIT_FACE` 每车手裁切框（发际线→下巴、以双眼轴居中）拉伸到 512x512 贴图，径向 `destination-in` 羽化边缘融入头型 loft 肤色；贴图缓存、patch 几何、UV、材质与 `faceDebug` 合同全部不变；图片解码完成前以 `look.skin` 肤色垫底，绝不闪透明；
+  3. **验证证据**：6 车手 `rider-inspection-front` 桌面特写全量人工复核（Axle/Tide/Sol/Reef/Kai/Jinx 均读成立绘本人）+ 844x390 移动端特写；`npm run build`、`verify:smoke`、`verify:team` 全绿。已知余项：Kai 立绘脸颊自带的电路纹线会随裁切出现在下颌，读作科技纹身，用户可接受。
+
+- **上一工作包“六车手头部造型系统重构”**已随本包完成最终形态：头型 loft、连续刘海壳与按车手重建的发型骨架全部保留，唯一变化是脸部贴图来源从程序绘制换成官方立绘裁切。
 
 - 上一工作包“终点站空中过线 + 猛男勋章进度条”的真机验收仍 pending（用户侧）；其条目存档见下文历史记录。
 
