@@ -3219,6 +3219,9 @@ function render(frameMs: number): void {
   course.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   lighthouse.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
+  pipeline.setNightBlend(timeOfDayManager.blend);
+  teamLeftPipeline.setNightBlend(timeOfDayManager.blend);
+  teamRightPipeline.setNightBlend(timeOfDayManager.blend);
   lighthouse.update(1 / 60, presentationTime || worldTime, stage.camera);
   const splitFrame = appMode === 'team-play' || isDuoSplitPhase();
   if (splitFrame) {

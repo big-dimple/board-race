@@ -406,10 +406,11 @@ void main() {
   skyReflection = mix(skyReflection, uColorSunWarm, sunLane * 0.72);
   // The lane is a grazing-angle mirror path: it must also OPEN the
   // reflection, not just tint it, or the warm sky stays diluted under the
-  // dark body color and never reads as a sun path.
+  // dark body color and never reads as a sun path. At night the same lane
+  // is the moon road: it opens wider so the low moon keeps a legible path.
   float reflectionAmount = clamp(
     0.03 + fresnel * uFresnelStrength + physicalSlope * 0.02 +
-    sunLane * 0.3 * (0.3 + fresnel), 0.03, max(uFresnelMax, 0.8));
+    sunLane * mix(0.3, 0.62, uNightBlend) * (0.3 + fresnel), 0.03, max(uFresnelMax, 0.8));
   col = mix(col, skyReflection, reflectionAmount);
 
   // Sun glitter stacks four sparkle octaves with different scales and
@@ -417,7 +418,13 @@ void main() {
   // flecks gather and disperse fast on sun-facing micro-slopes. A view
   // lane toward the sun boosts density into a glitter path; the wave
   // crest bias lets larger soft glints favor crests.
-  vec3 halfDir = normalize(sunDir + viewDir);
+  // The night moon rides ~9° over the horizon; a Blinn lobe against upward
+  // wave normals can never fire there, which is why the night sea lost its
+  // glitter. Night lifts only the glitter light's elevation — the azimuth
+  // stays the moon's, so the glint road still points at the moon.
+  vec3 glintLight = normalize(mix(sunDir,
+    normalize(vec3(sunDir.x, max(sunDir.y, 0.55), sunDir.z)), uNightBlend));
+  vec3 halfDir = normalize(glintLight + viewDir);
   // Glitter lives in a lane toward the sun. Off-lane sparkle is nearly shut:
   // a full-frame scatter of flashes reads as flat "starfield texture" and
   // actively erases wave relief.

@@ -1,15 +1,16 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已交付“车手头像贴图改为立绘裁切（Portrait-Driven Face Patch）”——3D 脸部直接使用六张官方立绘的脸部裁切，不再是程序绘制的低配仿绘。
+状态：主分支当前工作包已交付“夜晚海景救场：月光路 + 夜晚风速线衰减（Night Seascape Rescue: Moon Glitter Road & Night-Tempered Wind Streaks）”。
 
 ## 当前工作包
 
-- **车手头像贴图改为立绘裁切（Portrait-Driven Face Patch）**：
-  1. **根因澄清**：开场动画“看不到五官”不是头部底层或动画问题——Face Patch 一直正常渲染（特写机位下眼鼻嘴齐全）；真实原因是开场运镜从不给正脸（用户已拍板：不修运镜，直接把脸修成立绘水准）；
-  2. **实现**：`riderMesh.ts` 的 `getOrCreateFaceTexture` 由 400 行程序绘制 canvas 改为从六张 640x960 官方立绘（`src/assets/drivers/*.webp`）按 `PORTRAIT_FACE` 每车手裁切框（发际线→下巴、以双眼轴居中）拉伸到 512x512 贴图，径向 `destination-in` 羽化边缘融入头型 loft 肤色；贴图缓存、patch 几何、UV、材质与 `faceDebug` 合同全部不变；图片解码完成前以 `look.skin` 肤色垫底，绝不闪透明；
-  3. **验证证据**：6 车手 `rider-inspection-front` 桌面特写全量人工复核（Axle/Tide/Sol/Reef/Kai/Jinx 均读成立绘本人）+ 844x390 移动端特写；`npm run build`、`verify:smoke`、`verify:team` 全绿。已知余项：Kai 立绘脸颊自带的电路纹线会随裁切出现在下颌，读作科技纹身，用户可接受。
+- **夜晚海景救场（Night Seascape Rescue）**：
+  1. **根因**：夜晚海面读成平地不是缺噪声而是几何问题——`moonDir` 仰角只有 ~9°，Blinn 半向量近乎水平，朝上的浪面法线永远点不亮闪光芒，于是白天的整套 glitter 在夜里几何性死亡；同时后处理 polar wind streak 在漆黑夜空下满屏毒绿读成"绿雨"；
+  2. **月光路（Moon Glitter Road）**：`ocean.ts` 只抬闪光芒的仰角（`mix(sunDir, 抬升到 y≥0.55, uNightBlend)`，方位仍锁定月亮），夜晚反射光路加宽（`sunLane` 增益 0.3→0.62），夜晚 lane 色由 0x3a6a8c 提亮到 0x6f9ec4——夜晚海面恢复波光粼粼的月光路，波形可读；
+  3. **夜晚风速线（Night-Tempered Wind Streaks）**：`PostPipeline` 新增 `setNightBlend` / `uNight`，风速线增益 ×(1-0.5·night) 且颜色向冷银蓝（0.62,0.86,1.0）偏移 65%；白天零变化；main.ts 在 render() 的 setTimeOfDay 组里同步三条 pipeline；
+  4. **验证证据**：桌面 night-start / night-flight + 844x390 night-start 截图人工复核（月光路可读、绿雨消除、白天不变）；`npm run build`、`verify:smoke`、`verify:team` 全绿。
 
-- **上一工作包“六车手头部造型系统重构”**已随本包完成最终形态：头型 loft、连续刘海壳与按车手重建的发型骨架全部保留，唯一变化是脸部贴图来源从程序绘制换成官方立绘裁切。
+- 上一工作包“车手头像贴图改为立绘裁切”已发布（871d106）：脸部贴图直接裁自官方立绘，不再程序绘制。
 
 - 上一工作包“终点站空中过线 + 猛男勋章进度条”的真机验收仍 pending（用户侧）；其条目存档见下文历史记录。
 

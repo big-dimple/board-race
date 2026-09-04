@@ -25,6 +25,8 @@ export interface PostPipeline {
   update(dt: number, t: number, state: BoatState, phase: RacePhase): void;
   pulse(kind: ImpactPulse, strength?: number): void;
   setSize(w: number, h: number, pr: number): void;
+  /** 0 = day, 1 = night; cools and dims the wind streaks for the night sky. */
+  setNightBlend(value: number): void;
 }
 
 export interface PostPipelineLayers {
@@ -59,6 +61,7 @@ uniform float uFlash;
 uniform float uWarning;
 uniform float uBattle;
 uniform float uReduced;
+uniform float uNight;
 varying vec2 vUv;
 
 float hash11(float p) {
@@ -106,6 +109,9 @@ void main() {
   float windAmount = clamp(uBoost * 0.85 + uFlight * (0.10 + uPressure * 0.16) + uImpact * 0.28, 0.0, 0.9) * motion;
   float streak = thin * dash * edgeMask * windAmount;
   vec3 windColor = mix(vec3(0.18, 0.82, 1.0), vec3(0.48, 1.0, 0.05), clamp(uBoost * 1.2, 0.0, 1.0));
+  // Night: the same streaks against a dark sky read as green rain. Cool them
+  // toward silver-cyan and roughly halve their gain so the night sky survives.
+  windColor = mix(windColor, vec3(0.62, 0.86, 1.0), uNight * 0.65);
 
   // Air braking cuts transverse blue-white blades across the tunnel, making the
   // handling change visible before the player reads the HUD.
@@ -118,7 +124,7 @@ void main() {
   vec3 energy = texture2D(tEnergy, clamp(vUv + dir * eLum * 0.003, 0.001, 0.999)).rgb;
   energy *= 1.0 - inkSolid;
   col += energy * (0.20 + uFlight * 0.08 + uImpact * 0.10);
-  col += windColor * streak * (0.42 + uBoost * 0.68);
+  col += windColor * streak * (0.42 + uBoost * 0.68) * (1.0 - uNight * 0.5);
   col += vec3(0.42, 0.94, 1.0) * brakeBands * 0.48;
 
   // Overtake celebration lives in the sky strip. The cockpit/track region is
@@ -198,6 +204,7 @@ export function createPostPipeline(
       uWarning: { value: 0 },
       uBattle: { value: 0 },
       uReduced: { value: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0 },
+      uNight: { value: 0 },
     },
     vertexShader,
     fragmentShader,
@@ -286,6 +293,9 @@ export function createPostPipeline(
         Math.max(1, Math.floor(dh * quality.energyScale)),
       );
       finalMaterial.uniforms.uResolution.value.set(dw, dh);
+    },
+    setNightBlend(value: number): void {
+      finalMaterial.uniforms.uNight.value = Math.max(0, Math.min(1, value));
     },
   };
 }
