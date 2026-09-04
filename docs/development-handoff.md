@@ -6,9 +6,10 @@
 
 - **夜晚海景救场（Night Seascape Rescue）**：
   1. **根因**：夜晚海面读成平地不是缺噪声而是几何问题——`moonDir` 仰角只有 ~9°，Blinn 半向量近乎水平，朝上的浪面法线永远点不亮闪光芒，于是白天的整套 glitter 在夜里几何性死亡；同时后处理 polar wind streak 在漆黑夜空下满屏毒绿读成"绿雨"；
-  2. **月光路（Moon Glitter Road）**：`ocean.ts` 只抬闪光芒的仰角（`mix(sunDir, 抬升到 y≥0.55, uNightBlend)`，方位仍锁定月亮），夜晚反射光路加宽（`sunLane` 增益 0.3→0.62），夜晚 lane 色由 0x3a6a8c 提亮到 0x6f9ec4——夜晚海面恢复波光粼粼的月光路，波形可读；
+  2. **月光路（Moon Glitter Road）**：`ocean.ts` 只抬闪光芒的仰角（`mix(sunDir, 抬升到 y≥0.55, uNightBlend)`，方位仍锁定月亮），夜晚反射光路适度加宽（`sunLane` 增益 0.3→0.42，更宽会洗白朝月海面），lane 色 0x55809e——夜晚海面恢复波光粼粼的月光路但不泛白；
+  3. **月牙去十字闪光（Clean Crescent）**：`sky.ts` 删除横跨月亮本体 4 倍直径的呼吸十字闪光（`moonSpikes`），月牙只留本体+柔冠+光晕，优雅干净；
   3. **夜晚风速线（Night-Tempered Wind Streaks）**：`PostPipeline` 新增 `setNightBlend` / `uNight`，风速线增益 ×(1-0.5·night) 且颜色向冷银蓝（0.62,0.86,1.0）偏移 65%；白天零变化；main.ts 在 render() 的 setTimeOfDay 组里同步三条 pipeline；
-  4. **验证证据**：桌面 night-start / night-flight + 844x390 night-start 截图人工复核（月光路可读、绿雨消除、白天不变）；`npm run build`、`verify:smoke`、`verify:team` 全绿。
+  4. **验证证据**：桌面 night-start / night-flight 截图人工复核两轮（v2 用户反馈朝月海面泛白+月亮十字闪光夸张，v3 已收敛：月光路可读不泛白、月牙干净无十字、绿雨转冷银）+ 844x390 night-start；`npm run build`、`verify:smoke`、`verify:team` 全绿。
 
 - 上一工作包“车手头像贴图改为立绘裁切”已发布（871d106）：脸部贴图直接裁自官方立绘，不再程序绘制。
 

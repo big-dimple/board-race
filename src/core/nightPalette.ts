@@ -43,7 +43,7 @@ export const NIGHT_PALETTE = {
   sparkle: 0x8ae8ff,
 
   // Moon water reflection path & fog horizon tint
-  sunWarm: 0x6f9ec4, // moon reflection lane on water (silver-blue moon road)
+  sunWarm: 0x55809e, // moon reflection lane on water (dim silver-blue moon road)
   fogHorizon: 0x10203e,
 
   // Fixed sea landmark in night mode

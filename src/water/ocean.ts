@@ -403,14 +403,15 @@ void main() {
   // View-azimuth driven only — never modulated by wave normals — so it can
   // never crawl as a slow white patch over the swell.
   float sunLane = smoothstep(0.0, 0.8, dot(viewAz, sunAz));
-  skyReflection = mix(skyReflection, uColorSunWarm, sunLane * 0.72);
+  skyReflection = mix(skyReflection, uColorSunWarm, sunLane * mix(0.72, 0.5, uNightBlend));
   // The lane is a grazing-angle mirror path: it must also OPEN the
   // reflection, not just tint it, or the warm sky stays diluted under the
   // dark body color and never reads as a sun path. At night the same lane
-  // is the moon road: it opens wider so the low moon keeps a legible path.
+  // is the moon road: it opens a little wider, but stays dim enough that
+  // the moon-facing swell never washes out to white.
   float reflectionAmount = clamp(
     0.03 + fresnel * uFresnelStrength + physicalSlope * 0.02 +
-    sunLane * mix(0.3, 0.62, uNightBlend) * (0.3 + fresnel), 0.03, max(uFresnelMax, 0.8));
+    sunLane * mix(0.3, 0.42, uNightBlend) * (0.3 + fresnel), 0.03, max(uFresnelMax, 0.8));
   col = mix(col, skyReflection, reflectionAmount);
 
   // Sun glitter stacks four sparkle octaves with different scales and

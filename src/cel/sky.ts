@@ -227,15 +227,10 @@ void main() {
     float moonHalo = exp(-angMoon * 9.0) * 0.52;
     float moonCorona = exp(-angMoon * 2.8) * 0.24;
 
-    float mSpikeH = (1.0 - smoothstep(0.0, 0.24, abs(mCoord.x))) * (1.0 - smoothstep(0.0, 0.004, abs(mCoord.y)));
-    float mSpikeV = (1.0 - smoothstep(0.0, 0.24, abs(mCoord.y))) * (1.0 - smoothstep(0.0, 0.004, abs(mCoord.x)));
-    float moonSpikes = max(mSpikeH, mSpikeV) * 0.38 * (0.85 + 0.15 * sin(uTime * 0.45));
-
     vec3 moonCol = uMoonCore * crescentBody +
                    vec3(0.35, 0.55, 0.8) * darkSide +
                    uMoonHalo * moonHalo +
-                   uMoonCorona * moonCorona +
-                   uMoonCore * moonSpikes;
+                   uMoonCorona * moonCorona;
 
     // 2. Starfield with multi-octave twinkling 4-pointed cross stars
     vec3 starAccum = vec3(0.0);
