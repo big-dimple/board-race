@@ -253,7 +253,9 @@ export class HUD {
   private readonly medalTier: HTMLDivElement;
   private readonly medalNext: HTMLDivElement;
   private readonly medalContinue: HTMLButtonElement;
+  private readonly medalFoot: HTMLDivElement;
   private currentMedalTier: 'ordinary' | 'excellent' = 'ordinary';
+  private currentMedalSource: 'qualification' | 'finale' = 'qualification';
 
   // minimap
   private readonly mctx: CanvasRenderingContext2D;
@@ -598,7 +600,7 @@ export class HUD {
     this.medalContinue.hidden = true;
     this.medalContinue.addEventListener('click', onRetry);
     medalButtons.appendChild(this.medalContinue);
-    h('div', 'hud-medal-foot', medalCopy, '继续后 3 · 2 · 1 · GO');
+    this.medalFoot = h('div', 'hud-medal-foot', medalCopy, '继续后 3 · 2 · 1 · GO');
 
     // ---- results ------------------------------------------------------------------------
     this.resultsEl = h('div', 'hud-results', this.root);
@@ -1283,11 +1285,19 @@ export class HUD {
     if (current >= 3) this.lapVal.textContent = `本局 ${current} 飞 · BEST ${this.bestFlights}`;
   }
 
-  showQualification(tier: 'ordinary' | 'excellent', medals: number, best: number): void {
+  showQualification(
+    tier: 'ordinary' | 'excellent',
+    medals: number,
+    best: number,
+    source: 'qualification' | 'finale' = 'qualification',
+  ): void {
+    this.currentMedalSource = source;
     this.bestFlights = Math.max(this.bestFlights, best);
     this.currentMedalTier = tier;
     this.medalEl.dataset.tier = tier;
-    const isFinale = best >= 7;
+    this.medalEl.dataset.source = source;
+    this.medalEl.style.setProperty('--ceremony-progress', '0');
+    const isFinale = source === 'finale' || best >= 7;
     if (isFinale) {
       this.medalKicker.textContent = tier === 'excellent' ? '七飞大满贯 · 终局至尊达成' : '七飞通关 · 实力登顶';
       this.medalTitle.textContent = '猛男至尊';
@@ -1296,6 +1306,7 @@ export class HUD {
         ? '第一名冲线 · 历史最高荣誉'
         : '完赛通关 · 顶级车手认证';
       this.medalNext.textContent = '远海全档案已解锁 · 随时进入资料片彩蛋';
+      this.medalFoot.textContent = '即将自动进入下一轮 · 点击或按键立即进入';
     } else {
       this.medalKicker.textContent = tier === 'excellent' ? '三飞达成 · 优秀已锁定' : '三飞达成 · 实力兑现';
       this.medalTitle.textContent = '猛男';
@@ -1306,6 +1317,7 @@ export class HUD {
       this.medalNext.textContent = best > 3
         ? `远海档案 BEST ${best} 飞 · 下一目标 ${best + 1} 飞`
         : '三飞只是入场 · 远海档案现在开局';
+      this.medalFoot.textContent = '即将自动继续比赛 · 继续后 3 · 2 · 1 · GO';
     }
     this.medalNext.classList.remove('on');
     this.medalContinue.hidden = false;
@@ -1317,14 +1329,22 @@ export class HUD {
   updateMedalCeremony(elapsed: number, duration: number, canContinue: boolean): void {
     if (!this.medalEl.classList.contains('on')) return;
     this.medalCanvas.render(elapsed, duration, this.currentMedalTier);
-    this.medalEl.style.setProperty('--ceremony-progress', String(Math.max(0, Math.min(1, elapsed / duration))));
+    const progress = Math.max(0, Math.min(1, elapsed / duration));
+    this.medalEl.style.setProperty('--ceremony-progress', String(progress));
     this.medalContinue.hidden = false;
     this.medalNext.classList.toggle('on', elapsed >= Math.max(2.7, duration - 1.8));
+    const seconds = Math.max(1, Math.ceil(duration - elapsed));
+    if (this.currentMedalSource === 'finale' || this.bestFlights >= 7) {
+      this.medalFoot.textContent = `${seconds} 秒后自动进入下一轮 · 点击或按键立即进入`;
+    } else {
+      this.medalFoot.textContent = `${seconds} 秒后自动继续 · 继续后 3 · 2 · 1 · GO`;
+    }
   }
 
   hideMedalCeremony(): void {
     this.medalEl.classList.remove('on');
     this.root.classList.remove('medal-on');
+    this.medalEl.style.setProperty('--ceremony-progress', '0');
     this.medalContinue.hidden = true;
     this.medalNext.classList.remove('on');
     this.finalTargetEl.classList.remove('on');

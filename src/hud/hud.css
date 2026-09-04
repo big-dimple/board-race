@@ -2617,6 +2617,34 @@
 
 .hud-medal-ceremony.on { display: block; }
 
+/* Progress bar track along the very bottom edge */
+.hud-medal-ceremony::before {
+  content: '';
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+}
+
+/* Progress bar filling up along the bottom edge */
+.hud-medal-ceremony::after {
+  content: '';
+  position: absolute;
+  z-index: 21;
+  left: 0;
+  bottom: 0;
+  width: calc(var(--ceremony-progress, 0) * 100%);
+  height: 4px;
+  background: linear-gradient(90deg, #55e7ff 0%, #ffd04a 70%, #fff3ae 100%);
+  box-shadow: 0 0 14px rgba(255, 207, 74, 0.8), 0 0 6px rgba(85, 231, 255, 0.5);
+  pointer-events: none;
+  transition: width 0.08s linear;
+}
+
 .hud-medal-canvas {
   position: absolute;
   inset: 0;
@@ -2889,6 +2917,8 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
     margin: 0;
   }
   .hud-medal-foot { margin-top: 6px; font-size: 10px; }
+  .hud-medal-ceremony::before,
+  .hud-medal-ceremony::after { height: 3px; }
 
   .hud-lesson-inner { width: calc(100% - 24px); padding: 9px 18px 10px; }
   .hud-lesson-attempt { font-size: 9px; }

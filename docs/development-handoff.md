@@ -1,8 +1,21 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“成就墙标题恒定锁定为【成就墙】彻底杜绝未过三门显示猛男勋章、终点站与三飞猛男勋章专页重构（图文比例对称居中、中文字体清除机械伪斜体、继续游戏按钮端正对称化）（Honor Wall Title Permanently Locked to 成就墙, Macho Medal Page Balanced Proportions, Upright Typography & Straight Symmetrical Continue Button）”。
+状态：主分支当前工作包已圆满交付“终点站允许空中过线完赛、猛男勋章画面底部加入自动跳转进度条与倒计时提示（Final Station Airborne Crossing Finish & Macho Medal Auto-Continue Progress Bar & Countdown）”。
 
 ## 当前工作包
+
+- **终点站允许空中过线完赛（Final Station Airborne Finish Crossing Supported）**：
+  1. **移除水面与空闲专属门禁**：在 `src/game/race.ts` 中彻底移除此前冲线检测强制要求的 `boat.state.flightPhase === 'surface' && boat.state.flightRouteState === 'idle'` 限制，允许快艇在凌空飞行、空轨滑翔或降落腾空状态下直接冲线；
+  2. **空中横向冲线容差自适应放宽**：在 `src/game/course.ts` 中新增 `FINAL_PORTAL_AIR_HALF_WIDTH_M = 12.0m`。水面过线仍需精准穿过两根龙门柱（$\le 7.15\text{m}$），空中过线则放宽至全空轨航道宽度（$\le 12.0\text{m}$），无论玩家是以极速空中滑翔、空中漂移还是高空飞跃过线均能 100% 灵敏判定完赛；
+  3. **自动化验证断言**：在冒烟测试 `runFinalEligibilityCase` 中将领跑快艇设为巡航飞行（`flightPhase = 'cruise'`, `position.y = 6.5m`, `airborne = true`），验证空中过线同样精准判定 `qualifiedFinishedIds` 成功完赛。
+
+- **猛男勋章专页底部自动跳转进度条与倒计时提示（Macho Medal Ceremony Bottom Progress Bar & Countdown）**：
+  1. **屏幕最底部进度条**：在 `src/hud/hud.css` 中为 `.hud-medal-ceremony` 新增底部微光轨道（`::before`）与渐变动态进度条（`::after`），采用青色到金色的高光渐变（`linear-gradient(90deg, #55e7ff, #ffd04a, #fff3ae)`）与金光外发光，实时响应 `--ceremony-progress`（$0 \to 100\%$），与成就墙进度条统一视觉语言；
+  2. **精准倒计时动态文案**：在 `src/hud/hud.ts` 的 `updateMedalCeremony` 中根据剩余时间秒数更新文案：
+     - 终点站通关（`finale`）：显示“`X 秒后自动进入下一轮 · 点击或按键立即进入`”；
+     - 三飞达成（`qualification`）：显示“`X 秒后自动继续 · 继续后 3 · 2 · 1 · GO`”；
+  3. **随时手动确认**：玩家可随时点击“继续游戏”按钮或按回车/空格/手柄 A 键提前跳过，体验既有自动流转的省心感，又有随时接管的主动权。
+
 
 - **成就墙恒定锁定【成就墙】三字与未过三门彻底防误显（Honor Wall Title Locked to 成就墙 & Zero Pre-Gate 3 Leaks）**：
   1. **标题恒定锁定**：`HonorHighlights`（`src/hud/honorHighlights.ts`）的 `show()` 方法中，不论单人/双人或是否达成勋章，主标题恒定显示为【成就墙】（`this.title.textContent = '成就墙'`），副标题恒定为 `RACE · ACCOLADES // 成就墙`（双人 `DUO RACE · ACCOLADES // 成就墙`），彻底移除此前在 `hasMedal` 为真时将标题篡改为“猛男勋章达成”或“猛男勋章授予”的逻辑，符合游戏规则与设计直觉；
@@ -331,7 +344,7 @@
 
 ## 唯一下一步
 
-**真机验收成就墙与猛男勋章专页排版**：
-1. **未过第 3 门成就墙显示验证**：单人或双人比赛在前 3 门失误挂掉后，确认进入成就墙时主标题恒定显示清晰端庄的【成就墙】三字，副标题为 `RACE · ACCOLADES // 成就墙`，绝不出现“猛男勋章达成”或“猛男勋章授予”，顶部无跳动奖章，背景无误播礼花；
-2. **终点站与三飞猛男勋章专页比例与文字验证**：通关七飞或达成三飞猛男勋章后，确认左侧勋章图片垂直居中（50% 高度）、无下沉跌落；右侧文案全部使用正体无衬线字体，字形端庄，无机械倾斜变形；
-3. **继续游戏按钮对称性验证**：确认“继续游戏”按钮左右边框完全对称一致，四角圆润，文字正中居中，支持点击或按键立即进入下一环节。
+**真机验收空中冲线与猛男勋章专页进度条**：
+1. **空中过线完赛验证**：在跑完 7 门后接近终点站时，玩家无论是通过起飞、空刹滑翔还是下坠腾空冲过金色终点门，确认均能立刻触发冲线完赛与终局大典（`finale`），不会再被卡在水面或漏判；
+2. **猛男勋章底部进度条与倒计时验证**：三飞或终点站通关后进入猛男勋章专页，确认屏幕最底部出现平滑推进的青金渐变发光进度条（类似成就墙），按钮下方文案实时显示“`X 秒后自动进入下一轮 · 点击或按键立即进入`”或“`X 秒后自动继续 · 继续后 3 · 2 · 1 · GO`”；
+3. **手动提前跳过与自动跳转验证**：确认玩家在进度条走完前点击“继续游戏”可立即进入下一阶段；若静置不操作，在进度条走满时自动无缝衔接进入下一阶段。

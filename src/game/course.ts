@@ -87,6 +87,7 @@ const LAP_LENGTH = CURVE.getLength();
 /** Surface distance at which the run is no longer a missed launch attempt. */
 export const SURFACE_ROUTE_FAIL_DISTANCE_M = 42;
 const FINAL_PORTAL_HALF_WIDTH_M = 7.15;
+const FINAL_PORTAL_AIR_HALF_WIDTH_M = 12.0;
 const FINAL_PORTAL_MAX_STEP_M = 4;
 
 // ---------------------------------------------------- arc-length table ----
@@ -2047,7 +2048,7 @@ export class Course implements ICourse {
     this.finalCrossingPulse = 1;
   }
 
-  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3): number {
+  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3, isAirborne = false): number {
     const dx = current.x - previous.x;
     const dz = current.z - previous.z;
     const stepSq = dx * dx + dz * dz;
@@ -2066,7 +2067,8 @@ export class Course implements ICourse {
     const crossX = previous.x + dx * crossingT - this.finalPortalCenter.x;
     const crossZ = previous.z + dz * crossingT - this.finalPortalCenter.z;
     const lateral = crossX * this.finalPortalRight.x + crossZ * this.finalPortalRight.z;
-    return Math.abs(lateral) <= FINAL_PORTAL_HALF_WIDTH_M ? crossingT : -1;
+    const allowedHalfWidth = isAirborne ? FINAL_PORTAL_AIR_HALF_WIDTH_M : FINAL_PORTAL_HALF_WIDTH_M;
+    return Math.abs(lateral) <= allowedHalfWidth ? crossingT : -1;
   }
 
   triggerFinaleCelebration(): void {

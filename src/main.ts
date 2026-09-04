@@ -1345,7 +1345,7 @@ function startMedalCeremony(tier: Exclude<ChallengeTier, 'unqualified'>, medals:
   input.clearTransient();
   gamepadInput.clearTransient();
   mobileInput.suspendForPresentation();
-  hud.showQualification(tier, medals, best);
+  hud.showQualification(tier, medals, best, source);
   hud.updateMedalCeremony(0, MEDAL_CEREMONY_S, true);
   audio.setScene('medal');
   audio.playMedalCeremony();
@@ -4256,7 +4256,13 @@ function runFinalEligibilityCase(): Record<string, unknown> {
       .filter((racer) => racer.finished)
       .map((racer) => racer.id);
 
+    // Verify airborne crossing counts: boat 0 crosses the final station in flight.
+    boats[0].state.flightPhase = 'cruise';
+    boats[0].state.airborne = true;
+    boats[0].state.position.y = 6.5;
+    boats[0].state.flightRouteState = 'active';
     setPlane(0, 0.8);
+    boats[0].state.position.y = 6.5;
     race.update(dt);
     const order = [...race.racers].sort((a, b) => a.place - b.place || a.id - b.id);
     return {

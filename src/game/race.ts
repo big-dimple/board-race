@@ -567,9 +567,13 @@ export class Race implements RaceView {
       // world-space line before it has cleared the authored flight set. Such a
       // crossing must stay a normal race movement; otherwise an unfinished
       // rival is promoted ahead of a player who is correctly approaching Final.
+      const isAirborne = boat.state.flightPhase !== 'surface' ||
+        boat.state.flightRouteState !== 'idle' ||
+        boat.state.airborne ||
+        boat.state.position.y > 0.5;
       const finalCrossing = !resyncOnly && this.finalStationArmed && this.hasFinalQualification(id) &&
         !r.finished && !r.eliminated
-        ? this.course.crossFinalStation(previousPosition, boat.state.position)
+        ? this.course.crossFinalStation(previousPosition, boat.state.position, isAirborne)
         : -1;
       previousPosition.copy(boat.state.position);
       // Completing a whole authored set is an earned standing, not a momentary
@@ -587,8 +591,7 @@ export class Race implements RaceView {
         r.progress = this.windowedProgress(id);
         continue;
       }
-      if (this.finalStationArmed && finalCrossing >= 0 && boat.state.flightPhase === 'surface' &&
-          boat.state.flightRouteState === 'idle') {
+      if (this.finalStationArmed && finalCrossing >= 0) {
         this.finishAtFinal(r, finalCrossing, dt);
       }
       if (this.prevRoute[id] !== _sample.routeId) {

@@ -441,7 +441,7 @@ export interface ICourse {
   routeForBoat(id: number): CourseRouteId;
   flightTurnWarning(id: number): boolean;
   /** Swept, bidirectional crossing of the visible golden Final portal. Returns frame fraction 0..1, or -1. */
-  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3): number;
+  crossFinalStation(previous: THREE.Vector3, current: THREE.Vector3, isAirborne?: boolean): number;
   armFinalStation(): void;
   finalStationArmed(): boolean;
   /** Small portal-local acknowledgement for any racer's physical finish crossing. */
