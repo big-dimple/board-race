@@ -58,6 +58,7 @@ export interface HairAccessory {
   head: THREE.Bone;
   detailed: boolean;
   style: RiderLook['hairStyle'];
+  driverId: string;
 }
 
 const enum Role {
@@ -71,6 +72,8 @@ const enum Role {
   Hair,
   HairLight,
   Metal,
+  Gem,
+  Neon,
 }
 
 type Weight = readonly [bone: THREE.Bone, weight: number];
@@ -275,6 +278,10 @@ function roleColor(role: Role, baseHex: number, look: RiderLook): THREE.Color {
       : new THREE.Color().setHex(look.hair, THREE.NoColorSpace)
         .lerp(new THREE.Color().setHex(PALETTE.sparkle, THREE.NoColorSpace), 0.26);
     case Role.Metal: return new THREE.Color().setHex(0x66758c, THREE.NoColorSpace);
+    // Axle's Tang headband jade: always emerald, never team-tinted.
+    case Role.Gem: return new THREE.Color().setHex(0x2dff8f, THREE.NoColorSpace);
+    // AR visor / goggle lens glow: bright tech cyan that survives toon shadow.
+    case Role.Neon: return new THREE.Color().setHex(0x59d4ff, THREE.NoColorSpace);
   }
 }
 
@@ -788,37 +795,12 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
   }
   ctx.restore();
 
-  // 6. Driver-Specific Iconic Face / Head Accessories
-  if (driverId === 'axle') {
-    // Tang Dynasty Cyber Forehead Ribbon with Center Jadeite Diamond (y=90..130)
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(50, 110);
-    ctx.quadraticCurveTo(256, 86, 462, 110);
-    ctx.lineWidth = 18;
-    ctx.strokeStyle = '#182434';
-    ctx.stroke();
-
-    ctx.lineWidth = 4.5;
-    ctx.strokeStyle = '#39ff88';
-    ctx.stroke();
-
-    // Center Jadeite Gem
-    ctx.beginPath();
-    ctx.moveTo(256, 78);
-    ctx.lineTo(272, 100);
-    ctx.lineTo(256, 122);
-    ctx.lineTo(240, 100);
-    ctx.closePath();
-    ctx.fillStyle = '#00e676';
-    ctx.shadowColor = '#39ff88';
-    ctx.shadowBlur = 16;
-    ctx.fill();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    ctx.restore();
-  } else if (driverId === 'tide') {
+  // 6. Driver-Specific Iconic Face / Head Accessories.
+  // Forehead-worn accessories (headband, sunglasses, goggle strap, AR line)
+  // are real 3D parts on the fringe shell now — drawing them into the texture
+  // only bled through the bangs as dirty stripes, so the texture keeps only
+  // on-face accessories (monocle, nose tape, cheek pixels).
+  if (driverId === 'tide') {
     // Left-Eye Holographic Smart Monocle & HUD Reticle [ ⌖ ] (cx=352, cy=232)
     ctx.save();
     const cx = 352;
@@ -834,42 +816,19 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
     ctx.arc(cx, cy, 40, Math.PI * 0.58, Math.PI * 1.42);
     ctx.stroke();
 
-    // Reticle brackets & crosshair
+    // Reticle brackets & crosshair (no tiny HUD text: it read as a smudge
+    // at real gameplay distance)
     ctx.beginPath();
     ctx.moveTo(cx - 16, cy); ctx.lineTo(cx + 16, cy);
     ctx.moveTo(cx, cy - 16); ctx.lineTo(cx, cy + 16);
     ctx.stroke();
-
-    ctx.font = '900 12px monospace';
-    ctx.fillStyle = '#00f0ff';
-    ctx.fillText('TARGET: LOCKED', cx - 44, cy + 58);
     ctx.restore();
   } else if (driverId === 'sol') {
-    // Solar Forehead Sunglasses (y=90..130)
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(90, 112);
-    ctx.quadraticCurveTo(256, 88, 422, 112);
-    ctx.lineWidth = 15;
-    ctx.strokeStyle = '#ffd700';
-    ctx.stroke();
-
-    // Amber glass lenses
-    for (const sx of [172, 340]) {
-      ctx.beginPath();
-      ctx.roundRect(sx - 52, 94, 104, 32, 10);
-      const amberGrad = ctx.createLinearGradient(sx, 94, sx, 126);
-      amberGrad.addColorStop(0, 'rgba(255, 200, 0, 0.92)');
-      amberGrad.addColorStop(1, 'rgba(255, 80, 0, 0.88)');
-      ctx.fillStyle = amberGrad;
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#fff59d';
-      ctx.stroke();
-    }
-    ctx.restore();
+    // Forehead sunglasses are the 3D panel on the fringe shell — nothing
+    // drawn into the texture for Sol.
   } else if (driverId === 'reef') {
-    // Combat Nose Bridge Tape & Tactical Forehead Strap
+    // Combat Nose Bridge Tape (the forehead tactical strap is the 3D bandana
+    // on the fringe shell — no 2D strap here)
     ctx.save();
     // Nose tape
     ctx.fillStyle = '#e8cfba';
@@ -887,37 +846,12 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
     ctx.moveTo(246, 282); ctx.lineTo(246, 296);
     ctx.moveTo(266, 282); ctx.lineTo(266, 296);
     ctx.stroke();
-
-    // Forehead Tactical Strap
-    ctx.beginPath();
-    ctx.moveTo(50, 114);
-    ctx.quadraticCurveTo(256, 92, 462, 114);
-    ctx.lineWidth = 18;
-    ctx.strokeStyle = '#212121';
-    ctx.stroke();
-
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#ff1744';
-    ctx.stroke();
     ctx.restore();
   } else if (driverId === 'kai') {
-    // Sleek Purple/Blue AR HUD Visor Line
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(80, 196);
-    ctx.quadraticCurveTo(256, 174, 432, 196);
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = '#448aff';
-    ctx.shadowColor = '#82b1ff';
-    ctx.shadowBlur = 12;
-    ctx.stroke();
-
-    ctx.font = '900 11px monospace';
-    ctx.fillStyle = '#82b1ff';
-    ctx.fillText('SYS.CALIB: 99.8%', 202, 182);
-    ctx.restore();
+    // AR visor is the 3D panel hovering ahead of the eyes — nothing drawn.
   } else if (driverId === 'jinx') {
-    // Cute Pixel Cheek Blush & Cyber Goggle Strap
+    // Cute Pixel Cheek Blush (the overhead goggle strap is the 3D panel on
+    // the fringe shell — no 2D strap here)
     ctx.save();
     // Digital pixel blush
     for (const [side, bx] of [[-1, 138], [1, 374]] as const) {
@@ -926,18 +860,6 @@ function getOrCreateFaceTexture(driverId: string, look: RiderLook): THREE.Canvas
       ctx.fillRect(bx + 2, 268, 9, 9);
       ctx.fillRect(bx - 5, 279, 9, 9);
     }
-
-    // Goggle leather strap
-    ctx.beginPath();
-    ctx.moveTo(40, 106);
-    ctx.quadraticCurveTo(256, 82, 472, 106);
-    ctx.lineWidth = 16;
-    ctx.strokeStyle = '#3e2723';
-    ctx.stroke();
-
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = '#ea80fc';
-    ctx.stroke();
     ctx.restore();
   }
 
@@ -1035,8 +957,10 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
     { y: 0.035, z: -0.040, rx: 0.100, rz: 0.078 }, // nape
   ];
   const sides = detailed ? 14 : 10;
-  // Sweep snugly around temples and forehead to ensure full head volume without bald gaps
-  const frontGap = 0.52;
+  // Sweep snugly around temples and forehead to ensure full head volume
+  // without bald gaps; the remaining front opening is fully covered by the
+  // continuous fringe shell appended per driver below.
+  const frontGap = 0.44;
   const sweep = Math.PI * 2 - frontGap * 2;
   const vertices: number[] = [];
   const indices: number[] = [];
@@ -1069,6 +993,141 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;
+}
+
+/**
+ * Head profile shared by the skin loft (buildSkinnedRider) and the fringe
+ * shell so the bangs hug the cranium instead of floating as separate plates.
+ * +Z is face-forward in head-bone space.
+ */
+const HEAD_PROFILE = [
+  { y: -0.010, z: 0.018, hw: 0.050, hd: 0.054 }, // chin
+  { y: 0.032, z: 0.016, hw: 0.080, hd: 0.090 }, // jaw
+  { y: 0.082, z: 0.014, hw: 0.108, hd: 0.117 }, // cheek
+  { y: 0.145, z: 0.011, hw: 0.116, hd: 0.124 }, // temple
+  { y: 0.200, z: 0.005, hw: 0.095, hd: 0.104 }, // cranium
+  { y: 0.230, z: -0.006, hw: 0.030, hd: 0.036 }, // crown close (stays inside the hair cap)
+] as const;
+
+function headProfileAt(y: number): { z: number; hw: number; hd: number } {
+  const first = HEAD_PROFILE[0];
+  if (y <= first.y) return { z: first.z, hw: first.hw, hd: first.hd };
+  for (let i = 0; i < HEAD_PROFILE.length - 1; i++) {
+    const a = HEAD_PROFILE[i];
+    const b = HEAD_PROFILE[i + 1];
+    if (y <= b.y) {
+      const t = (y - a.y) / (b.y - a.y);
+      return { z: a.z + (b.z - a.z) * t, hw: a.hw + (b.hw - a.hw) * t, hd: a.hd + (b.hd - a.hd) * t };
+    }
+  }
+  const last = HEAD_PROFILE[HEAD_PROFILE.length - 1];
+  return { z: last.z, hw: last.hw, hd: last.hd };
+}
+
+/**
+ * One continuous fringe (bangs) shell per driver: a smooth ribbon hugging the
+ * cranium that ends in a strand-notched hairline. Replaces the old set of
+ * separate floating blades whose root gaps read as a barcode of skin stripes
+ * across the forehead.
+ */
+interface FringeSpec {
+  span: number; // half-angle of forehead coverage around +Z (radians)
+  topY: number; // top edge height; overlaps the skull-loft crown
+  baseY: number; // hairline height at the center
+  edgeY: number; // hairline height at the temples
+  notch: number; // strand tip depth (0 = smooth curtain)
+  strands: number; // V-strand count across the span
+  sweep: number; // bottom-edge slant per radian for side-swept bangs
+  messy: number; // 0..1 deterministic per-strand notch jitter
+  gap: number; // radial offset off the head surface
+  accentTips: boolean; // alternate strand tips use Role.HairLight
+}
+
+const FRINGE_SPECS: Record<string, FringeSpec> = {
+  // Axle: calm structured bangs with a soft widow's peak
+  axle: { span: 1.14, topY: 0.248, baseY: 0.164, edgeY: 0.134, notch: 0.018, strands: 7, sweep: 0, messy: 0.12, gap: 0.011, accentTips: false },
+  // Tide: haughty asymmetric sweep with cyan-dipped strand tips; sides stay
+  // short so the bob's own side locks own the cheek coverage
+  tide: { span: 1.08, topY: 0.248, baseY: 0.160, edgeY: 0.134, notch: 0.015, strands: 6, sweep: 0.028, messy: 0.08, gap: 0.011, accentTips: true },
+  // Sol: radiant curtain bangs with a center part and golden tips
+  sol: { span: 1.16, topY: 0.248, baseY: 0.164, edgeY: 0.130, notch: 0.022, strands: 8, sweep: 0, messy: 0.08, gap: 0.011, accentTips: true },
+  // Reef: short aggressive spiked fringe under the mohawk
+  reef: { span: 1.06, topY: 0.238, baseY: 0.176, edgeY: 0.150, notch: 0.032, strands: 6, sweep: 0, messy: 0.3, gap: 0.011, accentTips: false },
+  // Kai: geeky side-parted sweep
+  kai: { span: 1.18, topY: 0.248, baseY: 0.164, edgeY: 0.128, notch: 0.017, strands: 7, sweep: -0.034, messy: 0.1, gap: 0.011, accentTips: false },
+  // Jinx: messy tousled fringe with uneven strands
+  jinx: { span: 1.22, topY: 0.248, baseY: 0.160, edgeY: 0.126, notch: 0.026, strands: 7, sweep: 0, messy: 0.55, gap: 0.011, accentTips: false },
+};
+
+function fringeStrandAt(spec: FringeSpec, theta: number): { strand: number; tip: number } {
+  const clamped = THREE.MathUtils.clamp(theta, -spec.span, spec.span);
+  const phase = ((clamped + spec.span) / (2 * spec.span)) * spec.strands;
+  const strand = Math.min(spec.strands - 1, Math.floor(phase));
+  const frac = phase - Math.floor(phase);
+  return { strand, tip: 1 - Math.abs(2 * frac - 1) }; // 1 at strand tip, 0 at valley
+}
+
+function fringeBaseY(spec: FringeSpec, theta: number): number {
+  const t = Math.abs(THREE.MathUtils.clamp(theta, -spec.span, spec.span)) / spec.span;
+  return spec.baseY + (spec.edgeY - spec.baseY) * t + spec.sweep * theta;
+}
+
+function fringeHairlineY(spec: FringeSpec, theta: number): number {
+  const { strand, tip } = fringeStrandAt(spec, theta);
+  const hash = Math.sin(strand * 12.9898) * 43758.5453;
+  const jitter = spec.messy * spec.notch * ((hash - Math.floor(hash)) - 0.5) * 0.9;
+  return fringeBaseY(spec, theta) - Math.max(0, spec.notch + jitter) * tip;
+}
+
+function buildFringeGeometry(spec: FringeSpec, detailed: boolean): THREE.BufferGeometry {
+  const cols = detailed ? 30 : 20;
+  const positions: number[] = [];
+  const indices: number[] = [];
+
+  const pushRing = (yOf: (theta: number) => number, flare: number) => {
+    for (let col = 0; col <= cols; col++) {
+      const theta = -spec.span + (2 * spec.span * col) / cols;
+      const y = yOf(theta);
+      const profile = headProfileAt(y);
+      const r = spec.gap + flare;
+      positions.push(
+        (profile.hw + r) * Math.sin(theta),
+        y,
+        profile.z + (profile.hd + r) * Math.cos(theta),
+      );
+    }
+  };
+  pushRing(() => spec.topY, 0);
+  pushRing((theta) => spec.topY + (fringeHairlineY(spec, theta) - spec.topY) * 0.52, 0.002);
+  pushRing((theta) => fringeHairlineY(spec, theta), 0.006);
+
+  const ringSize = cols + 1;
+  for (let ring = 0; ring < 2; ring++) {
+    for (let col = 0; col < cols; col++) {
+      const a = ring * ringSize + col;
+      const b = a + 1;
+      const c = a + ringSize;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function appendFringe(out: SkinAssembler, bone: THREE.Bone, driverId: string, detailed: boolean): void {
+  const spec = FRINGE_SPECS[driverId] ?? FRINGE_SPECS.axle;
+  out.append(buildFringeGeometry(spec, detailed), bone, (point) => {
+    if (!spec.accentTips) return Role.Hair;
+    const theta = Math.atan2(point.x, point.z - headProfileAt(point.y).z);
+    const { strand } = fringeStrandAt(spec, theta);
+    const inTip = point.y < fringeBaseY(spec, theta) - spec.notch * 0.3;
+    return inTip && strand % 2 === 1 ? Role.HairLight : Role.Hair;
+  });
 }
 
 function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean): HairAccessory {
@@ -1107,19 +1166,17 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     // ---- Tide (ChatGPT / 山姆傲慢) — Chic Asymmetric Bob with Forehead Bangs & Cyan Dip ----
     const [back, left, right] = bobBones;
 
-    // Full 3D Forehead Bangs & Fringe (Covers forehead, no baldness)
-    appendHairBlade(out, hairRoot, [-0.035, 0.188, 0.108], 0.085, 0.045, 0.075, 0.055, [0.18, -0.12, 0.15], Role.Hair);
-    appendHairBlade(out, hairRoot, [0.045, 0.192, 0.102], 0.080, 0.040, 0.070, 0.050, [0.16, 0.14, -0.12], Role.HairLight);
-    appendHairBlade(out, hairRoot, [-0.085, 0.165, 0.088], 0.065, 0.030, 0.090, 0.045, [0.12, -0.22, 0.25], Role.Hair);
-    appendHairBlade(out, hairRoot, [0.085, 0.165, 0.088], 0.065, 0.030, 0.090, 0.045, [0.12, 0.22, -0.25], Role.HairLight);
+    // Full-coverage continuous fringe shell (no blade root gaps)
+    appendFringe(out, hairRoot, look.driverId, detailed);
 
-    // Asymmetric swinging bob locks
+    // Asymmetric swinging bob locks (side curtains frame the face, pulled
+    // slightly back so they never read as a flat plate over the cheek)
     appendHairBlade(out, hairRoot, [0, 0.015, -0.115], 0.28, 0.22, 0.25, 0.08, [0.02, 0, 0]);
     appendHairBlade(out, hairRoot, [0, -0.135, -0.18], 0.24, 0.28, 0.14, 0.035, [0.02, 0, 0], Role.HairLight);
     appendCurvedHairLock(out, back, [0.065, -0.02, -0.035], [0.045, 0.13, 0.16], 0.36, 0.1, -0.04, [0.07, 0, -0.05]);
     appendCurvedHairLock(out, back, [-0.065, -0.025, -0.045], [0.04, 0.13, 0.16], 0.37, 0.1, -0.04, [0.08, 0, 0.05]);
-    appendCurvedHairLock(out, left, [0.045, -0.015, -0.06], [0.065, 0.18, 0.22], 0.34, 0.115, -0.035, [0.07, 0, -0.12]);
-    appendCurvedHairLock(out, right, [-0.045, -0.015, -0.06], [0.065, 0.18, 0.22], 0.34, 0.115, -0.035, [0.07, 0, 0.12]);
+    appendCurvedHairLock(out, left, [0.035, -0.015, -0.075], [0.055, 0.135, 0.165], 0.34, 0.09, -0.045, [0.07, 0, -0.12]);
+    appendCurvedHairLock(out, right, [-0.035, -0.015, -0.075], [0.055, 0.135, 0.165], 0.34, 0.09, -0.045, [0.07, 0, 0.12]);
 
     // Cyan-dipped hair overlays
     appendCurvedHairLock(out, back, [0.065, -0.245, -0.095], [0.025, 0.07, 0.085], 0.12, 0.035, -0.018, [0.07, 0, -0.05], Role.HairLight);
@@ -1127,18 +1184,15 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendCurvedHairLock(out, left, [0.045, -0.215, -0.14], [0.035, 0.11, 0.14], 0.12, 0.04, -0.016, [0.07, 0, -0.12], Role.HairLight);
     appendCurvedHairLock(out, right, [-0.045, -0.215, -0.14], [0.035, 0.11, 0.14], 0.12, 0.04, -0.016, [0.07, 0, 0.12], Role.HairLight);
 
-    // 3D Accessory: Left Holographic Smart Monocle & Right Cyber Ear-Cuff
-    appendPanel(out, hairRoot, Role.HairLight, [0.058, 0.125, 0.132], [0.045, 0.045, 0.038, 0.016], [0.06, -0.08, 0]);
+    // 3D Accessory: Right Cyber Ear-Cuff (the holographic monocle lives on the
+    // face texture; the old floating 3D square read as a stray cyan block)
     appendPanel(out, hairRoot, Role.Metal, [-0.136, 0.108, 0.008], [0.018, 0.018, 0.042, 0.018], [0, 0, 0.15]);
   } else if (braidBones) {
     // ---- Sol (Gemini / 美国豆包) — Golden Bangs & Voluminous Ponytail ----
     const [tie, braid1, braid2, braid3, braid4] = braidBones;
 
-    // Full 3D Golden Front Bangs (Covers forehead, no baldness)
-    appendHairBlade(out, hairRoot, [-0.038, 0.188, 0.110], 0.085, 0.045, 0.075, 0.055, [0.18, -0.12, 0.14], Role.Hair);
-    appendHairBlade(out, hairRoot, [0.040, 0.188, 0.110], 0.085, 0.045, 0.075, 0.055, [0.18, 0.12, -0.14], Role.HairLight);
-    appendHairBlade(out, hairRoot, [-0.085, 0.155, 0.082], 0.065, 0.030, 0.085, 0.045, [0.14, -0.18, 0.22], Role.HairLight);
-    appendHairBlade(out, hairRoot, [0.085, 0.155, 0.082], 0.065, 0.030, 0.085, 0.045, [0.14, 0.18, -0.22], Role.Hair);
+    // Full-coverage continuous golden fringe shell with center part
+    appendFringe(out, hairRoot, look.driverId, detailed);
 
     // Voluminous golden ponytail braid
     appendCurvedHairLock(out, tie, [0, 0, 0], [0.1, 0.125, 0.1], 0.15, 0.1, -0.055, [0.08, 0, -0.12]);
@@ -1147,15 +1201,17 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendCurvedHairLock(out, braid3, [0, 0, 0], [0.055, 0.08, 0.07], 0.16, 0.075, -0.055, [-0.04, 0, -0.04]);
     appendCurvedHairLock(out, braid4, [0, 0, 0], [0.022, 0.052, 0.062], 0.14, 0.062, -0.045, [0.03, 0, 0], Role.HairLight);
 
-    // 3D Accessory: High Golden Hair Ring & Forehead Cyber Sunglasses
-    appendPanel(out, tie, Role.Metal, [0, 0.025, 0], [0.075, 0.065, 0.045, 0.075], [0, 0, 0]);
-    appendPanel(out, hairRoot, Role.Accent, [0, 0.192, 0.108], [0.165, 0.145, 0.038, 0.032], [0.22, 0, 0]);
+    // 3D Accessory: Golden Hair Ring & Cyber Sunglasses perched on the fringe
+    // (two dark lenses + slim bridge — the old single wide slab read as a
+    // yellow blindfold)
+    appendPanel(out, tie, Role.Accent, [0, 0.025, 0], [0.075, 0.065, 0.045, 0.075], [0, 0, 0]);
+    appendPanel(out, hairRoot, Role.Ink, [-0.048, 0.199, 0.118], [0.054, 0.046, 0.036, 0.014], [0.24, 0.10, 0.05]);
+    appendPanel(out, hairRoot, Role.Ink, [0.048, 0.199, 0.118], [0.054, 0.046, 0.036, 0.014], [0.24, -0.10, -0.05]);
+    appendPanel(out, hairRoot, Role.Accent, [0, 0.202, 0.126], [0.034, 0.030, 0.010, 0.012], [0.22, 0, 0]);
   } else if (look.driverId === 'reef') {
-    // ---- Reef (KK / Kimi) — Fierce Punk Mohawk, Front Fringe & Tactical Headband ----
-    // Front spiked fringe (Covers forehead)
-    appendHairBlade(out, hairRoot, [0, 0.198, 0.112], 0.078, 0.035, 0.068, 0.055, [0.26, 0, 0], Role.Hair);
-    appendHairBlade(out, hairRoot, [0.052, 0.182, 0.095], 0.060, 0.028, 0.062, 0.048, [0.18, 0.18, -0.16], Role.HairLight);
-    appendHairBlade(out, hairRoot, [-0.052, 0.182, 0.095], 0.060, 0.028, 0.062, 0.048, [0.18, -0.18, 0.16], Role.HairLight);
+    // ---- Reef (KK / Kimi) — Fierce Punk Mohawk, Spiked Fringe & Tactical Headband ----
+    // Continuous spiked fringe shell (covers forehead, no blade root gaps)
+    appendFringe(out, hairRoot, look.driverId, detailed);
 
     // Sharp layered crimson mohawk crests
     appendHairBlade(out, hairRoot, [0, 0.245, 0.02], 0.075, 0.045, 0.11, 0.085, [0.16, 0, 0], Role.Hair);
@@ -1167,16 +1223,14 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendHairBlade(out, hairRoot, [-0.065, 0.21, -0.02], 0.055, 0.025, 0.08, 0.06, [0.08, -0.18, 0.22], Role.HairLight);
 
     // 3D Accessory: Combat Tactical Bandana & Left Ear Antenna
-    appendPanel(out, hairRoot, Role.SuitDark, [0, 0.168, 0.096], [0.185, 0.185, 0.038, 0.038], [0.14, 0, 0]);
-    appendPanel(out, hairRoot, Role.Metal, [0.078, 0.170, 0.112], [0.028, 0.028, 0.032, 0.018], [0.14, 0, 0]);
+    // (bandana pushed out to wrap the fringe shell surface)
+    appendPanel(out, hairRoot, Role.SuitDark, [0, 0.170, 0.130], [0.185, 0.185, 0.038, 0.038], [0.14, 0, 0]);
+    appendPanel(out, hairRoot, Role.Metal, [0.082, 0.172, 0.140], [0.028, 0.028, 0.032, 0.018], [0.14, 0, 0]);
     appendPanel(out, hairRoot, Role.Metal, [-0.138, 0.122, -0.008], [0.010, 0.006, 0.115, 0.010], [0.32, 0, -0.15]);
   } else if (look.driverId === 'kai') {
-    // ---- Kai (Claude / 打你嗷) — Clean Layered Side-Parted Hair & AR Visor Wings ----
-    // Forehead Swept Fringe & Sideburns (Covers forehead)
-    appendHairBlade(out, hairRoot, [0.028, 0.190, 0.110], 0.092, 0.042, 0.072, 0.055, [0.18, 0.12, -0.12], Role.Hair);
-    appendHairBlade(out, hairRoot, [-0.045, 0.192, 0.104], 0.082, 0.038, 0.068, 0.050, [0.16, -0.14, 0.15], Role.HairLight);
-    appendHairBlade(out, hairRoot, [-0.082, 0.158, 0.085], 0.062, 0.028, 0.085, 0.045, [0.12, -0.22, 0.22], Role.Hair);
-    appendHairBlade(out, hairRoot, [0.082, 0.158, 0.085], 0.062, 0.028, 0.085, 0.045, [0.12, 0.22, -0.22], Role.Hair);
+    // ---- Kai (Claude / 打你嗷) — Clean Side-Parted Fringe Shell & AR Visor Wings ----
+    // Continuous side-swept fringe shell (covers forehead, no blade root gaps)
+    appendFringe(out, hairRoot, look.driverId, detailed);
 
     // Swept anime hair layers
     appendHairBlade(out, hairRoot, [0, 0.225, -0.02], 0.11, 0.06, 0.08, 0.09, [0.06, 0, 0], Role.Hair);
@@ -1184,18 +1238,16 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendHairBlade(out, hairRoot, [-0.065, 0.21, -0.03], 0.075, 0.04, 0.07, 0.07, [0.06, -0.14, 0.16], Role.Hair);
     appendHairBlade(out, hairRoot, [0.035, 0.19, 0.085], 0.065, 0.03, 0.055, 0.045, [0.22, 0.1, -0.1], Role.HairLight);
 
-    // 3D Accessory: AR Visor Frame & Dual Titanium Ear Wings
-    appendPanel(out, hairRoot, Role.Accent, [0, 0.142, 0.126], [0.175, 0.155, 0.026, 0.020], [0.08, 0, 0]);
+    // 3D Accessory: glowing AR Visor bar riding the brow line (eyes stay
+    // visible below it) & Dual Titanium Ear Wings
+    appendPanel(out, hairRoot, Role.Neon, [0, 0.136, 0.148], [0.168, 0.156, 0.022, 0.018], [0.10, 0, 0]);
     for (const side of [-1, 1]) {
       appendPanel(out, hairRoot, Role.Metal, [side * 0.138, 0.108, -0.01], [0.016, 0.012, 0.062, 0.018], [0.16, 0, side * 0.22]);
     }
   } else if (look.driverId === 'jinx') {
-    // ---- Jinx (DeepSeek / 梁圣梁子) — Wild Tousled Spikes, Ahoge & Overhead Goggles ----
-    // Forehead Bangs & Temple Tufts (Covers forehead)
-    appendHairBlade(out, hairRoot, [-0.035, 0.192, 0.110], 0.082, 0.040, 0.072, 0.055, [0.20, -0.16, 0.18], Role.HairLight);
-    appendHairBlade(out, hairRoot, [0.042, 0.190, 0.106], 0.085, 0.042, 0.070, 0.052, [0.18, 0.18, -0.16], Role.Hair);
-    appendHairBlade(out, hairRoot, [-0.080, 0.160, 0.082], 0.065, 0.030, 0.082, 0.048, [0.12, -0.25, 0.28], Role.Hair);
-    appendHairBlade(out, hairRoot, [0.080, 0.160, 0.082], 0.065, 0.030, 0.082, 0.048, [0.12, 0.25, -0.28], Role.HairLight);
+    // ---- Jinx (DeepSeek / 梁圣梁子) — Tousled Fringe Shell, Ahoge & Overhead Goggles ----
+    // Continuous messy fringe shell (covers forehead, no blade root gaps)
+    appendFringe(out, hairRoot, look.driverId, detailed);
 
     // Cute bouncing Ahoge (呆毛 cowlick on top)
     appendCurvedHairLock(out, hairRoot, [0.015, 0.255, 0.02], [0.02, 0.035, 0.045], 0.09, 0.025, 0.035, [0.25, 0.1, 0.15], Role.HairLight);
@@ -1209,17 +1261,14 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     // 3D Accessory: Overhead Dual-Lens Steampunk Cyber Goggles & Ear Antenna
     for (const side of [-1, 1]) {
       appendEllipsoid(out, hairRoot, Role.Metal, [side * 0.055, 0.215, 0.075], [0.032, 0.032, 0.026], sides);
-      appendEllipsoid(out, hairRoot, Role.HairLight, [side * 0.055, 0.215, 0.092], [0.022, 0.022, 0.012], sides);
+      appendEllipsoid(out, hairRoot, Role.Neon, [side * 0.055, 0.215, 0.092], [0.022, 0.022, 0.012], sides);
     }
-    appendPanel(out, hairRoot, Role.SuitDark, [0, 0.185, 0.09], [0.18, 0.18, 0.032, 0.03], [0.18, 0, 0]);
+    appendPanel(out, hairRoot, Role.SuitDark, [0, 0.186, 0.124], [0.18, 0.18, 0.032, 0.03], [0.18, 0, 0]);
     appendPanel(out, hairRoot, Role.Accent, [0.138, 0.128, -0.018], [0.008, 0.006, 0.085, 0.008], [-0.18, 0, 0.28]);
   } else {
-    // ---- Axle (GLM / 盛唐俊杰) — Tang Dynasty Cyber Headband, Forehead Bangs & Comm ----
-    // Forehead Textured Bangs & Temple Locks (Covers forehead)
-    appendHairBlade(out, hairRoot, [0.025, 0.190, 0.110], 0.088, 0.042, 0.072, 0.055, [0.18, 0.10, -0.10], Role.Hair);
-    appendHairBlade(out, hairRoot, [-0.038, 0.192, 0.106], 0.082, 0.038, 0.068, 0.050, [0.16, -0.12, 0.14], Role.HairLight);
-    appendHairBlade(out, hairRoot, [-0.080, 0.160, 0.085], 0.062, 0.028, 0.082, 0.045, [0.12, -0.22, 0.22], Role.HairLight);
-    appendHairBlade(out, hairRoot, [0.080, 0.160, 0.085], 0.062, 0.028, 0.082, 0.045, [0.12, 0.22, -0.22], Role.Hair);
+    // ---- Axle (GLM / 盛唐俊杰) — Tang Dynasty Cyber Headband, Fringe Shell & Comm ----
+    // Continuous fringe shell with a soft widow's peak (covers forehead)
+    appendFringe(out, hairRoot, look.driverId, detailed);
 
     // Styled short hair locks
     appendHairBlade(out, hairRoot, [0, 0.225, -0.01], 0.095, 0.05, 0.08, 0.085, [0.06, 0, 0], Role.Hair);
@@ -1228,8 +1277,9 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
     appendHairBlade(out, hairRoot, [0, 0.19, 0.085], 0.075, 0.035, 0.055, 0.045, [0.2, 0, 0], Role.Hair);
 
     // 3D Accessory: Tang Dynasty Cyber Headband with Central Jade Gem & Right Comm Rig
-    appendPanel(out, hairRoot, Role.SuitDark, [0, 0.172, 0.092], [0.182, 0.182, 0.034, 0.036], [0.12, 0, 0]);
-    appendPanel(out, hairRoot, Role.HairLight, [0, 0.174, 0.126], [0.030, 0.030, 0.030, 0.022], [0.12, 0, 0]);
+    // (band and gem pushed out to sit on the fringe shell surface)
+    appendPanel(out, hairRoot, Role.SuitDark, [0, 0.174, 0.128], [0.182, 0.182, 0.034, 0.036], [0.12, 0, 0]);
+    appendPanel(out, hairRoot, Role.Gem, [0, 0.176, 0.142], [0.030, 0.030, 0.030, 0.022], [0.12, 0, 0]);
     appendEllipsoid(out, hairRoot, Role.Metal, [0.136, 0.095, 0.008], [0.018, 0.032, 0.018], sides);
   }
 
@@ -1255,7 +1305,7 @@ function buildHairAccessory(head: THREE.Bone, look: RiderLook, detailed: boolean
   const skeleton = new THREE.Skeleton(bones);
   mesh.bind(skeleton);
   mesh.normalizeSkinWeights();
-  return { object, mesh, colorAttribute: result.colorAttribute, roles: result.roles, bones, head, detailed, style: look.hairStyle };
+  return { object, mesh, colorAttribute: result.colorAttribute, roles: result.roles, bones, head, detailed, style: look.hairStyle, driverId: look.driverId };
 }
 
 function disposeHairAccessory(accessory: HairAccessory): void {
@@ -1353,8 +1403,12 @@ export function buildSkinnedRider(
   out.append(new THREE.CylinderGeometry(0.068, 0.076, 0.055, sides, 1), rig.chest, Role.SuitDark, collarLocalInChest);
   const headSides = detailed ? 20 : 12;
 
-  // 1. Natural Human Head Base (Skin Tone)
-  appendEllipsoid(out, rig.head, Role.Skin, [0, 0.105, 0.015], [0.116, 0.134, 0.126], headSides);
+  // 1. Natural Human Head Base (Skin Tone): lofted cranium with a tapered
+  // jaw and chin — the old single ellipsoid read as a featureless balloon.
+  // Ring profile is shared with the fringe shell via HEAD_PROFILE.
+  out.append(bodyLoft(HEAD_PROFILE.map((ring) => ({
+    y: ring.y, z: ring.z, halfWidth: ring.hw, halfDepth: ring.hd,
+  })), headSides), rig.head, Role.Skin);
 
   // 2. Stylized Anime Ears (Skin Tone)
   for (const side of [-1, 1]) {
@@ -1385,7 +1439,7 @@ export function buildSkinnedRider(
   mesh.frustumCulled = true;
   mesh.userData.assetClass = 'batched-skinned-rider';
   mesh.userData.boneCount = bones.length;
-  mesh.userData.paletteRoleCount = 10;
+  mesh.userData.paletteRoleCount = 12;
   root.add(mesh);
   const skeleton = new THREE.Skeleton(bones);
   mesh.bind(skeleton);
@@ -1402,7 +1456,7 @@ export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: Rid
     skin.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
   }
   skin.colorAttribute.needsUpdate = true;
-  if (skin.hair.style !== look.hairStyle) {
+  if (skin.hair.style !== look.hairStyle || skin.hair.driverId !== look.driverId) {
     const next = buildHairAccessory(skin.hair.head, look, skin.hair.detailed);
     if (next.detailed) {
       addOutline(next.object, { width: 0.9 });

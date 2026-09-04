@@ -1,13 +1,18 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包已圆满交付“终点站允许空中过线完赛、猛男勋章画面底部加入自动跳转进度条与倒计时提示（Final Station Airborne Crossing Finish & Macho Medal Auto-Continue Progress Bar & Countdown）”。
+状态：主分支当前工作包已圆满交付“六车手头部造型系统重构：下颌收束头型 + 连续刘海壳 + 面部贴图净化 + 发型按车手重建（Rider Head System Overhaul: Jaw-Tapered Head Loft, Continuous Fringe Shells, Texture Sanitization & Per-Driver Hair Rebuild）”。
 
 ## 当前工作包
 
-- **终点站允许空中过线完赛（Final Station Airborne Finish Crossing Supported）**：
-  1. **移除水面与空闲专属门禁**：在 `src/game/race.ts` 中彻底移除此前冲线检测强制要求的 `boat.state.flightPhase === 'surface' && boat.state.flightRouteState === 'idle'` 限制，允许快艇在凌空飞行、空轨滑翔或降落腾空状态下直接冲线；
-  2. **空中横向冲线容差自适应放宽**：在 `src/game/course.ts` 中新增 `FINAL_PORTAL_AIR_HALF_WIDTH_M = 12.0m`。水面过线仍需精准穿过两根龙门柱（$\le 7.15\text{m}$），空中过线则放宽至全空轨航道宽度（$\le 12.0\text{m}$），无论玩家是以极速空中滑翔、空中漂移还是高空飞跃过线均能 100% 灵敏判定完赛；
-  3. **自动化验证断言**：在冒烟测试 `runFinalEligibilityCase` 中将领跑快艇设为巡航飞行（`flightPhase = 'cruise'`, `position.y = 6.5m`, `airborne = true`），验证空中过线同样精准判定 `qualifiedFinishedIds` 成功完赛。
+- **六车手头部造型系统重构（Rider Head System Overhaul）**：
+  1. **头型告别气球头（Jaw-Tapered Head Loft）**：`riderMesh.ts` 头部由单椭球改为 `HEAD_PROFILE` 六环 loft（下颌 0.080 → 下巴 0.050 逐级收束），正面看有脸颊-下颌-下巴结构；头顶环收敛至 (0.230, 0.030/0.036)，全程包裹在头发颅顶 loft 之内，背面不再透出肤色弧；
+  2. **连续刘海壳取代百叶窗叶片（Continuous Fringe Shells）**：新增 `buildFringeGeometry()` + `FRINGE_SPECS`，按 `HEAD_PROFILE` 插值贴颅顶生成一整片三排环带刘海壳，底边为三角波形发丝缺口（每车手独立 span/baseY/edgeY/notch/strands/sweep/messy 参数：Axle 美人尖、Tide 侧扫+青色发梢、Sol 中分帘+金色发梢、Reef 深锯齿短刺、Kai 偏分侧扫、Jinx 凌乱锯齿）；彻底根除旧版 4-6 片悬浮梯形叶片根部露皮肤的“条形码发际线”；
+  3. **面部贴图净化（Texture Sanitization）**：删除贴图前额区的 2D 额饰涂鸦（Axle 发带+翡翠、Sol 太阳镜、Reef 额带、Kai AR 线、Jinx 护目镜带）——它们与 3D 刘海同区域打架、从叶片缝隙透成脏条纹；删除远景读成脏点的微缩文字（`TARGET: LOCKED`、`SYS.CALIB: 99.8%`）；保留眼部单镜弧线、鼻梁战术贴、像素腮红等面上配饰；
+  4. **3D 配饰坐实到刘海壳面**：新增 `Role.Gem`（翡翠绿 0x2dff8f）与 `Role.Neon`（科技青 0x59d4ff）；Axle 翡翠额宝石恢复翡翠绿、Kai AR 目镜为眉线高置发光青条（不再遮住眼睛）、Sol 太阳镜重构为双暗色镜片+金色鼻梁架（不再是大黄板）、束发环改 Accent 金、Jinx 护目镜双筒 Neon 青镜片、Tide 删除悬浮青色方块（单镜由贴图承担）；
+  5. **发型按车手重建（Per-Driver Hair Rebuild）**：修复存量 bug——`updateSkinnedRiderLook` 此前只在 `hairStyle`（short/bob/ponytail）变化时重建发型网格，同为 short 的四名车手（Axle/Reef/Kai/Jinx）互选时只换色不换型，玩家选角后船上实际是初始车手的头发染色版；`HairAccessory` 新增 `driverId` 字段，选角变化即整体重建骨架与轮廓；
+  6. **验证证据**：6 车手 × 正面/四分之三/背面/追尾四机位桌面截图 + 844x390 移动端特写与开局截图全量人工复核通过；`verify:team` 通过；`verify:smoke` 在 Windows 宿主上于基线（未改动代码）同样报 `radio text overflows`（该系统电台字体度量断言依赖此前 Linux 环境字体，属环境性既有失败，非本轮引入；其前置的发型切换断言 486-496 行在本轮改动下通过）。
+
+- 上一工作包“终点站空中过线 + 猛男勋章进度条”的真机验收仍 pending（用户侧）；其条目存档见下文历史记录。
 
 - **猛男勋章专页底部自动跳转进度条与倒计时提示（Macho Medal Ceremony Bottom Progress Bar & Countdown）**：
   1. **屏幕最底部进度条**：在 `src/hud/hud.css` 中为 `.hud-medal-ceremony` 新增底部微光轨道（`::before`）与渐变动态进度条（`::after`），采用青色到金色的高光渐变（`linear-gradient(90deg, #55e7ff, #ffd04a, #fff3ae)`）与金光外发光，实时响应 `--ceremony-progress`（$0 \to 100\%$），与成就墙进度条统一视觉语言；
