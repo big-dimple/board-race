@@ -1,6 +1,7 @@
 # 资料片画廊开发交接
 
 状态：`gallery-shell-integrated / expansion-gameplay-pending`
+更新（2026-09-05）：「雪地：北极狐」已独立立项为 drift-fox（产品计划与开发计划见该仓库 `docs/PRODUCT.md` / `docs/DEVPLAN.md`）；本画廊其余六个世界维持 pending。
 
 ## 当前用户体验
 
