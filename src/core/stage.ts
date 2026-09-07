@@ -22,6 +22,13 @@ const AUTO_MOBILE_MIN_PIXEL_RATIO = 1;
 /** Performance mode starts cheap but lets strong devices earn sharpness back. */
 const PERFORMANCE_GOVERNOR_MAX_PIXEL_RATIO = 2.0;
 /**
+ * Performance mode opens at 1.5x instead of the 1.0x floor: first impressions
+ * are formed in the first seconds, and a sharp READY grid beats a soft one.
+ * Weak hardware pays it back within ~2s via the severe-drop path, well before
+ * the countdown hands over the wheel.
+ */
+const PERFORMANCE_START_MAX_PIXEL_RATIO = 1.5;
+/**
  * Split play pays for the same rAF budget twice: two cameras, two pipelines,
  * one frame. The governor used to read the resulting frame time as a slow
  * machine and kept shaving resolution until the picture went soft. Split views
@@ -68,6 +75,11 @@ export class Stage {
   private resizeRaf = 0;
   private resizeCount = 0;
   private lastBaseRatio = 1;
+  /**
+   * AIMD up-step: climbs fast while frames prove headroom, and halves after
+   * every downshift so a borderline device converges instead of oscillating.
+   */
+  private upStep = 0.3;
   private readonly desktopClarity: boolean;
   private readonly mobileClarity: boolean;
   private readonly effectiveMinPixelRatio: number;
@@ -75,6 +87,7 @@ export class Stage {
   private readonly resizeObserver: ResizeObserver | null;
   private readonly resizeCbs: Array<(w: number, h: number, pr: number) => void> = [];
   private readonly governorRatioCap: number;
+  private readonly startRatioCap: number;
 
   constructor(container: HTMLElement, mode: RenderQualityMode = 'auto') {
     this.container = container;
@@ -82,6 +95,9 @@ export class Stage {
     this.quality = PROFILES[mode];
     this.governorRatioCap = mode === 'performance'
       ? PERFORMANCE_GOVERNOR_MAX_PIXEL_RATIO
+      : this.quality.maxPixelRatio;
+    this.startRatioCap = mode === 'performance'
+      ? PERFORMANCE_START_MAX_PIXEL_RATIO
       : this.quality.maxPixelRatio;
     this.desktopClarity = mode === 'auto' &&
       initialSize.width >= 1000 &&
@@ -165,14 +181,15 @@ export class Stage {
     if ((severe || this.badFrameSeconds >= 0.6) && this.pixelRatio > floor) {
       const stepDown = severe ? 0.35 : split ? SPLIT_DOWNSCALE_STEP : 0.25;
       this.pixelRatio = Math.max(floor, this.pixelRatio - stepDown);
+      this.upStep = Math.max(0.1, this.upStep * 0.5);
       this.badFrameSeconds = 0;
       this.adjustmentCooldown = 1;
       this.applySize();
-    } else if (this.goodFrameSeconds >= 4) {
+    } else if (this.goodFrameSeconds >= 2) {
       const { width, height } = this.viewportSize();
       const ceiling = this.clarityCeilingRatio(width, height);
       if (this.pixelRatio < ceiling) {
-        this.pixelRatio = Math.min(ceiling, this.pixelRatio + 0.2);
+        this.pixelRatio = Math.min(ceiling, this.pixelRatio + this.upStep);
         this.applySize();
       }
       this.goodFrameSeconds = 0;
@@ -195,7 +212,7 @@ export class Stage {
   }
 
   private baseBudgetRatio(w: number, h: number): number {
-    const max = this.mobileClarity ? AUTO_MOBILE_MAX_PIXEL_RATIO : this.quality.maxPixelRatio;
+    const max = this.mobileClarity ? AUTO_MOBILE_MAX_PIXEL_RATIO : this.startRatioCap;
     const ratio = this.ratioForBudget(w, h, this.quality.pixelBudget, max);
     return ratio;
   }
