@@ -3,9 +3,12 @@
  * game flow (countdown → racing → defeat/loading), and exposes the deterministic
  * screenshot-harness API (?harness=1) used by harness/screenshot.mjs.
  *
- * Step/render split: EVERYTHING that moves updates in step() at fixed
- * SIM_DT (deterministic — the harness can advance the sim with no rendering);
- * render() only draws (prepass + composer).
+ * Step/render split: physics, input and edge-triggered gameplay events run in
+ * step() at fixed SIM_DT (deterministic — the harness can advance the sim with
+ * no rendering); render() only draws (prepass + composer). Continuous
+ * presentation (riders, ocean, HUD, audio buses) runs once per frame on the
+ * last step of each rAF tick, so catch-up steps on slow devices do not pay
+ * for visuals that only the frame boundary can show.
  */
 import * as THREE from 'three';
 
@@ -120,6 +123,8 @@ import { deriveAbilityHudState } from './core/abilityTelemetry';
 const params = new URLSearchParams(location.search);
 const HARNESS = import.meta.env.DEV && params.has('harness');
 const DESKTOP_DRIVER_STAGE = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
+const MOBILE_DEVICE = params.has('mobile') || navigator.maxTouchPoints > 0 ||
+  window.matchMedia('(pointer: coarse)').matches;
 const harnessEndlessMode = HARNESS;
 const timeOfDayManager = new TimeOfDayManager(params.get('tod'));
 type AppMode = 'front-door' | 'independent' | 'duo' | 'team-play';
@@ -127,7 +132,7 @@ let appMode: AppMode = 'front-door';
 
 // ------------------------------------------------------------ construction
 const app = document.getElementById('app')!;
-const stage = new Stage(app, resolveQualityMode(params.get('quality')));
+const stage = new Stage(app, resolveQualityMode(params.get('quality'), MOBILE_DEVICE));
 const prePass = new PrePass(4, 4);
 
 const sky = new Sky();
@@ -270,7 +275,7 @@ let finaleCaptureRecorded = false;
 let captureOverlayVisible = false;
 const immersive = new ImmersiveModeController(
   app,
-  params.has('mobile') || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches,
+  MOBILE_DEVICE,
 );
 const mobileInput = new MobileControls(app, () => {
   audio.resume();
@@ -516,6 +521,8 @@ let currentRun = 0;
 let lastResultEnvelope: RaceResultEnvelope | null = null;
 let worldTime = 0;
 let presentationTime = 0;
+/** Sim seconds accumulated since the last per-frame presentation tick. */
+let presentationDt = 0;
 const OPENING_SHOWCASE_S = 8.0;
 let freshStartPending = false;
 let medalElapsed = 0;
@@ -2348,7 +2355,7 @@ function presentTeamCollisions(hits: readonly CollisionHit[]): void {
   }
 }
 
-function step(dt: number, _t: number): void {
+function step(dt: number, _t: number, present: boolean): void {
   timeOfDayManager.update(dt);
   localInput.poll();
   // The finale cinematic is the first beat of the result sequence. The honor
@@ -3049,7 +3056,6 @@ function step(dt: number, _t: number): void {
     pcPrimerPresentation !== null,
     pcControlPrimer.active || coachPresentation?.focus === 'flight-control',
   );
-  if (!duoMode) hud.updateMissilePip(singlePlayerMissiles.getTelemetry());
 
   // Landing feedback: the controller thuds on every real water re-entry
   // (floored so soft flight recoveries still read); camera shake + audio
@@ -3094,70 +3100,13 @@ function step(dt: number, _t: number): void {
       }
     }
   }
-  for (let i = 0; i < boats.length; i++) riders[i].update(dt, boats[i].state, worldTime);
-
-  updateRaceCamera(dt, worldTime, focusBoat);
-  applyHarnessCameraOverride();
-  ocean.update(worldTime, stage.camera.position);
-  sky.update(worldTime, stage.camera.position);
-  course.update(dt, worldTime);
-  for (let i = 0; i < boats.length; i++) wakes[i].update(dt, worldTime);
-  spray.update(dt, worldTime);
-  feathers.update(dt, worldTime);
-  jetTrail.update(dt);
-
   const ps = focusBoat.state;
-  // Each tower follows its own seat: one seat entering flight must not blank
-  // the other seat's standings or block its team radio.
-  const seatTowers = activeTowers();
-  for (let seat = 0; seat < seatTowers.length; seat++) {
-    seatTowers[seat].update(
-      dt,
-      race,
-      boats[seat].state.flightPhase !== 'surface',
-      turnWarning || coachPresentation !== null || pcPrimerPresentation !== null || hud.flightPromptVisible() ||
-        hud.coachPresentationBlocked(),
-    );
-  }
-  hud.update(dt, race, focusBoat, boats);
-  updateDuoViewportHud();
-  const routeGuidance = course.guidanceStatus();
-  mobileInput.setActionState(
-    deriveAbilityHudState(ps),
-    course.flightTurnWarning(focusBoat.id),
-    routeGuidance.actionCue,
-    routeGuidance.actionDirection,
-  );
-  // Position the education slot only after the objective block, race tower,
-  // near-boat meter, and contextual thumb controls have their final geometry
-  // for this frame. Measuring earlier leaves the card one layout frame stale.
-  hud.showCoach(coachPresentation);
-
-  audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
-  audio.setEngine(ps.rpm, ps.throttle, ps.boosting);
-  audio.setWaterRush(Math.min(1, Math.abs(ps.speed) / 34));
-  audio.setAirborne(ps.airborne);
-  audio.setFlight(
-    ps.flightThrust,
-    ps.flightPhase !== 'surface',
-    ps.flightPressure,
-    Math.max(0, ps.flightClearance),
-    ps.flightPhase === 'surface' ? 0 : ps.flightAirBrake,
-    ps.steer,
-    ps.flightRouteIndex >= 0 ? ps.flightRouteIndex : ps.flightsCleared,
-  );
-  audio.setDrift(ps.drifting ? Math.min(1, ps.boostCharge * 0.75 + Math.abs(ps.lateralG) / 18) : 0);
+  // One-step event edges stay in the fixed step: flightRouteMiss clears on the
+  // next boat update, and corridor band entries are felt events (camera jolt
+  // + full-motor slam), so catch-up steps must still observe every crossing.
   if (ps.flightRouteMiss) audio.flightMiss();
-  // Corridor storm: one continuous danger level drives camera rumble, the
-  // wind-shear cue, the HUD banner and haptics. Band entries are real events
-  // — camera jolt + full-motor slam — so the shift into 失控 is felt, not
-  // just numerically closer to the fail.
   const corridorDanger = race.phase === 'racing' ? course.corridorDangerFor(focusBoat.id) : 0;
   const corridorStage = corridorDanger >= 0.45 ? 2 : corridorDanger > 0.01 ? 1 : 0;
-  cameraRig.setDistress(corridorDanger);
-  audio.setCorridorDanger(corridorDanger);
-  hud.setCorridorDanger(corridorDanger);
-  haptics.setStorm(corridorDanger);
   if (corridorStage > prevCorridorStage) {
     if (corridorStage === 2) {
       cameraRig.stormKick();
@@ -3167,10 +3116,79 @@ function step(dt: number, _t: number): void {
     }
   }
   prevCorridorStage = corridorStage;
-  pipeline.update(dt, worldTime, ps, race.phase);
-  if (isDuoMode()) {
-    teamLeftPipeline.update(dt, worldTime, boats[0].state, race.phase);
-    teamRightPipeline.update(dt, worldTime, boats[1].state, race.phase);
+
+  // Continuous presentation runs once per rendered frame (the loop's last
+  // step): catch-up steps on slow devices must not re-pay for riders, water,
+  // HUD and audio buses that only the frame boundary can show.
+  presentationDt += dt;
+  if (present) {
+    const frameDt = presentationDt;
+    presentationDt = 0;
+    for (let i = 0; i < boats.length; i++) riders[i].update(frameDt, boats[i].state, worldTime);
+
+    updateRaceCamera(frameDt, worldTime, focusBoat);
+    applyHarnessCameraOverride();
+    ocean.update(worldTime, stage.camera.position);
+    sky.update(worldTime, stage.camera.position);
+    course.update(frameDt, worldTime);
+    for (let i = 0; i < boats.length; i++) wakes[i].update(frameDt, worldTime);
+    spray.update(frameDt, worldTime);
+    feathers.update(frameDt, worldTime);
+    jetTrail.update(frameDt);
+
+    // Each tower follows its own seat: one seat entering flight must not blank
+    // the other seat's standings or block its team radio.
+    const seatTowers = activeTowers();
+    for (let seat = 0; seat < seatTowers.length; seat++) {
+      seatTowers[seat].update(
+        frameDt,
+        race,
+        boats[seat].state.flightPhase !== 'surface',
+        turnWarning || coachPresentation !== null || pcPrimerPresentation !== null || hud.flightPromptVisible() ||
+          hud.coachPresentationBlocked(),
+      );
+    }
+    hud.update(frameDt, race, focusBoat, boats);
+    if (!duoMode) hud.updateMissilePip(singlePlayerMissiles.getTelemetry());
+    updateDuoViewportHud();
+    const routeGuidance = course.guidanceStatus();
+    mobileInput.setActionState(
+      deriveAbilityHudState(ps),
+      course.flightTurnWarning(focusBoat.id),
+      routeGuidance.actionCue,
+      routeGuidance.actionDirection,
+    );
+    // Position the education slot only after the objective block, race tower,
+    // near-boat meter, and contextual thumb controls have their final geometry
+    // for this frame. Measuring earlier leaves the card one layout frame stale.
+    hud.showCoach(coachPresentation);
+
+    audio.setScene(enteredMedal ? 'medal' : ps.flightPhase === 'surface' ? 'racing' : 'flight');
+    audio.setEngine(ps.rpm, ps.throttle, ps.boosting);
+    audio.setWaterRush(Math.min(1, Math.abs(ps.speed) / 34));
+    audio.setAirborne(ps.airborne);
+    audio.setFlight(
+      ps.flightThrust,
+      ps.flightPhase !== 'surface',
+      ps.flightPressure,
+      Math.max(0, ps.flightClearance),
+      ps.flightPhase === 'surface' ? 0 : ps.flightAirBrake,
+      ps.steer,
+      ps.flightRouteIndex >= 0 ? ps.flightRouteIndex : ps.flightsCleared,
+    );
+    audio.setDrift(ps.drifting ? Math.min(1, ps.boostCharge * 0.75 + Math.abs(ps.lateralG) / 18) : 0);
+    // Corridor storm: one continuous danger level drives camera rumble, the
+    // wind-shear cue, the HUD banner and haptics.
+    cameraRig.setDistress(corridorDanger);
+    audio.setCorridorDanger(corridorDanger);
+    hud.setCorridorDanger(corridorDanger);
+    haptics.setStorm(corridorDanger);
+    pipeline.update(frameDt, worldTime, ps, race.phase);
+    if (isDuoMode()) {
+      teamLeftPipeline.update(frameDt, worldTime, boats[0].state, race.phase);
+      teamRightPipeline.update(frameDt, worldTime, boats[1].state, race.phase);
+    }
+    audio.update(frameDt);
   }
 
   // Failures freeze for one impact beat and then enter the adaptive loading
@@ -3206,7 +3224,6 @@ function step(dt: number, _t: number): void {
       beginFinalePresentation();
     }
   }
-  audio.update(dt);
   localInput.endFrame();
 }
 
@@ -3244,6 +3261,28 @@ function render(frameMs: number): void {
   // count the governor reads that as a slow machine and shaves resolution until
   // both halves look soft.
   stage.updatePerf(frameMs, splitFrame ? 2 : 1);
+  if (perfOverlayEl) {
+    const stats = stage.stats();
+    const fps = 1000 / Math.max(1, Number(stats.frameMs));
+    perfOverlayEl.textContent =
+      `${fps.toFixed(0)}fps ${Number(stats.frameMs).toFixed(1)}ms · steps ${loop.stepsLastFrame} · ` +
+      `pr ${Number(stats.pixelRatio).toFixed(2)} · ${stats.quality} · calls ${stats.calls} · ` +
+      `tris ${(Number(stats.triangles) / 1000).toFixed(0)}k`;
+  }
+}
+
+/** ?debug=perf: tiny on-device readout so a phone browser can report its real
+ *  frame time, governor ratio and step count without remote devtools. */
+const perfOverlayEl = params.get('debug') === 'perf' ? createPerfOverlay() : null;
+
+function createPerfOverlay(): HTMLDivElement {
+  const el = document.createElement('div');
+  el.style.cssText =
+    'position:fixed;left:6px;bottom:6px;z-index:9999;pointer-events:none;' +
+    'font:11px/1.5 ui-monospace,monospace;color:#9ef2ff;background:rgba(0,4,16,.55);' +
+    'padding:4px 7px;border-radius:4px;white-space:pre;';
+  app.appendChild(el);
+  return el;
 }
 
 function renderMissilePipView(telemetry: SinglePlayerMissileTelemetry): void {

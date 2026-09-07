@@ -284,6 +284,12 @@
 - 同 transform 且同生命周期的静态件优先按材质合并；重复几何优先实例化。独立动画、蒙皮、
   透明排序、剔除和显隐所有权确有需要时保持独立。
 - 固定步进中避免无界分配。短命效果复用池，退场后活跃实例归零；不得删除真实动作信息换预算。
+- 连续表现层（riders、ocean/sky/course.update、wakes、spray、HUD、音频总线、pipeline.update）只在每帧
+  最后一个 fixed step 运行一次（`Loop` 的 `present` 标志，dt 为累计值）；物理、输入和单步事件边沿
+  （`flightRouteMiss`、corridor 进档、seatEdges）保持每步。harness `advance()` 每步都跑表现层，
+  截图确定性不变。
+- 移动端（coarse pointer / maxTouchPoints / `?mobile`）默认 `performance` 画质档，`?quality=` 可强制
+  覆盖；调速器降档快（severe 立即大步降）、升档慢（防振荡），performance 档天花板 1.25。
 - 视觉质量由桌面与 `844x390` 截图和人工评审决定。draw call、活跃实例、像素和帧时只证明
   资源/性能，不证明“好看”；也不使用 shader 字符串或固定像素差作为审美门禁。
 

@@ -93,6 +93,14 @@ const FINAL_PORTAL_MAX_STEP_M = 4;
 // ---------------------------------------------------- arc-length table ----
 
 const TABLE_N = 2048;
+/**
+ * Bounded surface re-projection mirrors race.track: continuous on-surface
+ * movement reuses the accepted u inside a small window; anything else (flight,
+ * teleport, first sight) pays for the full 2048-entry table scan.
+ */
+const SURFACE_TRACK_MAX_STEP_M = 4;
+const SURFACE_TRACK_SLACK_M = 2;
+const SURFACE_TRACK_JUMP_U = 0.02;
 const TAB_X = new Float32Array(TABLE_N);
 const TAB_Z = new Float32Array(TABLE_N);
 const TAB_TX = new Float32Array(TABLE_N);
@@ -1407,6 +1415,9 @@ export class Course implements ICourse {
   private balloonPopCount = 0;
   private readonly flightPrev: THREE.Vector3[] = [];
   private readonly flightPrevClearance: number[] = [];
+  private readonly routeTrackU: number[] = [];
+  private readonly routeTrackPrev: THREE.Vector3[] = [];
+  private readonly routeTrackPhase: string[] = [];
   private readonly flightLatched: number[] = [];
   private readonly flightOffCorridorT: number[] = [];
   private readonly flightRecoveryT: number[] = [];
@@ -1938,6 +1949,9 @@ export class Course implements ICourse {
     this.balloonPopCount = 0;
     this.flightPrev.length = 0;
     this.flightPrevClearance.length = 0;
+    this.routeTrackU.length = 0;
+    this.routeTrackPrev.length = 0;
+    this.routeTrackPhase.length = 0;
     this.flightLatched.length = 0;
     this.flightOffCorridorT.length = 0;
     this.flightRecoveryT.length = 0;
@@ -2272,8 +2286,23 @@ export class Course implements ICourse {
       // default so any path that leaves the route clears the wind.
       boat.setCorridorDistress(0, 0, 0);
       if (st.flightRouteState === 'idle') this.flightDebug[id] = 'idle';
-      this.sample(pos, _routeSample, 'surface');
+      // Full-table projection costs 2048 distance checks per boat per step.
+      // A boat gliding along the surface only needs the window around the u it
+      // already owns — the same continuity contract race.track relies on.
+      const trackPrev = this.routeTrackPrev[id];
+      const trackU = this.routeTrackU[id];
+      const surfaceStep = trackPrev ? trackPrev.distanceTo(pos) : Infinity;
+      if (st.flightPhase === 'surface' && trackU !== undefined && trackPrev &&
+          this.routeTrackPhase[id] === 'surface' && surfaceStep <= SURFACE_TRACK_MAX_STEP_M) {
+        const maxDeltaU = Math.min(SURFACE_TRACK_JUMP_U, (surfaceStep + SURFACE_TRACK_SLACK_M) / LAP_LENGTH);
+        this.sampleSurfaceNear(pos, trackU, maxDeltaU, _routeSample);
+      } else {
+        this.sample(pos, _routeSample, 'surface');
+      }
       const surfaceU = _routeSample.u;
+      this.routeTrackU[id] = surfaceU;
+      (this.routeTrackPrev[id] ??= new THREE.Vector3()).copy(pos);
+      this.routeTrackPhase[id] = st.flightPhase;
       if (id === this.guidanceBoatId) {
         const acceptedLaunch = this.playerPreviousFlightPhase === 'surface' && st.flightPhase === 'spool';
         this.playerPreviousFlightPhase = st.flightPhase;

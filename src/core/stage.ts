@@ -19,6 +19,8 @@ const AUTO_DESKTOP_CLARITY_BUDGET = 3_200_000;
 const AUTO_DESKTOP_MAX_PIXEL_RATIO = 1.35;
 const AUTO_MOBILE_MAX_PIXEL_RATIO = 2.5;
 const AUTO_MOBILE_MIN_PIXEL_RATIO = 1;
+/** Performance mode starts cheap but lets strong devices earn sharpness back. */
+const PERFORMANCE_GOVERNOR_MAX_PIXEL_RATIO = 1.25;
 /**
  * Split play pays for the same rAF budget twice: two cameras, two pipelines,
  * one frame. The governor used to read the resulting frame time as a slow
@@ -44,8 +46,12 @@ const PROFILES: Record<RenderQualityMode, RenderQualityProfile> = {
   },
 };
 
-export function resolveQualityMode(value: string | null): RenderQualityMode {
-  return value === 'high' || value === 'performance' ? value : 'auto';
+export function resolveQualityMode(value: string | null, preferPerformance = false): RenderQualityMode {
+  if (value === 'high' || value === 'performance' || value === 'auto') return value;
+  // Stock browsers on low-end phones cannot absorb the full auto pipeline at a
+  // 2.5x drawing ratio; they start in performance and may climb back via the
+  // governor. An explicit ?quality= always wins.
+  return preferPerformance ? 'performance' : 'auto';
 }
 
 export class Stage {
@@ -68,11 +74,15 @@ export class Stage {
   private readonly container: HTMLElement;
   private readonly resizeObserver: ResizeObserver | null;
   private readonly resizeCbs: Array<(w: number, h: number, pr: number) => void> = [];
+  private readonly governorRatioCap: number;
 
   constructor(container: HTMLElement, mode: RenderQualityMode = 'auto') {
     this.container = container;
     const initialSize = this.viewportSize();
     this.quality = PROFILES[mode];
+    this.governorRatioCap = mode === 'performance'
+      ? PERFORMANCE_GOVERNOR_MAX_PIXEL_RATIO
+      : this.quality.maxPixelRatio;
     this.desktopClarity = mode === 'auto' &&
       initialSize.width >= 1000 &&
       !window.matchMedia('(pointer: coarse)').matches;
@@ -128,12 +138,17 @@ export class Stage {
     const floor = split
       ? Math.max(this.effectiveMinPixelRatio, this.desktopClarity ? 1.0 : SPLIT_MIN_PIXEL_RATIO)
       : this.effectiveMinPixelRatio;
-    this.frameEma += (frameMs - this.frameEma) * 0.06;
+    this.frameEma += (frameMs - this.frameEma) * 0.12;
     const dt = Math.min(0.1, frameMs / 1000);
     this.adjustmentCooldown = Math.max(0, this.adjustmentCooldown - dt);
 
-    const badThreshold = split ? 24 : 20;
-    const goodThreshold = split ? 20 : 18.2;
+    // A racing game cannot wait seconds for the governor to notice overload:
+    // severe frames step down immediately and decisively, mild pressure steps
+    // after a short proof. Climbing back up stays slow and deliberate — a
+    // phone bouncing between ratios feels worse than one holding a stable one.
+    const badThreshold = split ? 24 : 19;
+    const severeThreshold = split ? 34 : 30;
+    const goodThreshold = split ? 20 : 16.9;
     if (this.frameEma > badThreshold) {
       this.badFrameSeconds += dt;
       this.goodFrameSeconds = 0;
@@ -146,12 +161,14 @@ export class Stage {
     }
 
     if (this.adjustmentCooldown > 0) return;
-    if (this.badFrameSeconds >= 1.2 && this.pixelRatio > floor) {
-      this.pixelRatio = Math.max(floor, this.pixelRatio - (split ? SPLIT_DOWNSCALE_STEP : 0.2));
+    const severe = this.frameEma > severeThreshold;
+    if ((severe || this.badFrameSeconds >= 0.6) && this.pixelRatio > floor) {
+      const stepDown = severe ? 0.35 : split ? SPLIT_DOWNSCALE_STEP : 0.25;
+      this.pixelRatio = Math.max(floor, this.pixelRatio - stepDown);
       this.badFrameSeconds = 0;
-      this.adjustmentCooldown = 2;
+      this.adjustmentCooldown = 1;
       this.applySize();
-    } else if (this.goodFrameSeconds >= 3) {
+    } else if (this.goodFrameSeconds >= 5) {
       const { width, height } = this.viewportSize();
       const ceiling = this.clarityCeilingRatio(width, height);
       if (this.pixelRatio < ceiling) {
@@ -159,7 +176,7 @@ export class Stage {
         this.applySize();
       }
       this.goodFrameSeconds = 0;
-      this.adjustmentCooldown = 2;
+      this.adjustmentCooldown = 3;
     }
   }
 
@@ -184,8 +201,11 @@ export class Stage {
   }
 
   private clarityCeilingRatio(w: number, h: number): number {
-    if (!this.desktopClarity) return this.baseBudgetRatio(w, h);
-    return this.ratioForBudget(w, h, AUTO_DESKTOP_CLARITY_BUDGET, AUTO_DESKTOP_MAX_PIXEL_RATIO);
+    if (this.desktopClarity) {
+      return this.ratioForBudget(w, h, AUTO_DESKTOP_CLARITY_BUDGET, AUTO_DESKTOP_MAX_PIXEL_RATIO);
+    }
+    const cap = this.mobileClarity ? AUTO_MOBILE_MAX_PIXEL_RATIO : this.governorRatioCap;
+    return this.ratioForBudget(w, h, this.quality.pixelBudget, cap);
   }
 
   private scheduleResize(): void {

@@ -61,6 +61,14 @@ export class MobileControls {
   private gestureSuppressions = 0;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
+  private readonly actionStateCache: Record<string, number | string> = {};
+
+  private setCssVar(name: string, value: number): void {
+    const rounded = Math.round(clamp(value, 0, 1) * 100) / 100;
+    if (this.actionStateCache[name] === rounded) return;
+    this.actionStateCache[name] = rounded;
+    this.root?.style.setProperty(name, String(rounded));
+  }
 
   get ready(): boolean {
     return !this.enabled || this.landscape && this.activation === 'ready';
@@ -209,7 +217,7 @@ export class MobileControls {
     const leftHeld = this.hasAction('left');
     const rightHeld = this.hasAction('right');
     const touchTarget = leftHeld === rightHeld ? 0 : leftHeld ? -1 : 1;
-    this.touchSteer = approach(this.touchSteer, touchTarget, 8 * dt);
+    this.touchSteer = approach(this.touchSteer, touchTarget, 16 * dt);
 
     // Adaptive tilt filter: a steady hand keeps the 0.11s jitter filter,
     // but a hard swing (error > ~9°, e.g. a reversal) opens it up to ~0.025s
@@ -302,22 +310,40 @@ export class MobileControls {
     routeDirection: RouteTurnDirection | 'none' = 'none',
   ): void {
     if (!this.root) return;
+    const root = this.root;
+    const cache = this.actionStateCache;
     const charges = Math.round(clamp(state.flightCharges, 0, MAX_FLIGHT_CHARGES));
-    this.root.style.setProperty('--mobile-drift-progress', String(clamp(state.boostCharge, 0, 1)));
-    this.root.style.setProperty('--mobile-bank-progress', String(clamp(state.driftBankProgress, 0, 1)));
-    this.root.style.setProperty('--mobile-boost-progress', String(clamp(state.boostRemaining, 0, 1)));
-    this.root.style.setProperty('--mobile-flight-progress', String(clamp(state.flightRemaining, 0, 1)));
-    this.root.style.setProperty('--mobile-airbrake-progress', String(clamp(state.flightAirBrake, 0, 1)));
-    this.root.classList.toggle('drift-release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
-    this.root.classList.toggle('drift-bank-full', state.drifting && state.boostCharge >= 0.995);
-    this.root.classList.toggle('flight-ready', state.flightMode === 'stored');
-    this.root.classList.toggle('flight-extension-ready', state.flightMode === 'extend');
-    this.root.classList.toggle('flight-urgent', state.urgency !== 'normal');
-    this.root.classList.toggle('flight-critical', state.urgency === 'critical');
-    this.root.dataset.flightCharges = String(charges);
-    this.root.dataset.flightMode = state.flightMode;
-    this.root.dataset.leftMode = state.leftMode;
-    this.root.dataset.urgency = state.urgency;
+    // Every write below is change-gated: this runs once per fixed step and an
+    // unconditional setProperty/textContent would invalidate style 60-240x/s
+    // even while nothing on screen moves.
+    this.setCssVar('--mobile-drift-progress', state.boostCharge);
+    this.setCssVar('--mobile-bank-progress', state.driftBankProgress);
+    this.setCssVar('--mobile-boost-progress', state.boostRemaining);
+    this.setCssVar('--mobile-flight-progress', state.flightRemaining);
+    this.setCssVar('--mobile-airbrake-progress', state.flightAirBrake);
+    root.classList.toggle('drift-release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
+    root.classList.toggle('drift-bank-full', state.drifting && state.boostCharge >= 0.995);
+    root.classList.toggle('flight-ready', state.flightMode === 'stored');
+    root.classList.toggle('flight-extension-ready', state.flightMode === 'extend');
+    root.classList.toggle('flight-urgent', state.urgency !== 'normal');
+    root.classList.toggle('flight-critical', state.urgency === 'critical');
+    const chargesText = String(charges);
+    if (cache.charges !== chargesText) {
+      cache.charges = chargesText;
+      root.dataset.flightCharges = chargesText;
+    }
+    if (cache.flightMode !== state.flightMode) {
+      cache.flightMode = state.flightMode;
+      root.dataset.flightMode = state.flightMode;
+    }
+    if (cache.leftMode !== state.leftMode) {
+      cache.leftMode = state.leftMode;
+      root.dataset.leftMode = state.leftMode;
+    }
+    if (cache.urgency !== state.urgency) {
+      cache.urgency = state.urgency;
+      root.dataset.urgency = state.urgency;
+    }
     const flight = this.buttons.get('flight');
     if (flight) {
       const label = state.flightMode === 'extend'
@@ -325,26 +351,50 @@ export class MobileControls {
         : state.flightMode === 'active'
           ? '飞行中，当前不可续航'
           : charges > 0 ? `飞行，已蓄能 ${charges} 次` : '飞行，尚未蓄能';
-      flight.setAttribute('aria-label', label);
-      flight.setAttribute('aria-disabled', 'false');
+      if (cache.flightAria !== label) {
+        cache.flightAria = label;
+        flight.setAttribute('aria-label', label);
+        flight.setAttribute('aria-disabled', 'false');
+      }
     }
-    if (this.flightLabel) this.flightLabel.textContent = state.flightMode === 'extend' ? '续' : '飞';
-    if (this.flightSubLabel) this.flightSubLabel.textContent = state.flightMode === 'extend' ? '每飞 1 次' : 'FLIGHT';
-    const stock = this.buttons.get('flight')?.querySelector<HTMLElement>('.mobile-stock');
-    if (stock) stock.textContent = `x${charges}`;
-    this.root.classList.toggle('in-flight', state.flightPhase !== 'surface');
-    this.root.classList.toggle('turn-warning', turnWarning);
-    this.root.classList.toggle('route-action-bank', routeAction === 'bank');
-    this.root.classList.toggle('route-action-launch', routeAction === 'launch');
-    this.root.classList.toggle('route-action-turn', routeAction === 'turn');
-    this.root.classList.toggle('route-turn-left', routeAction === 'turn' && routeDirection === 'left');
-    this.root.classList.toggle('route-turn-right', routeAction === 'turn' && routeDirection === 'right');
+    const flightLabel = state.flightMode === 'extend' ? '续' : '飞';
+    const flightSubLabel = state.flightMode === 'extend' ? '每飞 1 次' : 'FLIGHT';
+    if (cache.flightLabel !== flightLabel) {
+      cache.flightLabel = flightLabel;
+      if (this.flightLabel) this.flightLabel.textContent = flightLabel;
+    }
+    if (cache.flightSubLabel !== flightSubLabel) {
+      cache.flightSubLabel = flightSubLabel;
+      if (this.flightSubLabel) this.flightSubLabel.textContent = flightSubLabel;
+    }
+    if (cache.stock !== chargesText) {
+      cache.stock = chargesText;
+      const stock = this.buttons.get('flight')?.querySelector<HTMLElement>('.mobile-stock');
+      if (stock) stock.textContent = `x${charges}`;
+    }
+    root.classList.toggle('in-flight', state.flightPhase !== 'surface');
+    root.classList.toggle('turn-warning', turnWarning);
+    root.classList.toggle('route-action-bank', routeAction === 'bank');
+    root.classList.toggle('route-action-launch', routeAction === 'launch');
+    root.classList.toggle('route-action-turn', routeAction === 'turn');
+    root.classList.toggle('route-turn-left', routeAction === 'turn' && routeDirection === 'left');
+    root.classList.toggle('route-turn-right', routeAction === 'turn' && routeDirection === 'right');
     const leftLabel = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加' : '漂';
     const leftSubLabel = state.flightPhase !== 'surface' ? 'AIR BRAKE' : state.leftMode === 'boost' ? 'BOOST' : 'DRIFT';
-    if (this.driftLabel) this.driftLabel.textContent = leftLabel;
-    if (this.driftSubLabel) this.driftSubLabel.textContent = leftSubLabel;
-    const drift = this.buttons.get('drift');
-    if (drift) drift.setAttribute('aria-label', state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加速中' : '漂移');
+    if (cache.leftLabel !== leftLabel) {
+      cache.leftLabel = leftLabel;
+      if (this.driftLabel) this.driftLabel.textContent = leftLabel;
+    }
+    if (cache.leftSubLabel !== leftSubLabel) {
+      cache.leftSubLabel = leftSubLabel;
+      if (this.driftSubLabel) this.driftSubLabel.textContent = leftSubLabel;
+    }
+    const driftAria = state.flightPhase !== 'surface' ? '空刹' : state.leftMode === 'boost' ? '加速中' : '漂移';
+    if (cache.driftAria !== driftAria) {
+      cache.driftAria = driftAria;
+      const drift = this.buttons.get('drift');
+      if (drift) drift.setAttribute('aria-label', driftAria);
+    }
   }
 
   reset(): void {

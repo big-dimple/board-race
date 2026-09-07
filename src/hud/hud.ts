@@ -152,6 +152,9 @@ export class HUD {
   private readonly driverAnchorY = [0, 0];
   private readonly driverPowerSide: (-1 | 1)[] = [1, 1];
   private readonly seatCameras: (THREE.Camera | null)[] = [null, null];
+  // Per-seat change-gate caches: updateSeatDriverPower runs once per fixed
+  // step, so every DOM write below must be skipped while the value is unchanged.
+  private readonly driverPowerCache = [this.newDriverPowerCache(), this.newDriverPowerCache()];
   private readonly boostBar: HTMLDivElement;
   private readonly boostLabel: HTMLDivElement;
   private readonly boostSegEls: HTMLDivElement[] = [];
@@ -304,6 +307,8 @@ export class HUD {
   private lastSegs = -1;
   private lastFull = false;
   private lastDrifting = false;
+  private lastBoostLabel = '';
+  private lastFinalLapText = '';
   private lastFlightPips = -1;
   private lastFlightCharges = 0;
   private lastFlightActive = false;
@@ -950,11 +955,15 @@ export class HUD {
         this.posGap.textContent = gapText;
       }
       const excellent = race.challengeTier === 'excellent';
-      this.finalLapEl.textContent = excellent
+      const finalLapText = excellent
         ? '优秀已锁定'
         : race.challengeTier === 'ordinary'
           ? (me.place === 1 ? '优秀资格夺回' : '夺回第一升优秀')
           : (me.place === 1 ? '优秀资格' : '优秀资格丢失');
+      if (finalLapText !== this.lastFinalLapText) {
+        this.lastFinalLapText = finalLapText;
+        this.finalLapEl.textContent = finalLapText;
+      }
       this.finalLapEl.classList.toggle('qualified', excellent || me.place === 1);
       this.finalLapEl.classList.toggle('lost', !excellent && me.place !== 1);
       if (this.corridorStage === 0) {
@@ -1016,9 +1025,13 @@ export class HUD {
     if (st.drifting !== this.lastDrifting) {
       this.lastDrifting = st.drifting;
     }
-    this.boostLabel.textContent = st.driftReleaseReady
+    const boostLabelText = st.driftReleaseReady
       ? 'RELEASE'
       : st.drifting ? 'DRIFT' : st.boosting ? 'BOOST' : 'BANK';
+    if (boostLabelText !== this.lastBoostLabel) {
+      this.lastBoostLabel = boostLabelText;
+      this.boostLabel.textContent = boostLabelText;
+    }
     this.driftFx.classList.toggle('on', st.drifting && st.speed > 12);
     this.driftFx.classList.toggle('ready', st.driftReleaseReady);
     this.driftFx.classList.toggle('full', st.drifting && st.boostCharge >= 0.999);
@@ -1195,26 +1208,55 @@ export class HUD {
     }
   }
 
+  private newDriverPowerCache(): Record<string, number | string> {
+    return {};
+  }
+
+  private setDriverVar(seat: number, name: string, value: number): void {
+    const cache = this.driverPowerCache[seat];
+    const rounded = Math.round(value * 100) / 100;
+    if (cache[name] === rounded) return;
+    cache[name] = rounded;
+    this.driverPower[seat].style.setProperty(name, String(rounded));
+  }
+
+  private setDriverDataset(seat: number, key: 'left' | 'flight' | 'urgency', value: string): void {
+    const cache = this.driverPowerCache[seat];
+    const cacheKey = `dataset-${key}`;
+    if (cache[cacheKey] === value) return;
+    cache[cacheKey] = value;
+    this.driverPower[seat].dataset[key] = value;
+  }
+
   private updateSeatDriverPower(dt: number, race: RaceView, player: IBoat, seat: number, split: boolean): void {
     const state = deriveAbilityHudState(player.state);
     const active = race.phase === 'racing' && state.showNearRail;
     const el = this.driverPower[seat];
+    const cache = this.driverPowerCache[seat];
     el.classList.toggle('on', active);
-    el.dataset.left = state.leftMode;
-    el.dataset.flight = state.flightMode;
-    el.dataset.urgency = state.urgency;
-    el.style.setProperty('--driver-drift', String(state.boostCharge));
-    el.style.setProperty('--driver-bank', String(state.driftBankProgress));
-    el.style.setProperty('--driver-boost', String(state.boostRemaining));
-    el.style.setProperty('--driver-flight', String(state.flightRemaining));
-    el.style.setProperty('--driver-airbrake', String(state.flightAirBrake));
+    this.setDriverDataset(seat, 'left', state.leftMode);
+    this.setDriverDataset(seat, 'flight', state.flightMode);
+    this.setDriverDataset(seat, 'urgency', state.urgency);
+    this.setDriverVar(seat, '--driver-drift', state.boostCharge);
+    this.setDriverVar(seat, '--driver-bank', state.driftBankProgress);
+    this.setDriverVar(seat, '--driver-boost', state.boostRemaining);
+    this.setDriverVar(seat, '--driver-flight', state.flightRemaining);
+    this.setDriverVar(seat, '--driver-airbrake', state.flightAirBrake);
     this.driverLeftRail[seat].classList.toggle('on', active && state.leftMode !== 'idle');
     // Stored cells are shown as diamonds; the continuous rail only appears
     // once an airborne envelope is actually consuming time.
     this.driverRightRail[seat].classList.toggle('on', active &&
       (state.flightMode === 'active' || state.flightMode === 'extend'));
-    this.driverLeftLabel[seat].textContent = state.leftMode === 'airbrake' ? 'AIR' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
-    this.driverRightLabel[seat].textContent = state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
+    const leftLabel = state.leftMode === 'airbrake' ? 'AIR' : state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES ? 'BANK' : state.drifting && state.flightCharges >= MAX_FLIGHT_CHARGES ? 'MAX' : '';
+    if (cache.leftLabel !== leftLabel) {
+      cache.leftLabel = leftLabel;
+      this.driverLeftLabel[seat].textContent = leftLabel;
+    }
+    const rightLabel = state.flightMode === 'extend' ? '续' : state.urgency === 'critical' ? '!' : '';
+    if (cache.rightLabel !== rightLabel) {
+      cache.rightLabel = rightLabel;
+      this.driverRightLabel[seat].textContent = rightLabel;
+    }
     el.classList.toggle('release-ready', state.driftReleaseReady && state.flightCharges < MAX_FLIGHT_CHARGES);
     el.classList.toggle('full', state.drifting && state.boostCharge >= 0.995);
     el.classList.toggle('extend', state.flightMode === 'extend');
