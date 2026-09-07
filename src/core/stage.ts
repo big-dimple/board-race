@@ -20,7 +20,7 @@ const AUTO_DESKTOP_MAX_PIXEL_RATIO = 1.35;
 const AUTO_MOBILE_MAX_PIXEL_RATIO = 2.5;
 const AUTO_MOBILE_MIN_PIXEL_RATIO = 1;
 /** Performance mode starts cheap but lets strong devices earn sharpness back. */
-const PERFORMANCE_GOVERNOR_MAX_PIXEL_RATIO = 1.25;
+const PERFORMANCE_GOVERNOR_MAX_PIXEL_RATIO = 2.0;
 /**
  * Split play pays for the same rAF budget twice: two cameras, two pipelines,
  * one frame. The governor used to read the resulting frame time as a slow
@@ -168,15 +168,15 @@ export class Stage {
       this.badFrameSeconds = 0;
       this.adjustmentCooldown = 1;
       this.applySize();
-    } else if (this.goodFrameSeconds >= 5) {
+    } else if (this.goodFrameSeconds >= 4) {
       const { width, height } = this.viewportSize();
       const ceiling = this.clarityCeilingRatio(width, height);
       if (this.pixelRatio < ceiling) {
-        this.pixelRatio = Math.min(ceiling, this.pixelRatio + 0.1);
+        this.pixelRatio = Math.min(ceiling, this.pixelRatio + 0.2);
         this.applySize();
       }
       this.goodFrameSeconds = 0;
-      this.adjustmentCooldown = 3;
+      this.adjustmentCooldown = 2;
     }
   }
 
