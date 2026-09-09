@@ -524,7 +524,7 @@ let worldTime = 0;
 let presentationTime = 0;
 /** Sim seconds accumulated since the last per-frame presentation tick. */
 let presentationDt = 0;
-const OPENING_SHOWCASE_S = 10.0;
+const OPENING_SHOWCASE_S = 8.0;
 let freshStartPending = false;
 let medalElapsed = 0;
 let finaleElapsed = 0;
@@ -704,9 +704,7 @@ function queueFreshStart(): void {
   // presentation is still holding input before the countdown.
   immersive.setPhase('active');
   openingShowcase.start(OPENING_SHOWCASE_S);
-  cameraRig.startShowcase(OPENING_SHOWCASE_S, riders[0].headAnchor());
-  hud.setVisible(false);
-  for (const entry of activeTowers()) entry.setVisible(false);
+  cameraRig.startShowcase(OPENING_SHOWCASE_S);
   ocean.setOpeningIntensity(1);
   sky.setOpeningIntensity(1);
   // The opening owns the whole visual stage; keep the READY sound utility
@@ -5330,7 +5328,7 @@ function scenario(name: string): void {
     }
     case "opening-showcase":
       openingShowcase.start(OPENING_SHOWCASE_S);
-      cameraRig.startShowcase(OPENING_SHOWCASE_S, riders[0].headAnchor());
+      cameraRig.startShowcase(OPENING_SHOWCASE_S);
       ocean.setOpeningIntensity(1);
       sky.setOpeningIntensity(1);
       driverSelect.setLaunchPending(true);

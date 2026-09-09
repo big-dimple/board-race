@@ -179,11 +179,6 @@ export class OpeningShowcase {
     if (!this.activeValue) return;
     this.elapsed = Math.min(this.duration, this.elapsed + Math.max(0, dt));
     const progress = this.duration > 0 ? this.elapsed / this.duration : 1;
-    if (this.elapsed < 6) {
-      this.root.dataset.beat = 'face';
-      for (const echo of this.echoes) echo.root.classList.remove('visible');
-      return;
-    }
     this.root.dataset.beat = progress < 0.40 ? 'hero' : progress < 0.75 ? 'fleet' : 'lock';
     this.camera.updateMatrixWorld();
     const rect = this.viewport.getBoundingClientRect();

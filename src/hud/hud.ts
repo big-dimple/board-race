@@ -704,7 +704,8 @@ export class HUD {
     if (telemetry.state === 'deflected') {
       this.missilePipEl.classList.remove('evade-alert', 'hit');
       this.missilePipEl.classList.add('deflected');
-      this.missilePipCue.textContent = '👑 成功闪避诱爆 · 技术超群！';
+      const technique = telemetry.evadeTechnique === 'flight' ? '凌空飞行' : telemetry.evadeTechnique === 'air-brake' ? '空中空刹' : '水面漂移';
+      this.missilePipCue.textContent = `👑 ${technique} · 飞弹擦身诱爆 · 涡轮冲刺！`;
     } else if (telemetry.state === 'hit') {
       this.missilePipEl.classList.remove('evade-alert', 'deflected');
       this.missilePipEl.classList.add('hit');

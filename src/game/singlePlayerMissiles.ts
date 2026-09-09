@@ -117,6 +117,7 @@ export interface SinglePlayerMissileTelemetry {
   isEvadeWindow: boolean;
   state: 'idle' | 'approaching' | 'deflected' | 'hit';
   dismissTimer: number;
+  evadeTechnique: 'drift' | 'air-brake' | 'flight' | null;
 }
 
 export class SinglePlayerMissilesSystem {
@@ -180,6 +181,7 @@ export class SinglePlayerMissilesSystem {
     isEvadeWindow: false,
     state: 'idle',
     dismissTimer: 0,
+    evadeTechnique: null,
   };
 
   constructor(
@@ -321,6 +323,7 @@ export class SinglePlayerMissilesSystem {
     m.locked = false;
     m.state = 'approaching';
     m.dismissTimer = 0;
+    this.telemetry.evadeTechnique = null;
 
     // Launch from lighthouse reef missile battery base
     m.x = 114.2;
@@ -465,6 +468,9 @@ export class SinglePlayerMissilesSystem {
       // detonating the missile right alongside the cloud track as an epic near-miss!
       const isAirborne = targetBoat.state.flightPhase !== 'surface' || targetBoat.state.airborne || targetBoat.state.position.y > 1.2;
       const isDrifting = targetBoat.state.drifting;
+      const evadeTechnique = isAirborne
+        ? (isDrifting ? 'air-brake' : 'flight')
+        : (isDrifting ? 'drift' : null);
 
       if (isAirborne) {
         if (isDrifting) {
@@ -474,6 +480,7 @@ export class SinglePlayerMissilesSystem {
           if (m.isPlayer) this.hudNotice('千钧一发凌空拔起 · 飞弹侧旁诱爆！', '🌊 凌空天轨 · 绝妙避让！');
         }
         targetBoat.applyScudNearMiss(blastX, blastZ, impulseX, impulseZ);
+        this.telemetry.evadeTechnique = evadeTechnique;
         this.onMissileAudio('near-miss');
         m.state = 'deflected';
         m.dismissTimer = 1.1;
@@ -487,6 +494,7 @@ export class SinglePlayerMissilesSystem {
         if (m.isPlayer) this.hudNotice('掀起水幕诱爆飞弹 · 获得涡轮冲刺！', '👑 神技诱爆 · 极限反击！');
         targetBoat.activateTechniqueBoost();
         targetBoat.applyScudNearMiss(blastX, blastZ, impulseX, impulseZ);
+        this.telemetry.evadeTechnique = evadeTechnique;
         this.onMissileAudio('near-miss');
         m.state = 'deflected';
         m.dismissTimer = 1.1;
@@ -538,5 +546,6 @@ export class SinglePlayerMissilesSystem {
     }
     this.telemetry.active = false;
     this.telemetry.state = 'idle';
+    this.telemetry.evadeTechnique = null;
   }
 }
