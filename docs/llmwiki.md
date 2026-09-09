@@ -191,6 +191,8 @@
 
 ## HUD 与电台
 
+- Tide (`driverId: tide`) additionally uses Blender-authored `src/assets/models/tide.glb` head and bob hair. `TideHead` applies bounded 120 Hz gravity, airflow, and head/shoulder collision presentation; load failure falls back to the procedural rider without changing physics or transforms.
+
 - 单人导弹是“赛事领跑挑战”：第 2 至第 7 个水面检查点在玩家暂居第一时可能触发。首次触发必须通过一次性电台说明领跑条件与漂移 / 空中规避反制；单人使用轻量 HUD 方向威胁指示，不额外渲染完整场景小窗或头顶公告牌。双人淘汰席的 PC 导弹追拍 feed 保持独立的原有表现合同。
 
 - READY 选角标题固定为 `别懵逼，选最强`。模式目录只显示 `单人` 和 `双打`；双打先显示

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Landscape-first cel-shaded arcade boat racing with drift-to-flight challenges.",
   "scripts": {
+    "verify:rider": "node harness/rider.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
@@ -17,6 +18,7 @@
     "release:checked": "bash scripts/release-checked.sh"
   },
   "dependencies": {
+    "@pixiv/three-vrm-springbone": "3.5.5",
     "three": "^0.185.1"
   },
   "devDependencies": {

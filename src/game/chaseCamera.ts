@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import type { IBoat, CameraMode } from '../contracts';
 import { waterHeight } from '../water/waves';
 import { BASE_FOV } from '../core/stage';
+const smoothstep01 = (t: number): number => t * t * (3 - 2 * t);
 
 // ---- chase tuning -----------------------------------------------------------
 const V_MAX = 34; // speed (m/s) that maps to max FOV
@@ -98,6 +99,11 @@ export class CameraRig {
 
   // mode timing
   private showcaseElapsed = 0;
+  private showcaseHead: THREE.Object3D | null = null;
+  private readonly showcaseHeadPosition = new THREE.Vector3();
+  private readonly showcaseHeadRotation = new THREE.Quaternion();
+  private readonly showcaseClosePosition = new THREE.Vector3();
+  private readonly showcaseCloseLook = new THREE.Vector3();
   private showcaseDuration = 4.6;
   private countdownElapsed = 0;
   private countdownDuration = 4.2;
@@ -147,7 +153,8 @@ export class CameraRig {
     this.fovBias = tuning.fovBias ?? 0;
   }
 
-  startShowcase(duration = 4.6): void {
+  startShowcase(duration = 10, head: THREE.Object3D | null = null): void {
+    this.showcaseHead = head;
     this.mode = 'showcase';
     this.activeMode = 'showcase';
     this.showcaseElapsed = 0;
@@ -521,6 +528,20 @@ export class CameraRig {
         bz + fz * lookForward + rz * lookRight,
       );
 
+      if (this.showcaseHead && p < .8) {
+        this.showcaseHead.getWorldPosition(this.showcaseHeadPosition);
+        this.showcaseHead.getWorldQuaternion(this.showcaseHeadRotation);
+        const turn = smoothstep01(clamp((p - .4) / .2, 0, 1)) * .65;
+        const distance = this.camera.aspect > 2 ? 1.55 : 1.45;
+        this.showcaseCloseLook.set(0, .105, .01).applyQuaternion(this.showcaseHeadRotation).add(this.showcaseHeadPosition);
+        this.showcaseClosePosition.set(Math.sin(turn) * distance, .105, Math.cos(turn) * distance)
+          .applyQuaternion(this.showcaseHeadRotation).add(this.showcaseHeadPosition);
+        const leave = smoothstep01(clamp((p - .6) / .2, 0, 1));
+        target.lerpVectors(this.showcaseClosePosition, target, leave);
+        look.lerpVectors(this.showcaseCloseLook, look, leave);
+        currentFov = 28 + (currentFov - 28) * leave;
+      }
+
       fovTarget = currentFov;
       rollTarget = 0;
       this.heaveAnchor = by;
@@ -639,7 +660,8 @@ export class CameraRig {
     const fl = this.finalLook;
     fp.lerpVectors(this.blendPos, p, e);
     fl.lerpVectors(this.blendLook, this.look, e);
-    const fov = clamp(this.blendFov + (this.fov - this.blendFov) * e, BASE_FOV - 8, FOV_HARD_MAX);
+    const minFov = this.activeMode === 'showcase' ? 28 : BASE_FOV - 8;
+    const fov = clamp(this.blendFov + (this.fov - this.blendFov) * e, minFov, FOV_HARD_MAX);
 
     // ---- shake: additive positional noise, applied post-spring -----------------
     this.noiseT += dt;

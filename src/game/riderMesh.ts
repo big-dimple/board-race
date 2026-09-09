@@ -52,8 +52,8 @@ export interface RiderSkin {
   mesh: THREE.SkinnedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   roles: Uint8Array;
   colorAttribute: THREE.BufferAttribute;
-  hair: HairAccessory;
-  faceMesh: THREE.Mesh;
+  hair: HairAccessory | null;
+  faceMesh: THREE.Mesh | null;
 }
 
 export interface HairAccessory {
@@ -994,6 +994,20 @@ function disposeHairAccessory(accessory: HairAccessory): void {
     else mesh.material.dispose();
   });
   accessory.object.removeFromParent();
+  accessory.mesh.skeleton.dispose();
+}
+
+export function disposeRiderSkin(skin: RiderSkin): void {
+  skin.mesh.removeFromParent();
+  skin.mesh.geometry.dispose();
+  skin.mesh.material.dispose();
+  skin.mesh.skeleton.dispose();
+  if (skin.hair) disposeHairAccessory(skin.hair);
+  if (skin.faceMesh) {
+    skin.faceMesh.removeFromParent();
+    skin.faceMesh.geometry.dispose();
+    (skin.faceMesh.material as THREE.Material).dispose();
+  }
 }
 
 export function buildSkinnedRider(
@@ -1002,6 +1016,7 @@ export function buildSkinnedRider(
   color: number,
   detailed: boolean,
   look: RiderLook,
+  omitHead = false,
 ): RiderSkin {
   const bones = [
     rig.hips, rig.spine, rig.chest, rig.head,
@@ -1083,12 +1098,12 @@ export function buildSkinnedRider(
   // 1. Natural Human Head Base (Skin Tone): lofted cranium with a tapered
   // jaw and chin — the old single ellipsoid read as a featureless balloon.
   // Ring profile is shared with the fringe shell via HEAD_PROFILE.
-  out.append(bodyLoft(HEAD_PROFILE.map((ring) => ({
+  if (!omitHead) out.append(bodyLoft(HEAD_PROFILE.map((ring) => ({
     y: ring.y, z: ring.z, halfWidth: ring.hw, halfDepth: ring.hd,
   })), headSides), rig.head, Role.Skin);
 
   // 2. Stylized Anime Ears (Skin Tone)
-  for (const side of [-1, 1]) {
+  for (const side of omitHead ? [] : [-1, 1]) {
     appendEllipsoid(out, rig.head, Role.Skin, [side * 0.118, 0.095, -0.005], [0.018, 0.032, 0.024], sides);
   }
 
@@ -1121,8 +1136,8 @@ export function buildSkinnedRider(
   const skeleton = new THREE.Skeleton(bones);
   mesh.bind(skeleton);
   mesh.normalizeSkinWeights();
-  const hair = buildHairAccessory(rig.head, look, detailed);
-  const faceMesh = buildFacePatch(rig.head, look);
+  const hair = omitHead ? null : buildHairAccessory(rig.head, look, detailed);
+  const faceMesh = omitHead ? null : buildFacePatch(rig.head, look);
   return { mesh, roles: result.roles, colorAttribute: result.colorAttribute, hair, faceMesh };
 }
 
@@ -1133,7 +1148,7 @@ export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: Rid
     skin.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
   }
   skin.colorAttribute.needsUpdate = true;
-  if (skin.hair.style !== look.hairStyle || skin.hair.driverId !== look.driverId) {
+  if (skin.hair && (skin.hair.style !== look.hairStyle || skin.hair.driverId !== look.driverId)) {
     const next = buildHairAccessory(skin.hair.head, look, skin.hair.detailed);
     if (next.detailed) {
       addOutline(next.object, { width: 0.9 });
@@ -1144,11 +1159,11 @@ export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: Rid
     disposeHairAccessory(skin.hair);
     skin.hair = next;
   }
-  for (let i = 0; i < skin.hair.mesh.geometry.getAttribute('color').count; i++) {
+  if (skin.hair) for (let i = 0; i < skin.hair.mesh.geometry.getAttribute('color').count; i++) {
     scratch.copy(roleColor(skin.hair.roles[i] as Role, color, look));
     skin.hair.colorAttribute.setXYZ(i, scratch.r, scratch.g, scratch.b);
   }
-  skin.hair.colorAttribute.needsUpdate = true;
+  if (skin.hair) skin.hair.colorAttribute.needsUpdate = true;
 
   if (skin.faceMesh) {
     const mat = skin.faceMesh.material as THREE.MeshBasicMaterial;
@@ -1164,7 +1179,8 @@ export function updateHairAccessory(
   flight: number,
   time: number,
 ): void {
-  const bones = skin.hair.bones;
+  const bones = skin.hair?.bones;
+  if (!bones) return;
   if (bones.length < 2) return;
   const sway = Math.sin(time * 1.7) * 0.035 + lean * 0.16;
   const root = bones[0];

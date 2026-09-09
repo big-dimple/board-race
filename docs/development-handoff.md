@@ -1,8 +1,13 @@
 # Board Race 开发交接
 
-状态：主分支当前工作包为“低端手机性能救场：移动端默认性能档 + 表现层帧级化（Low-End Phone Performance Rescue）”。历史工作包流水账见 git log。
+状态：主分支当前工作包为 Tide 头脸与动态 bob 原型。
 
 ## 当前工作包
+
+- 已完成 Blender Tide 头脸 / 发型 GLB（7,662 三角形，约 368 KB），接入现有 16 骨骼骑手。
+- 已完成重力、气流、头肩碰撞、落水脉冲和 120 Hz 有界发丝积分；暂停、换角、重开可重置。
+- 已完成 10 秒单人开场正脸近景、三分之四转身和船队回收。
+- 已增加 `npm run verify:rider`，覆盖桌面 / 844x390、30/60fps、动态响应和开场无遮挡。
 
 - **低端手机性能救场（Mobile Performance Rescue）**——起因：朋友手机自带浏览器非常卡、操作有延迟。
   1. **根因（file:line 已核实）**：移动端默认 2.5× 渲染（844×390 → ~206 万物理像素，旧 `stage.ts` AUTO_MOBILE_MAX_PIXEL_RATIO），调速器需 ~26s 才降到地板且有 18.2–20ms 死区；全部表现层挂在 fixed step（30fps 时 ×2 放大，越卡越算）；`updateFlightRoute` 每船每步 2048 项全表扫描；每步 30–45 次无条件 DOM 写；触屏转向 slew 8/s + 船体 yawDamp 合成 ~200–400ms 感知延迟。

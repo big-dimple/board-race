@@ -38,6 +38,7 @@ export const VISIBLE_SUN_DIR: THREE.Vector3 = new THREE.Vector3(
 
 export interface ToonOptions {
   color: number;
+  map?: THREE.Texture;
   rimColor?: number; rimStrength?: number; rimPower?: number; rimThreshold?: number;
   specColor?: number; specThreshold?: number;
   emissive?: number; emissiveIntensity?: number;
@@ -87,6 +88,9 @@ export function updateToonTimeOfDay(tod: TimeOfDay, blend?: number): void {
 const vertexShader = /* glsl */ `
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
+#ifdef USE_ALBEDO_MAP
+varying vec2 vUv;
+#endif
 
 #ifdef USE_VERTEX_COLOR
 varying vec3 vVertexColor;
@@ -95,6 +99,9 @@ varying vec3 vVertexColor;
 #include <skinning_pars_vertex>
 
 void main() {
+  #ifdef USE_ALBEDO_MAP
+  vUv = uv;
+  #endif
   vec3 transformed = vec3(position);
   vec3 objectNormal = vec3(normal);
   #include <skinbase_vertex>
@@ -108,13 +115,17 @@ void main() {
   vec4 worldPos = modelMatrix * vec4(transformed, 1.0);
   vWorldPos = worldPos.xyz;
   #ifdef USE_VERTEX_COLOR
-  vVertexColor = color;
+  vVertexColor = color.rgb;
   #endif
   gl_Position = projectionMatrix * viewMatrix * worldPos;
 }
 `;
 
 const fragmentShader = /* glsl */ `
+#ifdef USE_ALBEDO_MAP
+uniform sampler2D uMap;
+varying vec2 vUv;
+#endif
 uniform vec3 uColor;            // flat albedo
 uniform vec3 uSunDir;           // world-space direction TOWARD the sun (normalized)
 uniform vec3 uSkyMid;           // shadow-side hue source
@@ -168,6 +179,9 @@ void main() {
   // (never gray, never black). "band" only ever takes the authored discrete
   // levels, so this mix is still a set of perfectly hard steps.
   vec3 albedo = uColor;
+  #ifdef USE_ALBEDO_MAP
+  albedo *= texture2D(uMap, vUv).rgb;
+  #endif
   #ifdef USE_VERTEX_COLOR
   albedo *= vVertexColor;
   #endif
@@ -242,9 +256,10 @@ void main() {
 export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     name: 'CelToon',
-    defines: opts.vertexColors ? { USE_VERTEX_COLOR: 1 } : {},
+    defines: { ...(opts.vertexColors ? { USE_VERTEX_COLOR: 1 } : {}), ...(opts.map ? { USE_ALBEDO_MAP: 1 } : {}) },
     vertexColors: opts.vertexColors ?? false,
     uniforms: {
+      uMap: { value: opts.map ?? null },
       uColor: { value: flat(opts.color) },
       uSunDir: { value: sharedSunDir },
       uSkyMid: { value: sharedSkyMid },

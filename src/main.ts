@@ -40,6 +40,7 @@ import { SplitScreenRenderer } from './core/splitScreenRenderer';
 import { Boat } from './game/boat';
 import { JetTrailSystem } from './game/jetTrail';
 import { Rider } from './game/rider';
+import { loadTideHead } from './game/tideHead';
 import { getFaceTextureCacheSize } from './game/riderMesh';
 import { CHECKPOINT_US, Course, GRID_SLOTS, SURFACE_ROUTE_FAIL_DISTANCE_M } from './game/course';
 import {
@@ -132,6 +133,7 @@ let appMode: AppMode = 'front-door';
 
 // ------------------------------------------------------------ construction
 const app = document.getElementById('app')!;
+await loadTideHead();
 const stage = new Stage(app, resolveQualityMode(params.get('quality'), MOBILE_DEVICE));
 const prePass = new PrePass(4, 4);
 
@@ -521,7 +523,7 @@ let worldTime = 0;
 let presentationTime = 0;
 /** Sim seconds accumulated since the last per-frame presentation tick. */
 let presentationDt = 0;
-const OPENING_SHOWCASE_S = 8.0;
+const OPENING_SHOWCASE_S = 10.0;
 let freshStartPending = false;
 let medalElapsed = 0;
 let finaleElapsed = 0;
@@ -701,7 +703,9 @@ function queueFreshStart(): void {
   // presentation is still holding input before the countdown.
   immersive.setPhase('active');
   openingShowcase.start(OPENING_SHOWCASE_S);
-  cameraRig.startShowcase(OPENING_SHOWCASE_S);
+  cameraRig.startShowcase(OPENING_SHOWCASE_S, riders[0].headAnchor());
+  hud.setVisible(false);
+  for (const entry of activeTowers()) entry.setVisible(false);
   ocean.setOpeningIntensity(1);
   sky.setOpeningIntensity(1);
   // The opening owns the whole visual stage; keep the READY sound utility
@@ -1132,6 +1136,8 @@ function exitDuoPause(): void {
 
 function startFreshCountdown(): void {
   if (!race.startCountdown()) return;
+  hud.setVisible(true);
+  for (const entry of activeTowers()) entry.setVisible(true);
   freshStartPending = false;
   openingShowcase.stop();
   cameraRig.startCountdown(COUNTDOWN_S);
@@ -1572,6 +1578,7 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
 }
 
 function resetRace(): void {
+  for (const rider of riders) rider.resetHair();
   harnessCameraOverride = null;
   freshStartPending = false;
   openingShowcase.stop();
@@ -2743,6 +2750,7 @@ function step(dt: number, _t: number, present: boolean): void {
       rivalControl.flightTargetScale,
       wakes,
     );
+    riders[i].collectHairLanding(boats[i].state.landImpulse);
     if (i === 0) harnessFlightTriggerPulse = false;
   }
 
@@ -3478,6 +3486,7 @@ interface Harness {
   honorTargetCase(): Record<string, number | string | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
   riderHairState(): ReturnType<Rider['hairDebug']>;
+  riderAssetState(): ReturnType<Rider['assetDebug']>;
   flapCase(): Record<string, unknown>;
   lighthouseState(): ReturnType<LighthouseLandmark['debugState']>;
   faceState(): { active: number; withFaceMesh: number; cacheSize: number };
@@ -4909,13 +4918,15 @@ function getRiderFaceTarget(): THREE.Object3D {
 }
 
 function prepareHarnessRiderInspection(): THREE.Object3D {
-  if (riders.some((rider) => !rider.faceDebug().hasFaceMesh) || getFaceTextureCacheSize() !== riders.length) {
+  const legacyCount = riders.filter((rider) => rider.assetDebug().source === 'procedural').length;
+  if (riders.some((rider) => !rider.faceDebug().hasFaceMesh) || getFaceTextureCacheSize() !== legacyCount) {
     throw new Error('rider inspection requires one cached Face Patch per active rider');
   }
   const hair = riders[0].hairDebug();
   const look = driverProfile(selectedDriverId).look;
   const styleBones = look.hairStyle === 'ponytail'
     ? ['braid-tie', 'braid-1', 'braid-2', 'braid-3', 'braid-4']
+    : riders[0].assetDebug().source === 'tide.glb' ? ['fringe-a', 'left-a', 'right-a', 'back-a']
     : look.hairStyle === 'bob' ? ['bob-back', 'bob-left', 'bob-right'] : ['hair-root'];
   if (hair.style !== look.hairStyle || !hair.visible ||
       styleBones.some((name) => !hair.boneNames.includes(name))) {
@@ -5308,7 +5319,7 @@ function scenario(name: string): void {
     }
     case "opening-showcase":
       openingShowcase.start(OPENING_SHOWCASE_S);
-      cameraRig.startShowcase(OPENING_SHOWCASE_S);
+      cameraRig.startShowcase(OPENING_SHOWCASE_S, riders[0].headAnchor());
       ocean.setOpeningIntensity(1);
       sky.setOpeningIntensity(1);
       driverSelect.setLaunchPending(true);
@@ -6035,6 +6046,7 @@ if (HARNESS) {
     honorTargetCase: runHonorTargetCase,
     riderPoseState: () => riders[0].poseDebug(),
     riderHairState: () => riders[0].hairDebug(),
+    riderAssetState: () => riders[0].assetDebug(),
     flapCase: runFlapCase,
     lighthouseState: () => lighthouse.debugState(),
     faceState: () => {
