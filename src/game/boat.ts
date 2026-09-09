@@ -2738,7 +2738,9 @@ export class Boat implements IBoat {
     this.vy += ay * dt;
     this.object.position.y += this.vy * dt;
     st.flightPhase = phase;
-    st.flightRemaining = clamp(1 - this.flightElapsed / total, 0, 1);
+    // The HUD represents the authored gate window. Descent is recovery time,
+    // so the meter must be empty when the craft starts descending.
+    st.flightRemaining = clamp(1 - this.flightElapsed / Math.max(1e-4, descendAt), 0, 1);
     st.flightThrust = thrust;
     st.airborne = false;
     st.airTime = 0;

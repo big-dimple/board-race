@@ -607,8 +607,8 @@ export class GameAudio {
     const th = clamp01(throttle);
     if (Math.abs(th - this.lastThrottle) > 0.004) {
       this.lastThrottle = th;
-      // idle purr at 0.10, swells to 0.40 with throttle
-      this.engineGain.gain.setTargetAtTime(0.1 + 0.3 * th, t, 0.07);
+      // Keep the engine readable beneath event feedback and music.
+      this.engineGain.gain.setTargetAtTime(0.08 + 0.24 * th, t, 0.07);
     }
 
     if (boosting !== this.lastBoost) {
@@ -673,7 +673,7 @@ export class GameAudio {
       this.flightNoiseBp.frequency.setTargetAtTime(620, t, 0.08);
     }
     if (this.engineGain) {
-      const engineLevel = (0.1 + 0.3 * Math.max(0, this.lastThrottle)) * (active ? 0.72 : 1);
+      const engineLevel = (0.08 + 0.24 * Math.max(0, this.lastThrottle)) * (active ? 0.72 : 1);
       this.engineGain.gain.setTargetAtTime(engineLevel, t, 0.12);
     }
   }
@@ -713,12 +713,12 @@ export class GameAudio {
     if (!c || !this.driftGain || !this.driftBp) return;
     const n = clamp01(intensity);
     const t = c.currentTime;
-    this.driftGain.gain.setTargetAtTime(n * 0.13, t, n > 0 ? 0.035 : 0.12);
-    this.driftBp.frequency.setTargetAtTime(760 + n * 1250, t, 0.055);
+    this.driftGain.gain.setTargetAtTime(n * 0.105, t, n > 0 ? 0.09 : 0.18);
+    this.driftBp.frequency.setTargetAtTime(620 + n * 980, t, 0.12);
     const tier = n >= 0.88 ? 3 : n >= 0.58 ? 2 : n >= 0.28 ? 1 : 0;
     if (tier > this.lastDriftTier) {
       this.lastDriftTier = tier;
-      this.blip(620 + tier * 210, t, 0.075 + tier * 0.012, 0.045 + tier * 0.012, 'triangle');
+      if (tier === 3) this.blip(980, t, 0.09, 0.035, 'triangle');
     } else if (n < 0.06) {
       this.lastDriftTier = 0;
     }

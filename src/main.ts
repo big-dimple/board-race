@@ -238,8 +238,6 @@ stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
 const cameraRig = new CameraRig(stage.camera);
-const missilePipCamera = new THREE.PerspectiveCamera(72, 16 / 9, 0.4, 380);
-try { stage.renderer.compile(stage.scene, missilePipCamera); } catch {}
 const teamLeftCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 const teamRightCamera = new THREE.PerspectiveCamera(stage.camera.fov, 1, stage.camera.near, stage.camera.far);
 // The 50/50 viewport is substantially narrower than independent play. Keep a
@@ -3251,9 +3249,6 @@ function render(frameMs: number): void {
     pipeline.render();
 
     const missileTelemetry = singlePlayerMissiles.getTelemetry();
-    if (!isDuoMode() && missileTelemetry.active && missileTelemetry.targetedPlayer && missileTelemetry.state !== 'idle') {
-      renderMissilePipView(missileTelemetry);
-    }
 
     processCaptureQueue();
   }
@@ -3285,52 +3280,6 @@ function createPerfOverlay(): HTMLDivElement {
   return el;
 }
 
-function renderMissilePipView(telemetry: SinglePlayerMissileTelemetry): void {
-  const slotRect = hud.getMissilePipSlotRect();
-  const canvas = stage.renderer.domElement;
-  const canvasRect = canvas.getBoundingClientRect();
-  if (!slotRect || canvasRect.width <= 0 || canvasRect.height <= 0) return;
-
-  const scaleX = renderDrawingSize.x / canvasRect.width;
-  const scaleY = renderDrawingSize.y / canvasRect.height;
-
-  const pipX = Math.round((slotRect.left - canvasRect.left) * scaleX);
-  const pipY = Math.round((canvasRect.bottom - slotRect.bottom) * scaleY);
-  const pipW = Math.round(slotRect.width * scaleX);
-  const pipH = Math.round(slotRect.height * scaleY);
-
-  if (pipW <= 0 || pipH <= 0) return;
-
-  const mx = telemetry.missilePos.x;
-  const my = telemetry.missilePos.y;
-  const mz = telemetry.missilePos.z;
-  const dx = telemetry.missileDir.x;
-  const dy = telemetry.missileDir.y;
-  const dz = telemetry.missileDir.z;
-
-  if (telemetry.state === 'approaching') {
-    // Camera is 4.8m behind the missile, elevated 1.6m, looking directly forward towards target boat
-    missilePipCamera.position.set(mx - dx * 4.8, my - dy * 4.8 + 1.6, mz - dz * 4.8);
-    missilePipCamera.lookAt(mx + dx * 20, my + dy * 20, mz + dz * 20);
-  } else {
-    const bx = telemetry.targetPos.x;
-    const by = telemetry.targetPos.y;
-    const bz = telemetry.targetPos.z;
-    missilePipCamera.position.set(bx - dx * 6.5, by + 3.2, bz - dz * 6.5);
-    missilePipCamera.lookAt(bx, by + 1.0, bz);
-  }
-
-  missilePipCamera.aspect = pipW / pipH;
-  missilePipCamera.updateProjectionMatrix();
-
-  stage.renderer.setViewport(pipX, pipY, pipW, pipH);
-  stage.renderer.setScissor(pipX, pipY, pipW, pipH);
-  stage.renderer.setScissorTest(true);
-  stage.renderer.clearDepth();
-  stage.renderer.render(stage.scene, missilePipCamera);
-  stage.renderer.setScissorTest(false);
-  stage.renderer.setViewport(0, 0, renderDrawingSize.x, renderDrawingSize.y);
-}
 
 function renderTeamSplit(): void {
   const drawing = stage.renderer.getDrawingBufferSize(renderDrawingSize);

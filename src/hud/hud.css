@@ -3645,6 +3645,7 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
 }
 
 .hud-missile-pip-slot {
+  display: none;
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;

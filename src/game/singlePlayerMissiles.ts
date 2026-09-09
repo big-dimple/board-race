@@ -322,7 +322,7 @@ export class SinglePlayerMissilesSystem {
 
     // Only broadcast player HUD notice if the player is targeted!
     if (m.isPlayer) {
-      this.hudNotice('灯塔防空发射拦截飞弹锁定领跑者', '🚀 防空启动 · 飞弹来袭！');
+      this.hudNotice('你暂居第一，灯塔启动赛事领跑挑战；入弯漂移或凌空走位可诱爆飞弹', '赛事领跑挑战 · 飞弹来袭');
     }
   }
 
@@ -358,9 +358,10 @@ export class SinglePlayerMissilesSystem {
 
     if (m.timer >= 1.0 && !m.locked) {
       m.locked = true;
-      m.tacticalReticle.setVisible(true);
+      // Single-player uses the lightweight HUD threat cue; the 3D billboard
+      // remains reserved for the duo spectator chase presentation.
       if (m.isPlayer) {
-        this.hudNotice('准备入弯漂移诱爆飞弹', '⚠️ 拦截飞弹已锁定！');
+        this.hudNotice('飞弹已锁定：观察来袭方向，准备漂移诱爆', '飞弹锁定');
         this.onMissileAudio('lock');
       }
     }
@@ -376,17 +377,7 @@ export class SinglePlayerMissilesSystem {
     const TRACK_SPEED = 52; // Steady readable speed
 
     if (m.locked) {
-      const activeCam = camera ?? this.fallbackCamera;
-      m.tacticalReticle.update({
-        targetPos: targetBoat.state.position,
-        targetQuat: targetBoat.state.quaternion,
-        distance: dist,
-        timeRemaining: Math.max(0, TOTAL_LIFETIME - m.timer),
-        isEvadeWindow: m.timer >= 2.8 && m.timer < TOTAL_LIFETIME,
-        isPlayer: m.isPlayer,
-        state: m.state,
-        elapsed: m.timer,
-      }, activeCam);
+      // Keep telemetry updates for the HUD without an extra 3D scene pass.
       if (m.isPlayer && Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
         this.onMissileAudio('tracking');
       }
