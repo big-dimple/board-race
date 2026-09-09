@@ -62,7 +62,7 @@ import {
   type PcControlPrimerPresentation,
 } from './game/pcControlPrimer';
 import { Race, COUNTDOWN_S } from './game/race';
-import { SinglePlayerMissilesSystem, type SinglePlayerMissileTelemetry } from './game/singlePlayerMissiles';
+import { SinglePlayerMissilesSystem } from './game/singlePlayerMissiles';
 import { DuoInteractionController, type DuoInteractionEvent } from './game/duoInteraction';
 import {
   HonorLedger,
@@ -236,6 +236,7 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
   },
 );
 stage.scene.add(singlePlayerMissiles.object);
+singlePlayerMissiles.warmup(stage.renderer);
 stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
@@ -1639,6 +1640,7 @@ function resetRace(): void {
   // previous run's Final Station glowing in the READY/front-door scene.
   course.resetFinalStation();
   singlePlayerMissiles.reset();
+  hud.resetMissilePip();
   honorTargets.reset();
   honors.reset(boats.length);
   coinStreakCounts.length = 0;
@@ -2926,7 +2928,7 @@ function step(dt: number, _t: number, present: boolean): void {
   if (duoMode && race.phase === 'racing') {
     duoInteractions.update(dt, race.racers, boats, duoDevices, localInput, handleDuoInteraction, stage.camera);
   } else if (!duoMode && race.phase === 'racing') {
-    singlePlayerMissiles.update(dt, race.racers, boats, stage.camera);
+    singlePlayerMissiles.update(dt, race.racers, boats, stage.camera, present);
   }
   if (race.challengeTier === 'excellent' && !excellentRecordedThisRun) {
     const excellent = records.recordExcellent(race.raceTime);
@@ -3255,8 +3257,6 @@ function render(frameMs: number): void {
     ocean.uniforms.uDepthTex.value = prePass.depthTexture;
     ocean.setResolution(renderDrawingSize.x, renderDrawingSize.y, stage.camera.fov);
     pipeline.render();
-
-    const missileTelemetry = singlePlayerMissiles.getTelemetry();
 
     processCaptureQueue();
   }
@@ -5046,6 +5046,17 @@ function scenario(name: string): void {
   if (name !== 'ready' && name !== 'night-ready' && !riderInspection && !openingInspection) startFreshCountdown();
 
   switch (name) {
+    case 'solo-missile':
+      advanceUntil(() => race.phase === 'racing', 8);
+      setHarnessInput({ throttle: 1 });
+      loop.advance(2);
+      race.racers[0].place = 1;
+      singlePlayerMissiles.onCheckpoint(race.racers[0], 1);
+      for (let step = 0; step < 61; step++) {
+        singlePlayerMissiles.update(1 / 60, race.racers, boats, stage.camera);
+      }
+      loop.advance(1.25);
+      break;
     case "night-ready":
       loop.advance(1.5);
       break;

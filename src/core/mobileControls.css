@@ -77,6 +77,10 @@
   pointer-events: auto;
 }
 
+/* Choose steering before the race; no mode switch covers live race feedback. */
+.mobile-controls.racing .mobile-mode,
+.mobile-controls.presentation .mobile-mode { display: none; }
+
 /* Full-screen viewers own every game-control pixel. Keep the orientation
    blocker available so portrait never becomes a supported play layout. */
 .mobile-controls.overlay-hidden .mobile-start,

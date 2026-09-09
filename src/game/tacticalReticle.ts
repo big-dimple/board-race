@@ -23,19 +23,21 @@ export class TacticalReticle {
   private readonly innerDiamond: THREE.LineSegments;
   private readonly cornerBrackets: THREE.LineSegments;
   private readonly laserBeam: THREE.Mesh;
-  private readonly badgeMesh: THREE.Mesh;
-  private readonly badgeCanvas: HTMLCanvasElement;
-  private readonly badgeCtx: CanvasRenderingContext2D;
-  private readonly badgeTexture: THREE.CanvasTexture;
+  private readonly badgeMesh!: THREE.Mesh;
+  private readonly badgeCanvas!: HTMLCanvasElement;
+  private readonly badgeCtx!: CanvasRenderingContext2D;
+  private readonly badgeTexture!: THREE.CanvasTexture;
+  private readonly filaments: THREE.LineSegments | null = null;
   private readonly outerMat: THREE.LineBasicMaterial;
   private readonly innerMat: THREE.LineBasicMaterial;
   private readonly cornerMat: THREE.LineBasicMaterial;
   private readonly laserMat: THREE.MeshBasicMaterial;
   private lastBadgeText = '';
 
-  constructor() {
+  constructor(private readonly lightweight = false) {
     this.object = new THREE.Group();
     this.object.visible = false;
+    this.object.name = lightweight ? 'solo-lock-light' : 'duo-lock';
 
     // 1. Outer Segmented Reticle Ring (4 arcs with gaps)
     const outerGeo = new THREE.BufferGeometry();
@@ -111,7 +113,7 @@ export class TacticalReticle {
     this.object.add(this.innerDiamond);
 
     // 4. Vertical Holographic Laser Sky-Beacon (descending from heavens)
-    const laserGeo = new THREE.CylinderGeometry(0.12, 0.6, 9.0, 8, 1, true);
+    const laserGeo = new THREE.CylinderGeometry(0.12, lightweight ? 3.4 : 0.6, 9.0, lightweight ? 24 : 8, lightweight ? 8 : 1, true);
     laserGeo.translate(0, 4.5, 0);
     this.laserMat = new THREE.MeshBasicMaterial({
       color: 0xff0055,
@@ -123,6 +125,45 @@ export class TacticalReticle {
     });
     this.laserBeam = new THREE.Mesh(laserGeo, this.laserMat);
     this.object.add(this.laserBeam);
+
+    if (lightweight) {
+      // Additive vertex colours fade the cone without a texture or light pass.
+      const position = laserGeo.getAttribute('position');
+      const colours = new Float32Array(position.count * 3);
+      for (let i = 0; i < position.count; i++) {
+        const height = position.getY(i) / 9;
+        const energy = Math.sin(Math.PI * height) * 0.65;
+        colours.fill(energy, i * 3, i * 3 + 3);
+      }
+      laserGeo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+      this.laserMat.vertexColors = true;
+      this.laserMat.blending = THREE.AdditiveBlending;
+      this.laserMat.side = THREE.FrontSide;
+      const strands = new Float32Array(3 * 48 * 6);
+      let offset = 0;
+      for (let strand = 0; strand < 3; strand++) {
+        for (let segment = 0; segment < 48; segment++) {
+          for (let end = 0; end < 2; end++) {
+            const u = (segment + end) / 48;
+            const angle = u * Math.PI * 3 + strand * Math.PI * 2 / 3;
+            const radius = 3.2 * (1 - u) + 0.12;
+            strands[offset++] = Math.cos(angle) * radius;
+            strands[offset++] = u * 6.8;
+            strands[offset++] = Math.sin(angle) * radius;
+          }
+        }
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(strands, 3));
+      this.filaments = new THREE.LineSegments(geometry, this.innerMat);
+      this.object.add(this.filaments);
+      this.object.userData.noInk = true;
+      this.object.userData.noOutline = true;
+      this.object.traverse((child) => {
+        if (child instanceof THREE.LineSegments) child.material.depthWrite = false;
+      });
+      return;
+    }
 
     // 5. 3D Floating Telemetry Billboard Badge
     this.badgeCanvas = document.createElement('canvas');
@@ -157,10 +198,11 @@ export class TacticalReticle {
 
     this.object.position.copy(info.targetPos);
     this.object.position.y += 0.35; // Hover just above water level
-    this.object.quaternion.copy(info.targetQuat);
+    if (!this.lightweight) this.object.quaternion.copy(info.targetQuat);
 
     // Billboarding for badge so text always faces player camera
-    this.badgeMesh.quaternion.copy(camera.quaternion);
+    if (!this.lightweight) this.badgeMesh.quaternion.copy(camera.quaternion);
+    if (this.filaments) this.filaments.rotation.y = -info.elapsed * 2.6;
 
     // Rotation & animation
     const rotSpeed = info.isEvadeWindow ? 5.2 : 2.4;
@@ -201,7 +243,7 @@ export class TacticalReticle {
     this.laserMat.opacity = laserAlpha;
 
     // Redraw badge canvas
-    this.renderBadge(info);
+    if (!this.lightweight) this.renderBadge(info);
   }
 
   private renderBadge(info: TacticalReticleUpdate): void {

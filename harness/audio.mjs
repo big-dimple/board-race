@@ -126,6 +126,30 @@ try {
   state = await page.evaluate(() => window.__harness.audioState());
   assert.ok(Number(state.driftTier) >= 2, `drift tier should advance: ${state.driftTier}`);
 
+  const ignition = await page.evaluate(async () => {
+    const { GameAudio } = await import('/src/audio/audio.ts');
+    const sound = new GameAudio();
+    const ctx = new OfflineAudioContext(1, 48000, 48000);
+    sound.ctx = ctx;
+    sound.eventBus = ctx.createGain();
+    sound.eventBus.connect(ctx.destination);
+    sound.missileLaunchAlert();
+    const voices = sound.activeOneShots;
+    const buffer = await ctx.startRendering();
+    const samples = buffer.getChannelData(0);
+    let peak = 0, energy = 0, tail = 0;
+    for (let i = 0; i < samples.length; i++) {
+      peak = Math.max(peak, Math.abs(samples[i]));
+      energy += samples[i] * samples[i];
+      if (i > 28800) tail = Math.max(tail, Math.abs(samples[i]));
+    }
+    return { peak, rms: Math.sqrt(energy / samples.length), tail, voices };
+  });
+  assert.ok(ignition.peak > 0.02 && ignition.peak < 0.35,
+    `missile ignition must be audible without the old blast peak: ${JSON.stringify(ignition)}`);
+  assert.ok(ignition.rms > 0.01 && ignition.tail < 0.001, 'ignition must end cleanly');
+  assert.ok(ignition.voices <= 3, 'ignition must keep a bounded voice budget');
+
   const beforeEvents = await page.evaluate(() => window.__harness.audioEventLog());
   await page.evaluate(() => window.__harness.collisionFeedbackCase());
   const afterEvents = await page.evaluate(() => window.__harness.audioEventLog());
@@ -167,7 +191,11 @@ try {
   await mobilePage.goto(`http://127.0.0.1:${port}/?harness=1&mobile=1&quality=performance`, { waitUntil: 'load', timeout: 60000 });
   await mobilePage.waitForFunction(() => window.__harness?.ready, null, { timeout: 60000 });
   await mobilePage.locator('.driver-select-go').click();
-  await advanceWithWallClock(mobilePage, 14.0, 0.2);
+  // Opening duration belongs to the current showcase, not the audio contract.
+  for (let elapsed = 0; elapsed < 22; elapsed += 0.2) {
+    if ((await mobilePage.evaluate(() => window.__harness.playerState())).phase === 'racing') break;
+    await advanceWithWallClock(mobilePage, 0.2, 0.2);
+  }
   const mobileAudio = await mobilePage.evaluate(() => window.__harness.audioState());
   assert.equal((await mobilePage.evaluate(() => window.__harness.playerState())).phase, 'racing');
   assert.equal(mobileAudio.contextStateAtGo, 'running');

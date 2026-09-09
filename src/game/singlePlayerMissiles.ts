@@ -143,6 +143,30 @@ export class SinglePlayerMissilesSystem {
   private hudNotice: (msg: string, title: string) => void;
   private onMissileAudio: (kind: 'launch' | 'lock' | 'tracking' | 'impact' | 'near-miss') => void;
   private readonly fallbackCamera = new THREE.PerspectiveCamera();
+  private readonly direction = new THREE.Vector3();
+  private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly right = new THREE.Vector3();
+  private readonly newUp = new THREE.Vector3();
+  private readonly basis = new THREE.Matrix4();
+
+  /** Upload the hidden launch/lock geometry before play, not on first lock. */
+  public warmup(renderer: THREE.WebGLRenderer): void {
+    const scene = new THREE.Scene();
+    const preview = this.object.clone(true);
+    preview.traverse((child) => { child.visible = true; child.frustumCulled = false; });
+    scene.add(preview);
+    const target = new THREE.WebGLRenderTarget(32, 32);
+    const previous = renderer.getRenderTarget();
+    this.fallbackCamera.position.set(0, 6, 16);
+    this.fallbackCamera.lookAt(0, 3, 0);
+    try {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, this.fallbackCamera);
+    } finally {
+      renderer.setRenderTarget(previous);
+      target.dispose();
+    }
+  }
 
   private telemetry: SinglePlayerMissileTelemetry = {
     active: false,
@@ -173,7 +197,7 @@ export class SinglePlayerMissilesSystem {
     mesh.visible = false;
     this.object.add(mesh);
 
-    const tacticalReticle = new TacticalReticle();
+    const tacticalReticle = new TacticalReticle(true);
     this.object.add(tacticalReticle.object);
 
     this.activeMissile = {
@@ -263,7 +287,7 @@ export class SinglePlayerMissilesSystem {
     }
   }
 
-  public update(dt: number, racers: readonly RacerState[], boats: readonly IBoat[], camera?: THREE.Camera): void {
+  public update(dt: number, racers: readonly RacerState[], boats: readonly IBoat[], camera?: THREE.Camera, present = true): void {
     for (let i = this.scanTimers.length - 1; i >= 0; i--) {
       const scan = this.scanTimers[i];
       scan.timer -= dt;
@@ -281,7 +305,7 @@ export class SinglePlayerMissilesSystem {
     }
 
     if (this.activeMissile && this.activeMissile.active) {
-      this.updateMissile(dt, racers, boats, camera);
+      this.updateMissile(dt, racers, boats, camera, present);
     } else {
       this.telemetry.active = false;
       this.telemetry.state = 'idle';
@@ -326,7 +350,7 @@ export class SinglePlayerMissilesSystem {
     }
   }
 
-  private updateMissile(dt: number, racers: readonly RacerState[], boats: readonly IBoat[], camera?: THREE.Camera): void {
+  private updateMissile(dt: number, racers: readonly RacerState[], boats: readonly IBoat[], camera?: THREE.Camera, present = true): void {
     const m = this.activeMissile!;
 
     if (m.dismissTimer > 0) {
@@ -358,8 +382,7 @@ export class SinglePlayerMissilesSystem {
 
     if (m.timer >= 1.0 && !m.locked) {
       m.locked = true;
-      // Single-player uses the lightweight HUD threat cue; the 3D billboard
-      // remains reserved for the duo spectator chase presentation.
+      m.tacticalReticle.setVisible(true);
       if (m.isPlayer) {
         this.hudNotice('飞弹已锁定：观察来袭方向，准备漂移诱爆', '飞弹锁定');
         this.onMissileAudio('lock');
@@ -377,8 +400,17 @@ export class SinglePlayerMissilesSystem {
     const TRACK_SPEED = 52; // Steady readable speed
 
     if (m.locked) {
-      // Keep telemetry updates for the HUD without an extra 3D scene pass.
-      if (m.isPlayer && Math.floor((m.timer - dt) * 3) !== Math.floor(m.timer * 3)) {
+      if (present) m.tacticalReticle.update({
+        targetPos: targetBoat.state.position,
+        targetQuat: targetBoat.state.quaternion,
+        distance: dist,
+        timeRemaining: Math.max(0, TOTAL_LIFETIME - m.timer),
+        isEvadeWindow: m.timer >= 2.8 && m.timer < TOTAL_LIFETIME,
+        isPlayer: m.isPlayer,
+        state: m.state,
+        elapsed: m.timer,
+      }, camera ?? this.fallbackCamera);
+      if (m.isPlayer && Math.floor((m.timer - dt) / 0.8) !== Math.floor(m.timer / 0.8)) {
         this.onMissileAudio('tracking');
       }
     }
@@ -398,12 +430,11 @@ export class SinglePlayerMissilesSystem {
     m.z += m.vz * dt;
     m.mesh.position.set(m.x, m.y, m.z);
 
-    const dir = new THREE.Vector3(m.vx, m.vy, m.vz).normalize();
-    const up = new THREE.Vector3(0, 1, 0);
-    const right = new THREE.Vector3().crossVectors(up, dir).normalize();
-    const newUp = new THREE.Vector3().crossVectors(dir, right).normalize();
-    const mat = new THREE.Matrix4().makeBasis(right, newUp, dir);
-    m.mesh.quaternion.setFromRotationMatrix(mat);
+    const dir = this.direction.set(m.vx, m.vy, m.vz).normalize();
+    this.right.crossVectors(this.up, dir).normalize();
+    this.newUp.crossVectors(dir, this.right).normalize();
+    this.basis.makeBasis(this.right, this.newUp, dir);
+    m.mesh.quaternion.setFromRotationMatrix(this.basis);
 
     // Telemetry update: 4.2s total lifecycle, final 1.2s is evade window
     this.telemetry.active = true;

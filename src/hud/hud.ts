@@ -26,6 +26,7 @@ import { PALETTE } from '../core/palette';
 import { RACER_COLORS } from '../game/racers';
 import machoMedalUrl from '../assets/achievements/macho-medal.webp';
 import type { SinglePlayerMissileTelemetry } from '../game/singlePlayerMissiles';
+import { missileLaunchArt } from './missileLaunchArt';
 import { MedalCeremonyCanvas } from './medalCeremony';
 import { deriveAbilityHudState } from '../core/abilityTelemetry';
 import type { CoachFocus, CoachInputDevice, CoachPresentation } from '../game/drivingCoach';
@@ -680,19 +681,15 @@ export class HUD {
     // ---- missile pip tactical rear-view ----------------------------------------------
     this.missilePipEl = h('div', 'hud-missile-pip', this.root);
     const pipHeaderRow = h('div', 'hud-missile-pip-header', this.missilePipEl);
-    this.missilePipHeader = h('span', 'hud-missile-pip-tag', pipHeaderRow, '【战术后视】锁定飞弹追踪中');
+    this.missilePipHeader = h('span', 'hud-missile-pip-tag', pipHeaderRow, '领跑挑战');
     this.missilePipDist = h('span', 'hud-missile-pip-dist', pipHeaderRow, '距离: --');
     this.missilePipSlot = h('div', 'hud-missile-pip-slot', this.missilePipEl);
+    missileLaunchArt(this.missilePipSlot);
     h('div', 'hud-missile-pip-corner-tl', this.missilePipSlot);
     h('div', 'hud-missile-pip-corner-tr', this.missilePipSlot);
     h('div', 'hud-missile-pip-corner-bl', this.missilePipSlot);
     h('div', 'hud-missile-pip-corner-br', this.missilePipSlot);
     this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '⚡ 立即入弯漂移 · 浪花诱爆！');
-  }
-
-  getMissilePipSlotRect(): DOMRect | null {
-    if (!this.missilePipEl.classList.contains('on')) return null;
-    return this.missilePipSlot.getBoundingClientRect();
   }
 
   updateMissilePip(telemetry: SinglePlayerMissileTelemetry): void {
@@ -701,7 +698,8 @@ export class HUD {
       return;
     }
     this.missilePipEl.classList.add('on');
-    this.missilePipDist.textContent = `距离: ${telemetry.distance.toFixed(1)}米`;
+    const status = telemetry.state === 'deflected' ? '已诱爆' : telemetry.state === 'hit' ? '冲击' : telemetry.isEvadeWindow ? '已锁定' : '飞弹升空';
+    if (this.missilePipDist.textContent !== status) this.missilePipDist.textContent = status;
 
     if (telemetry.state === 'deflected') {
       this.missilePipEl.classList.remove('evade-alert', 'hit');
@@ -719,6 +717,10 @@ export class HUD {
       this.missilePipEl.classList.remove('evade-alert', 'deflected', 'hit');
       this.missilePipCue.textContent = '🎯 飞弹逼近中 · 准备进弯漂移';
     }
+  }
+
+  resetMissilePip(): void {
+    this.missilePipEl.classList.remove('on', 'evade-alert', 'deflected', 'hit');
   }
 
   /** Spool, extension, gate, and route-clear edges for one seat's own card slot. */

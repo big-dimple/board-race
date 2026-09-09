@@ -3588,7 +3588,7 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
   right: max(14px, env(safe-area-inset-right));
-  width: clamp(180px, 24vw, 310px);
+  width: 230px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -3616,8 +3616,6 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   width: 100%;
   padding: 4px 8px;
   background: rgba(6, 12, 28, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border: 1.5px solid rgba(255, 83, 110, 0.6);
   border-top: 3px solid #ff3355;
   border-bottom: none;
@@ -3645,10 +3643,10 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
 }
 
 .hud-missile-pip-slot {
-  display: none;
+  display: block;
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 9 / 4;
   background: transparent !important;
   border-left: 2px solid #ff3355;
   border-right: 2px solid #ff3355;
@@ -3656,6 +3654,16 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   box-sizing: border-box;
   overflow: hidden;
   pointer-events: none;
+}
+
+.hud-missile-art { width: 100%; height: 100%; display: block; }
+.hud-missile-pip.on .hud-missile-art { animation: missile-ignition 1s ease-out both; }
+.hud-missile-pip.hit .hud-missile-art,
+.hud-missile-pip.deflected .hud-missile-art { opacity: .35; }
+@keyframes missile-ignition {
+  from { transform: translate(-32px, 16px); opacity: 0; }
+  30% { opacity: 1; }
+  to { transform: translate(0, 0); opacity: 1; }
 }
 
 .hud-missile-pip-corner-tl,
@@ -3680,15 +3688,13 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   justify-content: center;
   padding: 4px 6px;
   background: rgba(6, 12, 28, 0.92);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border: 1.5px solid rgba(255, 83, 110, 0.6);
   border-bottom: 3px solid #ff3355;
   border-top: none;
   border-radius: 0 0 8px 8px;
   color: #fff;
   font: 900 clamp(9.5px, 1.35vh, 11.5px)/1 system-ui, sans-serif;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-align: center;
   box-sizing: border-box;
 }
@@ -3747,9 +3753,9 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   .hud-missile-pip {
     top: 6px;
     right: 8px;
-    width: clamp(140px, 20vw, 210px);
+    width: 180px;
   }
-  .hud-missile-pip-tag { font-size: 8.5px; }
-  .hud-missile-pip-dist { font-size: 9.5px; }
-  .hud-missile-pip-cue { font-size: 8.5px; padding: 2px 4px; }
+  .hud-missile-pip-tag { font-size: 11px; }
+  .hud-missile-pip-dist { font-size: 11px; }
+  .hud-missile-pip-cue { font-size: 11px; line-height: 1.35; padding: 4px; }
 }

@@ -333,6 +333,7 @@ async function verifyMode(browser, mobile) {
   console.log(`${label} finale auto flow: countdown -> macho medal -> same run`);
 
   if (mobile) {
+    await stage(page, 'ready');
     const modeButton = page.locator('.mobile-mode');
     await modeButton.click();
     for (let sample = 0; sample < 8; sample++) {
@@ -779,6 +780,39 @@ async function verifyMode(browser, mobile) {
 
   const stats = await page.evaluate(() => window.__harness.stats());
   console.log(`${label}: calls=${stats.calls} triangles=${stats.triangles} pixels=${stats.drawingPixels} frameMs=${stats.frameMs} lumaRange=${render.lumaRange.toFixed(1)}`);
+  const lock = await page.evaluate(async () => {
+    const { TacticalReticle } = await import('/src/game/tacticalReticle.ts');
+    let active;
+    const update = TacticalReticle.prototype.update;
+    TacticalReticle.prototype.update = function (...args) {
+      active = this;
+      return update.apply(this, args);
+    };
+    try {
+      window.__harness.scenario('solo-missile');
+      window.__harness.render();
+      const firstAngle = active?.object.children[0].rotation.y;
+      window.__harness.advance(0.1);
+      window.__harness.render();
+      const mapped = active?.object.children.filter((child) => child.material?.map).length;
+      return { visible: active?.object.visible, mapped,
+        moving: firstAngle !== active?.object.children[0].rotation.y };
+    } finally { TacticalReticle.prototype.update = update; }
+  });
+  assert.ok(lock.visible && lock.moving, `${label}: missile lock lost its moving world effect`);
+  assert.equal(lock.mapped, 0, `${label}: solo lock recreated the billboard texture`);
+  await page.waitForTimeout(300);
+  assert.ok(await page.locator('.hud-missile-pip.on').isVisible(), `${label}: launch cue missing`);
+  if (mobile) assert.equal(await page.locator('.mobile-mode').isVisible(), false,
+    `${label}: steering switch covers the launch cue during racing`);
+  const launchArt = await page.locator('.hud-missile-art').evaluate((canvas) => {
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    return pixels.filter((_, index) => index % 4 === 3 && pixels[index] > 0).length;
+  });
+  assert.ok(launchArt > 1000, `${label}: missile launch illustration is blank`);
+  await stage(page, 'ready');
+  assert.equal(await page.locator('.hud-missile-pip').evaluate((el) => el.classList.contains('on')), false,
+    `${label}: missile cue survives reset`);
   await context.close();
 }
 
