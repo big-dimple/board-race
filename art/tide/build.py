@@ -47,8 +47,10 @@ portrait = Image.open(ROOT / 'src/assets/drivers/tide.webp').convert('RGB')
 atlas = Image.new('RGB', (1024, 1024), (244, 207, 174))
 
 
-def feature(box, center, size):
+def feature(box, center, size, mirror=False):
     patch = portrait.crop(box).resize((int(size[0] / .28 * 1024), int(size[1] / .30 * 1024)), Image.Resampling.LANCZOS)
+    if mirror:
+        patch = patch.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
     mask = Image.new('L', patch.size)
     draw = ImageDraw.Draw(mask)
     w, h = patch.size
@@ -58,11 +60,12 @@ def feature(box, center, size):
     atlas.paste(patch, (int(u * 1024 - w / 2), int((1 - v) * 1024 - h / 2)), mask)
 
 
-feature((307, 261, 405, 305), (-.051, .126), (.075, .033))
-feature((425, 275, 493, 310), (.051, .126), (.071, .033))
-feature((317, 235, 413, 267), (-.051, .160), (.076, .020))
-feature((435, 249, 489, 278), (.051, .158), (.066, .020))
-feature((391, 382, 450, 423), (0, .040), (.054, .027))
+# Use the near eye for both sides: the far eye in the portrait is foreshortened
+# and looks outward when independently stretched onto a frontal head.
+for side in (-1, 1):
+    feature((316, 259, 403, 303), (side * .041, .128), (.062, .028), side == 1)
+    feature((319, 235, 418, 267), (side * .042, .151), (.064, .017), side == 1)
+feature((387, 387, 445, 422), (0, .043), (.049, .021))
 atlas.save(SOURCE / 'tide-face.png')
 texture = bpy.data.images.load(str(SOURCE / 'tide-face.png'))
 texture.pack()
@@ -118,8 +121,8 @@ def mesh(name, vertices, faces, mat, colors=None, weights=None):
 
 # Ring loft with a sculpted facial surface: cheek planes, sockets, nose and lips.
 profile = [
-    (-.010, .025, .028, .019), (.008, .046, .044, .021),
-    (.035, .068, .063, .016), (.064, .089, .081, .009),
+    (-.010, .025, .035, .027), (.008, .046, .053, .027),
+    (.035, .068, .070, .018), (.064, .089, .081, .009),
     (.090, .103, .094, .005), (.120, .104, .100, .003),
     (.153, .106, .103, .001), (.187, .102, .100, -.002),
     (.216, .087, .083, -.005), (.242, .054, .052, -.007),
@@ -146,10 +149,10 @@ for row in range(ROWS):
         front = max(0, math.cos(theta)) ** 8
         z = cz + rz * math.cos(theta)
         z += front * (
-            .026 * gauss(x, y, 0, .112, .013, .043)
-            + .036 * gauss(x, y, 0, .083, .015, .014)
-            + .009 * gauss(abs(x), y, .020, .077, .009, .009)
-            - .010 * gauss(abs(x), y, .051, .127, .030, .014)
+            .014 * gauss(x, y, 0, .113, .016, .037)
+            + .021 * gauss(x, y, 0, .084, .018, .016)
+            + .006 * gauss(abs(x), y, .019, .077, .010, .009)
+            - .004 * gauss(abs(x), y, .041, .128, .025, .013)
             + .007 * gauss(abs(x), y, .057, .091, .034, .019)
             + .007 * gauss(x, y, 0, .041, .034, .015))
         verts.append((x, y, z))
@@ -297,7 +300,7 @@ for obj in (head, hair):
     bpy.ops.object.mode_set(mode='OBJECT')
     obj.select_set(False)
 
-head['assetVersion'] = 'tide-head-v1'
+head['assetVersion'] = 'tide-head-v2'
 hair['hairStyle'] = 'bob'
 scene = bpy.context.scene
 scene.unit_settings.system = 'METRIC'

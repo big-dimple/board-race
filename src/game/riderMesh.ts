@@ -555,9 +555,7 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
   const uvs: number[] = [];
   const indices: number[] = [];
 
-  const xmin = -0.118;
-  const xmax = 0.118;
-  const ymin = -0.012;
+  const ymin = -0.009;
   const ymax = 0.212;
 
   const numCols = 18;
@@ -570,13 +568,13 @@ function buildFacePatch(headBone: THREE.Bone, look: RiderLook): THREE.Mesh {
     const v = tY;
     for (let col = 0; col < numCols; col++) {
       const tX = col / (numCols - 1);
-      const x = xmin + tX * (xmax - xmin);
-      const u = tX;
-
-      const nx = x / 0.118;
-      const ny = (y - 0.105) / 0.134;
-      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
-      const z = 0.015 + 0.126 * nz + 0.004;
+      // Follow the same loft as the skin, including its tapered jaw. A square
+      // ellipsoid patch left a detached cheek/chin silhouette in the intro orbit.
+      const profile = headProfileAt(y);
+      const angle = (tX - 0.5) * Math.PI * 0.92;
+      const x = (profile.hw + 0.001) * Math.sin(angle);
+      const z = profile.z + (profile.hd + 0.001) * Math.cos(angle);
+      const u = 0.5 + x / 0.236;
 
       positions.push(x, y, z);
       uvs.push(u, v);
@@ -637,12 +635,14 @@ function buildSkullLoftGeometry(detailed: boolean): THREE.BufferGeometry {
   // Sweep snugly around temples and forehead to ensure full head volume
   // without bald gaps; the remaining front opening is fully covered by the
   // continuous fringe shell appended per driver below.
-  const frontGap = 0.44;
-  const sweep = Math.PI * 2 - frontGap * 2;
   const vertices: number[] = [];
   const indices: number[] = [];
 
   for (const ring of rings) {
+    // The cap may cover the forehead, but the temple/nape rows must leave
+    // the near eye and cheek exposed throughout the opening camera orbit.
+    const frontGap = ring.y >= 0.225 ? 0.44 : ring.y >= 0.175 ? 0.90 : 1.38;
+    const sweep = Math.PI * 2 - frontGap * 2;
     for (let i = 0; i <= sides; i++) {
       const theta = frontGap + (sweep * i) / sides;
       const x = ring.rx * Math.sin(theta);

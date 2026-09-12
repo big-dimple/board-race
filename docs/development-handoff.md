@@ -1,28 +1,19 @@
 # Board Race 开发交接
 
-状态：当前工作包为单人导弹表现修正；Tide 头像由另一窗口并行维护。
+状态：Tide 五官与全角色开场头脸修正已随本提交发版，用户线上美术复核 pending。
+
+## 上一工作包（已发版）
+
+- Base `a8f0c58`，验证齐全：build / smoke / team / audio / rider 全绿。
+- Tide 近侧眼形对称投射、缩眼距眉眼距、短鼻尖补下巴侧轮廓；其余五位立绘贴片沿真实头骨 loft 贴合，共用发壳在太阳穴让位。
+- Owner：`art/tide/build.py` 及生成 PNG / Blend / GLB、`riderMesh.ts`、`harness/rider.mjs`。
+- 证据：`shots/face-rework/before|after|validation`。
+- 风险与说明：rider 专项截图超时的根因是 swiftshader 一次性着色器编译（13-25s GPU 积压，非 hang），已在 harness 预热六个车手的 inspection 视角并对 three-quarter 捕获放宽到 60s；真机无此成本。
 
 ## 当前工作包
 
-- Base：`0b836fe`，保留 Tide 头脸、动态 bob 和 10 秒开场，未修改头像资产或骑手实现。
-- 单人恢复渐变聚光锥、旋转锁定线与三股勾丝；只移除公告牌 Canvas，开局预热隐藏特效。
-- 右上角为一次栅格绘制的导弹点火动画，不渲染第二遍赛道；比赛中隐藏转向模式切换，赛前仍可选择体感。
-- 发射音替换为短促正弦扫音，锁定和跟踪提示降低尖锐度与重复频率。
-- 修复重开时导弹 HUD 残留；PC 双人淘汰席原追拍与锁定组件默认配置保留。
-
-## 验证与证据
-
-- build、verify:smoke（含锁定动画、零公告牌纹理、导弹图非空、按钮避让、重开清理）、verify:audio、verify:team 通过。
-- 音频测试使用真实 GO 状态等待，兼容当前 10 秒开场；离线渲染验证新发射音可听、无削波、三声部以内并正常结束。
-- 桌面及 844x390 截图已检查：`shots/missile-rework/desktop-final.png`、`mobile-final.png`。
-- 120 个固定步对比：原公告牌 81,920 像素纹理累计 version 61；新单人组件没有纹理，保留 5 个固定绘制对象。此为资源证据，不代表旗舰手机帧时。
-- 变更 owner：singlePlayerMissiles / TacticalReticle 单人配置、HUD 导弹提示、GameAudio、移动按钮 CSS；测试复用现有 smoke/audio。
-
-## 并行头像工作
-
-- Tide Blender GLB（7,662 三角形、约 368 KB）、16 骨骼接入、120 Hz 发丝积分、头肩碰撞及落水响应已由头像窗口接入。
-- `verify:rider` 属于该窗口的专项入口，本轮未重跑；头像后续验收继续由原窗口维护。
+- 导弹脱靶爆炸反馈（炸在脱靶点 + 爆炸音效）与玩法目录双打 PC 标注 —— 进行中，单独提交。
 
 ## 唯一下一步
 
-用户在旗舰手机复测首次导弹发起是否仍卡顿，并试听新发射音、确认聚光锥与勾丝视觉强度。实机性能与主观音色验收 pending；不得把浏览器自动化通过写成实机流畅。
+用户在线上版本复核 Tide 眼神、侧脸及其余五人的开场表现。
