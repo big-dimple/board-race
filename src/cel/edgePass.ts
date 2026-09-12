@@ -141,6 +141,22 @@ class EdgePass extends ShaderPass {
     // EffectComposer reports device pixels here (its pixel ratio is 1 —
     // the stage scales the drawing buffer itself).
     this.uniforms.uResolution.value.set(width, height);
+    // Small drawing buffers (mobile performance tier) pack the same world-
+    // space creases into far fewer pixels: neighbouring interior-ink lines
+    // merge into black clumps on the own-boat tail at chase distance, while
+    // a large PC buffer resolves them as separate strokes. Scale the
+    // thresholds and line weight with the pixel budget so ink density stays
+    // perceptually constant across resolutions; desktop buffers (>=~900px
+    // tall) keep the authored constants exactly.
+    const resScale = Math.min(1.5, Math.max(1.0, Math.sqrt(900 / Math.max(1, height))));
+    this.uniforms.uNormalThreshold.value = 1.6 * resScale;
+    this.uniforms.uDepthThreshold.value = 3.0 * resScale;
+    this.uniforms.uInkGain.value = 1.5 / resScale;
+    // Line weight follows the pixel budget: phone-sized drawing buffers
+    // (~390-800px tall) get ~0.45-0.75 strength so the chase-view tail
+    // cluster stays readable shapes instead of a black scribble mass, while
+    // desktop-class buffers (>=900px) keep full-strength authored ink.
+    this.uniforms.uStrength.value = Math.min(1.0, Math.max(0.45, Math.pow(height / 900, 1.5)));
   }
 }
 
@@ -160,13 +176,13 @@ export function createEdgePass(prePass: PrePass, camera: THREE.Camera): ShaderPa
       uCameraNear: { value: persp.near ?? 0.1 },
       uCameraFar: { value: persp.far ?? 6000 },
       uInk: { value: new THREE.Color().setHex(PALETTE.ink, THREE.NoColorSpace) },
-      uInkGain: { value: 1.7 },
-      uNormalThreshold: { value: 1.35 },
-      uDepthThreshold: { value: 2.0 },
+      uInkGain: { value: 1.5 },
+      uNormalThreshold: { value: 1.6 },
+      uDepthThreshold: { value: 3.0 },
       uSilhouetteDepth: { value: 80.0 },
       uStrength: { value: 1.0 },
-      uLineFadeNear: { value: 9.0 },
-      uLineFadeFar: { value: 26.0 },
+      uLineFadeNear: { value: 6.5 },
+      uLineFadeFar: { value: 18.0 },
     },
     vertexShader,
     fragmentShader,
