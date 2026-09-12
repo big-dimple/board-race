@@ -176,6 +176,9 @@ export class Stage {
     // phone bouncing between ratios feels worse than one holding a stable one.
     // Mild pressure starts below ~47 fps: a phone pacing at 50-57 fps is not
     // struggling, and shaving it anyway only trades a stable ratio for blur.
+    // Cooldowns are deliberately long: every shift rebuilds every render
+    // target (composer buffers, prepass, energy bloom chain), so a device
+    // riding the thermal throttle boundary must not oscillate shift to shift.
     const badThreshold = split ? 24 : 21;
     const severeThreshold = split ? 34 : 30;
     const goodThreshold = split ? 20 : 16.9;
@@ -192,12 +195,12 @@ export class Stage {
 
     if (this.adjustmentCooldown > 0) return;
     const severe = this.frameEma > severeThreshold;
-    if ((severe || this.badFrameSeconds >= 0.6) && this.pixelRatio > floor) {
+    if ((severe || this.badFrameSeconds >= 0.9) && this.pixelRatio > floor) {
       const stepDown = severe ? 0.35 : split ? SPLIT_DOWNSCALE_STEP : 0.2;
       this.pixelRatio = Math.max(floor, this.pixelRatio - stepDown);
       this.upStep = Math.max(0.1, this.upStep * 0.5);
       this.badFrameSeconds = 0;
-      this.adjustmentCooldown = 1;
+      this.adjustmentCooldown = 1.5;
       this.applySize();
     } else if (this.goodFrameSeconds >= 2) {
       const { width, height } = this.viewportSize();
@@ -207,7 +210,7 @@ export class Stage {
         this.applySize();
       }
       this.goodFrameSeconds = 0;
-      this.adjustmentCooldown = 2;
+      this.adjustmentCooldown = 3;
     }
   }
 

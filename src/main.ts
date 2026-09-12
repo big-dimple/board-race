@@ -7,8 +7,9 @@
  * step() at fixed SIM_DT (deterministic — the harness can advance the sim with
  * no rendering); render() only draws (prepass + composer). Continuous
  * presentation (riders, ocean, HUD, audio buses) runs once per frame on the
- * last step of each rAF tick, so catch-up steps on slow devices do not pay
- * for visuals that only the frame boundary can show.
+ * last step of each rAF tick that stepped, so catch-up steps on slow devices
+ * do not pay for visuals that only the frame boundary can show; the Loop
+ * skips the present entirely on ticks that ran no step.
  */
 import * as THREE from 'three';
 
@@ -219,6 +220,7 @@ const collisions = new BoatCollisionSystem();
 const duoInteractions = new DuoInteractionController();
 const missileBlasts = new MissileBlastPool();
 stage.scene.add(missileBlasts.object);
+missileBlasts.warmup(stage.renderer);
 const singlePlayerMissiles = new SinglePlayerMissilesSystem(
   course,
   (msg, title) => hud.showTransientNotice(msg, title),
@@ -3247,7 +3249,8 @@ function step(dt: number, _t: number, present: boolean): void {
 
 const renderDrawingSize = new THREE.Vector2();
 
-function render(frameMs: number): void {
+function render(): void {
+  const renderStart = performance.now();
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
   sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
@@ -3270,10 +3273,14 @@ function render(frameMs: number): void {
 
     processCaptureQueue();
   }
-  // Split play renders the frame twice inside one rAF budget. Without the view
-  // count the governor reads that as a slow machine and shaves resolution until
-  // both halves look soft.
-  stage.updatePerf(frameMs, splitFrame ? 2 : 1);
+  // Feed the governor the measured render cost, not the rAF interval: on
+  // 120 Hz displays the interval (~8 ms) reads as perpetual headroom, pins
+  // the resolution ceiling and bakes heat; render cost is the real signal
+  // of whether this GPU can afford the current drawing buffer.
+  // Split play renders the frame twice inside one rAF budget, so its view
+  // count scales the governor thresholds; without it both halves would be
+  // shaved soft as if the device were slow.
+  stage.updatePerf(performance.now() - renderStart, splitFrame ? 2 : 1);
   if (perfOverlayEl) {
     const stats = stage.stats();
     const fps = 1000 / Math.max(1, Number(stats.frameMs));
@@ -3401,7 +3408,7 @@ function handleVisibility(hidden: boolean): void {
       if (!HARNESS) loop.stop();
     } else if (!HARNESS) {
       loop.start();
-      requestAnimationFrame(() => render(16.7));
+      requestAnimationFrame(() => render());
     }
     return;
   }
@@ -3433,7 +3440,7 @@ function handleVisibility(hidden: boolean): void {
   interruptionActive = true;
   hud.showInterruption(interruptionNeedsCountdown);
   startInterruptionPadPoll();
-  if (!HARNESS) requestAnimationFrame(() => render(16.7));
+  if (!HARNESS) requestAnimationFrame(() => render());
 }
 
 document.addEventListener('visibilitychange', () => handleVisibility(document.hidden));
@@ -5873,7 +5880,7 @@ function runDuoGuidanceCase(): Record<string, unknown> {
   const timelineSteps = Math.round(0.62 * 60);
   for (let stepIndex = 0; stepIndex < timelineSteps; stepIndex++) {
     loop.advance(1 / 60);
-    render(16.7);
+    render();
     const sample = [course.guidanceStatusFor(0), course.guidanceStatusFor(1)];
     visibilityTimeline.push({
       phases: boats.slice(0, 2).map((boat) => boat.state.flightPhase),
@@ -5888,7 +5895,7 @@ function runDuoGuidanceCase(): Record<string, unknown> {
   for (let id = 0; id < 2; id++) boats[id].state.flightsCleared = course.flightRoutes.length;
   course.armFinalStation();
   loop.advance(1 / 60);
-  render(16.7);
+  render();
   const finalArmedRight = course.guidanceStatusFor(1);
   const finalArmedRightFlight = {
     phase: boats[1].state.flightPhase,
@@ -5962,7 +5969,7 @@ function runDuoGuidanceCase(): Record<string, unknown> {
   };
   harnessBoatInputOverrides[0] = null;
   harnessBoatInputOverrides[1] = null;
-  render(16.7);
+  render();
   return {
     afterTrigger,
     phases: flightPhases,
@@ -6136,7 +6143,7 @@ if (HARNESS) {
     ready: true,
     scenario,
     advance: (seconds) => loop.advance(seconds),
-    render: () => render(16.7),
+    render: () => render(),
     tapFlight: tapHarnessFlight,
     setFlightCharges: (charges) => {
       boats[0].state.flightCharges = Math.max(0, Math.min(MAX_FLIGHT_CHARGES, Math.round(charges)));

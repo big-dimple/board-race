@@ -10,8 +10,10 @@
  * `present = true`, so per-frame work (riders, ocean, HUD, audio buses) runs
  * once per render instead of once per catch-up step — at 30 fps that halves
  * presentation cost. Physics and edge-triggered gameplay events stay in every
- * step. `advance()` marks every step present so harness screenshots keep
- * their deterministic per-step presentation.
+ * step. A tick that ran no step presents nothing new (the sim is 60 Hz), so
+ * the render is skipped and high-refresh displays pace at ~60 fps instead of
+ * re-drawing identical frames. `advance()` marks every step present so harness
+ * screenshots keep their deterministic per-step presentation.
  */
 
 export const SIM_DT = 1 / 60;
@@ -26,16 +28,19 @@ export class Loop {
   private lastNow = 0;
   private rafId = 0;
   private running = false;
+  /** Timestamp of the last presented frame; drives the render gate below. */
+  private lastRenderAt = 0;
 
   constructor(
     private readonly step: (dt: number, simTime: number, present: boolean) => void,
-    private readonly render: (frameMs: number) => void,
+    private readonly render: () => void,
   ) {}
 
   start(): void {
     if (this.running) return;
     this.running = true;
     this.lastNow = performance.now();
+    this.lastRenderAt = this.lastNow;
     const tick = (now: number) => {
       if (!this.running) return;
       this.rafId = requestAnimationFrame(tick);
@@ -53,7 +58,15 @@ export class Loop {
       }
       if (steps === MAX_STEPS) this.accumulator = 0;
       this.stepsLastFrame = steps;
-      this.render(frameMs);
+      // The sim is 60 Hz fixed-step, so a tick that ran no step has nothing new
+      // to show: presenting it again only burns GPU (on 120 Hz phone displays
+      // this cap halves sustained load — the heat source — while every visible
+      // frame stays identical). Early-return phases (pause, overlays) still
+      // step, so the stale-present escape hatch almost never fires.
+      if (steps > 0 || now - this.lastRenderAt >= 48) {
+        this.lastRenderAt = now;
+        this.render();
+      }
     };
     this.rafId = requestAnimationFrame(tick);
   }

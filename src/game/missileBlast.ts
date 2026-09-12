@@ -95,6 +95,26 @@ export class MissileBlastPool {
     }
   }
 
+  /** Upload every blast material before the first race, not on the first explosion. */
+  warmup(renderer: THREE.WebGLRenderer): void {
+    const scene = new THREE.Scene();
+    const preview = this.object.clone(true);
+    preview.traverse((child) => { child.visible = true; child.frustumCulled = false; });
+    scene.add(preview);
+    const target = new THREE.WebGLRenderTarget(32, 32);
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0, 6, 16);
+    camera.lookAt(0, 0, 0);
+    const previous = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+    } finally {
+      renderer.setRenderTarget(previous);
+      target.dispose();
+    }
+  }
+
   /** Oldest-free slot wins; overlapping launches are bounded by the pool size. */
   spawn(x: number, y: number, z: number): void {
     let target = this.blasts[0];

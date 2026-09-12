@@ -304,7 +304,11 @@
 - 移动端（coarse pointer / maxTouchPoints / `?mobile`）默认 `performance` 画质档，`?quality=` 可强制
   覆盖；手机渲染下限恒为 1.0×（不低于 CSS 分辨率，performance 档不例外），弱机由 severe 快速降档
   兜底、50fps 上下的中端机不被 mild 降档误剃。调速器降档快（severe 立即大步降）、升档 AIMD（持续满帧才升、
-  每次降档后升步减半防振荡），performance 档起步 1.5、天花板 2.0。
+  每次降档后升步减半防振荡），performance 档起步 1.5、天花板 2.0。调速器输入是实测渲染耗时而不是 rAF
+  间隔——120Hz 屏上间隔恒为 ~8ms 会虚假判优，把分辨率和帧率同时顶满造成发热；呈现帧率与 60Hz
+  fixed-step 对齐封顶，没有跑 sim step 的 rAF tick 不重绘（高刷屏约 60fps 呈现，画面逐帧不变），
+  升降档带长冷却防抖档，任何一次换挡都会重建整套 render target。短时效果池（如爆炸池）必须在开局
+  离屏预热材质，不许首次使用时当场编译 shader。
 - 视觉质量由桌面与 `844x390` 截图和人工评审决定。draw call、活跃实例、像素和帧时只证明
   资源/性能，不证明“好看”；也不使用 shader 字符串或固定像素差作为审美门禁。
 

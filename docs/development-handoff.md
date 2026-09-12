@@ -1,30 +1,30 @@
 # Board Race 开发交接
 
-状态：导弹直击爆炸反馈 + 爆炸音效重做 + iOS 转向箭头修复已随本提交发版；人工真机复核 pending。
+状态：手机发热 + 偶发卡顿根治（呈现封顶 / 调速器信号 / 防抖档 / 爆炸池预热）已发版；真机复测 pending。
 
-## 上一工作包（已发版 `a912d2e`）
+## 上一工作包（已发版 `486719c`）
 
-- 导弹脱靶爆炸反馈 + 双打 PC 标注已发版；Tide 五官与全角色开场头脸修正已发版。
+- 导弹直击水面爆炸 + 炸飞表现、五声部爆炸音效、iOS 转向 chevron 修复已发版；人工真机复核 pending。
 
 ## 当前工作包（本提交）
 
-- 导弹直击命中（单人吃弹/借刀炸人 `singlePlayerMissiles.ts` impact 分支、双打背刺 `prank-impact`）
-  在命中点水面引爆预分配爆炸池 `missileBlast.ts`，落点采样 `waterHeight` 坐在真实浪面上；船从
-  水波里被炸飞（`applyScudHit` 弹跳翻滚保留、水柱 80/20 → 110/26 与脱靶冲击同级）。
-- 爆炸音效 `audio.explosion()` 从 3 声部扩为 5 声部：次低音下坠 + 失谐 saw 中频主体（手机可闻）
-  + 更亮更长的 crack 瞬态 + 带通火球轰声（原 900→220 低通是"闷"的根源）+ 延迟回声尾；直击
-  `impact` 音频从 `thud` 换成 `explosion()`。
-- iPhone 12 转向箭头退化（iOS 把 `‹`/`›` 渲染成细线）修复：`mobile-controls` 左右键的空 `<b>`
-  改用边框旋转画 CSS chevron（`drop-shadow` 还原墨边），不再依赖字体字形。
-- Owner：`singlePlayerMissiles.ts`、`boat.ts`、`audio.ts`、`main.ts`、`mobileControls.ts/css`、
-  llmwiki 合同句、handoff。
+- 根因：60Hz fixed-step 模拟但每个 rAF tick 都重绘，120Hz 屏（一加 15）GPU 顶着最高 120fps 跑
+  三趟场景渲染 + 后处理；调速器以 rAF 间隔（120Hz 下恒 ~8ms）为输入永远判优，分辨率顶着 9/7 提高的
+  上限（起步 1.5、AIMD 爬向 2.0），双满载导致发烫。
+- 偶发卡顿：换挡时 `applySize()` 重建整套 render target（composer、prepass、energy bloom 链）
+  造成单帧尖刺，热节流边界上来回抖档；新加的 `MissileBlastPool` 无开机预热，首次爆炸当场编译 shader。
+- 改造：`Loop` 呈现门控——无 sim step 的 tick 不重绘（120Hz 屏约 60fps 呈现，画面逐帧不变）；
+  `render()` 改以实测渲染耗时喂调速器；调速器升档冷却 3s / 降档 1.5s、mild 证明窗 0.9s 防抖档；
+  `MissileBlastPool.warmup()` 开局离屏预热（模式同导弹本体）。
+- Owner：`core/loop.ts`、`main.ts`（render 计时 + 预热调用）、`core/stage.ts`、`game/missileBlast.ts`、
+  llmwiki 渲染合同句、handoff。
 
 ## 验证与证据
 
-- build / smoke / audio 全绿（smoke 中 `solo-missile-blast` 爆炸池生命周期合同不变）。
-- 截图：`shots/missile-hit/`（直击爆炸瞬间，桌面 + `844x390`）、`shots/mobile-review/`（移动端
-  转向 chevron 特写）；人工复核 pending。
+- build / smoke 全绿（governor 合同 soloFloor≥1、goodClimb>start 与爆炸池生命周期用例不变）。
+- 截图：`shots/perf-after/`（桌面 + `844x390` 复核画面非空无回归）；真机一加 15 复测 pending。
 
 ## 唯一下一步
 
-用户真机复核：iPhone 12 转向箭头形状、导弹直击的炸浪 + 炸飞表现、新爆炸音效听感。
+用户真机复核：一加 15 长局发热是否明显缓解、比赛中是否还有闪现卡顿（可开 `?debug=perf` 看
+渲染 ms 与 pr 是否稳定）。
