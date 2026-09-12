@@ -964,7 +964,14 @@ function buildBoatVisual(id: number, color: number): {
     specColor: PALETTE.sparkle,
     specThreshold: 0.72,
   });
-  const inkMat = createToonMaterial({ color: PALETTE.ink, rimColor: PALETTE.foam, rimStrength: 0.5 });
+  // Cockpit tub / seat base / jet mechanics read as a navy mechanical mass,
+  // not a black void: PALETTE.ink crushed to a featureless lake under the
+  // toon shadow band on phone-sized buffers (the "black butt mass" behind
+  // the rider), especially once the steering flaps expose more of it. The
+  // lifted shadow floor + stronger rim keep the tub separated from the
+  // rider's dark shorts at chase distance.
+  const inkMat = createToonMaterial({ color: 0x323d63, rimColor: PALETTE.foam, rimStrength: 0.95 });
+  inkMat.uniforms.uShadowFloor.value.setHex(0x2e3152, THREE.NoColorSpace);
   const foamMat = createToonMaterial({
     color: PALETTE.foam,
     rimColor: PALETTE.sparkle,

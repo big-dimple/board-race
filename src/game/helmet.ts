@@ -342,85 +342,90 @@ const VISOR_TINTS: Record<string, number> = {
 };
 
 // ---------------------------------------------------------- shell specs ----
+// Crown profiles follow real full-face references (Shoei X-Fourteen /
+// AGV Pista GP / Bell Moto): a WIDE top ring closed by a near-flat cap fan —
+// the highest point sits mid-shell and eases into the nape. A pinched top
+// ring + tall cap reads as a pointy egg, which is exactly what we shipped
+// first and users called ugly; real helmets round off long before the apex.
 
 interface HelmetSpec {
   rings: LoftRing[];
-  apex: number; // crown cap height
+  apex: number; // crown cap fan center height, just above the top ring
 }
 
 const RIM_Y = -0.034;
 
 const HELMET_SPECS: Record<HelmetStyle, HelmetSpec> = {
-  // Small round classic: generous dome, no hard edges.
+  // Small round classic: symmetric dome.
   round: {
-    apex: 0.288,
+    apex: 0.244,
     rings: [
       { y: RIM_Y, z: -0.004, hw: 0.112, hd: 0.12 },
       { y: 0.03, z: -0.002, hw: 0.13, hd: 0.136 },
       { y: 0.1, z: -0.004, hw: 0.136, hd: 0.138 },
-      { y: 0.17, z: -0.01, hw: 0.118, hd: 0.12 },
-      { y: 0.225, z: -0.018, hw: 0.076, hd: 0.082 },
-      { y: 0.26, z: -0.022, hw: 0.034, hd: 0.04 },
+      { y: 0.16, z: -0.01, hw: 0.122, hd: 0.124 },
+      { y: 0.205, z: -0.016, hw: 0.092, hd: 0.096 },
+      { y: 0.228, z: -0.02, hw: 0.052, hd: 0.058 },
     ],
   },
-  // Slim teardrop: pulled-in cheeks, nape pushed back for the gurney flaps.
+  // Slim teardrop: crown biased slightly aft for the gurney flaps.
   tailwing: {
-    apex: 0.274,
+    apex: 0.238,
     rings: [
       { y: RIM_Y, z: -0.018, hw: 0.108, hd: 0.124 },
       { y: 0.03, z: -0.014, hw: 0.124, hd: 0.132 },
       { y: 0.1, z: -0.012, hw: 0.13, hd: 0.128 },
-      { y: 0.17, z: -0.024, hw: 0.11, hd: 0.106 },
-      { y: 0.225, z: -0.036, hw: 0.068, hd: 0.066 },
-      { y: 0.256, z: -0.042, hw: 0.03, hd: 0.032 },
+      { y: 0.16, z: -0.022, hw: 0.114, hd: 0.11 },
+      { y: 0.2, z: -0.032, hw: 0.084, hd: 0.082 },
+      { y: 0.222, z: -0.038, hw: 0.048, hd: 0.05 },
     ],
   },
-  // Off-road: taller crown, nape kicked up for the ducktail.
+  // Off-road: taller MX crown, still a rounded dome.
   brim: {
-    apex: 0.302,
+    apex: 0.252,
     rings: [
       { y: RIM_Y, z: -0.006, hw: 0.114, hd: 0.122 },
       { y: 0.03, z: -0.004, hw: 0.132, hd: 0.136 },
       { y: 0.1, z: -0.006, hw: 0.138, hd: 0.136 },
-      { y: 0.17, z: -0.016, hw: 0.122, hd: 0.114 },
-      { y: 0.23, z: -0.026, hw: 0.086, hd: 0.08 },
-      { y: 0.268, z: -0.032, hw: 0.042, hd: 0.042 },
+      { y: 0.16, z: -0.014, hw: 0.126, hd: 0.12 },
+      { y: 0.21, z: -0.022, hw: 0.096, hd: 0.092 },
+      { y: 0.234, z: -0.027, hw: 0.054, hd: 0.056 },
     ],
   },
-  // Chiseled: flatter sides, squarer crown; armor blades sell the facets.
+  // Chiseled: flatter crown; the ridge plates carry the top line.
   angular: {
-    apex: 0.28,
+    apex: 0.236,
     rings: [
       { y: RIM_Y, z: -0.004, hw: 0.118, hd: 0.118 },
       { y: 0.03, z: -0.004, hw: 0.134, hd: 0.128 },
       { y: 0.1, z: -0.008, hw: 0.132, hd: 0.124 },
-      { y: 0.17, z: -0.018, hw: 0.112, hd: 0.104 },
-      { y: 0.225, z: -0.026, hw: 0.07, hd: 0.066 },
-      { y: 0.258, z: -0.03, hw: 0.032, hd: 0.032 },
+      { y: 0.155, z: -0.016, hw: 0.118, hd: 0.11 },
+      { y: 0.198, z: -0.022, hw: 0.088, hd: 0.084 },
+      { y: 0.22, z: -0.026, hw: 0.052, hd: 0.052 },
     ],
   },
-  // Long droplet dorsal tail: crown runs straight back into a low tail cone.
+  // Long droplet dorsal tail: crown runs into the low tail cone.
   aerotail: {
-    apex: 0.262,
+    apex: 0.224,
     rings: [
       { y: RIM_Y, z: -0.008, hw: 0.11, hd: 0.12 },
       { y: 0.03, z: -0.008, hw: 0.126, hd: 0.132 },
       { y: 0.1, z: -0.014, hw: 0.13, hd: 0.126 },
-      { y: 0.17, z: -0.032, hw: 0.106, hd: 0.096 },
-      { y: 0.22, z: -0.058, hw: 0.064, hd: 0.056 },
-      { y: 0.244, z: -0.082, hw: 0.03, hd: 0.026 },
+      { y: 0.15, z: -0.028, hw: 0.108, hd: 0.1 },
+      { y: 0.188, z: -0.048, hw: 0.08, hd: 0.07 },
+      { y: 0.208, z: -0.062, hw: 0.046, hd: 0.04 },
     ],
   },
   // Slash-cut crown, asymmetric fins added as plates below.
   twinfin: {
-    apex: 0.284,
+    apex: 0.242,
     rings: [
       { y: RIM_Y, z: -0.004, hw: 0.114, hd: 0.12 },
       { y: 0.03, z: -0.002, hw: 0.13, hd: 0.134 },
       { y: 0.1, z: -0.006, hw: 0.136, hd: 0.132 },
-      { y: 0.17, z: -0.014, hw: 0.116, hd: 0.112 },
-      { y: 0.225, z: -0.022, hw: 0.072, hd: 0.072 },
-      { y: 0.258, z: -0.026, hw: 0.034, hd: 0.036 },
+      { y: 0.16, z: -0.012, hw: 0.118, hd: 0.114 },
+      { y: 0.203, z: -0.018, hw: 0.086, hd: 0.086 },
+      { y: 0.226, z: -0.022, hw: 0.05, hd: 0.054 },
     ],
   },
 };
@@ -448,7 +453,7 @@ function buildHelmetGeometry(style: HelmetStyle, driverId: string, color: number
     const rear = Math.PI - theta;
     const side = Math.abs(theta - Math.PI * 0.5);
     if (point.y < -0.012) return Paint.Ink;                        // rim band
-    if (point.y > 0.235) return Paint.Secondary;                    // crown tip
+    if (point.y > spec.apex - 0.035) return Paint.Secondary;        // crown tip
     if (rear < 0.34 && point.y > 0.02) return Paint.Secondary;      // rear spine stripe
     if (side < 0.3 && point.y > 0.0 && point.y < 0.19) return Paint.Secondary; // temple stripes
     return Paint.Primary;
@@ -490,7 +495,7 @@ function buildHelmetGeometry(style: HelmetStyle, driverId: string, color: number
       // Chiseled tech: crown blade ridge, ink nape panel and a pair of
       // swept-back temple blades — edges live on the back half, the face
       // stays one clean visor.
-      plate(Paint.Secondary, [0, 0.268, -0.02], [0.042, 0.026, 0.1, 0.11], [-0.1, 0, 0]);
+      plate(Paint.Secondary, [0, 0.198, -0.024], [0.042, 0.026, 0.1, 0.11], [-0.1, 0, 0]);
       plate(Paint.Ink, [0, 0.1, -0.15], [0.12, 0.09, 0.07, 0.02], [-0.2, 0, 0]);
       plate(Paint.Metal, [0.118, 0.15, -0.055], [0.032, 0.02, 0.09, 0.045], [0.06, 0.5, -0.12]);
       plate(Paint.Metal, [-0.118, 0.15, -0.055], [0.032, 0.02, 0.09, 0.045], [0.06, -0.5, 0.12]);
@@ -506,7 +511,7 @@ function buildHelmetGeometry(style: HelmetStyle, driverId: string, color: number
       // Asymmetric fins: tall right, short left — the messy gambler signature.
       plate(Paint.Secondary, [0.128, 0.128, -0.048], [0.05, 0.022, 0.15, 0.075], [-0.12, 0.1, -0.3]);
       plate(Paint.Secondary, [-0.12, 0.108, -0.04], [0.04, 0.018, 0.09, 0.06], [-0.1, -0.08, 0.34]);
-      plate(Paint.Ink, [0.01, 0.262, -0.015], [0.055, 0.03, 0.03, 0.07], [-0.08, 0, -0.22]);
+      plate(Paint.Ink, [0.01, 0.228, -0.018], [0.055, 0.03, 0.03, 0.07], [-0.08, 0, -0.22]);
       break;
     }
   }
