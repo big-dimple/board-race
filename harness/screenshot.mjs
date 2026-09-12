@@ -502,16 +502,19 @@ async function verifyMode(browser, mobile) {
   opened = await openHarness(browser, mobile);
   ({ context, page } = opened);
 
-  for (const [driver, style, minimumBones] of [['tide', 'bob', 4], ['sol', 'ponytail', 6]]) {
+  // Helmet identity contract: switching drivers rebuilds the rigid helmet on
+  // the head bone (no skinned hair rig exists to lose), and every one of the
+  // six silhouettes stays distinct.
+  for (const [driver, style] of [['tide', 'tailwing'], ['sol', 'brim'], ['reef', 'angular']]) {
     await page.evaluate((id) => window.__harness.selectDriver(id), driver);
-    const hair = await page.evaluate(() => window.__harness.riderHairState());
-    assert.equal(hair.style, style, `${label}: ${driver} hair style was overridden by the initial rider mesh`);
-    assert.ok(hair.visible && hair.boneNames.length >= minimumBones,
-      `${label}: ${driver} hair accessory lost its independent rig: ${JSON.stringify(hair)}`);
+    const helmet = await page.evaluate(() => window.__harness.riderHelmetState());
+    assert.equal(helmet.style, style, `${label}: ${driver} helmet style was overridden by the initial rider mesh`);
+    assert.ok(helmet.visible && helmet.rigid && helmet.shellVertices > 0 && helmet.visorVertices > 0,
+      `${label}: ${driver} rigid helmet lost its head-bone mount: ${JSON.stringify(helmet)}`);
   }
 
   // Each smoke mode starts from a fresh context, so restore the baseline
-  // profile after proving the two long-hair replacement paths.
+  // profile after proving the helmet replacement paths.
   await page.evaluate(() => window.__harness.selectDriver('axle'));
 
   // The broadcast animation is the full 5.65 s slide-in/hold/slide-out

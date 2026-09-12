@@ -190,8 +190,6 @@
 
 ## HUD 与电台
 
-- Tide (`driverId: tide`) additionally uses Blender-authored `src/assets/models/tide.glb` head and bob hair. `TideHead` applies bounded 120 Hz gravity, airflow, and head/shoulder collision presentation; load failure falls back to the procedural rider without changing physics or transforms.
-
 - 单人导弹是“赛事领跑挑战”：第 2 至第 7 个水面检查点领跑者通过后，1 秒仍领先则发射。单人锁定保留渐变聚光锥和旋转勾丝，使用预分配几何、帧级更新及开局离屏预热；不创建公告牌 Canvas。右上角使用一次绘制的导弹图和点火动画，不重绘赛道。双人淘汰席的 PC 导弹追拍与原锁定表现独立保留。
 - 导弹被规避（单人凌空/漂移诱爆、双打背刺豁免）必须在脱靶点水面上呈现爆炸：预分配爆炸池
   （火球+烟团+水面冲击环，`missileBlast.ts`）配爆炸音效（`audio.explosion()`），物理冲击仍走
@@ -204,7 +202,7 @@
 - READY 选角标题固定为 `别懵逼，选最强`。模式目录只显示 `单人` 和 `双打`；双打入口固定带
   `PC 双打` 标注，触屏主设备（coarse pointer）点双打只提示需要键盘/手柄，不进入左右入座；
   双打先显示左右入座，再显示两张大幅选手卡。开场身份牌显示中文玩梗名；两位女选手还显示
-  `女将` 标签，3D 追拍分别以青色发梢 bob 和高马尾维持与立绘一致的远景辨识。
+  `女将` 标签，3D 追拍分别以尾翼导流盔（青）与越野帽檐盔（橙金）维持与立绘一致的远景辨识。
 - Race radio 是一个 `RadioDirector` 单槽，危险和动作指导优先。高优先级出现时阅读时钟暂停，
   active notice 的 DOM、revision、`.on` 和 CSS 动画位置保持不变，仅隐藏并暂停；解除阻断后
   继续同一次呈现和剩余阅读时间，不能重跑入场或叠多个 timer。
@@ -272,7 +270,7 @@
   主读形；左右 Kelvin 肩浪只用错相的短程断续节拍补充，不能叠亮中央或读成连续双轨。
   落水水花必须来自真实接触事件并在退场后归零。
 - 船体、车手、路线和特效不能制造第二套 world transform。当前六材质批船体（shell、safety、mechanical、flight、reactor、decals）、16 骨骼
-  SkinnedMesh 车手、共享材质、实例化和 typed-array 池是已知性能基线，不是禁止重构的美术规格。
+  SkinnedMesh 车手身体（头部本体不在蒙皮内：是硬绑在 head 骨骼上的刚性封闭头盔）、共享材质、实例化和 typed-array 池是已知性能基线，不是禁止重构的美术规格。
 - 左右主动尾翼是船体子节点上的纯表现层，不改变 `BoatInput`、操控或碰撞。它必须读取当前固定步的
   实际转向值，漂移和飞行空刹分别提供夸张但不穿模的共模抬升与左右差动，松手由欠阻尼二阶弹簧回摆；
   `teleport()` / 重开必须同时清零翼面角度、速度和目标。动态验收必须走真实漂移、飞行空刹与转向
@@ -284,14 +282,15 @@
   夜间深海生物荧光，以及赛道与金币的 `EMISSIVE_FLOOR` 自发光保底。它不注册路线、
   AI 或碰撞所有权；低矮岩礁只承担轮廓落点与导弹静态发射架基底，不能扩成岛屿或港口。
 - 固体描边预渲染通过 `markInk(root)` 管理：递归遍历遇 `userData.noInk === true` 节点对该子树统一 `disable(LAYER_INK)` 并剪枝返回；
-  排除墨水预渲染的对象（如发光反应堆批次、Face Patch、贴纸等）需前置声明 `userData.noInk = true`、`userData.noOutline = true` 并确保 `layers.set(0)`。
-- 车手发型是独立的、按选手风格替换的骨骼蒙皮附件；切换车手（含同发型互选）必须按
-  `driverId` 重建对应骨架和轮廓，不能被初始短发网格或圆帽式头部覆盖。
-- 车手脸部是 Face Patch（头骨骼下的羽化贴片，不参与描边/墨水），贴图直接裁自
-  `src/assets/drivers/*.webp` 官方立绘（`riderMesh.ts` 的 `PORTRAIT_FACE` 裁切表：
-  发际线→下巴、双眼轴居中）；换立绘素材必须同步核对该裁切框，不得退回程序绘制仿脸。
-  非 GLB 角色的贴片沿 `HEAD_PROFILE` 头骨轮廓贴合，发壳在太阳穴处让出眼睛与面颊；
-  Tide 的 GLB 使用立绘近侧眼形对称投射，避免把远侧眼透视再次叠加到三维侧视上。
+  排除墨水预渲染的对象（如发光反应堆批次、贴纸等）需前置声明 `userData.noInk = true`、`userData.noOutline = true` 并确保 `layers.set(0)`。
+- 车手头部是封闭头盔（`helmet.ts`）：刚性网格直接挂载 `head` 骨骼（硬绑定，不走蒙皮、无每帧
+  头饰计算），纯外壳 + 反光面罩（烟熏底低阈值 Blinn 高光带），无面部五官、无发型骨骼、无
+  弹簧骨，Tide GLB 已删除。六款轮廓按 `driverId` 区分——axle 圆润、tide 尾翼导流、
+  sol 越野帽檐、reef 棱角科技、kai 空力尾椎、jinx 非对称双鳍；竞速追拍视角以后脑勺与侧面
+  轮廓为准，不得退化成同款换色。切换车手（含互选）必须按 `driverId` 重建对应款式。涂装为
+  高饱和队色主漆 + 高对比沫白/墨蓝细节，后部条纹越过盔顶延伸至后脑勺；六盔共享两份材质
+  （壳/面罩），顶点色做涂装通道，壳体带预留的规范化 UV0（u=环向、v=纵向）供未来图集合批。
+  立绘只用于 READY/HUD 卡片，不进 3D。
 - Sobel 内部描边是近场设备:按视深淡出(远处剪影归反壳描边),法线阈值只放行硬折边,
   平滑小圆柱(四肢、细件)不得整体吃墨——远景小物体被内部描边整涂曾把车手压成黑团。
 - 同 transform 且同生命周期的静态件优先按材质合并；重复几何优先实例化。独立动画、蒙皮、

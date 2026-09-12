@@ -41,8 +41,6 @@ import { SplitScreenRenderer } from './core/splitScreenRenderer';
 import { Boat } from './game/boat';
 import { JetTrailSystem } from './game/jetTrail';
 import { Rider } from './game/rider';
-import { loadTideHead } from './game/tideHead';
-import { getFaceTextureCacheSize } from './game/riderMesh';
 import { CHECKPOINT_US, Course, GRID_SLOTS, SURFACE_ROUTE_FAIL_DISTANCE_M } from './game/course';
 import {
   buildRaceRoster,
@@ -135,7 +133,6 @@ let appMode: AppMode = 'front-door';
 
 // ------------------------------------------------------------ construction
 const app = document.getElementById('app')!;
-await loadTideHead();
 const stage = new Stage(app, resolveQualityMode(params.get('quality'), MOBILE_DEVICE));
 const prePass = new PrePass(4, 4);
 
@@ -1583,7 +1580,6 @@ function updateFrozenPresentation(dt: number, phase = race.phase, finalPresentat
 }
 
 function resetRace(): void {
-  for (const rider of riders) rider.resetHair();
   harnessCameraOverride = null;
   freshStartPending = false;
   openingShowcase.stop();
@@ -2763,7 +2759,6 @@ function step(dt: number, _t: number, present: boolean): void {
       rivalControl.flightTargetScale,
       wakes,
     );
-    riders[i].collectHairLanding(boats[i].state.landImpulse);
     if (i === 0) harnessFlightTriggerPulse = false;
   }
 
@@ -3502,11 +3497,9 @@ interface Harness {
   buoyCase(): Record<string, number | boolean>;
   honorTargetCase(): Record<string, number | string | boolean>;
   riderPoseState(): ReturnType<Rider['poseDebug']>;
-  riderHairState(): ReturnType<Rider['hairDebug']>;
-  riderAssetState(): ReturnType<Rider['assetDebug']>;
+  riderHelmetState(): ReturnType<Rider['helmetDebug']>;
   flapCase(): Record<string, unknown>;
   lighthouseState(): ReturnType<LighthouseLandmark['debugState']>;
-  faceState(): { active: number; withFaceMesh: number; cacheSize: number };
   sprayState(): {
     spray: ReturnType<SpraySystem['debugState']>;
     boat: ReturnType<Boat['landingDebug']>;
@@ -4936,19 +4929,19 @@ function getRiderFaceTarget(): THREE.Object3D {
 }
 
 function prepareHarnessRiderInspection(): THREE.Object3D {
-  const legacyCount = riders.filter((rider) => rider.assetDebug().source === 'procedural').length;
-  if (riders.some((rider) => !rider.faceDebug().hasFaceMesh) || getFaceTextureCacheSize() !== legacyCount) {
-    throw new Error('rider inspection requires one cached Face Patch per active rider');
+  // Every active rider wears a rigid helmet hard-bound to the head bone, and
+  // the selected driver's helmet style must match the profile (switching
+  // drivers rebuilds the helmet, never the body).
+  const selectedLook = driverProfile(selectedDriverId).look;
+  for (const rider of riders) {
+    const helmet = rider.helmetDebug();
+    if (!helmet.rigid || !helmet.visible || helmet.shellVertices === 0) {
+      throw new Error(`rider inspection requires a rigid helmet on every rider: ${JSON.stringify(helmet)}`);
+    }
   }
-  const hair = riders[0].hairDebug();
-  const look = driverProfile(selectedDriverId).look;
-  const styleBones = look.hairStyle === 'ponytail'
-    ? ['braid-tie', 'braid-1', 'braid-2', 'braid-3', 'braid-4']
-    : riders[0].assetDebug().source === 'tide.glb' ? ['fringe-a', 'left-a', 'right-a', 'back-a']
-    : look.hairStyle === 'bob' ? ['bob-back', 'bob-left', 'bob-right'] : ['hair-root'];
-  if (hair.style !== look.hairStyle || !hair.visible ||
-      styleBones.some((name) => !hair.boneNames.includes(name))) {
-    throw new Error(`rider inspection lost the ${selectedDriverId} hair rig: ${JSON.stringify(hair)}`);
+  const helmet = riders[0].helmetDebug();
+  if (helmet.driverId !== selectedLook.driverId) {
+    throw new Error(`rider inspection lost the ${selectedDriverId} helmet: ${JSON.stringify(helmet)}`);
   }
   placeHarnessBoat(0, 0.22, 0);
   boats[0].syncSurfacePresentation(worldTime);
@@ -6173,23 +6166,9 @@ if (HARNESS) {
     buoyCase: runBuoyCase,
     honorTargetCase: runHonorTargetCase,
     riderPoseState: () => riders[0].poseDebug(),
-    riderHairState: () => riders[0].hairDebug(),
-    riderAssetState: () => riders[0].assetDebug(),
+    riderHelmetState: () => riders[0].helmetDebug(),
     flapCase: runFlapCase,
     lighthouseState: () => lighthouse.debugState(),
-    faceState: () => {
-      let active = 0;
-      let withFaceMesh = 0;
-      for (const rider of riders) {
-        active++;
-        if (rider.faceDebug().hasFaceMesh) withFaceMesh++;
-      }
-      return {
-        active,
-        withFaceMesh,
-        cacheSize: getFaceTextureCacheSize(),
-      };
-    },
     sprayState: () => ({
       spray: spray.debugState(),
       boat: boats[0].landingDebug(),

@@ -18,7 +18,6 @@
     "release:checked": "bash scripts/release-checked.sh"
   },
   "dependencies": {
-    "@pixiv/three-vrm-springbone": "3.5.5",
     "three": "^0.185.1"
   },
   "devDependencies": {

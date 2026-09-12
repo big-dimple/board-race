@@ -12,6 +12,10 @@
  *   - idle breathing + secondary motion lagging the boat's pitch/roll
  *   - taunt: a square head turn at an alongside rival, no raised arm
  *
+ * The head carries a rigid closed helmet (helmet.ts) hard-bound to the head
+ * bone — no facial features, no hair rig, no spring bones, zero per-frame
+ * head-accessory math.
+ *
  * There is deliberately no victory animation. Every looping arm pump read as a
  * mechanical puppet on the frozen finish frame, so the rider stays on the grips
  * and the moment is carried by the camera and the HUD instead.
@@ -25,14 +29,12 @@ import { LAYER_INK, RIDER_GRIP_LOCAL, markInk, type BoatState } from '../contrac
 import { addOutline } from '../cel/outline';
 import {
   buildSkinnedRider,
-  disposeRiderSkin,
-  updateHairAccessory,
   updateSkinnedRiderLook,
   type RiderBones,
   type RiderLook,
   type RiderSkin,
 } from './riderMesh';
-import { hasTideHead, TideHead } from './tideHead';
+import { helmetDebugInfo, type HelmetStyle } from './helmet';
 
 // ------------------------------------------------------------- tuning ----
 // Every number a polish pass might want to touch lives here. Angles in
@@ -141,9 +143,12 @@ export interface RiderPoseDebug {
   right: { handGrip: number; elbowAngle: number; elbowForward: number; elbowOut: number };
 }
 
-export interface RiderHairDebug {
-  style: RiderLook['hairStyle'];
-  boneNames: string[];
+export interface RiderHelmetDebug {
+  driverId: string;
+  style: HelmetStyle | '';
+  rigid: boolean;
+  shellVertices: number;
+  visorVertices: number;
   visible: boolean;
 }
 
@@ -153,9 +158,7 @@ export class Rider {
   private readonly j: Rig;
   private readonly hipsBaseY: number;
   private skin: RiderSkin;
-  private authoredHead: TideHead | null;
   private readonly detailedInk: boolean;
-  private readonly flow = new THREE.Vector3();
 
   // Animation state (scalar springs).
   private readonly leanS = new Spring();
@@ -232,56 +235,23 @@ export class Rider {
     root.updateWorldMatrix(true, true);
     this.solveArm(1, shoulderL, elbowL, handL, RIDER_GRIP_LOCAL.left, 0);
     this.solveArm(-1, shoulderR, elbowR, handR, RIDER_GRIP_LOCAL.right, 0);
-    const authored = hasTideHead(opts.look.driverId);
-    this.skin = buildSkinnedRider(root, this.j, opts.color, this.detailedInk, opts.look, authored);
-    this.authoredHead = authored ? new TideHead(head, chest) : null;
+    this.skin = buildSkinnedRider(root, this.j, opts.color, this.detailedInk, opts.look);
     if (opts.detailedInk !== false) {
       addOutline(root);
       markInk(root);
     } else {
       this.skin.mesh.layers.enable(LAYER_INK);
-      this.skin.hair?.mesh.layers.enable(LAYER_INK);
-      if (this.authoredHead) markInk(this.authoredHead.object);
+      this.skin.helmet?.shell.layers.enable(LAYER_INK);
     }
   }
 
   setColor(color: number, look: RiderLook): void {
-    const authored = hasTideHead(look.driverId);
-    if (authored !== Boolean(this.authoredHead)) {
-      this.authoredHead?.dispose();
-      disposeRiderSkin(this.skin);
-      this.object.updateWorldMatrix(true, true);
-      this.skin = buildSkinnedRider(this.object, this.j, color, this.detailedInk, look, authored);
-      this.authoredHead = authored ? new TideHead(this.j.head, this.j.chest) : null;
-      if (this.detailedInk) addOutline(this.object);
-      markInk(this.object);
-      return;
-    }
     updateSkinnedRiderLook(this.skin, color, look);
   }
 
-  headAnchor(): THREE.Bone { return this.j.head; }
-
-  resetHair(): void { this.authoredHead?.reset(); }
-
-  collectHairLanding(impulse: number): void { this.authoredHead?.collectLanding(impulse); }
-
-  assetDebug() { return this.authoredHead?.debug() ?? { source: 'procedural', dynamicJoints: 0 }; }
-
-  hairDebug(): RiderHairDebug {
-    if (this.authoredHead) return {
-      style: 'bob', boneNames: this.authoredHead.bones.map((bone) => bone.name),
-      visible: this.authoredHead.object.visible,
-    };
-    return {
-      style: this.skin.hair!.style,
-      boneNames: this.skin.hair!.bones.map((bone) => bone.name),
-      visible: this.skin.hair!.mesh.visible && this.skin.hair!.object.visible,
-    };
-  }
-
-  faceDebug(): { hasFaceMesh: boolean } {
-    return { hasFaceMesh: Boolean(this.authoredHead || this.skin?.faceMesh) };
+  helmetDebug(): RiderHelmetDebug {
+    const info = helmetDebugInfo(this.skin.helmet);
+    return { ...info, style: info.style as HelmetStyle | '' };
   }
 
   /**
@@ -491,8 +461,5 @@ export class Rider {
     j.handR.rotation.set(-thr * T.throttleWrist, 0, 0);
     j.handL.rotation.set(vib * 0.5, 0, 0);
     this.object.updateMatrixWorld(true);
-    updateHairAccessory(this.skin, lean, air, flight, tp);
-    this.flow.set(0, 0, boat.speed).applyQuaternion(boat.quaternion);
-    this.authoredHead?.update(dt, this.flow, t);
   }
 }

@@ -1,30 +1,39 @@
 # Board Race 开发交接
 
-状态：手机发热 + 偶发卡顿根治（呈现封顶 / 调速器信号 / 防抖档 / 爆炸池预热）已发版；真机复测 pending。
+状态：头部轻量化封闭头盔改造——验证全绿，人工评审 pending，待发版。
 
-## 上一工作包（已发版 `486719c`）
+## 上一工作包（已发版 `3adc909`）
 
-- 导弹直击水面爆炸 + 炸飞表现、五声部爆炸音效、iOS 转向 chevron 修复已发版；人工真机复核 pending。
+- 手机发热 + 偶发卡顿根治（呈现封顶 / 调速器实测渲染耗时 / 防抖档 / 爆炸池预热）已发版；真机复测 pending。
 
 ## 当前工作包（本提交）
 
-- 根因：60Hz fixed-step 模拟但每个 rAF tick 都重绘，120Hz 屏（一加 15）GPU 顶着最高 120fps 跑
-  三趟场景渲染 + 后处理；调速器以 rAF 间隔（120Hz 下恒 ~8ms）为输入永远判优，分辨率顶着 9/7 提高的
-  上限（起步 1.5、AIMD 爬向 2.0），双满载导致发烫。
-- 偶发卡顿：换挡时 `applySize()` 重建整套 render target（composer、prepass、energy bloom 链）
-  造成单帧尖刺，热节流边界上来回抖档；新加的 `MissileBlastPool` 无开机预热，首次爆炸当场编译 shader。
-- 改造：`Loop` 呈现门控——无 sim step 的 tick 不重绘（120Hz 屏约 60fps 呈现，画面逐帧不变）；
-  `render()` 改以实测渲染耗时喂调速器；调速器升档冷却 3s / 降档 1.5s、mild 证明窗 0.9s 防抖档；
-  `MissileBlastPool.warmup()` 开局离屏预热（模式同导弹本体）。
-- Owner：`core/loop.ts`、`main.ts`（render 计时 + 预热调用）、`core/stage.ts`、`game/missileBlast.ts`、
-  llmwiki 渲染合同句、handoff。
+- 目标：废弃 3D 面部与发型骨骼方案（H5 表情/发型骨骼开销大、面部效果不达标），六名车手统一
+  改为封闭头盔：纯外壳 + 反光面罩，刚性硬绑定 `head` 骨骼（不走蒙皮、零每帧头饰计算）。
+- 六款轮廓按 `driverId`：axle 圆润 / tide 尾翼导流 / sol 越野帽檐 / reef 棱角科技 /
+  kai 空力尾椎 / jinx 非对称双鳍；高饱和队色主漆 + 高对比沫白（后脑脊柱条纹 + 侧条纹 +
+  盔顶），面罩为壳体前弧段的共形平行面（统一膨胀 1.05×）+ 烟熏渐变 + 共享材质低阈值高光带。
+- 共享资源：盔壳/面罩两份模块级共享 toon 材质（顶点色涂装通道），几何按 driver 缓存；
+  壳体带预留规范化 UV0（u=环向、v=纵向）供未来图集合批；无任何运行时贴图。
+- 删除：Face Patch（立绘裁切 + Canvas 贴图）、发型蒙皮附件（fringe/刀片/附加骨）、
+  `tideHead.ts` + `tide.glb` + `art/tide/` + `@pixiv/three-vrm-springbone` 依赖。
+- Owner：`game/helmet.ts`（新）、`game/riderMesh.ts`、`game/rider.ts`、`game/racers.ts`、
+  `main.ts`（harness 接口）、`harness/rider.mjs`、`harness/screenshot.mjs`、llmwiki 渲染/车手
+  合同句、art-direction 2026-09-12 拍板、handoff。
 
 ## 验证与证据
 
-- build / smoke 全绿（governor 合同 soloFloor≥1、goodClimb>start 与爆炸池生命周期用例不变）。
-- 截图：`shots/perf-after/`（桌面 + `844x390` 复核画面非空无回归）；真机一加 15 复测 pending。
+- `npm run typecheck` / `npm run build` / `verify:rider` / `verify:smoke` 全绿
+  （smoke 一次移动端正时 flake 已复跑确认通过，与本改动无关）。
+- 基线对比（`shots/helmet-review/baseline.txt` → `after.txt`，同机 swiftshader）：
+  race-straight 382→381 calls、364,115→341,091 tris（−6.3%）；
+  rider-inspection 99→98、311,019→289,807；tail-drift-left 817→812、440,527→422,769。
+  draw call 不升，三角面约 −6%，另省每骑手 1~6 根发型骨骼矩阵 + Tide 8 关节 120Hz 弹簧步进。
+- 六骑手 helmetState 全 rigid/visible、六款几何 uuid 互异；截图
+  `shots/helmet-review/validation/`（桌面 + 844x390：六车手 inspection 三 quarter/侧视、
+  opening、race-straight、tail-drift）。
 
 ## 唯一下一步
 
-用户真机复核：一加 15 长局发热是否明显缓解、比赛中是否还有闪现卡顿（可开 `?debug=perf` 看
-渲染 ms 与 pr 是否稳定）。
+用户人工评审 `shots/helmet-review/validation/` 截图：六款头盔轮廓区分度、涂装辨识度、
+面罩高光观感；确认后走 `release:checked` 发版（或按评审意见调整盔形/涂装）。
