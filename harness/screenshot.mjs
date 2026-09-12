@@ -357,6 +357,18 @@ async function verifyMode(browser, mobile) {
       ['左', '回中', '右'], `${label}: tilt meter direction labels drifted`);
     await modeButton.click();
     await page.waitForFunction(() => window.__harness.mobileStatus().mode === 'touch');
+
+    // Phones never render below CSS resolution: feeding a sustained slow frame
+    // must land on the 1.0x floor, not the performance profile's old 0.5x mush.
+    const governor = await page.evaluate(() => window.__harness.qualityGovernorCase());
+    assert.ok(governor.soloFloor >= 1 - 1e-6,
+      `${label}: a slow full-screen frame shaved the phone below CSS resolution: ${JSON.stringify(governor)}`);
+    assert.ok(governor.minPixelRatio >= 1 - 1e-6,
+      `${label}: the phone render floor dropped below CSS resolution: ${JSON.stringify(governor)}`);
+    assert.ok(governor.goodClimb > governor.start,
+      `${label}: sustained good frames did not earn sharpness back: ${JSON.stringify(governor)}`);
+    console.log(`${label} resolution governor: floor ${governor.soloFloor}, ` +
+      `good-frame climb ${governor.start} -> ${governor.goodClimb}`);
   }
 
   if (!mobile) {

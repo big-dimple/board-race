@@ -292,8 +292,9 @@
   （`flightRouteMiss`、corridor 进档、seatEdges）保持每步。harness `advance()` 每步都跑表现层，
   截图确定性不变。
 - 移动端（coarse pointer / maxTouchPoints / `?mobile`）默认 `performance` 画质档，`?quality=` 可强制
-  覆盖；调速器降档快（severe 立即大步降）、升档 AIMD（持续满帧才升、每次降档后升步减半防振荡），
-  performance 档起步 1.5、天花板 2.0。
+  覆盖；手机渲染下限恒为 1.0×（不低于 CSS 分辨率，performance 档不例外），弱机由 severe 快速降档
+  兜底、50fps 上下的中端机不被 mild 降档误剃。调速器降档快（severe 立即大步降）、升档 AIMD（持续满帧才升、
+  每次降档后升步减半防振荡），performance 档起步 1.5、天花板 2.0。
 - 视觉质量由桌面与 `844x390` 截图和人工评审决定。draw call、活跃实例、像素和帧时只证明
   资源/性能，不证明“好看”；也不使用 shader 字符串或固定像素差作为审美门禁。
 

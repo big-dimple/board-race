@@ -6011,10 +6011,17 @@ function runQualityGovernorCase(): Record<string, unknown> {
   stage.debugPerfFrames(24, 240, 2);
   const splitFloor = Number(stage.stats().pixelRatio);
   stage.pixelRatio = start;
+  // Sustained good frames must earn sharpness back: the balance deal that
+  // keeps the raised phone floor honest is mid phones climbing past the
+  // 1.5x start whenever the device proves real headroom.
+  stage.debugPerfFrames(16.7, 900, 1);
+  const goodClimb = Number(stage.stats().pixelRatio);
+  stage.pixelRatio = start;
   return {
     start: Math.round(start * 1000) / 1000,
     soloFloor: Math.round(soloFloor * 1000) / 1000,
     splitFloor: Math.round(splitFloor * 1000) / 1000,
+    goodClimb: Math.round(goodClimb * 1000) / 1000,
     minPixelRatio: Number(stage.stats().minPixelRatio),
   };
 }

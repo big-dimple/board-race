@@ -1,4 +1,11 @@
-/** Renderer, camera, resize coalescing, and drawing-pixel budget. */
+/** Renderer, camera, resize coalescing, and drawing-pixel budget.
+ *
+ * Phones never render below CSS resolution (1.0x), the performance profile
+ * included: its old 0.5 floor let the governor shave mid phones (iPhone 12
+ * class) into a blurry slide show. Weak hardware still reaches the floor
+ * within seconds through the severe-drop path; borderline ~50 fps devices
+ * hold their ratio because mild pressure only counts below roughly 47 fps.
+ */
 import * as THREE from 'three';
 
 export const BASE_FOV = 62;
@@ -81,7 +88,10 @@ export class Stage {
    */
   private upStep = 0.3;
   private readonly desktopClarity: boolean;
+  /** Auto-mode mobile path (floor 1.0, higher ceiling). */
   private readonly mobileClarity: boolean;
+  /** Coarse/touch hardware regardless of quality mode; drives the 1.0 floor. */
+  private readonly mobileHardware: boolean;
   private readonly effectiveMinPixelRatio: number;
   private readonly container: HTMLElement;
   private readonly resizeObserver: ResizeObserver | null;
@@ -102,12 +112,14 @@ export class Stage {
     this.desktopClarity = mode === 'auto' &&
       initialSize.width >= 1000 &&
       !window.matchMedia('(pointer: coarse)').matches;
-    this.mobileClarity = mode === 'auto' && (
-      window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0
-    );
+    this.mobileHardware = window.matchMedia('(pointer: coarse)').matches ||
+      navigator.maxTouchPoints > 0;
+    this.mobileClarity = mode === 'auto' && this.mobileHardware;
     const initialBudgetRatio = Math.sqrt(this.quality.pixelBudget /
       Math.max(1, initialSize.width * initialSize.height));
-    this.effectiveMinPixelRatio = this.mobileClarity
+    // The phone floor holds in every quality mode: below CSS resolution the
+    // picture turns to mush on a 3x screen while gaining little frame time.
+    this.effectiveMinPixelRatio = (this.mobileClarity || this.mobileHardware)
       ? Math.min(AUTO_MOBILE_MIN_PIXEL_RATIO, initialBudgetRatio)
       : this.quality.minPixelRatio;
     this.renderer = new THREE.WebGLRenderer({
@@ -162,7 +174,9 @@ export class Stage {
     // severe frames step down immediately and decisively, mild pressure steps
     // after a short proof. Climbing back up stays slow and deliberate — a
     // phone bouncing between ratios feels worse than one holding a stable one.
-    const badThreshold = split ? 24 : 19;
+    // Mild pressure starts below ~47 fps: a phone pacing at 50-57 fps is not
+    // struggling, and shaving it anyway only trades a stable ratio for blur.
+    const badThreshold = split ? 24 : 21;
     const severeThreshold = split ? 34 : 30;
     const goodThreshold = split ? 20 : 16.9;
     if (this.frameEma > badThreshold) {
@@ -179,7 +193,7 @@ export class Stage {
     if (this.adjustmentCooldown > 0) return;
     const severe = this.frameEma > severeThreshold;
     if ((severe || this.badFrameSeconds >= 0.6) && this.pixelRatio > floor) {
-      const stepDown = severe ? 0.35 : split ? SPLIT_DOWNSCALE_STEP : 0.25;
+      const stepDown = severe ? 0.35 : split ? SPLIT_DOWNSCALE_STEP : 0.2;
       this.pixelRatio = Math.max(floor, this.pixelRatio - stepDown);
       this.upStep = Math.max(0.1, this.upStep * 0.5);
       this.badFrameSeconds = 0;
@@ -205,7 +219,7 @@ export class Stage {
   private ratioForBudget(w: number, h: number, pixelBudget: number, maxPixelRatio: number): number {
     const device = Math.max(1, window.devicePixelRatio || 1);
     const budget = Math.sqrt(pixelBudget / Math.max(1, w * h));
-    const floor = this.mobileClarity
+    const floor = (this.mobileClarity || this.mobileHardware)
       ? Math.min(this.effectiveMinPixelRatio, budget)
       : this.effectiveMinPixelRatio;
     return Math.max(floor, Math.min(device, maxPixelRatio, budget));
