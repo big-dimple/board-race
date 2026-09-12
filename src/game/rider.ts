@@ -241,7 +241,6 @@ export class Rider {
       markInk(root);
     } else {
       this.skin.mesh.layers.enable(LAYER_INK);
-      this.skin.helmet?.shell.layers.enable(LAYER_INK);
     }
   }
 

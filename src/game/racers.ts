@@ -10,7 +10,7 @@ import jinxPortrait from '../assets/drivers/jinx.webp';
 
 export type DriverMood = '沉稳' | '骄傲' | '愤怒' | '专注' | '兴奋' | '冷酷';
 
-/** On-boat 3D identity, locked to the portrait: hair, skin, build, personality. */
+/** On-boat 3D identity, locked to the portrait: helmet, skin, build, personality. */
 export type DriverLook = RiderLook;
 
 export interface DriverHandling {

@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../core/palette';
 import { createToonMaterial } from '../cel/toonMaterial';
-import { LAYER_INK, markInk } from '../contracts';
+import { markInk } from '../contracts';
 import { addOutline } from '../cel/outline';
 import { buildHelmet, disposeHelmet, type Helmet } from './helmet';
 
@@ -500,8 +500,6 @@ export function updateSkinnedRiderLook(skin: RiderSkin, color: number, look: Rid
     if (next.detailed) {
       addOutline(next.object, { width: 0.9 });
       markInk(next.object);
-    } else {
-      next.shell.layers.enable(LAYER_INK);
     }
   }
 }

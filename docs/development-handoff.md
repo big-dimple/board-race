@@ -1,6 +1,6 @@
 # Board Race 开发交接
 
-状态：头部轻量化封闭头盔改造——验证全绿，人工评审 pending，待发版。
+状态：头盔改造已发版 `3da9c3a`；追拍近场盔背墨线修复已验证（随本提交发版）。
 
 ## 上一工作包（已发版 `3adc909`）
 
@@ -17,6 +17,9 @@
   壳体带预留规范化 UV0（u=环向、v=纵向）供未来图集合批；无任何运行时贴图。
 - 删除：Face Patch（立绘裁切 + Canvas 贴图）、发型蒙皮附件（fringe/刀片/附加骨）、
   `tideHead.ts` + `tide.glb` + `art/tide/` + `@pixiv/three-vrm-springbone` 依赖。
+- 追拍墨线修复：头盔壳（含附件板）`userData.noInk` 退出 LAYER_INK 墨水预渲染——Sobel 内部
+  描边在 9m 内全强度，追拍视角的自己盔背爬满硬折边墨线、远看车手反而干净；退出后盔的轮廓
+  只归反壳描边（与远看车手一致），水线泡沫与船体细节描边不受影响（截图对比核实）。
 - Owner：`game/helmet.ts`（新）、`game/riderMesh.ts`、`game/rider.ts`、`game/racers.ts`、
   `main.ts`（harness 接口）、`harness/rider.mjs`、`harness/screenshot.mjs`、llmwiki 渲染/车手
   合同句、art-direction 2026-09-12 拍板、handoff。

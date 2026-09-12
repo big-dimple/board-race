@@ -81,9 +81,7 @@ function transform(
 }
 
 const _local = new THREE.Vector3();
-const _world = new THREE.Vector3();
 const _normal = new THREE.Vector3();
-const _matrix = new THREE.Matrix4();
 const _normalMatrix = new THREE.Matrix3();
 
 /** Rigid counterpart of the body assembler: positions baked in head-bone space, no skin attributes. */
@@ -277,7 +275,7 @@ function plateGeometry(bottomWidth: number, topWidth: number, height: number, de
 
 // ---------------------------------------------------------------- paint ----
 
-function paintColor(channel: Paint, team: THREE.Color, point: THREE.Vector3): THREE.Color {
+function paintColor(channel: Paint, team: THREE.Color): THREE.Color {
   switch (channel) {
     case Paint.Primary: return team;
     case Paint.Secondary: return new THREE.Color().setHex(PALETTE.foam, THREE.NoColorSpace);
@@ -439,7 +437,7 @@ function buildHelmetGeometry(style: HelmetStyle, driverId: string, color: number
   const spec = HELMET_SPECS[style];
   const sides = detailed ? 14 : 10;
   const team = new THREE.Color().setHex(color, THREE.NoColorSpace);
-  const out = new HelmetAssembler((channel) => paintColor(channel, team, _local), uvOfPoint);
+  const out = new HelmetAssembler((channel) => paintColor(channel, team), uvOfPoint);
 
   // Shell base + high-contrast graphics on the BACK and SIDES: the chase
   // camera watches the rider from behind, so the identity stripe runs down
@@ -595,6 +593,13 @@ export function buildHelmet(
   const shellMesh = new THREE.Mesh(shell, getShellMaterial());
   shellMesh.name = 'rider-helmet-shell';
   shellMesh.userData.assetClass = 'rigid-helmet-shell';
+  // No interior Sobel ink on the helmet: the shell + its attachment plates
+  // carry many hard folds that the near-field edge pass turns into line
+  // noise exactly where the chase camera sits (full strength ≤9m, gone by
+  // 26m) — which is why far riders read clean while the player's own helmet
+  // scribbles. The helmet owns its contours through the inverted-hull
+  // outline alone, the same look far riders already have.
+  shellMesh.userData.noInk = true;
   shellMesh.frustumCulled = false;
   object.add(shellMesh);
 

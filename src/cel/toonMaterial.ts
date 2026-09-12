@@ -64,7 +64,7 @@ const sharedNightBlend = { value: 0.0 };
 const daySkyMid = flat(PALETTE.skyMid);
 const nightSkyMid = flat(NIGHT_PALETTE.skyMid);
 const dayShadowFloor = flat(0x1e1b3a);
-const nightShadowFloor = flat(0x14223d); // rich dark navy floor, preserves character hair & boat details
+const nightShadowFloor = flat(0x14223d); // rich dark navy floor, preserves character & boat details
 const dayUpTintColor = flat(PALETTE.skyHorizon);
 const nightUpTintColor = flat(0x2a4e78);
 const dayFogColor = flat(PALETTE.skyHorizon);
@@ -188,7 +188,7 @@ void main() {
   float shadowTintEffective = mix(uShadowTint, 0.55, uNightBlend);
   vec3 shadowAlbedo = albedo * mix(vec3(1.0), uSkyMid, shadowTintEffective);
 
-  // Night ambient base lift: ensures character skin, hair & boat silhouettes
+  // Night ambient base lift: ensures character skin & boat silhouettes
   // maintain vivid contrast and color identity without turning muddy.
   shadowAlbedo += albedo * vec3(0.06, 0.10, 0.16) * uNightBlend;
 

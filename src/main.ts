@@ -4916,7 +4916,7 @@ function setHarnessEvidenceUiHidden(hidden: boolean): void {
   if (hidden) mixer.setVisible(false);
 }
 
-function getRiderFaceTarget(): THREE.Object3D {
+function getRiderHeadTarget(): THREE.Object3D {
   const head = boats[0].riderMount.getObjectByName('head');
   if (head) {
     const headPos = new THREE.Vector3(0, 0, 0);
@@ -4946,7 +4946,7 @@ function prepareHarnessRiderInspection(): THREE.Object3D {
   placeHarnessBoat(0, 0.22, 0);
   boats[0].syncSurfacePresentation(worldTime);
   riders[0].update(1 / 60, boats[0].state, worldTime);
-  return getRiderFaceTarget();
+  return getRiderHeadTarget();
 }
 
 function settleHarnessTailInspection(): void {
@@ -5370,9 +5370,9 @@ function scenario(name: string): void {
       break;
     case "rider-inspection":
     case "rider-inspection-front": {
-      const face = prepareHarnessRiderInspection();
+      const headTarget = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: face,
+        target: headTarget,
         offset: [0, 0.10, 2.2],
         lookAt: [0, 0.10, 0],
         fov: 28,
@@ -5380,9 +5380,9 @@ function scenario(name: string): void {
       break;
     }
     case "rider-inspection-three-quarter": {
-      const face = prepareHarnessRiderInspection();
+      const headTarget = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: face,
+        target: headTarget,
         offset: [1.55, 0.14, 1.55],
         lookAt: [0, 0.10, 0],
         fov: 28,
@@ -5390,9 +5390,9 @@ function scenario(name: string): void {
       break;
     }
     case "rider-inspection-side": {
-      const face = prepareHarnessRiderInspection();
+      const headTarget = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: face,
+        target: headTarget,
         offset: [2.2, 0.12, 0],
         lookAt: [0, 0.10, 0],
         fov: 28,
@@ -5400,9 +5400,9 @@ function scenario(name: string): void {
       break;
     }
     case "rider-inspection-back": {
-      const face = prepareHarnessRiderInspection();
+      const headTarget = prepareHarnessRiderInspection();
       harnessCameraOverride = {
-        target: face,
+        target: headTarget,
         offset: [0, 0.16, -2.2],
         lookAt: [0, 0.10, 0],
         fov: 28,
@@ -5466,22 +5466,22 @@ function scenario(name: string): void {
       armHarnessFinale();
       loop.advance(2.5);
       {
-        const face = getRiderFaceTarget();
+        const headTarget = getRiderHeadTarget();
         harnessCameraOverride = {
-          target: face,
+          target: headTarget,
           offset: [0.85, 0.25, 1.4],
           lookAt: [0, 0.02, 0],
           fov: 32,
         };
       }
       break;
-    case "finale-orbit-face":
+    case "finale-orbit-rider":
       armHarnessFinale();
       loop.advance(2.5);
       {
-        const face = getRiderFaceTarget();
+        const headTarget = getRiderHeadTarget();
         harnessCameraOverride = {
-          target: face,
+          target: headTarget,
           offset: [0.45, 0.10, 0.75],
           lookAt: [0, 0.02, 0],
           fov: 30,
