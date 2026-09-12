@@ -988,6 +988,84 @@ export class GameAudio {
     };
   }
 
+  /**
+   * Missile near-miss detonation: sub-bass drop + bright crack attack +
+   * lowpassed roar. The audible half of "a dodged missile explodes beside
+   * you" — never a silent despawn.
+   */
+  explosion(): void {
+    const c = this.ctx;
+    if (!c || !this.eventBus || !this.noiseBuf) return;
+    if (this.activeOneShots + 3 >= this.maxOneShots) return;
+    const t0 = c.currentTime;
+    this.traceEvent('missile-explosion', 1);
+    this.duckMusic(0.6, 0.5);
+    this.duckVehicle(0.55, 0.45);
+
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(120, t0);
+    o.frequency.exponentialRampToValueAtTime(30, t0 + 0.5);
+    const og = c.createGain();
+    og.gain.setValueAtTime(0, t0);
+    og.gain.linearRampToValueAtTime(0.5, t0 + 0.012);
+    og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.7);
+    o.connect(og);
+    og.connect(this.eventBus);
+    this.activeOneShots++;
+    o.start(t0);
+    o.stop(t0 + 0.72);
+    o.onended = () => {
+      o.disconnect();
+      og.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
+    };
+
+    const crack = c.createBufferSource();
+    crack.buffer = this.noiseBuf;
+    const hp = c.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 900;
+    const cg = c.createGain();
+    cg.gain.setValueAtTime(0.3, t0);
+    cg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+    crack.connect(hp);
+    hp.connect(cg);
+    cg.connect(this.eventBus);
+    this.activeOneShots++;
+    crack.start(t0, this.nextNoiseOffset(0.14));
+    crack.stop(t0 + 0.14);
+    crack.onended = () => {
+      crack.disconnect();
+      hp.disconnect();
+      cg.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
+    };
+
+    const n = c.createBufferSource();
+    n.buffer = this.noiseBuf;
+    const lp = c.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, t0);
+    lp.frequency.exponentialRampToValueAtTime(220, t0 + 0.5);
+    const ng = c.createGain();
+    ng.gain.setValueAtTime(0.001, t0);
+    ng.gain.exponentialRampToValueAtTime(0.32, t0 + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.55);
+    n.connect(lp);
+    lp.connect(ng);
+    ng.connect(this.eventBus);
+    this.activeOneShots++;
+    n.start(t0, this.nextNoiseOffset(0.6));
+    n.stop(t0 + 0.6);
+    n.onended = () => {
+      n.disconnect();
+      lp.disconnect();
+      ng.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
+    };
+  }
+
   /** Audited landing event; no continuous water loop is attached. */
   splash(strength: number): void {
     const c = this.ctx;

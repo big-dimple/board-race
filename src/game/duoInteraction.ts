@@ -15,6 +15,9 @@ export interface DuoInteractionEvent {
   accepted: boolean;
   chargesLeft: number;
   reason?: DuoInteractionBlockReason;
+  /** Near-miss detonation point in world space (prank-miss only). */
+  blastX?: number;
+  blastZ?: number;
 }
 
 export interface DuoInteractionStatus {
@@ -817,7 +820,7 @@ export class DuoInteractionController {
           emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-impact', accepted: true, chargesLeft: this.charges[shot.actorId] });
         } else {
           targetBoat.applyScudNearMiss(shot.x, shot.z, sideX * 0.75, sideZ * 0.75);
-          emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId] });
+          emit({ actorId: shot.actorId, targetId: shot.targetId, action: 'prank', phase: 'prank-miss', accepted: true, chargesLeft: this.charges[shot.actorId], blastX: shot.x, blastZ: shot.z });
         }
         shot.isDwell = true;
         shot.dwellTimer = 0.85; // 0.85s dwell for dramatic explosion viewing

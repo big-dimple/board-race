@@ -193,9 +193,13 @@
 - Tide (`driverId: tide`) additionally uses Blender-authored `src/assets/models/tide.glb` head and bob hair. `TideHead` applies bounded 120 Hz gravity, airflow, and head/shoulder collision presentation; load failure falls back to the procedural rider without changing physics or transforms.
 
 - 单人导弹是“赛事领跑挑战”：第 2 至第 7 个水面检查点领跑者通过后，1 秒仍领先则发射。单人锁定保留渐变聚光锥和旋转勾丝，使用预分配几何、帧级更新及开局离屏预热；不创建公告牌 Canvas。右上角使用一次绘制的导弹图和点火动画，不重绘赛道。双人淘汰席的 PC 导弹追拍与原锁定表现独立保留。
+- 导弹被规避（单人凌空/漂移诱爆、双打背刺豁免）必须在脱靶点水面上呈现爆炸：预分配爆炸池
+  （火球+烟团+水面冲击环，`missileBlast.ts`）配爆炸音效（`audio.explosion()`），物理冲击仍走
+  `applyScudNearMiss`；被躲掉的导弹绝不静默消失——爆炸视效和爆炸声是同一个互动反馈。
 
-- READY 选角标题固定为 `别懵逼，选最强`。模式目录只显示 `单人` 和 `双打`；双打先显示
-  左右入座，再显示两张大幅选手卡。开场身份牌显示中文玩梗名；两位女选手还显示
+- READY 选角标题固定为 `别懵逼，选最强`。模式目录只显示 `单人` 和 `双打`；双打入口固定带
+  `PC 双打` 标注，触屏主设备（coarse pointer）点双打只提示需要键盘/手柄，不进入左右入座；
+  双打先显示左右入座，再显示两张大幅选手卡。开场身份牌显示中文玩梗名；两位女选手还显示
   `女将` 标签，3D 追拍分别以青色发梢 bob 和高马尾维持与立绘一致的远景辨识。
 - Race radio 是一个 `RadioDirector` 单槽，危险和动作指导优先。高优先级出现时阅读时钟暂停，
   active notice 的 DOM、revision、`.on` 和 CSS 动画位置保持不变，仅隐藏并暂停；解除阻断后

@@ -143,6 +143,7 @@ export class SinglePlayerMissilesSystem {
   } | null = null;
   private hudNotice: (msg: string, title: string) => void;
   private onMissileAudio: (kind: 'launch' | 'lock' | 'tracking' | 'impact' | 'near-miss') => void;
+  private readonly onNearMissBlast: ((x: number, z: number) => void) | null;
   private readonly fallbackCamera = new THREE.PerspectiveCamera();
   private readonly direction = new THREE.Vector3();
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -188,12 +189,14 @@ export class SinglePlayerMissilesSystem {
     course: ICourse,
     hudNotice: (msg: string, title: string) => void,
     onMissileAudio: (kind: 'launch' | 'lock' | 'tracking' | 'impact' | 'near-miss') => void,
+    onNearMissBlast: ((x: number, z: number) => void) | null = null,
   ) {
     this.object = new THREE.Group();
     this.object.name = 'sp-missile-system';
     this.course = course;
     this.hudNotice = hudNotice;
     this.onMissileAudio = onMissileAudio;
+    this.onNearMissBlast = onNearMissBlast;
 
     const mesh = buildDominatorModel();
     mesh.visible = false;
@@ -480,6 +483,7 @@ export class SinglePlayerMissilesSystem {
           if (m.isPlayer) this.hudNotice('千钧一发凌空拔起 · 飞弹侧旁诱爆！', '🌊 凌空天轨 · 绝妙避让！');
         }
         targetBoat.applyScudNearMiss(blastX, blastZ, impulseX, impulseZ);
+        this.onNearMissBlast?.(blastX, blastZ);
         this.telemetry.evadeTechnique = evadeTechnique;
         this.onMissileAudio('near-miss');
         m.state = 'deflected';
@@ -494,6 +498,7 @@ export class SinglePlayerMissilesSystem {
         if (m.isPlayer) this.hudNotice('掀起水幕诱爆飞弹 · 获得涡轮冲刺！', '👑 神技诱爆 · 极限反击！');
         targetBoat.activateTechniqueBoost();
         targetBoat.applyScudNearMiss(blastX, blastZ, impulseX, impulseZ);
+        this.onNearMissBlast?.(blastX, blastZ);
         this.telemetry.evadeTechnique = evadeTechnique;
         this.onMissileAudio('near-miss');
         m.state = 'deflected';

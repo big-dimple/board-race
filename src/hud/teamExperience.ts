@@ -83,6 +83,9 @@ export class TeamExperience {
   readonly root: HTMLDivElement;
   readonly duoKickstartGuide: DuoKickstartGuide;
   private readonly modePanel: HTMLElement;
+  private readonly modeHint: HTMLElement;
+  /** Touch-primary devices (phones/tablets) cannot seat a local duo. */
+  private readonly coarsePointer = window.matchMedia('(pointer: coarse)').matches;
   private readonly savePanel: HTMLElement;
   private readonly joinPanel: HTMLElement;
   private readonly driverPanel: HTMLElement;
@@ -135,8 +138,10 @@ export class TeamExperience {
     element('p', 'team-mode-copy', modeHead, '同一片海域，不同的胜利关系。');
     const modeGrid = element('div', 'team-mode-grid', this.modePanel);
     this.createModeButton(modeGrid, 'single', '01', '单人', '自动前进竞速', '一艘艇对抗五名 AI，漂移、起飞并争夺荣誉。');
-    this.createModeButton(modeGrid, 'duo', '02', '双打', '本地竞速', '两名玩家各驾一艇，与四名 AI 同场比拼。');
+    this.createModeButton(modeGrid, 'duo', '02', '双打', '本地竞速', '两名玩家各驾一艇，与四名 AI 同场比拼。', 'PC 双打');
     element('div', 'team-mode-foot', this.modePanel, '方向选择 · 确认进入');
+    this.modeHint = element('p', 'team-mode-hint', this.modePanel);
+    this.modeHint.hidden = true;
 
     this.savePanel = element('section', 'team-front team-save', this.root);
     this.savePanel.setAttribute('aria-label', '双打记录');
@@ -308,6 +313,7 @@ export class TeamExperience {
     this.claims.right = undefined;
     this.settleTimer = 0;
     this.launchTimer = 0;
+    this.modeHint.hidden = true;
     this.hidePanels();
     this.modePanel.classList.add('on');
     this.root.classList.add('on');
@@ -415,6 +421,7 @@ export class TeamExperience {
     title: string,
     meta: string,
     copy: string,
+    badge?: string,
   ): void {
     const item = button(`team-mode-item team-mode-${mode}`, parent, '', () => this.activateMode(mode));
     item.dataset.mode = mode;
@@ -423,6 +430,7 @@ export class TeamExperience {
     element('strong', '', body, title);
     element('small', '', body, meta);
     element('span', '', body, copy);
+    if (badge) element('span', 'team-mode-badge', item, badge);
     element('b', 'team-mode-enter', item, '→');
     this.modeButtons.set(mode, item);
   }
@@ -474,6 +482,13 @@ export class TeamExperience {
 
   private activateMode(mode: FrontDoorMode): void {
     this.callbacks.onAudioIntent();
+    if (mode === 'duo' && this.coarsePointer) {
+      // Duo seating needs two physical keyboards or gamepads; a touch-only
+      // phone has none, so explain instead of stranding it on the seat page.
+      this.modeHint.textContent = '双打为 PC 模式：需要两套键盘区或手柄同屏入座 · 手机请选择单人';
+      this.modeHint.hidden = false;
+      return;
+    }
     this.callbacks.onRequestFullscreen?.();
     if (mode === 'single') {
       this.hideAll();

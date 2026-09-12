@@ -109,6 +109,7 @@ async function enterDuoWithKeyboard(page) {
   const modeText = (await page.locator('.team-mode').innerText()).replace(/\s+/g, ' ');
   assert.match(modeText, /单人/);
   assert.match(modeText, /双打/);
+  assert.match(modeText, /PC 双打/);
   assert.doesNotMatch(modeText, /独立竞技|队伍协作|双人/);
   await page.locator('.team-mode-duo').click();
   await page.keyboard.press('KeyA');

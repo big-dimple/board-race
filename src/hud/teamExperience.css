@@ -67,6 +67,27 @@
 .team-mode-duo .team-mode-enter,
 .team-mode-team .team-mode-enter { color: var(--team-lime); }
 .team-mode-foot { width: min(960px, 88vw); margin-top: 12px; color: rgba(244, 247, 239, .46); font: 700 11px/1 Arial, sans-serif; text-align: right; }
+.team-mode-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 3px 8px;
+  border: 1px solid var(--team-lime);
+  border-radius: 3px;
+  color: var(--team-lime);
+  font: 700 11px/1 Arial, sans-serif;
+  letter-spacing: .08em;
+}
+.team-mode-hint {
+  width: min(960px, 88vw);
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 170, 60, .55);
+  border-radius: 4px;
+  background: rgba(30, 20, 6, .82);
+  color: #ffcf8a;
+  font: 700 12px/1.5 Arial, sans-serif;
+}
 
 .team-save { gap: 10px; }
 .team-save-action,

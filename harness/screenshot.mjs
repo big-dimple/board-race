@@ -372,6 +372,12 @@ async function verifyMode(browser, mobile) {
   }
 
   if (!mobile) {
+    const blast = await page.evaluate(() => window.__harness.missileBlastCase());
+    assert.equal(blast.activeAfterSpawn, 1,
+      `${label}: a near-miss spawned no visible detonation: ${JSON.stringify(blast)}`);
+    assert.equal(blast.activeAfterLifetime, 0,
+      `${label}: detonations did not retire to zero active blasts: ${JSON.stringify(blast)}`);
+
     const offCourse = await page.evaluate(() => window.__harness.offCourseRecoveryCase());
     assert.ok(offCourse.distanceM > offCourse.hardEdgeM,
       `${label}: off-course case did not cross the surface hard edge: ${JSON.stringify(offCourse)}`);

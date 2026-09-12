@@ -63,6 +63,7 @@ import {
 } from './game/pcControlPrimer';
 import { Race, COUNTDOWN_S } from './game/race';
 import { SinglePlayerMissilesSystem } from './game/singlePlayerMissiles';
+import { MissileBlastPool } from './game/missileBlast';
 import { DuoInteractionController, type DuoInteractionEvent } from './game/duoInteraction';
 import {
   HonorLedger,
@@ -216,6 +217,8 @@ rivalDirector.setRoster(roster);
 let ais = buildAiControllers();
 const collisions = new BoatCollisionSystem();
 const duoInteractions = new DuoInteractionController();
+const missileBlasts = new MissileBlastPool();
+stage.scene.add(missileBlasts.object);
 const singlePlayerMissiles = new SinglePlayerMissilesSystem(
   course,
   (msg, title) => hud.showTransientNotice(msg, title),
@@ -227,13 +230,14 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
       audio.splash(2.6);
       cameraRig.stormKick();
     } else if (kind === 'near-miss') {
-      audio.thud(0.8);
+      audio.explosion();
       audio.splash(2.2);
       cameraRig.shake(0.65);
     } else {
       audio.missileLockAlert(kind === 'lock' ? 'lock' : 'tracking');
     }
   },
+  (x, z) => missileBlasts.spawn(x, 0, z),
 );
 stage.scene.add(singlePlayerMissiles.object);
 singlePlayerMissiles.warmup(stage.renderer);
@@ -1952,6 +1956,10 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     }
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-miss') {
+    if (event.blastX !== undefined && event.blastZ !== undefined) {
+      missileBlasts.spawn(event.blastX, 0, event.blastZ);
+    }
+    audio.explosion();
     audio.splash(2.8); // Roaring underwater eruption blast
     targetPipeline.pulse('lost', 1.15); // Fiery orange shockwave flash on target screen
     audio.teamSpatialCue(targetSide, 'impact');
@@ -3141,6 +3149,7 @@ function step(dt: number, _t: number, present: boolean): void {
     spray.update(frameDt, worldTime);
     feathers.update(frameDt, worldTime);
     jetTrail.update(frameDt);
+    missileBlasts.update(frameDt);
 
     // Each tower follows its own seat: one seat entering flight must not blank
     // the other seat's standings or block its team radio.
@@ -3505,6 +3514,7 @@ interface Harness {
   duoNoticeCase(): Record<string, unknown>;
   duoDriverPowerCase(): Record<string, unknown>;
   qualityGovernorCase(): Record<string, unknown>;
+  missileBlastCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
   timeOfDayState(): { timeOfDay: TimeOfDay; blend: number; round: number };
   setTimeOfDay(tod: TimeOfDay): void;
@@ -5055,6 +5065,20 @@ function scenario(name: string): void {
       }
       loop.advance(1.25);
       break;
+    case 'solo-missile-blast':
+      // Sustained drift deflects the homing missile: capture the moment the
+      // near-miss detonation blooms beside the boat.
+      advanceUntil(() => race.phase === 'racing', 8);
+      setHarnessInput({ throttle: 1, drift: true });
+      loop.advance(2);
+      race.racers[0].place = 1;
+      singlePlayerMissiles.onCheckpoint(race.racers[0], 1);
+      for (let step = 0; step < 61; step++) {
+        singlePlayerMissiles.update(1 / 60, race.racers, boats, stage.camera);
+      }
+      setHarnessInput({ throttle: 1, drift: true });
+      loop.advance(3.5);
+      break;
     case "night-ready":
       loop.advance(1.5);
       break;
@@ -6026,6 +6050,18 @@ function runQualityGovernorCase(): Record<string, unknown> {
   };
 }
 
+/**
+ * A dodged missile must detonate visibly: spawning marks one active blast and
+ * a full lifetime later the pool returns to zero active instances.
+ */
+function runMissileBlastCase(): Record<string, unknown> {
+  missileBlasts.spawn(0, 0, 0);
+  const activeAfterSpawn = missileBlasts.debugState().active;
+  for (let i = 0; i < 60; i++) missileBlasts.update(1 / 60);
+  const activeAfterLifetime = missileBlasts.debugState().active;
+  return { activeAfterSpawn, activeAfterLifetime };
+}
+
 if (HARNESS) {
   const harness: Harness = {
     ready: true,
@@ -6172,6 +6208,7 @@ if (HARNESS) {
     duoNoticeCase: runDuoNoticeCase,
     duoDriverPowerCase: runDuoDriverPowerCase,
     qualityGovernorCase: runQualityGovernorCase,
+    missileBlastCase: runMissileBlastCase,
     duoEliminate: harnessDuoEliminate,
     timeOfDayState: () => ({
       timeOfDay: timeOfDayManager.current,
