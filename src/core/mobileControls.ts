@@ -126,8 +126,8 @@ export class MobileControls {
         <i></i>
       </div>
       <div class="mobile-steer-zones" aria-label="触控转向">
-        <button type="button" data-mobile-action="left" aria-label="左转"><span><b>‹</b><small>LEFT</small></span></button>
-        <button type="button" data-mobile-action="right" aria-label="右转"><span><b>›</b><small>RIGHT</small></span></button>
+        <button type="button" data-mobile-action="left" aria-label="左转"><span><b aria-hidden="true"></b><small>LEFT</small></span></button>
+        <button type="button" data-mobile-action="right" aria-label="右转"><span><b aria-hidden="true"></b><small>RIGHT</small></span></button>
       </div>
       <div class="mobile-action-zones" aria-label="动作按钮">
         <button type="button" data-mobile-action="drift" aria-label="漂移"><span><b>漂</b><small>DRIFT</small><i class="mobile-threshold" aria-hidden="true"></i></span></button>

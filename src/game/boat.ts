@@ -2650,7 +2650,9 @@ export class Boat implements IBoat {
     this.velZ = forwardZ + impulseZ * 0.3;
     this.state.speed = safeForwardSpeed;
     this.yawRate = 4.0;
-    this.spray.burst(this.object.position, 80, 20.0);
+    // Geyser as tall and wide as the near-miss eruption: the hit reads as the
+    // boat being blasted out of the wave, not a gentle hop.
+    this.spray.burst(this.object.position, 110, 26.0);
   }
 
   applyScudNearMiss(waterPointX: number, waterPointZ: number, impulseX: number, impulseZ: number): void {

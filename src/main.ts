@@ -226,7 +226,7 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
     if (kind === 'launch') {
       audio.missileLaunchAlert();
     } else if (kind === 'impact') {
-      audio.thud(1.0);
+      audio.explosion();
       audio.splash(2.6);
       cameraRig.stormKick();
     } else if (kind === 'near-miss') {
@@ -237,7 +237,7 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
       audio.missileLockAlert(kind === 'lock' ? 'lock' : 'tracking');
     }
   },
-  (x, z) => missileBlasts.spawn(x, 0, z),
+  (x, z) => missileBlasts.spawn(x, waterHeight(x, z, worldTime), z),
 );
 stage.scene.add(singlePlayerMissiles.object);
 singlePlayerMissiles.warmup(stage.renderer);
@@ -1932,6 +1932,9 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     hud.showTransientNotice(`🚨 战术锁定预警！${actor.name} 发射了【超音速战术巡航导弹】· 立即长按漂移！无限漂移触发 50% 规避豁免！`, '队友背刺预警', effectLane);
     trackGameEvent('duo_interaction', { action: 'prank-launch', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-impact') {
+    const hitPos = boats[event.targetId].state.position;
+    missileBlasts.spawn(hitPos.x, waterHeight(hitPos.x, hitPos.z, worldTime), hitPos.z);
+    audio.explosion();
     audio.splash(2.5);
     targetPipeline.pulse('defeat', 1.45);
     audio.teamSpatialCue(targetSide, 'impact');
@@ -5029,6 +5032,9 @@ function runFlapCase(): Record<string, unknown> {
 }
 
 function scenario(name: string): void {
+  // A frozen-evidence scenario may have stopped the rAF pump; every scenario
+  // entry guarantees a running loop so RAF-driven settle still works.
+  loop.start();
   harnessCameraOverride = null;
   course.object.visible = true;
   spray.object.visible = true;
@@ -5079,6 +5085,69 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 1, drift: true });
       loop.advance(3.5);
       break;
+    case 'solo-missile-hit': {
+      // No counterplay: the missile connects. Stop shortly after impact so
+      // the water blast blooms while the boat is thrown out of the wave.
+      advanceUntil(() => race.phase === 'racing', 8);
+      // Wave jumps can read as airborne at the impact instant and turn the
+      // direct hit into a near-miss deflect. The sea state is deterministic,
+      // so retry with a slightly shifted approach until the missile truly
+      // connects while the hull is on the water.
+      let connected = false;
+      for (let attempt = 0; attempt < 14 && !connected; attempt++) {
+        if (attempt > 0) {
+          singlePlayerMissiles.reset();
+          loop.advance(0.13); // shift wave phase under the hull
+        }
+        setHarnessInput({ throttle: 1 });
+        race.racers[0].place = 1;
+        singlePlayerMissiles.onCheckpoint(race.racers[0], 1);
+        // Step the missile system directly so the 1s leader scan fires before
+        // the live race recomputes places (the boat is not really leading).
+        for (let step = 0; step < 61; step++) {
+          singlePlayerMissiles.update(1 / 60, race.racers, boats, stage.camera);
+        }
+        // Pilot along the surface line so the boat survives the approach
+        // without missing gates.
+        let elapsed = 0;
+        let stateNow = singlePlayerMissiles.getTelemetry().state;
+        while (
+          stateNow !== 'hit' && stateNow !== 'deflected' &&
+          race.phase === 'racing' && elapsed < 7
+        ) {
+          const state = boats[0].state;
+          course.sample(state.position, harnessPilotSample, 'surface');
+          const targetU = harnessPilotSample.u + 30 / course.length;
+          course.routePointAt('surface', targetU, harnessPilotPoint);
+          course.routeTangentAt('surface', targetU, harnessPilotTangent);
+          const pointBearing = Math.atan2(harnessPilotPoint.x - state.position.x, harnessPilotPoint.z - state.position.z) - state.heading;
+          const tangentBearing = Math.atan2(harnessPilotTangent.x, harnessPilotTangent.z) - state.heading;
+          const pointError = Math.atan2(Math.sin(pointBearing), Math.cos(pointBearing));
+          const tangentError = Math.atan2(Math.sin(tangentBearing), Math.cos(tangentBearing));
+          setHarnessInput({
+            throttle: 1,
+            steer: Math.max(-1, Math.min(1, -(pointError * 0.58 + tangentError * 0.42) * 2.8)),
+          });
+          loop.advance(0.1);
+          elapsed += 0.1;
+          stateNow = singlePlayerMissiles.getTelemetry().state;
+        }
+        connected = stateNow === 'hit';
+      }
+      setHarnessInput(null);
+      loop.advance(0.15);
+      // Frame the evidence: popped boat above the blooming water blast.
+      harnessCameraOverride = {
+        target: boats[0].object,
+        offset: [-7.5, 5.6, -15],
+        lookAt: [1.2, 1.4, 1.5],
+        fov: 52,
+      };
+      // Freeze the pump so the 0.9s blast cannot age out before the evidence
+      // screenshot; scenario() restarts the loop on its next entry.
+      loop.stop();
+      break;
+    }
     case "night-ready":
       loop.advance(1.5);
       break;

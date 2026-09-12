@@ -989,52 +989,82 @@ export class GameAudio {
   }
 
   /**
-   * Missile near-miss detonation: sub-bass drop + bright crack attack +
-   * lowpassed roar. The audible half of "a dodged missile explodes beside
-   * you" — never a silent despawn.
+   * Missile detonation: sub-bass drop + detuned saw body + bright crack +
+   * bandpassed fireball roar + delayed echo tail. The mid-frequency body and
+   * crack keep the blast punchy on phone speakers whose sub-bass is silent;
+   * without them the explosion collapses into a dull thud.
    */
   explosion(): void {
     const c = this.ctx;
     if (!c || !this.eventBus || !this.noiseBuf) return;
-    if (this.activeOneShots + 3 >= this.maxOneShots) return;
+    if (this.activeOneShots + 5 >= this.maxOneShots) return;
     const t0 = c.currentTime;
     this.traceEvent('missile-explosion', 1);
     this.duckMusic(0.6, 0.5);
     this.duckVehicle(0.55, 0.45);
 
+    // 1. Sub-bass drop: felt on headphones/desktop, harmless on small speakers.
     const o = c.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(120, t0);
-    o.frequency.exponentialRampToValueAtTime(30, t0 + 0.5);
+    o.frequency.setValueAtTime(110, t0);
+    o.frequency.exponentialRampToValueAtTime(28, t0 + 0.6);
     const og = c.createGain();
     og.gain.setValueAtTime(0, t0);
-    og.gain.linearRampToValueAtTime(0.5, t0 + 0.012);
-    og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.7);
+    og.gain.linearRampToValueAtTime(0.4, t0 + 0.012);
+    og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
     o.connect(og);
     og.connect(this.eventBus);
     this.activeOneShots++;
     o.start(t0);
-    o.stop(t0 + 0.72);
+    o.stop(t0 + 0.82);
     o.onended = () => {
       o.disconnect();
       og.disconnect();
       this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
 
+    // 2. Mid body: detuned saw pair sweeping down — the audible "bang" core.
+    const bodyFilter = c.createBiquadFilter();
+    bodyFilter.type = 'lowpass';
+    bodyFilter.frequency.setValueAtTime(1400, t0);
+    bodyFilter.frequency.exponentialRampToValueAtTime(280, t0 + 0.4);
+    const bodyGain = c.createGain();
+    bodyGain.gain.setValueAtTime(0, t0);
+    bodyGain.gain.linearRampToValueAtTime(0.34, t0 + 0.01);
+    bodyGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.45);
+    bodyFilter.connect(bodyGain);
+    bodyGain.connect(this.eventBus);
+    for (const detune of [-3, 3]) {
+      const saw = c.createOscillator();
+      saw.type = 'sawtooth';
+      saw.detune.value = detune;
+      saw.frequency.setValueAtTime(160, t0);
+      saw.frequency.exponentialRampToValueAtTime(45, t0 + 0.4);
+      saw.connect(bodyFilter);
+      saw.start(t0);
+      saw.stop(t0 + 0.46);
+      saw.onended = () => {
+        saw.disconnect();
+        this.activeOneShots = Math.max(0, this.activeOneShots - 1);
+      };
+    }
+    this.activeOneShots += 2;
+
+    // 3. Crack attack: bright highpassed noise transient.
     const crack = c.createBufferSource();
     crack.buffer = this.noiseBuf;
     const hp = c.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 900;
+    hp.frequency.value = 1600;
     const cg = c.createGain();
-    cg.gain.setValueAtTime(0.3, t0);
-    cg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+    cg.gain.setValueAtTime(0.38, t0);
+    cg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16);
     crack.connect(hp);
     hp.connect(cg);
     cg.connect(this.eventBus);
     this.activeOneShots++;
-    crack.start(t0, this.nextNoiseOffset(0.14));
-    crack.stop(t0 + 0.14);
+    crack.start(t0, this.nextNoiseOffset(0.16));
+    crack.stop(t0 + 0.16);
     crack.onended = () => {
       crack.disconnect();
       hp.disconnect();
@@ -1042,26 +1072,55 @@ export class GameAudio {
       this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
 
+    // 4. Fireball roar: bandpassed noise sweep, mid-focused so it booms
+    // instead of reading as a lowpassed muffled rumble.
     const n = c.createBufferSource();
     n.buffer = this.noiseBuf;
-    const lp = c.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(900, t0);
-    lp.frequency.exponentialRampToValueAtTime(220, t0 + 0.5);
+    n.loop = true;
+    const bp = c.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 0.8;
+    bp.frequency.setValueAtTime(2400, t0);
+    bp.frequency.exponentialRampToValueAtTime(300, t0 + 0.5);
     const ng = c.createGain();
     ng.gain.setValueAtTime(0.001, t0);
-    ng.gain.exponentialRampToValueAtTime(0.32, t0 + 0.03);
-    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.55);
-    n.connect(lp);
-    lp.connect(ng);
+    ng.gain.exponentialRampToValueAtTime(0.3, t0 + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6);
+    n.connect(bp);
+    bp.connect(ng);
     ng.connect(this.eventBus);
     this.activeOneShots++;
     n.start(t0, this.nextNoiseOffset(0.6));
     n.stop(t0 + 0.6);
     n.onended = () => {
       n.disconnect();
-      lp.disconnect();
+      bp.disconnect();
       ng.disconnect();
+      this.activeOneShots = Math.max(0, this.activeOneShots - 1);
+    };
+
+    // 5. Echo tail: delayed lowpassed burst, cheap open-water reflection.
+    const echo = c.createBufferSource();
+    echo.buffer = this.noiseBuf;
+    echo.loop = true;
+    const elp = c.createBiquadFilter();
+    elp.type = 'lowpass';
+    elp.frequency.value = 500;
+    const eg = c.createGain();
+    const tEcho = t0 + 0.16;
+    eg.gain.setValueAtTime(0.001, tEcho);
+    eg.gain.exponentialRampToValueAtTime(0.16, tEcho + 0.05);
+    eg.gain.exponentialRampToValueAtTime(0.001, tEcho + 0.7);
+    echo.connect(elp);
+    elp.connect(eg);
+    eg.connect(this.eventBus);
+    this.activeOneShots++;
+    echo.start(tEcho, this.nextNoiseOffset(0.7));
+    echo.stop(tEcho + 0.72);
+    echo.onended = () => {
+      echo.disconnect();
+      elp.disconnect();
+      eg.disconnect();
       this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
   }

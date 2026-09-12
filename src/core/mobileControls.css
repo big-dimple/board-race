@@ -233,6 +233,26 @@
 }
 .mobile-steer-zones small { margin-top: -3px; }
 
+/* Font-independent chevrons: iOS renders ‹ › (U+2039/203A) as hairline
+   strokes, so the arrows are drawn from borders instead of glyph shapes. */
+.mobile-steer-zones b {
+  width: 0.42em;
+  height: 0.42em;
+  border: 0.085em solid currentColor;
+  border-radius: 0.05em;
+  filter: drop-shadow(2px 2px 0 var(--mobile-ink));
+}
+.mobile-steer-zones [data-mobile-action="left"] b {
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(-45deg);
+}
+.mobile-steer-zones [data-mobile-action="right"] b {
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(45deg);
+}
+
 .mobile-action-zones button { font-size: clamp(30px, 7vh, 42px); }
 .mobile-action-zones button:first-child { color: var(--mobile-drift); }
 .mobile-action-zones button:last-child { color: var(--mobile-flight); }
