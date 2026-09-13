@@ -150,6 +150,106 @@ try {
   assert.ok(ignition.rms > 0.01 && ignition.tail < 0.001, 'ignition must end cleanly');
   assert.ok(ignition.voices <= 3, 'ignition must keep a bounded voice budget');
 
+  // Positional blast gating: off-screen blasts stay silent, in-view blasts
+  // fade with distance, and a close blast behind the boat is kept.
+  const spatial = await page.evaluate(async () => {
+    const { GameAudio } = await import('/src/audio/audio.ts');
+    const makeSound = () => {
+      const sound = new GameAudio();
+      const ctx = new OfflineAudioContext(1, 48000, 48000);
+      sound.ctx = ctx;
+      sound.eventBus = ctx.createGain();
+      sound.eventBus.connect(ctx.destination);
+      sound.noiseBuf = ctx.createBuffer(1, 96000, 48000);
+      const data = sound.noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      return sound;
+    };
+    const probe = (x, z, seat = 0) => {
+      const sound = makeSound();
+      sound.setListener(seat, 0, 0, 0, 1);
+      const level = sound.explosion(x, z, seat);
+      return { level, voices: sound.activeOneShots };
+    };
+    const duoSeat = (() => {
+      const sound = makeSound();
+      sound.setListener(1, 100, 0, 0, 1);
+      const level = sound.explosion(100, 5, 1);
+      return { level, voices: sound.activeOneShots };
+    })();
+    return {
+      behind: probe(0, -20),
+      ahead: probe(0, 60),
+      far: probe(0, 200),
+      outsideCone: probe(38.6, 10.4), // ~75° off-axis at ~40m
+      duoSeat,
+    };
+  });
+  assert.ok(spatial.behind.level > 0.5 && spatial.behind.voices > 0,
+    `a blast right behind must stay audible: ${JSON.stringify(spatial.behind)}`);
+  assert.ok(spatial.ahead.level > 0 && spatial.ahead.level < 1 && spatial.ahead.voices > 0,
+    `an in-view blast must fade with distance: ${JSON.stringify(spatial.ahead)}`);
+  assert.equal(spatial.far.level, 0);
+  assert.equal(spatial.far.voices, 0, 'a far off-screen blast must stay silent');
+  assert.equal(spatial.outsideCone.level, 0);
+  assert.equal(spatial.outsideCone.voices, 0, 'a blast outside the view cone must stay silent');
+  assert.ok(spatial.duoSeat.level > 0.8 && spatial.duoSeat.voices > 0,
+    `a duo blast at its own seat listener must stay full: ${JSON.stringify(spatial.duoSeat)}`);
+
+  // iOS recovery: 'interrupted' must attempt resume, a rejected promise must
+  // release the retry guard, and a never-settling promise must be freed by
+  // the watchdog. The deliberate hidden/overlay silence must not self-heal.
+  const recovery = await page.evaluate(async () => {
+    const { GameAudio } = await import('/src/audio/audio.ts');
+    const makeSound = (state, resumeImpl) => {
+      const sound = new GameAudio();
+      sound.ctx = { state, resume: resumeImpl, currentTime: 0 };
+      return sound;
+    };
+    let interruptedCalls = 0;
+    const interrupted = makeSound('interrupted', () => {
+      interruptedCalls++;
+      return Promise.reject(new Error('still interrupted'));
+    });
+    interrupted.resume();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    interrupted.resume();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    let stuckCalls = 0;
+    const stuck = makeSound('suspended', () => {
+      stuckCalls++;
+      return new Promise(() => {});
+    });
+    stuck.resume();
+    stuck.resume(); // pending guard must block this attempt
+    await new Promise((resolve) => setTimeout(resolve, 2700));
+    stuck.resume(); // watchdog must have released the guard
+    const stuckTimeouts = Number(stuck.debugState().resumeTimeouts);
+
+    let healCalls = 0;
+    const heal = makeSound('interrupted', () => {
+      healCalls++;
+      return Promise.reject(new Error('no activation'));
+    });
+    heal.update(2.1);
+
+    let blockedCalls = 0;
+    const silent = makeSound('interrupted', () => {
+      blockedCalls++;
+      return Promise.reject(new Error('must stay silent'));
+    });
+    silent.setVisibility(true);
+    silent.update(2.1);
+
+    return { interruptedCalls, stuckCalls, stuckTimeouts, healCalls, blockedCalls };
+  });
+  assert.equal(recovery.interruptedCalls, 2, 'interrupted state must attempt resume on every gesture');
+  assert.equal(recovery.stuckCalls, 2, 'watchdog must release a never-settled resume guard');
+  assert.equal(recovery.stuckTimeouts, 1);
+  assert.equal(recovery.healCalls, 1, 'visible self-heal must retry a non-running context');
+  assert.equal(recovery.blockedCalls, 0, 'deliberate hidden silence must not self-heal');
+
   const beforeEvents = await page.evaluate(() => window.__harness.audioEventLog());
   await page.evaluate(() => window.__harness.collisionFeedbackCase());
   const afterEvents = await page.evaluate(() => window.__harness.audioEventLog());

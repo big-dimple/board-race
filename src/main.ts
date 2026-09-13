@@ -221,17 +221,23 @@ missileBlasts.warmup(stage.renderer);
 const singlePlayerMissiles = new SinglePlayerMissilesSystem(
   course,
   (msg, title) => hud.showTransientNotice(msg, title),
-  (kind) => {
+  (kind, x, z) => {
     if (kind === 'launch') {
       audio.missileLaunchAlert();
     } else if (kind === 'impact') {
-      audio.explosion();
-      audio.splash(2.6);
-      cameraRig.stormKick();
+      // The missile chases the race leader, so its blast can belong to a far
+      // AI — a blast outside the player's picture must stay silent there.
+      const level = x === undefined || z === undefined ? 1 : audio.explosion(x, z, 0);
+      if (level > 0) {
+        audio.splash(2.6 * level);
+        cameraRig.stormKick();
+      }
     } else if (kind === 'near-miss') {
-      audio.explosion();
-      audio.splash(2.2);
-      cameraRig.shake(0.65);
+      const level = x === undefined || z === undefined ? 1 : audio.explosion(x, z, 0);
+      if (level > 0) {
+        audio.splash(2.2 * level);
+        cameraRig.shake(0.65);
+      }
     } else {
       audio.missileLockAlert(kind === 'lock' ? 'lock' : 'tracking');
     }
@@ -258,6 +264,12 @@ const TEAM_CAMERA_TUNING = {
 } as const;
 const teamLeftCameraRig = new CameraRig(teamLeftCamera, TEAM_CAMERA_TUNING);
 const teamRightCameraRig = new CameraRig(teamRightCamera, TEAM_CAMERA_TUNING);
+const cameraForwardScratch = new THREE.Vector3();
+/** A seat's audio listener follows whatever that seat's camera is showing. */
+function feedAudioListener(seat: 0 | 1, camera: THREE.Camera): void {
+  camera.getWorldDirection(cameraForwardScratch);
+  audio.setListener(seat, camera.position.x, camera.position.z, cameraForwardScratch.x, cameraForwardScratch.z);
+}
 const audio = new GameAudio();
 window.addEventListener('keydown', () => {
   audio.resume();
@@ -1854,9 +1866,12 @@ function updateRaceCamera(dt: number, t: number, focus = primaryBoat()): void {
       const rightFocus = rightEliminated ? boats[0] : boats[1];
       teamRightCameraRig.update(dt, rightFocus, t);
     }
+    feedAudioListener(0, teamLeftCamera);
+    feedAudioListener(1, teamRightCamera);
     return;
   }
   cameraRig.update(dt, focus, t);
+  feedAudioListener(0, stage.camera);
 }
 
 function activeRaceBoats(): Boat[] {
@@ -1935,8 +1950,9 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
   } else if (event.phase === 'prank-impact') {
     const hitPos = boats[event.targetId].state.position;
     missileBlasts.spawn(hitPos.x, waterHeight(hitPos.x, hitPos.z, worldTime), hitPos.z);
-    audio.explosion();
-    audio.splash(2.5);
+    const targetSeat: 0 | 1 = event.targetId === 0 ? 0 : 1;
+    const impactLevel = audio.explosion(hitPos.x, hitPos.z, targetSeat);
+    if (impactLevel > 0) audio.splash(2.5 * impactLevel);
     targetPipeline.pulse('defeat', 1.45);
     audio.teamSpatialCue(targetSide, 'impact');
     if (event.targetId === 0) teamLeftCameraRig.defeatKick();
@@ -1960,11 +1976,14 @@ function handleDuoInteraction(event: DuoInteractionEvent): void {
     }
     trackGameEvent('duo_interaction', { action: 'prank-impact', actor: actor.id, target: target.id });
   } else if (event.phase === 'prank-miss') {
+    const targetSeat: 0 | 1 = event.targetId === 0 ? 0 : 1;
     if (event.blastX !== undefined && event.blastZ !== undefined) {
       missileBlasts.spawn(event.blastX, 0, event.blastZ);
     }
-    audio.explosion();
-    audio.splash(2.8); // Roaring underwater eruption blast
+    const missLevel = event.blastX !== undefined && event.blastZ !== undefined
+      ? audio.explosion(event.blastX, event.blastZ, targetSeat)
+      : 1;
+    if (missLevel > 0) audio.splash(2.8 * missLevel); // Roaring underwater eruption blast
     targetPipeline.pulse('lost', 1.15); // Fiery orange shockwave flash on target screen
     audio.teamSpatialCue(targetSide, 'impact');
     if (event.targetId === 0) teamLeftCameraRig.shake(0.75);

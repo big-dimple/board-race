@@ -30,6 +30,16 @@ const COUNTDOWN_TICK_HZ = 880;
 const COUNTDOWN_TICK_PEAK = 0.15;
 const START_SIGNAL_TOP_HZ = 1320;
 const START_SIGNAL_PEAK = 0.28;
+// Positional blast gating: audible inside the view cone up to the far radius,
+// plus a short any-direction bubble so a blast right behind the boat is kept.
+const CLOSE_BEHIND_RADIUS = 32;
+const VIEW_HALF_COS = Math.cos((58 * Math.PI) / 180);
+const AUDIBLE_RADIUS = 150;
+const BLAST_LEVEL_CURVE = 1.35;
+// iOS audio-session recovery: a resume promise that never settles must not
+// block later retries, and a visible page re-attempts resume on a slow cadence.
+const RESUME_WATCHDOG_MS = 2500;
+const SELF_HEAL_INTERVAL_S = 2;
 
 export type GameAudioScene =
   | 'ready'
@@ -123,6 +133,18 @@ export class GameAudio {
   private driverSelectEvents = 0;
   private lastDriverSelectIndex = -1;
 
+  // Per-seat listener transforms (ground position + forward), fed from the
+  // matching race camera every frame. Seat 1 only matters in duo split-screen.
+  private readonly listeners: { x: number; z: number; fx: number; fz: number }[] = [
+    { x: 0, z: 0, fx: 0, fz: 1 },
+    { x: 0, z: 0, fx: 0, fz: 1 },
+  ];
+  // Set only by the deliberate hidden/overlay silence path; blocks the
+  // self-heal retry until an explicit resume gesture has restored the mix.
+  private expectSilentUntilResume = false;
+  private resumeTimeouts = 0;
+  private unsoundedTime = 0;
+
   // engine nodes
   private saw1: OscillatorNode | null = null;
   private saw2: OscillatorNode | null = null;
@@ -175,24 +197,49 @@ export class GameAudio {
     }
     const c = this.ctx;
     if (c && !document.hidden) {
-      if (c.state === 'suspended') {
+      // iOS Safari adds an 'interrupted' state (calls, Siri, alarms, other
+      // apps grabbing the audio session). It must be resumed exactly like
+      // 'suspended'; leaving it untouched silences the game forever.
+      if (c.state !== 'running') {
         if (this.resumePending) return;
         this.resumeAttempts++;
-        this.resumePending = c.resume().then(() => {
+        const pending = c.resume().then(() => {
+          this.expectSilentUntilResume = false;
           this.applyMix(0.28);
           if (this.scoreArmed || this.readyMusicActive) this.ensureMusicPlaying();
         }).catch(() => {
           this.resumeFailures++;
         }).finally(() => {
-          this.resumePending = null;
+          if (this.resumePending === pending) this.resumePending = null;
         });
+        this.resumePending = pending;
+        // Some iOS versions never settle the resume promise around audio
+        // interruptions. A stuck guard would reject every later gesture, so
+        // release it after a short watchdog window.
+        window.setTimeout(() => {
+          if (this.resumePending === pending) {
+            this.resumeTimeouts++;
+            this.resumePending = null;
+          }
+        }, RESUME_WATCHDOG_MS);
       } else if (c.state === 'running') {
         // A very short app switch can restore visibility before the delayed
         // suspend runs. The next explicit gesture must still restore the mix.
+        this.expectSilentUntilResume = false;
         this.applyMix(0.28);
         if (this.scoreArmed || this.readyMusicActive) this.ensureMusicPlaying();
       }
     }
+  }
+
+  /** Feed a seat listener transform (camera ground position + forward). */
+  setListener(seat: 0 | 1, x: number, z: number, forwardX: number, forwardZ: number): void {
+    const listener = this.listeners[seat];
+    const length = Math.hypot(forwardX, forwardZ) || 1;
+    listener.x = x;
+    listener.z = z;
+    listener.fx = forwardX / length;
+    listener.fz = forwardZ / length;
   }
 
   update(dt: number): void {
@@ -203,6 +250,22 @@ export class GameAudio {
     if (this.ctx && this.vehicleDuckMultiplier < 1 && this.ctx.currentTime >= this.vehicleDuckUntil) {
       this.vehicleDuckMultiplier = 1;
       this.applyMix(0.06);
+    }
+    // Sudden-silence self-heal: iOS can take the context away mid-game without
+    // any visibility change. While the page is visible and we are not inside
+    // the deliberate hidden/overlay silence contract, retry resume on a slow
+    // cadence so audio comes back even without a fresh user gesture.
+    if (
+      this.ctx && !document.hidden && this.scene !== 'hidden' && !this.expectSilentUntilResume &&
+      this.ctx.state !== 'running' && !this.resumePending
+    ) {
+      this.unsoundedTime += dt;
+      if (this.unsoundedTime >= SELF_HEAL_INTERVAL_S) {
+        this.unsoundedTime = 0;
+        this.resume();
+      }
+    } else {
+      this.unsoundedTime = 0;
     }
     if (!this.scoreArmed || (this.scene !== 'racing' && this.scene !== 'flight')) return;
     this.raceScoreElapsed += dt;
@@ -360,6 +423,8 @@ export class GameAudio {
       contextStateAtGo: this.contextStateAtGo,
       resumeAttempts: this.resumeAttempts,
       resumeFailures: this.resumeFailures,
+      resumeTimeouts: this.resumeTimeouts,
+      expectSilentUntilResume: this.expectSilentUntilResume,
       scoreElapsed: this.raceScoreElapsed,
       driftTier: this.lastDriftTier,
       musicDuck: this.musicDuckMultiplier,
@@ -386,6 +451,9 @@ export class GameAudio {
         this.sceneBeforeHidden = this.scene;
         this.scene = 'hidden';
       }
+      // Deliberate silence: the foreground stays muted until an explicit
+      // resume gesture, and the self-heal retry must not fight that contract.
+      this.expectSilentUntilResume = true;
       this.applyMix(0.04);
       if (this.master) {
         this.master.gain.cancelScheduledValues(c.currentTime);
@@ -993,15 +1061,36 @@ export class GameAudio {
    * bandpassed fireball roar + delayed echo tail. The mid-frequency body and
    * crack keep the blast punchy on phone speakers whose sub-bass is silent;
    * without them the explosion collapses into a dull thud.
+   *
+   * Positional: the blast only reaches a seat when it happens inside that
+   * listener's picture (faded by distance) or right behind it; the audible
+   * level is returned so the caller can gate the paired splash/camera kick.
    */
-  explosion(): void {
+  explosion(x: number, z: number, seat: 0 | 1 = 0): number {
     const c = this.ctx;
-    if (!c || !this.eventBus || !this.noiseBuf) return;
-    if (this.activeOneShots + 5 >= this.maxOneShots) return;
+    if (!c || !this.eventBus || !this.noiseBuf) return 0;
+    if (this.activeOneShots + 5 >= this.maxOneShots) return 0;
+    const level = this.blastLevel(x, z, seat);
+    if (level <= 0) return 0;
     const t0 = c.currentTime;
-    this.traceEvent('missile-explosion', 1);
+    this.traceEvent('missile-explosion', level);
     this.duckMusic(0.6, 0.5);
     this.duckVehicle(0.55, 0.45);
+
+    // Spatial insert: every voice routes through one panner derived from the
+    // blast's lateral offset against the owning seat's listener.
+    const listener = this.listeners[seat];
+    const dx = x - listener.x;
+    const dz = z - listener.z;
+    const dist = Math.hypot(dx, dz);
+    let dest: AudioNode = this.eventBus;
+    if (typeof c.createStereoPanner === 'function' && dist > 0.5) {
+      const lateral = Math.max(-0.8, Math.min(0.8, (-dx * listener.fz + dz * listener.fx) / dist));
+      const panner = c.createStereoPanner();
+      panner.pan.setValueAtTime(lateral, t0);
+      panner.connect(this.eventBus);
+      dest = panner;
+    }
 
     // 1. Sub-bass drop: felt on headphones/desktop, harmless on small speakers.
     const o = c.createOscillator();
@@ -1010,10 +1099,10 @@ export class GameAudio {
     o.frequency.exponentialRampToValueAtTime(28, t0 + 0.6);
     const og = c.createGain();
     og.gain.setValueAtTime(0, t0);
-    og.gain.linearRampToValueAtTime(0.4, t0 + 0.012);
+    og.gain.linearRampToValueAtTime(0.4 * level, t0 + 0.012);
     og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
     o.connect(og);
-    og.connect(this.eventBus);
+    og.connect(dest);
     this.activeOneShots++;
     o.start(t0);
     o.stop(t0 + 0.82);
@@ -1030,10 +1119,10 @@ export class GameAudio {
     bodyFilter.frequency.exponentialRampToValueAtTime(280, t0 + 0.4);
     const bodyGain = c.createGain();
     bodyGain.gain.setValueAtTime(0, t0);
-    bodyGain.gain.linearRampToValueAtTime(0.34, t0 + 0.01);
+    bodyGain.gain.linearRampToValueAtTime(0.34 * level, t0 + 0.01);
     bodyGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.45);
     bodyFilter.connect(bodyGain);
-    bodyGain.connect(this.eventBus);
+    bodyGain.connect(dest);
     for (const detune of [-3, 3]) {
       const saw = c.createOscillator();
       saw.type = 'sawtooth';
@@ -1057,11 +1146,11 @@ export class GameAudio {
     hp.type = 'highpass';
     hp.frequency.value = 1600;
     const cg = c.createGain();
-    cg.gain.setValueAtTime(0.38, t0);
+    cg.gain.setValueAtTime(0.38 * level, t0);
     cg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16);
     crack.connect(hp);
     hp.connect(cg);
-    cg.connect(this.eventBus);
+    cg.connect(dest);
     this.activeOneShots++;
     crack.start(t0, this.nextNoiseOffset(0.16));
     crack.stop(t0 + 0.16);
@@ -1084,11 +1173,11 @@ export class GameAudio {
     bp.frequency.exponentialRampToValueAtTime(300, t0 + 0.5);
     const ng = c.createGain();
     ng.gain.setValueAtTime(0.001, t0);
-    ng.gain.exponentialRampToValueAtTime(0.3, t0 + 0.03);
+    ng.gain.exponentialRampToValueAtTime(0.3 * level, t0 + 0.03);
     ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.6);
     n.connect(bp);
     bp.connect(ng);
-    ng.connect(this.eventBus);
+    ng.connect(dest);
     this.activeOneShots++;
     n.start(t0, this.nextNoiseOffset(0.6));
     n.stop(t0 + 0.6);
@@ -1109,11 +1198,11 @@ export class GameAudio {
     const eg = c.createGain();
     const tEcho = t0 + 0.16;
     eg.gain.setValueAtTime(0.001, tEcho);
-    eg.gain.exponentialRampToValueAtTime(0.16, tEcho + 0.05);
+    eg.gain.exponentialRampToValueAtTime(0.16 * level, tEcho + 0.05);
     eg.gain.exponentialRampToValueAtTime(0.001, tEcho + 0.7);
     echo.connect(elp);
     elp.connect(eg);
-    eg.connect(this.eventBus);
+    eg.connect(dest);
     this.activeOneShots++;
     echo.start(tEcho, this.nextNoiseOffset(0.7));
     echo.stop(tEcho + 0.72);
@@ -1123,6 +1212,7 @@ export class GameAudio {
       eg.disconnect();
       this.activeOneShots = Math.max(0, this.activeOneShots - 1);
     };
+    return level;
   }
 
   /** Audited landing event; no continuous water loop is attached. */
@@ -1443,6 +1533,28 @@ export class GameAudio {
     const offset = this.noiseCursor;
     this.noiseCursor = (this.noiseCursor + Math.max(0.11, duration) + 0.173) % 1.65;
     return offset;
+  }
+
+  /**
+   * Audible level of a blast for a seat listener: full up close, faded inside
+   * the view cone, and silent outside the picture beyond a short radius — an
+   * off-screen explosion must not reach the player unless it is right behind
+   * them. Zero means "skip entirely".
+   */
+  private blastLevel(x: number, z: number, seat: 0 | 1): number {
+    const listener = this.listeners[seat];
+    const dx = x - listener.x;
+    const dz = z - listener.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > AUDIBLE_RADIUS) return 0;
+    let audible = dist <= CLOSE_BEHIND_RADIUS;
+    if (!audible && dist > 0.001) {
+      const fwdDot = (dx * listener.fx + dz * listener.fz) / dist;
+      audible = fwdDot >= VIEW_HALF_COS;
+    }
+    if (!audible) return 0;
+    const level = clamp01(1 - dist / AUDIBLE_RADIUS) ** BLAST_LEVEL_CURVE;
+    return level < 0.02 ? 0 : level;
   }
 
   private traceEvent(source: string, strength: number): void {

@@ -1,42 +1,42 @@
 # Board Race 开发交接
 
-状态：本工作包已发版 `6ef26df`（base `463548a`）。四项玩家体验修正已推送 main。
+状态：新工作包已验证完毕，待发布（base `6ef26df`）。
 
 ## 当前工作包（本提交）
 
-- 目标：四项玩家体验修正——起终点门柱实体化、HUD 字幕瘦身、手机转向 UI 竞品式重设计、
-  起飞判负规则可视化。
-- 起终点门柱实体：`course.applyStartGantryHits()`（course.ts，紧随 applyBuoyHits）双柱
-  圆测试 + 径向推出 + `applyCollisionResponse`（朝柱速度反弹，慢速贴柱只分离）；门楼保持
-  非 knockable（浮漂恒 16）；main.ts 单/双打与团队循环接入 `presentBuoyHits` 反馈管并
-  在位置修正时走 `race.syncCollisionCorrections()` 重投影；harness 新增
-  `start-gantry-solid` 用例（collision.mjs）。
-- 字幕瘦身：桌面紧凑电台卡 252→320px 治换行；单人超车不再双份播报（双打席位电台保留）；
-  金币拾取卡优先级 70→44（排队不抢占过门/航线卡）；被顶通知取消 0.35s 回放；GO 3.0s /
-  三飞七飞认证 3.4s / 撞柱 3.4s / final-ready 2.6s。
-- 手机转向 UI（竞品摩托艇式）：转向垫 84-92px、底色加深、border 画法 chevron 居中放大
-  （58-80px），移除可见 LEFT/RIGHT 文字（aria-label 保留）；hit 区与 pointer 映射零改动；
-  README 描述同步。
-- 起飞判负可视化（判定不变，只加表现）：水面引导线起飞窗口变色带（尽头对齐
-  `gateUs[0]−FLIGHT_GATE_BYPASS_U` 死线，替代原 exitU+8 压暗）；`computeLaunchJudgment`
-  每步输出 launchDeadlineM / flightOrphan / flightDoomed（guidance + 双打副席同算，
-  早飞可达性按 22 m/s 巡航 floor 规划）；HUD 复用 wrong-way 横幅槽（corridor >
-  launchJudgment > wrong_way > off_course），doomed 起跳沿触发一次性提示卡
-  `.hud-flight-prompt.doomed` + flight-alert；harness 新增 launch-deadline /
-  launch-doomed 截图场景。
-- Owner：`game/course.ts`、`contracts.ts`、`main.ts`、`hud/hud.ts`、`hud/hud.css`、
-  `hud/raceTower.*`、`core/mobileControls.*`、`harness/collision.mjs`、README、llmwiki、本文件。
+- 目标：两项音频修复——爆炸声空间门控（远处 / 画面外爆炸不再送达玩家，
+  除非就在身后）+ iPhone 12 突然全静音自愈。
+- 爆炸空间门控（`src/audio/audio.ts`）：新增双席位听者槽（x/z/fx/fz），
+  `setListener(seat, ...)` 每帧由 `updateRaceCamera` 用本席相机位置与
+  水平面前向喂养（单人喂 seat 0；双打喂 team 左 / 右相机）。`explosion(x, z, seat)`
+  经 `blastLevel` 门控：32m 近身半径任意方向可闻（覆盖"就在身后"）或视锥
+  半角 ±58° 且 150m 内按 `clamp01(1-d/150)^1.35` 衰减，其余返回 0 整段静默；
+  五声部峰值乘 level，新增 StereoPanner（横向偏移 ±0.8）插在声部与 eventBus 之间。
+- 爆点接线：`singlePlayerMissiles.ts` 的 `onMissileAudio` 回调扩为
+  `(kind, x?, z?)`，near-miss 用 blastX/blastZ、impact 用 hitX/hitZ；
+  `main.ts` 单人 impact/near-miss 用返回的 level 门控配套 splash 与
+  stormKick/shake（远处 AI 吃弹不再白震镜头）；双打 prank-impact/miss 以
+  目标席为听者（爆点本就在目标船边 → 满级，行为不变）。爆炸视效池不受门控。
+- iOS 静音自愈（`src/audio/audio.ts`）：`resume()` 对非 running 态统一尝试
+  （覆盖 iOS 第三态 `interrupted`）；2.5s 看门狗释放永不 settle 的 resume
+  守卫（`resumeTimeouts` 计数）；`update(dt)` 在页面可见、非刻意静音、
+  非 running、无 pending 时每 2s 自愈重试；`expectSilentUntilResume` 仅由
+  隐藏路径置位，保住"前台保持静音直到显式 resume"契约。
+- 范围外：飞弹发射警报保持全场景广播（llmwiki 明文设计，用户未投诉）。
+- Owner：`src/audio/audio.ts`、`src/game/singlePlayerMissiles.ts`、`src/main.ts`、
+  `harness/audio.mjs`、README、llmwiki、本文件。
 
 ## 验证与证据
 
-- `npm run build` / `verify:smoke` / `verify:team` / `verify:collision` 全部通过
-  （smoke 曾暴露 extension 场景被 doomed 卡抢占，已通过巡航速度 floor + 新动作窗口
-  清除 doomed 卡修复并复跑确认）。
-- 截图：`shots/launch-judgment/`（launch-deadline 桌面、launch-doomed 桌面、
-  flight-ready 桌面）、`shots/launch-judgment-mobile/`（launch-deadline 844x390）、
-  `shots/steer-redesign/`（手机转向垫，子代理已自查）。
+- `npm run build` / `verify:audio` / `verify:smoke` 全部通过。
+- `harness/audio.mjs` 新增断言：身后 20m 有声且 level>0.5、正前 60m 有声且
+  0<level<1、正前 200m 与 75° 偏轴 40m 全静默、双打 seat1 近爆点满级；
+  interrupted 态每次手势都尝试 resume、reject 后守卫可重试、永不 settle
+  时看门狗释放守卫（2.7s 实等）、可见自愈重试 1 次、隐藏契约不自愈。
+- 无视觉改动，不需要截图。
 
 ## 唯一下一步
 
-用户人工评审截图（`shots/launch-judgment/`、`shots/launch-judgment-mobile/`、
-`shots/steer-redesign/`）与实机门柱弹回手感、字幕节奏；有调整意见则按反馈开新工作包。
+发布（jiepi-clear 轻量预提交 → stage → `npm run release:checked`），随后用户
+实机复核：iPhone 12 打断场景（来电 / Siri / 切App）后声音是否自愈；
+远离第一名时画面外爆炸是否安静、身后近爆是否保留。
