@@ -498,6 +498,12 @@ export interface CourseGuidanceStatus {
   launchGateDistanceM: number;
   /** Visible rising energy diamonds (always zero or three). */
   launchGateDiamondCount: number;
+  /** Surface meters remaining before an unlaunched pass of the portal line fails, or -1. */
+  launchDeadlineM: number;
+  /** Airborne, route unlatched, span still reachable: steer back into the mist. */
+  flightOrphan: number;
+  /** Airborne and provably unable to latch before splashdown. */
+  flightDoomed: number;
   /** Accepted controlled-flight edge currently owning presentation, or -1. */
   launchCommitRouteIndex: number;
   /** Surface projection at that accepted edge, or -1 outside a committed flight. */

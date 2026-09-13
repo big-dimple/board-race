@@ -219,19 +219,21 @@
 }
 
 .mobile-steer-zones button {
-  color: rgba(244, 254, 255, 0.78);
-  font-size: clamp(54px, 10vh, 76px);
+  color: rgba(244, 254, 255, 0.86);
+  font-size: clamp(58px, 11vh, 80px);
 }
 .mobile-steer-zones span {
-  width: clamp(72px, 20vh, 88px);
-  height: clamp(72px, 20vh, 88px);
-  background: rgba(10, 16, 42, 0.52);
-  opacity: 0.78;
+  /* Competitor-style translucent arrow pad: one large centered chevron, no
+     text label fighting it (LEFT/RIGHT labels occluded the chevron strokes).
+     Darker fill keeps the white chevron readable over the bright ocean. */
+  width: clamp(84px, 24vh, 92px);
+  height: clamp(84px, 24vh, 92px);
+  background: rgba(10, 16, 42, 0.68);
+  opacity: 0.82;
 }
 .mobile-steer-zones [data-mobile-action="right"] span {
   left: calc(50% - var(--steer-right-face-inset));
 }
-.mobile-steer-zones small { margin-top: -3px; }
 
 /* Font-independent chevrons: iOS renders ‹ › (U+2039/203A) as hairline
    strokes, so the arrows are drawn from borders instead of glyph shapes. */

@@ -32,7 +32,7 @@
   display:none;
   grid-template-columns:32px minmax(0,1fr);
   gap:9px;
-  width:252px;
+  width:320px;
   margin-top:7px;
   padding:9px 10px 10px 9px;
   border:1px solid rgba(85,231,255,.42);

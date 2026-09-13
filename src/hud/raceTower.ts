@@ -154,7 +154,7 @@ export class RaceTower {
     this.enqueue({
       key: 'go', speaker: TEAM_SPEAKER,
       message: `${playerName}，线路开放。先拿首飞。`,
-      priority: 'tactical', duration: 2.2, ttl: 8,
+      priority: 'tactical', duration: 3.0, ttl: 8,
     });
   }
 
@@ -178,7 +178,7 @@ export class RaceTower {
     const index = this.flightIndex++ % messages.length;
     this.enqueue({
       key: `flight-${flights}-${index}`, speaker: TEAM_SPEAKER,
-      message: messages[index], priority: 'critical', duration: 2.4, ttl: 4,
+      message: messages[index], priority: 'critical', duration: 3.4, ttl: 4,
     });
   }
 
@@ -212,7 +212,7 @@ export class RaceTower {
       sessionKey: profile.mood === '兴奋' ? 'radio-profanity' : undefined,
       speaker: driverSpeaker(profile),
       message: COLLISION_LINES[profile.mood],
-      priority: 'critical', duration: 2.8, ttl: 3,
+      priority: 'critical', duration: 3.4, ttl: 3,
     });
   }
 

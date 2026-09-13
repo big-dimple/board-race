@@ -1,53 +1,42 @@
 # Board Race 开发交接
 
-状态：头盔改造 `3da9c3a`、盔背/船尾墨线 `586906f`、分辨率自适应墨线 `4371749` 已发版；
-盔顶圆顶化 + 座舱藏青化（治屁股黑团/转向尾翼发黑）随本提交发版。
-
-## 上一工作包（已发版 `3adc909`）
-
-- 手机发热 + 偶发卡顿根治（呈现封顶 / 调速器实测渲染耗时 / 防抖档 / 爆炸池预热）已发版；真机复测 pending。
+状态：base `463548a`（头盔工作包已发版）。当前工作包未提交，改动已验证、待发版。
 
 ## 当前工作包（本提交）
 
-- 目标：废弃 3D 面部与发型骨骼方案（H5 表情/发型骨骼开销大、面部效果不达标），六名车手统一
-  改为封闭头盔：纯外壳 + 反光面罩，刚性硬绑定 `head` 骨骼（不走蒙皮、零每帧头饰计算）。
-- 六款轮廓按 `driverId`：axle 圆润 / tide 尾翼导流 / sol 越野帽檐 / reef 棱角科技 /
-  kai 空力尾椎 / jinx 非对称双鳍；高饱和队色主漆 + 高对比沫白（后脑脊柱条纹 + 侧条纹 +
-  盔顶），面罩为壳体前弧段的共形平行面（统一膨胀 1.05×）+ 烟熏渐变 + 共享材质低阈值高光带。
-- 共享资源：盔壳/面罩两份模块级共享 toon 材质（顶点色涂装通道），几何按 driver 缓存；
-  壳体带预留规范化 UV0（u=环向、v=纵向）供未来图集合批；无任何运行时贴图。
-- 删除：Face Patch（立绘裁切 + Canvas 贴图）、发型蒙皮附件（fringe/刀片/附加骨）、
-  `tideHead.ts` + `tide.glb` + `art/tide/` + `@pixiv/three-vrm-springbone` 依赖。
-- 追拍墨线修复：头盔壳（含附件板）`userData.noInk` 退出 LAYER_INK 墨水预渲染——Sobel 内部
-  描边在 9m 内全强度，追拍视角的自己盔背爬满硬折边墨线、远看车手反而干净；退出后盔的轮廓
-  只归反壳描边（与远看车手一致），水线泡沫与船体细节描边不受影响（截图对比核实）。
-- 内部描边全局重调：距离带 9/26m→6.5/18m（艇群 10-25m 基本退出内部墨线，船尾黑团消除）、
-  法线阈值 1.35→1.6、深度阈值 2→3、墨亮度增益 1.7→1.5。
-- 手机端自适应：描边权重按绘制缓冲高度缩放（(h/900)^1.5 钳 0.45~1.0，阈值/增益随
-  resScale 微调）——同一追拍船尾在手机缓冲上墨线糊成黑团、PC 高缓冲能分开，小屏直接减轻
-  墨量，桌面满强度不动。强度档经 1/0.75/0.55/0.4 四档截图扫描取 0.5 等效。
-- 座舱机械批次藏青化（`boat.ts` inkMat PALETTE.ink→0x323d63 + 阴影地板抬升 + 强缘光）：
-  座舱桶/座基/喷射机构原本是纯墨黑，卡通阴影带里压成无细节黑湖，是"屁股一团黑"和转向时
-  尾翼后方发黑的真正源头；藏青后与骑手深色短裤分离、与白甲板和队色尾翼都有边。
-- 盔顶圆顶化：六款环剖面改为宽顶环+近平盖扇（参照 Shoei X-Fourteen / AGV Pista /
-  Bell Moto 的真实盔顶），attachments 随新 apex 归位，涂装阈值随 spec.apex 自适应。
-- Owner：`game/helmet.ts`（新）、`game/riderMesh.ts`、`game/rider.ts`、`game/racers.ts`、
-  `main.ts`（harness 接口）、`harness/rider.mjs`、`harness/screenshot.mjs`、llmwiki 渲染/车手
-  合同句、art-direction 2026-09-12 拍板、handoff。
+- 目标：四项玩家体验修正——起终点门柱实体化、HUD 字幕瘦身、手机转向 UI 竞品式重设计、
+  起飞判负规则可视化。
+- 起终点门柱实体：`course.applyStartGantryHits()`（course.ts，紧随 applyBuoyHits）双柱
+  圆测试 + 径向推出 + `applyCollisionResponse`（朝柱速度反弹，慢速贴柱只分离）；门楼保持
+  非 knockable（浮漂恒 16）；main.ts 单/双打与团队循环接入 `presentBuoyHits` 反馈管并
+  在位置修正时走 `race.syncCollisionCorrections()` 重投影；harness 新增
+  `start-gantry-solid` 用例（collision.mjs）。
+- 字幕瘦身：桌面紧凑电台卡 252→320px 治换行；单人超车不再双份播报（双打席位电台保留）；
+  金币拾取卡优先级 70→44（排队不抢占过门/航线卡）；被顶通知取消 0.35s 回放；GO 3.0s /
+  三飞七飞认证 3.4s / 撞柱 3.4s / final-ready 2.6s。
+- 手机转向 UI（竞品摩托艇式）：转向垫 84-92px、底色加深、border 画法 chevron 居中放大
+  （58-80px），移除可见 LEFT/RIGHT 文字（aria-label 保留）；hit 区与 pointer 映射零改动；
+  README 描述同步。
+- 起飞判负可视化（判定不变，只加表现）：水面引导线起飞窗口变色带（尽头对齐
+  `gateUs[0]−FLIGHT_GATE_BYPASS_U` 死线，替代原 exitU+8 压暗）；`computeLaunchJudgment`
+  每步输出 launchDeadlineM / flightOrphan / flightDoomed（guidance + 双打副席同算，
+  早飞可达性按 22 m/s 巡航 floor 规划）；HUD 复用 wrong-way 横幅槽（corridor >
+  launchJudgment > wrong_way > off_course），doomed 起跳沿触发一次性提示卡
+  `.hud-flight-prompt.doomed` + flight-alert；harness 新增 launch-deadline /
+  launch-doomed 截图场景。
+- Owner：`game/course.ts`、`contracts.ts`、`main.ts`、`hud/hud.ts`、`hud/hud.css`、
+  `hud/raceTower.*`、`core/mobileControls.*`、`harness/collision.mjs`、README、llmwiki、本文件。
 
 ## 验证与证据
 
-- `npm run typecheck` / `npm run build` / `verify:rider` / `verify:smoke` 全绿
-  （smoke 一次移动端正时 flake 已复跑确认通过，与本改动无关）。
-- 基线对比（`shots/helmet-review/baseline.txt` → `after.txt`，同机 swiftshader）：
-  race-straight 382→381 calls、364,115→341,091 tris（−6.3%）；
-  rider-inspection 99→98、311,019→289,807；tail-drift-left 817→812、440,527→422,769。
-  draw call 不升，三角面约 −6%，另省每骑手 1~6 根发型骨骼矩阵 + Tide 8 关节 120Hz 弹簧步进。
-- 六骑手 helmetState 全 rigid/visible、六款几何 uuid 互异；截图
-  `shots/helmet-review/validation/`（桌面 + 844x390：六车手 inspection 三 quarter/侧视、
-  opening、race-straight、tail-drift）。
+- `npm run build` / `verify:smoke` / `verify:team` / `verify:collision` 全部通过
+  （smoke 曾暴露 extension 场景被 doomed 卡抢占，已通过巡航速度 floor + 新动作窗口
+  清除 doomed 卡修复并复跑确认）。
+- 截图：`shots/launch-judgment/`（launch-deadline 桌面、launch-doomed 桌面、
+  flight-ready 桌面）、`shots/launch-judgment-mobile/`（launch-deadline 844x390）、
+  `shots/steer-redesign/`（手机转向垫，子代理已自查）。
 
 ## 唯一下一步
 
-用户人工评审 `shots/helmet-review/validation/` 截图：六款头盔轮廓区分度、涂装辨识度、
-面罩高光观感；确认后走 `release:checked` 发版（或按评审意见调整盔形/涂装）。
+用户人工评审上述截图：门柱弹回手感（实机）、字幕节奏与宽度、手机转向垫观感、
+起飞窗口色带与死线/doomed 提示的读感；确认后走 `release:checked` 发版。

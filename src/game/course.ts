@@ -86,6 +86,10 @@ const LAP_LENGTH = CURVE.getLength();
 
 /** Surface distance at which the run is no longer a missed launch attempt. */
 export const SURFACE_ROUTE_FAIL_DISTANCE_M = 42;
+// Airborne envelope used to judge whether an early launch can still reach the
+// corridor span before splashdown. Keep in sync with boat TUNING
+// (flightSpool 0.12 + flightAscend 0.52 + cruise 5.10 + flightDescend 0.78).
+const FLIGHT_ENVELOPE_TOTAL_S = 6.52;
 const FINAL_PORTAL_HALF_WIDTH_M = 7.15;
 const FINAL_PORTAL_AIR_HALF_WIDTH_M = 12.0;
 const FINAL_PORTAL_MAX_STEP_M = 4;
@@ -664,6 +668,7 @@ const _routeSample: CourseSample = {
 const _recoveryVelocity = new THREE.Vector2();
 const _launchPacketForward = new THREE.Vector3(0, 0, 1);
 const _launchPacketDirection = new THREE.Vector3();
+const _launchJudgment = { deadlineM: -1, orphan: 0, doomed: 0 };
 
 /** Central-difference span for tangents (~0.6m of arc). */
 const TAN_DU = 0.6 / LAP_LENGTH;
@@ -969,6 +974,7 @@ function createSurfaceGuideUniforms() {
     uLaunchGateActive: { value: 0 },
     uLaunchGateS: { value: 0 },
     uLaunchGateEndS: { value: 0 },
+    uLaunchColor: { value: new THREE.Color().setHex(FLIGHT_ROUTE_MARKER_COLOR, THREE.NoColorSpace) },
     uMaskFeather: { value: SURFACE_GUIDE_MASK_FEATHER_M },
     uNightBlend: { value: 0 },
     uEmissiveFloor: { value: 1.0 },
@@ -1014,6 +1020,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
       uniform float uLaunchGateActive;
       uniform float uLaunchGateS;
       uniform float uLaunchGateEndS;
+      uniform vec3 uLaunchColor;
       uniform float uMaskFeather;
       uniform float uNightBlend;
       uniform float uEmissiveFloor;
@@ -1034,7 +1041,11 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         visible *= mix(1.0, 0.55, uGuideActive * guideMaskSoft);
         float launchMaskSoft = smoothstep(uLaunchGateS - uMaskFeather, uLaunchGateS + uMaskFeather, vS) *
           (1.0 - smoothstep(uLaunchGateEndS - uMaskFeather, uLaunchGateEndS + uMaskFeather, vS));
-        visible *= mix(1.0, 0.65, uLaunchGateActive * launchMaskSoft);
+        // The launch window reads as a colored band on the spine, not a hole:
+        // players need to see where the legal takeoff span ends at the portal
+        // deadline line.
+        float launchBand = uLaunchGateActive * launchMaskSoft;
+        float launchPulse = 0.5 + 0.5 * sin(vS * 1.35 - uTime * 5.2);
         float side = abs(vSide);
         float softEdge = 1.0 - smoothstep(0.72, 1.0, side);
         float pulseSpeed = mix(0.55, 0.85, uNightBlend);
@@ -1060,6 +1071,7 @@ function buildRibbonMaterial(uniforms: SurfaceGuideUniforms): THREE.ShaderMateri
         float localFade = 1.0 - smoothstep(200.0, 250.0, ahead) * 0.15;
         float fade = (vDist < 260.0 ? 1.0 : 0.82) * localFade;
         vec3 col = mix(uColor, uFoam, 0.32 + navSpine * 0.28 + flow * 0.36 + packet * 0.1);
+        col = mix(col, uLaunchColor, launchBand * (0.45 + launchPulse * 0.3));
         col *= uEmissiveFloor;
         alpha *= fade;
         alpha *= mix(1.0, 0.18, uFinalApproach);
@@ -1188,6 +1200,11 @@ const BUOY_KNOCK_MAX_HORIZONTAL = 22;
 const BUOY_KNOCK_MIN_VERTICAL = 10.8;
 const BUOY_KNOCK_MAX_VERTICAL = 12.2;
 
+// The start/finish gantry towers are solid: a surface hull bounces off the
+// tower shaft instead of passing through. Tower base radius 1.05 + hull 1.05.
+const START_GANTRY_PILLAR_RADIUS_M = 2.1;
+const START_GANTRY_HIT_MIN_SPEED = 5;
+
 interface FlightGate {
   u: number;
   baseCenter: THREE.Vector3;
@@ -1267,6 +1284,12 @@ interface GuidancePresentationState {
   launchGateRouteIndex: number;
   launchGateDistanceM: number;
   launchGateDiamondCount: number;
+  /** Surface meters to the no-launch portal line, or -1 outside that window. */
+  launchDeadlineM: number;
+  /** Airborne, route unlatched, span still reachable: steer back into the mist. */
+  flightOrphan: number;
+  /** Airborne and provably unable to latch before splashdown. */
+  flightDoomed: number;
   activeGuideRoute: number;
   recoveryRoute: number;
   recoverySurface: boolean;
@@ -1304,6 +1327,9 @@ function makeGuidancePresentationState(): GuidancePresentationState {
     launchGateRouteIndex: -1,
     launchGateDistanceM: -1,
     launchGateDiamondCount: 0,
+    launchDeadlineM: -1,
+    flightOrphan: 0,
+    flightDoomed: 0,
     activeGuideRoute: -1,
     recoveryRoute: -1,
     recoverySurface: false,
@@ -1449,6 +1475,9 @@ export class Course implements ICourse {
   private playerLaunchGateRouteIndex = -1;
   private playerLaunchGateDistanceM = -1;
   private playerLaunchGateDiamondCount = 0;
+  private playerLaunchDeadlineM = -1;
+  private playerFlightOrphan = 0;
+  private playerFlightDoomed = 0;
   private playerPreviousFlightPhase: FlightPhase = 'surface';
   private guidanceBoatId = 0;
   private playerLaunchCommittedRoute = -1;
@@ -1461,6 +1490,8 @@ export class Course implements ICourse {
   private playerRecoveryElapsed = 0;
   private playerRecoveryLimit = 0;
   private startGantry: THREE.Group | null = null;
+  private readonly startGantryPillars: { x: number; z: number }[] = [];
+  private startGantryCorrected = false;
   private teamPresentation = false;
   private finalStation: THREE.Group | null = null;
   private finalStationBlend = 0;
@@ -1632,6 +1663,9 @@ export class Course implements ICourse {
     state.launchGateRouteIndex = this.playerLaunchGateRouteIndex;
     state.launchGateDistanceM = this.playerLaunchGateDistanceM;
     state.launchGateDiamondCount = this.playerLaunchGateDiamondCount;
+    state.launchDeadlineM = this.playerLaunchDeadlineM;
+    state.flightOrphan = this.playerFlightOrphan;
+    state.flightDoomed = this.playerFlightDoomed;
     state.activeGuideRoute = this.activeGuideRoute;
     state.recoveryRoute = this.playerRecoveryRoute;
     state.recoverySurface = this.playerRecoverySurface;
@@ -1666,6 +1700,9 @@ export class Course implements ICourse {
     this.playerLaunchGateRouteIndex = state.launchGateRouteIndex;
     this.playerLaunchGateDistanceM = state.launchGateDistanceM;
     this.playerLaunchGateDiamondCount = state.launchGateDiamondCount;
+    this.playerLaunchDeadlineM = state.launchDeadlineM;
+    this.playerFlightOrphan = state.flightOrphan;
+    this.playerFlightDoomed = state.flightDoomed;
     this.activeGuideRoute = state.activeGuideRoute;
     this.playerRecoveryRoute = state.recoveryRoute;
     this.playerRecoverySurface = state.recoverySurface;
@@ -1692,7 +1729,9 @@ export class Course implements ICourse {
     this.ribbonMat.uniforms.uLaunchGateS.value = launchRoute >= 0
       ? flightLaunchCueU(FLIGHT_ROUTES[launchRoute]) * LAP_LENGTH : 0;
     this.ribbonMat.uniforms.uLaunchGateEndS.value = launchRoute >= 0
-      ? Math.min(LAP_LENGTH, FLIGHT_ROUTES[launchRoute].exitU * LAP_LENGTH + 8) : 0;
+      // The marked launch span ends at the water-pass fail line, not at the
+      // corridor exit: the band's far edge IS the takeoff deadline.
+      ? Math.min(LAP_LENGTH, Math.max(0, (FLIGHT_ROUTES[launchRoute].gateUs[0] - FLIGHT_GATE_BYPASS_U) * LAP_LENGTH)) : 0;
     this.ribbonMat.uniforms.uPlayerS.value = this.playerSurfaceU * LAP_LENGTH;
   }
 
@@ -1899,6 +1938,9 @@ export class Course implements ICourse {
     state.launchGateRouteIndex = -1;
     state.launchGateDistanceM = -1;
     state.launchGateDiamondCount = 0;
+    state.launchDeadlineM = -1;
+    state.flightOrphan = 0;
+    state.flightDoomed = 0;
     state.activeGuideRoute = -1;
     state.recoveryRoute = -1;
     state.recoverySurface = false;
@@ -2155,6 +2197,9 @@ export class Course implements ICourse {
       launchGateRouteIndex: this.playerLaunchGateRouteIndex,
       launchGateDistanceM: this.playerLaunchGateDistanceM,
       launchGateDiamondCount: this.playerLaunchGateDiamondCount,
+      launchDeadlineM: this.playerLaunchDeadlineM,
+      flightOrphan: this.playerFlightOrphan,
+      flightDoomed: this.playerFlightDoomed,
       launchCommitRouteIndex: this.playerLaunchCommittedRoute,
       launchCommitU: this.playerLaunchCommittedU,
       surfaceGuideStyle: SURFACE_GUIDE_STYLE,
@@ -2218,6 +2263,9 @@ export class Course implements ICourse {
       launchGateRouteIndex: state.launchGateRouteIndex,
       launchGateDistanceM: state.launchGateDistanceM,
       launchGateDiamondCount: state.launchGateDiamondCount,
+      launchDeadlineM: state.launchDeadlineM,
+      flightOrphan: state.flightOrphan,
+      flightDoomed: state.flightDoomed,
       launchCommitRouteIndex: state.launchCommittedRoute,
       launchCommitU: state.launchCommittedU,
       surfaceGuideMaskStartU: active ? flightLaunchCueU(FLIGHT_ROUTES[state.activeGuideRoute]) : -1,
@@ -2265,6 +2313,65 @@ export class Course implements ICourse {
     });
   }
 
+  /**
+   * Launch-window judgment for HUD teaching surfaces. Purely observational:
+   * it never gates input, physics, or route ownership. `surfaceDistM` is the
+   * planar distance to the surface spline (the no-launch rule uses it),
+   * `routeDistM` the distance to the flight corridor centerline (the latch
+   * rule uses it).
+   */
+  private computeLaunchJudgment(
+    st: IBoat['state'],
+    def: (typeof FLIGHT_ROUTES)[number],
+    surfaceU: number,
+    surfaceDistM: number,
+    routeDistM: number,
+    out: { deadlineM: number; orphan: number; doomed: number },
+  ): void {
+    out.deadlineM = -1;
+    out.orphan = 0;
+    out.doomed = 0;
+    // A qualified boat no longer risks no_launch; its launches are always legal.
+    if (st.flightsCleared >= FLIGHT_ROUTES.length) return;
+    const spanStartU = def.entryU - FLIGHT_ATTEMPT_EARLY_U;
+    const spanEndU = def.exitU + 0.006;
+    const deadlineU = def.gateUs[0] - FLIGHT_GATE_BYPASS_U;
+    const flightActive = st.flightPhase !== 'surface';
+    if (!flightActive) {
+      // Surface approach: count down to the water-pass fail line, but only
+      // while launching is actually possible (armed, on the spline, before
+      // the line). An unarmed boat already gets the battery card instead.
+      if ((st.flightRouteState === 'idle' || st.flightRouteState === 'passed') &&
+          st.flightCharges > 0 &&
+          surfaceU >= spanStartU && surfaceU <= deadlineU &&
+          surfaceDistM <= SURFACE_ROUTE_FAIL_DISTANCE_M) {
+        out.deadlineM = (deadlineU - surfaceU) * LAP_LENGTH;
+      }
+      return;
+    }
+    if (st.flightRouteState !== 'idle') return; // latched, or already resolved
+    if (surfaceU > spanEndU) {
+      out.doomed = 1; // sailed past the branch; splashdown fails the route
+      return;
+    }
+    if (surfaceU >= spanStartU) {
+      if (routeDistM > def.corridorHalfWidth) {
+        out.orphan = 1; // steerable: get back inside the mist before splashdown
+        if (routeDistM > def.corridorHalfWidth + FLIGHT_CORRIDOR_HARD_OUT_M) out.doomed = 1;
+      }
+      return;
+    }
+    // Launched early while the span is still ahead: doomed only when the
+    // remaining envelope cannot carry the hull to the span before splashdown.
+    // Plan at flight-cruise pace, not the launch instant's water speed — the
+    // flight model accelerates hard toward targetSpeed right after spool.
+    const remainingS = Math.max(0, st.flightRemaining) * FLIGHT_ENVELOPE_TOTAL_S;
+    const metersToSpan = Math.max(0, (spanStartU - surfaceU) * LAP_LENGTH);
+    const speed = Math.max(22, Math.abs(st.speed));
+    if (metersToSpan / speed > remainingS * 0.85) out.doomed = 1;
+    else out.orphan = 1;
+  }
+
   updateFlightRoute(dt: number, boats: readonly IBoat[]): void {
     this.playerActionCue = 'none';
     this.playerActionRouteIndex = -1;
@@ -2275,6 +2382,9 @@ export class Course implements ICourse {
     this.playerLaunchGateRouteIndex = -1;
     this.playerLaunchGateDistanceM = -1;
     this.playerLaunchGateDiamondCount = 0;
+    this.playerLaunchDeadlineM = -1;
+    this.playerFlightOrphan = 0;
+    this.playerFlightDoomed = 0;
     this.playerCorridorDangerTarget = 0;
     let guidanceBoat: IBoat | undefined;
     for (const boat of boats) {
@@ -2406,6 +2516,12 @@ export class Course implements ICourse {
       const def = runtime.def;
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
+      if (id === this.guidanceBoatId) {
+        this.computeLaunchJudgment(st, def, surfaceU, _routeSample.distance, near.distance, _launchJudgment);
+        this.playerLaunchDeadlineM = _launchJudgment.deadlineM;
+        this.playerFlightOrphan = _launchJudgment.orphan;
+        this.playerFlightDoomed = _launchJudgment.doomed;
+      }
       const routeDeployActive = routeIndex === 0
         ? (surfaceU >= 0.98 || surfaceU <= def.exitU + 0.01)
         : (surfaceU >= flightGuideFromU(def) && surfaceU <= def.exitU + 0.01);
@@ -2832,6 +2948,7 @@ export class Course implements ICourse {
     state.flightActive = st.flightPhase !== 'surface';
     this.sample(st.position, _routeSample, 'surface');
     state.surfaceU = _routeSample.u;
+    const surfaceDistM = _routeSample.distance;
     state.position.copy(st.position);
     state.flightReady = st.flightCharges > 0;
     state.flightPressure = st.flightPressure;
@@ -2845,6 +2962,9 @@ export class Course implements ICourse {
     state.launchGateRouteIndex = -1;
     state.launchGateDistanceM = -1;
     state.launchGateDiamondCount = 0;
+    state.launchDeadlineM = -1;
+    state.flightOrphan = 0;
+    state.flightDoomed = 0;
     state.corridorDangerTarget = 0;
     state.corridorDangerRoute = -1;
     state.warn = Math.max(0, state.warn - dt);
@@ -2856,6 +2976,13 @@ export class Course implements ICourse {
     const visual = this.flightVisualsRight[routeIndex];
     const def = visual?.runtime.def;
     const flightActive = state.flightActive;
+    if (visual && def) {
+      nearestOnFlight(visual.runtime, st.position.x, st.position.z);
+      this.computeLaunchJudgment(st, def, state.surfaceU, surfaceDistM, visual.runtime.near.distance, _launchJudgment);
+      state.launchDeadlineM = _launchJudgment.deadlineM;
+      state.flightOrphan = _launchJudgment.orphan;
+      state.flightDoomed = _launchJudgment.doomed;
+    }
 
     if (visual && st.flightRouteState === 'passed') {
       state.recoveryRoute = routeIndex;
@@ -3120,7 +3247,7 @@ export class Course implements ICourse {
       ? flightLaunchCueU(FLIGHT_ROUTES[routeIndex]) * LAP_LENGTH
       : 0;
     this.ribbonMat.uniforms.uLaunchGateEndS.value = routeIndex >= 0
-      ? Math.min(LAP_LENGTH, FLIGHT_ROUTES[routeIndex].exitU * LAP_LENGTH + 8)
+      ? Math.min(LAP_LENGTH, Math.max(0, (FLIGHT_ROUTES[routeIndex].gateUs[0] - FLIGHT_GATE_BYPASS_U) * LAP_LENGTH))
       : 0;
     for (let i = 0; i < this.launchGateVisuals.length; i++) {
       const visual = this.launchGateVisuals[i];
@@ -3514,6 +3641,53 @@ export class Course implements ICourse {
       }
     }
     return out;
+  }
+
+  /**
+   * The start/finish gantry towers are solid. A surface hull that drives into
+   * a tower shaft is radially separated and bounced back; airborne flight
+   * passes the gantry freely and a resting hull is only nudged out, never
+   * catapulted. Returns contacts so the caller can fire spray/audio.
+   */
+  applyStartGantryHits(boats: readonly IBoat[], out: BuoyHit[]): BuoyHit[] {
+    out.length = 0;
+    if (this.startGantryPillars.length === 0) return out;
+    for (const boat of boats) {
+      const st = boat.state;
+      if (st.flightPhase !== 'surface' || st.position.y > 2.6) continue;
+      const pos = st.position;
+      for (const pillar of this.startGantryPillars) {
+        const dx = pos.x - pillar.x;
+        const dz = pos.z - pillar.z;
+        const distSq = dx * dx + dz * dz;
+        if (distSq >= START_GANTRY_PILLAR_RADIUS_M * START_GANTRY_PILLAR_RADIUS_M) continue;
+        const dist = Math.sqrt(distSq) || 1e-3;
+        const rebX = dx / dist;
+        const rebZ = dz / dist;
+        const overlap = START_GANTRY_PILLAR_RADIUS_M - dist;
+        const vel = boat.collisionVelocity(_v2);
+        const approach = vel.x * rebX + vel.y * rebZ; // negative = driving into the shaft
+        const bounceSpeed = approach < 0 ? Math.max(12, -approach * 0.9) : 0;
+        boat.applyCollisionResponse(rebX * overlap, rebZ * overlap, rebX * bounceSpeed, rebZ * bounceSpeed);
+        this.startGantryCorrected = true;
+        if (approach < -START_GANTRY_HIT_MIN_SPEED) {
+          out.push({ boatId: boat.id, x: pillar.x + rebX * 1.05, y: 1.2, z: pillar.z + rebZ * 1.05 });
+        }
+      }
+    }
+    return out;
+  }
+
+  /** Whether a gantry bounce moved a hull this step; consumed by the main loop to re-base route projections. */
+  consumeStartGantryCorrection(): boolean {
+    const corrected = this.startGantryCorrected;
+    this.startGantryCorrected = false;
+    return corrected;
+  }
+
+  /** Solid tower shaft positions for the collision harness. */
+  startGantryPillarDebug(): readonly { x: number; z: number }[] {
+    return this.startGantryPillars;
   }
 
   // ------------------------------------------------------- flight route ----
@@ -4528,6 +4702,14 @@ export class Course implements ICourse {
     gantry.position.set(p.x, 0, p.z);
     const yawQ = new THREE.Quaternion().setFromAxisAngle(UP, -heading);
     gantry.quaternion.copy(yawQ);
+    // The tower shafts are solid collision, cached once: the gantry never
+    // moves, so per-frame work is two planar circle tests.
+    _sp.set(1, 0, 0).applyQuaternion(yawQ);
+    this.startGantryPillars.length = 0;
+    this.startGantryPillars.push(
+      { x: p.x + _sp.x * 8.5, z: p.z + _sp.z * 8.5 },
+      { x: p.x - _sp.x * 8.5, z: p.z - _sp.z * 8.5 },
+    );
     this.object.add(gantry);
     this.startGantry = gantry;
     this.buildFinalStation(gantry);

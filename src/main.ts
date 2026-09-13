@@ -641,7 +641,10 @@ const race = new Race(course, boats, {
     audio.raceBattle(event.kind, event.opponents.length, event.toPlace);
     pipeline.pulse(event.kind, Math.min(1.35, 0.95 + event.opponents.length * 0.12));
     rivalDirector.notifyBattle();
-    tower.announceBattle(event);
+    // Solo play already surfaces overtake/lost through the dedicated battle
+    // card; a second radio line for the same event reads as spam. Split play
+    // keeps its seat radio color per the duo presentation contract.
+    if (isDuoMode()) tower.announceBattle(event);
     if (event.kind === 'overtake') {
       const racerId = race.player().id;
       if (isHumanRacer(racerId)) {
@@ -2260,6 +2263,8 @@ function updateTeamSession(dt: number, t: number): void {
     if (collisions.debugState().maxCorrection > 0) course.syncFlightTrackingAfterCollisions(activeBoats);
     presentTeamCollisions(hits);
     presentBuoyHits(course.applyBuoyHits(activeBoats, buoyHitScratch));
+    presentBuoyHits(course.applyStartGantryHits(activeBoats, gantryHitScratch));
+    if (course.consumeStartGantryCorrection()) course.syncFlightTrackingAfterCollisions(activeBoats);
     presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
     honorTargets.update(dt, worldTime, activeBoats, race.racers, honorHitScratch, false);
   }
@@ -2882,6 +2887,11 @@ function step(dt: number, _t: number, present: boolean): void {
     }
     presentPlayerCollisions(hits);
     presentBuoyHits(course.applyBuoyHits(activeBoats, buoyHitScratch));
+    presentBuoyHits(course.applyStartGantryHits(activeBoats, gantryHitScratch));
+    if (course.consumeStartGantryCorrection()) {
+      course.syncFlightTrackingAfterCollisions(activeBoats);
+      race.syncCollisionCorrections();
+    }
     presentBalloonPops(course.consumeBalloonPops(balloonPopScratch));
     honorTargets.update(dt, worldTime, activeBoats, race.racers, honorHitScratch, true);
     presentHonorHits(honorHitScratch);
@@ -3742,6 +3752,7 @@ function placeHarnessBoat(id: number, u: number, lateral = 0): void {
 /** Move staged boats in small, non-teleport progress increments for battle UX. */
 const collisionFxPoint = new THREE.Vector3();
 const buoyHitScratch: BuoyHit[] = [];
+const gantryHitScratch: BuoyHit[] = [];
 const balloonPopScratch: BalloonPop[] = [];
 const balloonPopPoint = new THREE.Vector3();
 
@@ -4030,6 +4041,65 @@ function runCollisionCase(name: string): Record<string, number | string | boolea
       signedAfter,
       checkpointDelta: harnessCheckpointEvents - checkpointBefore,
       progressDelta: race.racers[0].progress - progressBefore,
+      finite: allFinite(),
+    };
+  }
+
+  if (name === 'start-gantry-solid') {
+    const pillars = course.startGantryPillarDebug();
+    const pillar = pillars[0];
+    const vel = new THREE.Vector2();
+    const scratch: BuoyHit[] = [];
+    // Head-on at 30 m/s from 12m out, integrated over 60 fixed steps.
+    a.state.flightPhase = 'surface';
+    a.setCollisionTestMotion(pillar.x - 12, pillar.z, Math.PI / 2, 30, 0);
+    let events = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < 60; i++) {
+      a.collisionVelocity(vel);
+      a.setCollisionTestMotion(
+        a.state.position.x + vel.x / 60,
+        a.state.position.z + vel.y / 60,
+        a.state.heading, vel.x, vel.y,
+      );
+      events += course.applyStartGantryHits(boats, scratch).length;
+      minDist = Math.min(minDist, Math.hypot(a.state.position.x - pillar.x, a.state.position.z - pillar.z));
+    }
+    const distAfter = Math.hypot(a.state.position.x - pillar.x, a.state.position.z - pillar.z);
+    a.collisionVelocity(vel);
+    const awaySpeed = distAfter > 1e-3
+      ? (vel.x * (a.state.position.x - pillar.x) + vel.y * (a.state.position.z - pillar.z)) / distAfter
+      : 0;
+    const corrected = course.consumeStartGantryCorrection();
+    // An airborne hull must pass the gantry untouched.
+    a.state.flightPhase = 'cruise';
+    a.setCollisionTestMotion(pillar.x, pillar.z, 0, 30, 0, 6);
+    const airborneX = a.state.position.x;
+    const airborneZ = a.state.position.z;
+    const airborneEvents = course.applyStartGantryHits(boats, scratch).length;
+    const airborneMoved = Math.hypot(a.state.position.x - airborneX, a.state.position.z - airborneZ);
+    const airborneCorrected = course.consumeStartGantryCorrection();
+    // A resting overlap separates without an impact event or a catapult.
+    a.state.flightPhase = 'surface';
+    a.setCollisionTestMotion(pillar.x + 0.5, pillar.z, 0, 0, 0);
+    let restingEvents = 0;
+    for (let i = 0; i < 6; i++) restingEvents += course.applyStartGantryHits(boats, scratch).length;
+    a.collisionVelocity(vel);
+    const restingDist = Math.hypot(a.state.position.x - pillar.x, a.state.position.z - pillar.z);
+    return {
+      name,
+      pillarCount: pillars.length,
+      events,
+      minDist,
+      distAfter,
+      awaySpeed,
+      corrected,
+      airborneEvents,
+      airborneMoved,
+      airborneCorrected,
+      restingEvents,
+      restingDist,
+      restingSpeed: vel.length(),
       finite: allFinite(),
     };
   }
@@ -5511,6 +5581,33 @@ function scenario(name: string): void {
       setHarnessInput({ throttle: 1 });
       advanceUntil(() => course.guidanceStatus().actionCue === "launch", 5);
       loop.advance(0.05);
+      break;
+    case "launch-deadline":
+      // Armed surface approach inside the launch span: the HUD shows the
+      // portal-deadline countdown and the water shows the marked window band.
+      advanceUntil(() => race.phase === "racing", 8);
+      placePack(0);
+      earnHarnessFlight(false);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => {
+        const g = course.guidanceStatus();
+        return g.launchDeadlineM >= 0 && g.launchDeadlineM <= 55;
+      }, 14);
+      setHarnessInput({ throttle: 0 });
+      loop.advance(0.05);
+      break;
+    case "launch-doomed":
+      // A takeoff far outside the span: the doomed one-shot card and the
+      // cannot-latch banner must surface immediately, at the press edge.
+      advanceUntil(() => race.phase === "racing", 8);
+      placePack(0.9);
+      earnHarnessFlight(false);
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => boats[0].state.speed >= 8, 6);
+      tapHarnessFlight(1);
+      advanceUntil(() => course.guidanceStatus().flightDoomed === 1, 3);
+      setHarnessInput(null);
+      loop.advance(0.15);
       break;
     case "flight-stock-full":
       advanceUntil(() => race.phase === "racing", 8);

@@ -178,6 +178,22 @@ try {
   assert.ok(Math.abs(checkpointIsolation.progressDelta) < 0.2,
     `contact baseline sync should absorb progress correction: ${checkpointIsolation.progressDelta}`);
 
+  const gantry = await run('start-gantry-solid');
+  assert.equal(gantry.finite, true);
+  assert.equal(gantry.pillarCount, 2, 'the start gantry must expose two solid tower shafts');
+  assert.ok(gantry.events >= 1, `a 30 m/s head-on must report at least one gantry hit: ${gantry.events}`);
+  assert.ok(gantry.minDist >= 1.7,
+    `the hull center must never reach the tower shaft surface: ${gantry.minDist}`);
+  assert.ok(gantry.distAfter > 2.0 && gantry.awaySpeed > 2,
+    `a head-on must bounce back clear of the tower: ${gantry.distAfter}m at ${gantry.awaySpeed} m/s`);
+  assert.equal(gantry.corrected, true, 'a gantry bounce must request route re-base');
+  assert.equal(gantry.airborneEvents, 0, 'an airborne hull must pass the gantry freely');
+  assert.equal(gantry.airborneMoved, 0, 'an airborne hull must not be pushed by the towers');
+  assert.equal(gantry.airborneCorrected, false, 'airborne contact must not request route re-base');
+  assert.equal(gantry.restingEvents, 0, 'resting separation must not spam impact feedback');
+  assert.ok(gantry.restingDist >= 2.05 && gantry.restingSpeed <= 1,
+    `a resting hull must settle outside the shaft calmly: ${gantry.restingDist}m at ${gantry.restingSpeed} m/s`);
+
   console.log('collision contract: OK');
   console.log(JSON.stringify({
     feedback,
@@ -193,6 +209,7 @@ try {
     route4Inside,
     route4Outside,
     checkpointIsolation,
+    gantry,
   }, null, 2));
   await browser.close();
 } finally {
