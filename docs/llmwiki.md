@@ -163,7 +163,13 @@
   resume 仍是刻意契约（`expectSilentUntilResume` 门挡自愈）。
 - 手机默认使用左侧触控方向区；比赛界面不显示体感切换按钮，右手漂移和飞行触区不可移动。
 - READY 选角页的雷达标题为“选手能力对比”，副说明明确它只影响本局手感，不承担输入。
-- Safari 缩放抑制只在横屏活跃游戏控制层生效，不加 viewport 锁、全局 touchmove 取消或缩放重置。
+- Safari 缩放抑制只在横屏活跃游戏控制层生效，选角和资料片继续由浏览器拥有手势，不加
+  viewport 锁、全局 touchmove 取消或缩放重置：捏合由 `gesturestart/gesturechange` 取消；
+  双击缩放在 iOS WebKit 不产生 gesture 事件，改由控制层取消 400ms 窗口内第二次轻点的
+  `touchstart/touchend` 默认行为，PointerEvent 所有权不动，按住中的转向/漂移指针不被清理。
+- 控制层注册若被 WebView 拒绝（`setPointerCapture` 抛错），元素级 `pointerup` 可能永远不到；
+  window 级 `pointerup/pointercancel` 兜底从持有表删除该 pointerId，只释放已真正结束的指针，
+  不能让物理仍按住的漂移/转向掉线。
 - Fullscreen 只由真实 GO 或后续真实控制手势请求。iPhone 不支持时保持浏览器托管形态，
   不伪造全屏。截图预览、结算和 dossier 必须隐藏并释放移动控制。
 - READY 的桌面与移动选角是两套布局；桌面相机冻结，移动端竖屏由旋转提示完全接管。

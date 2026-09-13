@@ -20,6 +20,8 @@ const clamp = (value: number, min: number, max: number): number => Math.max(min,
 const CALIBRATION_MS = 300;
 const SENSOR_TIMEOUT_MS = 1500;
 const MIN_CALIBRATION_SAMPLES = 6;
+/** iOS WebKit turns two taps inside this window into a page-zoom double tap. */
+const DOUBLE_TAP_WINDOW_MS = 400;
 
 /** Landscape mobile controls with touch steering and opt-in tilt calibration. */
 export class MobileControls {
@@ -59,6 +61,8 @@ export class MobileControls {
   private goLabel = '开始游戏';
   private landscape = matchMedia('(orientation: landscape)').matches;
   private gestureSuppressions = 0;
+  private controlTapAnchorAt: number | null = null;
+  private zoomSuspectTouchId: number | null = null;
   private activitySerialValue = 0;
   private previousTiltActivity = 0;
   private readonly actionStateCache: Record<string, number | string> = {};
@@ -173,6 +177,14 @@ export class MobileControls {
     window.addEventListener('blur', () => this.releaseAll());
     document.addEventListener('gesturestart', this.suppressPageGesture, { capture: true, passive: false });
     document.addEventListener('gesturechange', this.suppressPageGesture, { capture: true, passive: false });
+    // Double-tap zoom never reaches gesturestart/gesturechange; cancelling the
+    // second quick tap here is the only scoped lever iOS WebKit respects.
+    root.addEventListener('touchstart', this.suppressDoubleTapZoom, { passive: false });
+    root.addEventListener('touchend', this.suppressDoubleTapZoom, { passive: false });
+    // WebViews may reject setPointerCapture, leaving no element-level pointerup
+    // when the finger lifts off the button; free the slot at the window edge.
+    window.addEventListener('pointerup', this.releasePointerAtWindow);
+    window.addEventListener('pointercancel', this.releasePointerAtWindow);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.releaseAll();
       else if (this.mode === 'tilt' && this.tiltAuthorized) this.startCalibration();
@@ -460,6 +472,37 @@ export class MobileControls {
     return this.enabled && this.landscape && this.activation === 'ready' &&
       this.controlPhase !== 'inactive' && !this.root?.classList.contains('overlay-hidden');
   }
+
+  /**
+   * iOS WebKit maps two quick taps to page zoom without firing gesturestart,
+   * and taking the gesture cancels every held pointer on the page. Cancel only
+   * the second tap's defaults, scoped to the active control layer; the tap's
+   * own PointerEvents and any concurrently held steering/drift pointers keep
+   * flowing untouched.
+   */
+  private readonly suppressDoubleTapZoom = (event: TouchEvent): void => {
+    if (!this.shouldSuppressPageGesture() || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    if (event.type === 'touchstart') {
+      const now = performance.now();
+      const rapid = this.controlTapAnchorAt !== null && now - this.controlTapAnchorAt <= DOUBLE_TAP_WINDOW_MS;
+      this.controlTapAnchorAt = now;
+      this.zoomSuspectTouchId = rapid ? touch.identifier : null;
+      if (rapid && event.cancelable) {
+        event.preventDefault();
+        this.gestureSuppressions++;
+      }
+      return;
+    }
+    if (this.zoomSuspectTouchId !== null && touch.identifier === this.zoomSuspectTouchId) {
+      if (event.cancelable) event.preventDefault();
+      this.zoomSuspectTouchId = null;
+    }
+  };
+
+  private readonly releasePointerAtWindow = (event: PointerEvent): void => {
+    if (this.activePointers.delete(event.pointerId)) this.syncHeldButtons();
+  };
 
   private async activateTilt(): Promise<void> {
     if (this.permissionPending) return;

@@ -198,6 +198,40 @@ async function verifyMode(browser, mobile) {
   assert.deepEqual(await page.locator('.opening-driver-echo.female .opening-driver-echo-badge').allTextContents(),
     ['女将', '女将'], `${label}: female opening labels are not explicit`);
 
+  if (mobile) {
+    // Zoom suppression belongs to active landscape racing only: on the driver
+    // selector, two quick taps on a game control must stay browser-owned.
+    const selectorDoubleTap = await page.evaluate(() => {
+      const target = document.querySelector('[data-mobile-action="drift"]');
+      if (!(target instanceof HTMLElement)) return { missing: true };
+      const tap = (identifier) => {
+        const touch = new Touch({ identifier, target });
+        const start = new TouchEvent('touchstart', {
+          bubbles: true, cancelable: true, touches: [touch], changedTouches: [touch], targetTouches: [touch],
+        });
+        const end = new TouchEvent('touchend', {
+          bubbles: true, cancelable: true, touches: [], changedTouches: [touch], targetTouches: [],
+        });
+        target.dispatchEvent(start);
+        target.dispatchEvent(end);
+        return { start: start.defaultPrevented, end: end.defaultPrevented };
+      };
+      const before = Number(window.__harness.mobileStatus().gestureSuppressions);
+      const first = tap(31);
+      const second = tap(32);
+      const after = Number(window.__harness.mobileStatus().gestureSuppressions);
+      return { ...first, secondStart: second.start, secondEnd: second.end, delta: after - before };
+    });
+    assert.equal(selectorDoubleTap.missing ?? false, false,
+      `${label}: mobile drift control is missing from the selector DOM`);
+    assert.deepEqual(
+      [selectorDoubleTap.start, selectorDoubleTap.end, selectorDoubleTap.secondStart, selectorDoubleTap.secondEnd],
+      [false, false, false, false],
+      `${label}: selector double tap must remain browser-owned: ${JSON.stringify(selectorDoubleTap)}`);
+    assert.equal(selectorDoubleTap.delta, 0,
+      `${label}: selector taps must not count as page-gesture suppressions: ${JSON.stringify(selectorDoubleTap)}`);
+  }
+
   const radioOnce = await page.evaluate(() => window.__harness.radioTechniqueCase());
   assert.equal(radioOnce.masteredFresh.activeKey, 'go', `${label}: mastered fresh run did not leave GO as the only active radio`);
   assert.equal(radioOnce.masteredFresh.tipPresented, false,
@@ -577,6 +611,65 @@ async function verifyMode(browser, mobile) {
   const state = await page.evaluate(() => window.__harness.playerState());
   const render = await renderEvidence(page);
   assert.equal(state.phase, 'racing', `${label}: start did not reach racing`);
+  if (mobile) {
+    // Active two-thumb play owns page gestures: iOS maps two quick taps to
+    // page zoom without gesturestart, so the second tap's defaults are
+    // cancelled while its own pointer flow and held pointers stay untouched.
+    await page.waitForFunction(() => window.__harness.mobileStatus().controlPhase === 'racing');
+    const gestureGuard = await page.evaluate(() => {
+      const target = document.querySelector('[data-mobile-action="drift"]');
+      if (!(target instanceof HTMLElement)) return { missing: true };
+      const tap = (identifier) => {
+        const touch = new Touch({ identifier, target });
+        const start = new TouchEvent('touchstart', {
+          bubbles: true, cancelable: true, touches: [touch], changedTouches: [touch], targetTouches: [touch],
+        });
+        const end = new TouchEvent('touchend', {
+          bubbles: true, cancelable: true, touches: [], changedTouches: [touch], targetTouches: [],
+        });
+        target.dispatchEvent(start);
+        target.dispatchEvent(end);
+        return { start: start.defaultPrevented, end: end.defaultPrevented };
+      };
+      const status = () => window.__harness.mobileStatus();
+      const before = Number(status().gestureSuppressions);
+      const pinch = new Event('gesturestart', { bubbles: true, cancelable: true });
+      target.dispatchEvent(pinch);
+      const pinchPrevented = pinch.defaultPrevented;
+      const first = tap(41);
+      const second = tap(42);
+      const after = Number(status().gestureSuppressions);
+      // Capture-rejecting WebViews leave no element-level pointerup when the
+      // finger lifts off the button; the window boundary must free the slot.
+      const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 77 });
+      target.dispatchEvent(down);
+      const heldAfterDown = target.classList.contains('held');
+      const up = new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 77 });
+      window.dispatchEvent(up);
+      const heldAfterWindowUp = target.classList.contains('held');
+      return {
+        ...first, secondStart: second.start, secondEnd: second.end,
+        pinchPrevented, delta: after - before, heldAfterDown, heldAfterWindowUp,
+        scale: Number(status().pageScale),
+      };
+    });
+    assert.equal(gestureGuard.missing ?? false, false,
+      `${label}: mobile drift control is missing during racing`);
+    assert.equal(gestureGuard.pinchPrevented, true,
+      `${label}: racing pinch gestures must stay suppressed: ${JSON.stringify(gestureGuard)}`);
+    assert.deepEqual(
+      [gestureGuard.start, gestureGuard.end, gestureGuard.secondStart, gestureGuard.secondEnd],
+      [false, false, true, true],
+      `${label}: racing double tap must cancel only the second tap's defaults: ${JSON.stringify(gestureGuard)}`);
+    assert.equal(gestureGuard.delta, 2,
+      `${label}: pinch + double-tap suppression counts drifted: ${JSON.stringify(gestureGuard)}`);
+    assert.equal(gestureGuard.heldAfterDown, true,
+      `${label}: a drift press did not mark the control held: ${JSON.stringify(gestureGuard)}`);
+    assert.equal(gestureGuard.heldAfterWindowUp, false,
+      `${label}: a hold survived its pointer ending at the window boundary: ${JSON.stringify(gestureGuard)}`);
+    assert.ok(Math.abs(gestureGuard.scale - 1) < 1e-6,
+      `${label}: gesture suppression must not mutate viewport scale: ${JSON.stringify(gestureGuard)}`);
+  }
   assert.ok(render && render.width === (mobile ? 844 : 1440) && render.height === (mobile ? 390 : 900),
     `${label}: renderer does not fill the viewport: ${JSON.stringify(render)}`);
   assert.ok(render.lumaRange > 12 && render.opaque > 1800,
