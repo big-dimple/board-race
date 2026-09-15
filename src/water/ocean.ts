@@ -625,7 +625,7 @@ export class Ocean {
       uGlintSpikeLen: { value: 0.3 },
       uGlintSpikeAmp: { value: 0.9 },
       uPixelScale: { value: 0.0013 },
-      uFoamBreakup: { value: performance ? 0.0 : high ? 0.65 : 0.5 },
+      uFoamBreakup: { value: performance ? 0.4 : high ? 0.65 : 0.5 },
       uFoamCellSize: { value: 3.5 },
       uFresnelStrength: { value: 0.45 },
       uFresnelMax: { value: 0.5 },

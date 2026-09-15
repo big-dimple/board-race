@@ -137,6 +137,8 @@ export class Race implements RaceView {
   private overtakeStreak = 0;
   private lastOvertakeAt = -Infinity;
   private totalOvertakes = 0;
+  private readonly battlePassedScratch: RaceBattleOpponent[] = [];
+  private readonly battleLostScratch: RaceBattleOpponent[] = [];
 
   constructor(course: ICourse, boats: IBoat[], events: RaceEvents, definitions: readonly RacerDefinition[] = RACER_DEFS) {
     this.course = course;
@@ -856,8 +858,12 @@ export class Race implements RaceView {
   private trackBattles(dt: number): void {
     const player = this.player();
     if (player.finished) return;
-    const passed: RaceBattleOpponent[] = [];
-    const lost: RaceBattleOpponent[] = [];
+    // Reused scratch lists: this runs every fixed step and used to allocate
+    // two arrays per step for the whole race.
+    const passed = this.battlePassedScratch;
+    const lost = this.battleLostScratch;
+    passed.length = 0;
+    lost.length = 0;
     const playerResynced = this.resynced[player.id];
     for (const opponent of this.racers) {
       if (opponent.isPlayer || opponent.finished || opponent.eliminated) continue;

@@ -84,7 +84,6 @@ const MOBILE_SUPPRESSED_KINDS = new Set(['gate', 'flight-pass']);
 const MOBILE_CRITICAL_PRIORITY = 85; // final-ready / excellent / seventh route-clear
 const MOBILE_MIN_HOLD_S = 0.85; // non-critical card must stay readable this long
 const MOBILE_IMPACT_GAP_S = 1.2; // pause between two non-critical cards
-
 /** Palette hex int → canvas/CSS color string. */
 const css = (hexInt: number): string => '#' + hexInt.toString(16).padStart(6, '0');
 
@@ -335,6 +334,8 @@ export class HUD {
   private readonly seatFlightGateProgress: number[] = [0, 0];
   private lastDriftTier = 0;
   private hudTime = 0;
+  /** Mobile de-clustering: last moment any non-critical popup showed, any channel. */
+  private mobileLastPopupAt = -Infinity;
   private flightAlertTimer = 0;
   private lastCourseWarning: CourseWarning = 'none';
   private lastCourseWarningText = '';
@@ -1549,32 +1550,6 @@ export class HUD {
     });
   }
 
-  showHonorTargetNotice(
-    racer: string,
-    title: string,
-    value: number,
-    precision: 'center' | 'edge',
-    lane: 'left' | 'center' | 'right' = 'center',
-    streak = 0,
-  ): void {
-    const safeStreak = Math.max(0, Math.min(streak, 6));
-    const detail = safeStreak > 0
-      ? `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 连击 ×${safeStreak + 1} · 荣誉已记录`
-      : `${racer} · ${precision === 'center' ? '正中命中' : '擦边命中'} · 荣誉已记录`;
-    this.enqueueImpact({
-      kind: 'honor-coin',
-      kicker: safeStreak > 0 ? `金币连击 ×${safeStreak + 1}` : '金币收集',
-      title: `${title} +${value}`,
-      detail,
-      color: PALETTE.sunFlare,
-      // Below gate (50) / route-clear (60): coins queue between action beats
-      // instead of cutting the flight feedback a player is trying to read.
-      duration: 0.92,
-      priority: 44,
-      lane,
-    });
-  }
-
   showFlightPass(flights: number, best: number, newBest: boolean, lane: 'left' | 'center' | 'right' = 'center'): void {
     this.setBestFlights(best, flights);
     if (flights <= 3) return;
@@ -1956,6 +1931,11 @@ export class HUD {
     streak: string,
     color: number,
   ): void {
+    // Mobile de-clustering: the battle card shares the single-popup budget
+    // with impact cards; a battle that lands inside the gap is dropped (the
+    // standings tower still updates, and solo battles never double the radio).
+    if (this.controlDevice === 'mobile' && this.hudTime - this.mobileLastPopupAt < MOBILE_IMPACT_GAP_S) return;
+    if (this.controlDevice === 'mobile') this.mobileLastPopupAt = this.hudTime;
     this.battleTimer = kind === 'overtake' ? 1.4 : 1.1;
     this.battleEl.dataset.kind = kind;
     this.battleEl.style.setProperty('--battle', css(color));
@@ -2217,6 +2197,10 @@ export class HUD {
   }
 
   private spawnToast(delta: number): void {
+    // Split-delta toasts are desktop-only: on phones they fire at every
+    // checkpoint and pile onto the popup cluster — the standings tower
+    // already carries the gap readout.
+    if (this.controlDevice === 'mobile') return;
     const el = document.createElement('div');
     const ahead = delta < 0;
     el.className = ahead ? 'hud-toast hud-inked good' : 'hud-toast hud-inked bad';
@@ -2282,11 +2266,21 @@ export class HUD {
   }
 
   private activateImpact(slot: ImpactSlot, notice: ImpactNotice): void {
+    // Mobile de-clustering: one popup at a time across every channel. A
+    // non-critical notice that lands inside the global gap goes back to the
+    // queue instead of stacking on whatever just appeared.
+    if (this.controlDevice === 'mobile' && notice.priority < MOBILE_CRITICAL_PRIORITY &&
+        this.hudTime - this.mobileLastPopupAt < MOBILE_IMPACT_GAP_S) {
+      slot.queue.unshift(notice);
+      if (slot.queue.length > 2) slot.queue.length = 2;
+      return;
+    }
     slot.timer = notice.duration;
     slot.priority = notice.priority;
     slot.active = notice;
     if (this.controlDevice === 'mobile' && notice.priority < MOBILE_CRITICAL_PRIORITY) {
       slot.cooldown = MOBILE_IMPACT_GAP_S;
+      this.mobileLastPopupAt = this.hudTime;
     }
     slot.el.dataset.kind = notice.kind;
     slot.el.dataset.lane = notice.lane ?? 'center';

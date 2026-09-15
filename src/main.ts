@@ -2054,16 +2054,10 @@ function presentHonorHits(hits: readonly HonorHit[]): void {
       haptics.impact('collision-light', rumbleStrength, false);
     }
     // Camera pickup punch grows with the streak so a combo reads as one
-    // accelerating hit rather than six equal ones.
+    // accelerating hit rather than six equal ones. The pickup feedback is
+    // sound + coin burst + this punch — a center-screen card was judged too
+    // abrupt and was removed.
     cameraRig.coinPickupKick(streakStep);
-    hud.showHonorTargetNotice(
-      racer?.name ?? '选手',
-      definition?.title ?? '荣誉目标',
-      hit.value,
-      hit.precision,
-      isDuoMode() && hit.racerId < 2 ? hit.racerId === 0 ? 'left' : 'right' : 'center',
-      streakStep,
-    );
     trackGameEvent('honor_award', {
       id: `target.${hit.kind}`,
       racer: hit.racerId,
@@ -6178,7 +6172,7 @@ function runDuoImpactCase(): Record<string, unknown> {
     throw new Error('duo impact diagnostic requires an active dual race');
   }
   for (const lane of ['left', 'right'] as const) {
-    hud.showHonorTargetNotice(roster[lane === 'left' ? 0 : 1].name, '席位提示', 10, 'edge', lane, 0);
+    hud.showTransientNotice(`${roster[lane === 'left' ? 0 : 1].name} 的席位提示 · 命中 +10`, '互动提示', lane);
   }
   const cards = [...document.querySelectorAll<HTMLElement>('.hud-impact.on')].map((el) => {
     const rect = el.getBoundingClientRect();

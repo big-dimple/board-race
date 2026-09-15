@@ -87,21 +87,15 @@ async function openHarness(browser, mobile, tilt = false, driver = '') {
 async function freezeFlightExtensionImpact(page) {
   await clearImpactHarnessOverrides(page);
   await page.evaluate(() => window.__harness.tapFlight());
+  // Mobile popup pacing may hold the card behind the global gap for up to
+  // ~1.2s — wait for it to actually present before freezing its animation.
+  await page.waitForFunction(() => {
+    const copy = document.querySelector(".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
+    return copy instanceof HTMLElement;
+  }, null, { timeout: 5000 }).catch(() => {});
   await page.evaluate(() => {
     const copy = document.querySelector(".hud-impact[data-kind='flight-extend'].on .hud-impact-copy");
     if (!(copy instanceof HTMLElement)) throw new Error('flight extension impact did not activate');
-    const computed = getComputedStyle(copy);
-    copy.dataset.harnessAnimationName = computed.animationName;
-    copy.dataset.harnessAnimationDuration = computed.animationDuration;
-    copy.style.setProperty('animation', 'none', 'important');
-    copy.style.setProperty('opacity', '1', 'important');
-  });
-}
-
-async function freezeHonorImpact(page) {
-  await page.evaluate(() => {
-    const copy = document.querySelector(".hud-impact[data-kind='honor-coin'].on .hud-impact-copy");
-    if (!(copy instanceof HTMLElement)) throw new Error('coin honor impact did not activate');
     const computed = getComputedStyle(copy);
     copy.dataset.harnessAnimationName = computed.animationName;
     copy.dataset.harnessAnimationDuration = computed.animationDuration;
@@ -127,7 +121,6 @@ async function stage(page, name, settleMs = 0, completeFlightExtension = true) {
   await page.evaluate((scenario) => window.__harness.scenario(scenario), name);
   await page.evaluate(() => window.__harness.render());
   if (name === 'flight-extension-spool' && completeFlightExtension) await freezeFlightExtensionImpact(page);
-  if (name === 'honor-coin-hit') await freezeHonorImpact(page);
   if (settleMs > 0) await page.waitForTimeout(settleMs);
 }
 
@@ -733,42 +726,16 @@ async function verifyMode(browser, mobile) {
   console.log(`${label} surface honor props: center=${honorTarget.centerHits} ` +
     `edge=${honorTarget.edgeHits} charges=${honorTarget.chargesAfterSecond} score=${honorTarget.honorScore}`);
 
-  // Coin pickups use their own compact gold card. It must stay above the boat
-  // lane and remain fully inside both desktop and touch-landscape viewports.
+  // Coin pickups deliberately show no popup card (feedback is sound + burst
+  // pool + camera punch). The hit above must still have recorded the honor,
+  // and no honor-coin card may appear on any device.
   await stage(page, 'honor-coin-hit', 120);
-  const honorPopup = await elementRect(page, ".hud-impact[data-kind='honor-coin'].on .hud-impact-copy");
-  const honorPopupState = await page.evaluate(() => {
+  const coinCard = await page.evaluate(() => {
     const root = document.querySelector(".hud-impact[data-kind='honor-coin']");
-    const copy = root?.querySelector('.hud-impact-copy');
-    const title = root?.querySelector('.hud-impact-title');
-    const flash = root?.querySelector('.hud-impact-flash');
-    const lines = root?.querySelector('.hud-impact-lines');
-    if (!(root instanceof HTMLElement) || !(copy instanceof HTMLElement)) return null;
-    const style = getComputedStyle(copy);
-    return {
-      title: title?.textContent?.trim() ?? '',
-      visible: root.classList.contains('on') && style.visibility === 'visible' && Number(style.opacity) > 0.5,
-      fits: copy.scrollWidth <= copy.clientWidth + 1 && copy.scrollHeight <= copy.clientHeight + 1,
-      flash: flash instanceof HTMLElement ? getComputedStyle(flash).display : '',
-      lines: lines instanceof HTMLElement ? getComputedStyle(lines).display : '',
-    };
+    return { present: root instanceof HTMLElement, on: root?.classList.contains('on') ?? false };
   });
-  assert.ok(honorPopup && honorPopup.left >= 0 && honorPopup.right <= viewport.width && honorPopup.top >= 24 &&
-    honorPopup.bottom <= viewport.height * (mobile ? 0.34 : 0.32),
-  `${label}: coin honor card blocked the action lane or left the viewport: ${JSON.stringify(honorPopup)}`);
-  assert.ok(honorPopupState?.visible && honorPopupState.fits,
-    `${label}: coin honor card is hidden or overflowing: ${JSON.stringify(honorPopupState)}`);
-  assert.equal(honorPopupState?.title.includes('金币猎手'), true,
-    `${label}: coin honor card lost its authored title: ${JSON.stringify(honorPopupState)}`);
-  assert.equal(honorPopupState?.flash, 'none', `${label}: coin honor card still flashes the whole scene`);
-  assert.equal(honorPopupState?.lines, 'none', `${label}: coin honor card still draws generic side lines`);
-  if (mobile) {
-    for (const selector of ['[data-mobile-action="left"]', '[data-mobile-action="right"]',
-      '[data-mobile-action="flight"]', '[data-mobile-action="drift"]']) {
-      assert.equal(intersects(honorPopup, await elementRect(page, selector), 8), false,
-        `${label}: coin honor card overlaps ${selector}`);
-    }
-  }
+  assert.deepEqual(coinCard, { present: false, on: false },
+    `${label}: coin pickup raised a popup card after the card was removed: ${JSON.stringify(coinCard)}`);
 
   await stage(page, 'flight-extension-spool', 280, false);
   const courseBuoys = await page.evaluate(() => window.__harness.buoyState());

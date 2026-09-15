@@ -65,6 +65,7 @@ export class RaceTower {
   private readonly radioDirector = new RadioDirector();
   private definitions: readonly RacerDefinition[] = [];
   private readonly rows = new Map<number, HTMLDivElement>();
+  private readonly rowCache = new Map<number, { order: number; isPlayer: boolean; nearPlayer: boolean; placeText: string; gapText: string }>();
   private accumulator = 0;
   private battleIndex = 0;
   private flightIndex = 0;
@@ -116,6 +117,7 @@ export class RaceTower {
   setRoster(definitions: readonly RacerDefinition[]): void {
     this.definitions = definitions;
     this.rows.clear();
+    this.rowCache.clear();
     this.list.replaceChildren();
     for (const def of definitions) {
       const row = node('div', 'race-tower-row', this.list);
@@ -177,16 +179,45 @@ export class RaceTower {
       const racer = order[i];
       const row = this.rows.get(racer.id);
       if (!row) continue;
-      row.style.order = String(racer.place);
-      row.classList.toggle('player', racer.isPlayer);
-      row.classList.toggle('near-player', !!player && Math.abs(racer.place - player.place) <= 1);
-      const place = row.querySelector<HTMLElement>('.race-tower-place');
-      const gap = row.querySelector<HTMLElement>('.race-tower-gap');
-      if (place) place.textContent = String(racer.place).padStart(2, '0');
-      if (gap) {
-        if (racer.finished) gap.textContent = 'FIN';
-        else if (i === 0) gap.textContent = 'LEADER';
-        else gap.textContent = `-${Math.max(0, order[i - 1].progress - racer.progress).toFixed(1)}m`;
+      // Change-gate every write: this block runs 10x/s for the whole race and
+      // unconditional style/text writes dirty the layout ten times a second.
+      const cache = this.rowCache.get(racer.id);
+      const isPlayer = racer.isPlayer;
+      const nearPlayer = !!player && Math.abs(racer.place - player.place) <= 1;
+      const placeText = String(racer.place).padStart(2, '0');
+      const gapText = racer.finished ? 'FIN' : i === 0 ? 'LEADER' : `-${Math.max(0, order[i - 1].progress - racer.progress).toFixed(1)}m`;
+      if (!cache) {
+        this.rowCache.set(racer.id, { order: racer.place, isPlayer, nearPlayer, placeText, gapText });
+        row.style.order = String(racer.place);
+        row.classList.toggle('player', isPlayer);
+        row.classList.toggle('near-player', nearPlayer);
+        const place = row.querySelector<HTMLElement>('.race-tower-place');
+        if (place) place.textContent = placeText;
+        const gap = row.querySelector<HTMLElement>('.race-tower-gap');
+        if (gap) gap.textContent = gapText;
+        continue;
+      }
+      if (cache.order !== racer.place) {
+        cache.order = racer.place;
+        row.style.order = String(racer.place);
+      }
+      if (cache.isPlayer !== isPlayer) {
+        cache.isPlayer = isPlayer;
+        row.classList.toggle('player', isPlayer);
+      }
+      if (cache.nearPlayer !== nearPlayer) {
+        cache.nearPlayer = nearPlayer;
+        row.classList.toggle('near-player', nearPlayer);
+      }
+      if (cache.placeText !== placeText) {
+        cache.placeText = placeText;
+        const place = row.querySelector<HTMLElement>('.race-tower-place');
+        if (place) place.textContent = placeText;
+      }
+      if (cache.gapText !== gapText) {
+        cache.gapText = gapText;
+        const gap = row.querySelector<HTMLElement>('.race-tower-gap');
+        if (gap) gap.textContent = gapText;
       }
     }
   }
