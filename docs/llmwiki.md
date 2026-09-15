@@ -91,8 +91,10 @@
 - 起飞判负规则必须向玩家显式表达（教学只加表现，不改输入、物理或判定）：
   水面引导线在起飞窗口段以 FLIGHT_ROUTE_MARKER_COLOR 变色带标出，带尽头对齐
   `gateUs[0] − FLIGHT_GATE_BYPASS_U` 死线，不再画到 exitU+8；持电且处于 attempt span
-  内时 HUD 横幅倒数死线（≤30m 升级为警示档，无电不提醒——无电另有电池提示卡）；
-  空中 route idle 时分档提示：span 可达但横向出雾为 orphan「飞回雾道内」（soft），
+  内时 HUD 横幅倒数死线（≤30m 升级为警示档，无电不提醒——无电另有电池提示卡；
+  **移动端不倒数死线**：小屏上该横幅与偏离航线/航道警告共用同一槽位互相跳变，
+  被视为骚扰，doomed 起跳沿提示卡与空中 orphan 横幅各端保留）；空中 route idle
+  时分档提示：span 可达但横向出雾为 orphan「飞回雾道内」（soft），
   飞过 span、航程够不到 span 或偏出硬边界为 doomed「这一飞无法过门」（hard，起跳沿
   触发一次性提示卡 + 电源面板 flight-alert）。早飞可达性按巡航速度规划（floor 22 m/s），
   不用起跳瞬间的水面速度，避免把正常早飞误报成 doomed。合格船（`flightsCleared >= 7`）
@@ -258,6 +260,15 @@
   动作反馈；被高优先级顶掉的短通知静默丢弃，不做 0.35s 残影回放；GO、三飞 / 七飞
   认证、撞柱与 final-ready 属长留通知，时长大于普通战术播报。桌面紧凑电台卡宽度必须
   容纳最长撞柱文案不换行。
+- 移动端提示瘦身（粗指针端合同）：`gate`（门标判定）与 `flight-pass`（第 4 飞起
+  航段达成）整族静默，`route-clear` 只保留第 1/2/3/7 飞里程碑——过门与进阶信息
+  仍由 `route-clear`、FLIGHT 计数与电台承担；桌面全量不变。反跳变：移动端非
+  critical 卡（priority < 85）最短驻留 0.85s，驻留期内高优先卡只排队不抢占，
+  critical（final-ready / excellent / 第七飞 route-clear）保留立即抢占；非
+  critical 卡之间再加 1.2s 全局冷却。任何过滤不得删除危险信息。
+- 电台文案池化：GO / 超车 / 被超 / 三飞 / 七飞 / 空刹技巧各持多条人味文案按序轮换，
+  碰撞台词按车手 mood 保留「接触 / 碰撞」关键词（碰撞专项诊断用正则断言）；轮换
+  只改文案，dedup key、speaker、priority、duration 与 sessionKey 结构不变。
 - 赛后结果是严格串行的冻结层：失败（淘汰/撞毁）发生时先自动播放真正的【高光时刻（PLAY OF THE RUN // 精彩视频回放）】，通过商业大作级多机位镜头（贴地低机位弯心追焦、无人机大俯冲子弹时间慢镜定格回旋、前置广角高速掠影）、变速升降格（Speed Ramping）、电竞赛事级视频播放器（4K 60FPS REC 指示、时间轴拖拽条、动态音波 EQ、慢镜特效与动作荣耀横幅）烘托本局最精彩的起飞/贴弯/破空时刻；回放结束或跳过进入失败回顾（带具体原因、米数 / 高度证据和操作建议），确认后进入【成就墙】（`HonorHighlights`）。成功结果先由 `FinaleOverlay` 播放七飞认证，确认后挂载【成就墙】。两层不会同时可见，荣誉计时也不会在终点演出期间偷跑。两个结果阶段都隐藏比赛 HUD、名次塔、混音与移动控制；成就墙使用不透底舞台，不让比赛画面与赛后信息混层。成就墙播放一项 `PLAY OF THE RUN` 最佳成就，切入最多四张可选荣誉卡、六人名次条、本局总分与累计 `honorScore`。最终冲线在 `HonorLedger` 写入稳定 id `finale.captain`，并由 `RecordsStore.recordHonors()` 同步到历史 `honors` 与 `honorScore`。
 - 成功结算是**不打断的自动流程**，点击只是加速：七飞认证在可读后（`FINALE_MIN_READ_S`）启动 5 秒倒计时，
   到点自己走进成就墙；成就墙结算后再启动 5 秒可见倒计时，自己调用继续回调回到同一场比赛。
@@ -274,6 +285,11 @@
 - 单人由主 `PostPipeline` 出屏；双打由左右各自的 `PostPipeline` 渲染后，再经
   `SplitScreenRenderer` 合成 50/50 画面。每侧的深度纹理、分辨率、天空与海面相机值都必须先切到该侧相机。
   旧 `TeamExpedition` 仍只在封存分支维护，不得重新接回主分支入口。
+
+- 高光回放（PLAY OF THE RUN）是特写展示层：回放期间经
+  `Stage.setPresentationRatioOverride(min(devicePixelRatio, 3))` 按屏幕原生密度渲染并
+  暂停 governor，退出回放必须清除恢复（resetRace 与 completeHighlightVideo 两条出口），
+  回放结束后不得残留高分辨率缓冲。performance 档的比赛渲染上限不受影响。
 - 海面深度纹理、分辨率、天空与海面相机跟随值必须在渲染每一侧前切到该侧相机，不能让
   右侧预通道覆盖左侧已经使用的泡沫 / 深度真相。
 
@@ -361,6 +377,10 @@ npm run verify:team
 `verify:smoke` 检查单人桌面和横屏手机能启动、画面非空，以及 Gemini、艇边库存、续航提示和
 撞柱文案的关键布局。截图使用 `npm run shot -- <scenario...>`；可加 `--mobile` 和
 `--out <directory>`。
+
+实机瞬时卡顿用 `?debug=perf` 浮层排查：除 governor 的 EMA 均值外，它记录超过 22ms
+的渲染帧峰值及当时上下文（race phase / flightPhase / catch-up 步数），浮层显示最差三
+条；EMA 会抹平单帧毛刺，峰值日志才能定位"偶尔卡一下"。
 
 `verify:team` 现在覆盖主分支单人 / 双打目录：左右入座、角色互斥、六艇（两名玩家加四名 AI）、
 键盘和双标准手柄、左摇杆斜向同时转弯 / 推进、RT/LT 不参与移动、淘汰后的幸存者接管、支援 / 浪花互动、

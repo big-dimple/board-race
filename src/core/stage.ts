@@ -159,8 +159,32 @@ export class Stage {
     cb(width, height, this.pixelRatio);
   }
 
+  /**
+   * Presentation-only resolution override (highlight replay, captures): the
+   * governor pauses while it is active and the drawing buffer renders at the
+   * override ratio so close-ups keep their detail. Passing null restores the
+   * pre-override ratio and resumes governing.
+   */
+  private presentationOverride: number | null = null;
+  private savedGovernorRatio = 1;
+
+  setPresentationRatioOverride(ratio: number | null): void {
+    if (ratio === this.presentationOverride) return;
+    if (ratio !== null) {
+      const device = Math.max(1, window.devicePixelRatio || 1);
+      this.savedGovernorRatio = this.pixelRatio;
+      this.presentationOverride = Math.max(1, Math.min(device, ratio));
+      this.pixelRatio = this.presentationOverride;
+    } else {
+      this.presentationOverride = null;
+      this.pixelRatio = this.savedGovernorRatio;
+    }
+    this.applySize(false);
+  }
+
   /** `views` is how many cameras this frame rendered; split play renders two. */
   updatePerf(frameMs: number, views = 1): void {
+    if (this.presentationOverride !== null) return;
     if (document.hidden || frameMs <= 0 || frameMs >= 250) return;
     const split = views > 1;
     const floor = split
@@ -251,6 +275,10 @@ export class Stage {
       // Preserve a real performance penalty, but do not strand a small window
       // at the ratio required by the previous 4K viewport.
       const { width, height } = this.viewportSize();
+      if (this.presentationOverride !== null) {
+        this.applySize(false);
+        return;
+      }
       const nextBase = this.baseBudgetRatio(width, height);
       const perfScale = Math.min(1, this.pixelRatio / Math.max(this.effectiveMinPixelRatio, this.lastBaseRatio));
       this.pixelRatio = Math.max(this.effectiveMinPixelRatio, nextBase * perfScale);

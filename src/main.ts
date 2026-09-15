@@ -1465,6 +1465,10 @@ function startHighlightVideoReplay(): void {
 
   duoInteractions.syncReplayVisuals(highlightReplayMissileStates);
 
+  // The replay is the close-up showcase: render it at the screen's native
+  // density (performance mode normally caps at 1.5–2x CSS) so bullet-time
+  // shots keep their detail. The governor pauses for the override.
+  stage.setPresentationRatioOverride(Math.min(window.devicePixelRatio || 1, 3));
   highlightVideo.show(clip);
   highlightReplayActive = true;
   hud.setVisible(false);
@@ -1479,6 +1483,7 @@ function completeHighlightVideo(): void {
   if (!highlightReplayActive) return;
   highlightDirector.stop();
   highlightVideo.hide();
+  stage.setPresentationRatioOverride(null);
   duoInteractions.hideAllVisuals();
   singlePlayerMissiles.hideAllVisuals();
   highlightReplayActive = false;
@@ -1616,6 +1621,7 @@ function resetRace(): void {
   highlightReplayActive = false;
   highlightDirector.stop();
   highlightVideo.hide();
+  stage.setPresentationRatioOverride(null);
   highlightRecorder.reset();
   pendingFailureNewBest = false;
   newBestThisRun = false;
@@ -3304,15 +3310,45 @@ function render(): void {
   // Split play renders the frame twice inside one rAF budget, so its view
   // count scales the governor thresholds; without it both halves would be
   // shaved soft as if the device were slow.
-  stage.updatePerf(performance.now() - renderStart, splitFrame ? 2 : 1);
+  const frameMs = performance.now() - renderStart;
+  stage.updatePerf(frameMs, splitFrame ? 2 : 1);
+  recordFrameSpike(frameMs);
   if (perfOverlayEl) {
     const stats = stage.stats();
     const fps = 1000 / Math.max(1, Number(stats.frameMs));
     perfOverlayEl.textContent =
       `${fps.toFixed(0)}fps ${Number(stats.frameMs).toFixed(1)}ms · steps ${loop.stepsLastFrame} · ` +
       `pr ${Number(stats.pixelRatio).toFixed(2)} · ${stats.quality} · calls ${stats.calls} · ` +
-      `tris ${(Number(stats.triangles) / 1000).toFixed(0)}k`;
+      `tris ${(Number(stats.triangles) / 1000).toFixed(0)}k` +
+      (spikeLog.length ? ` · spikes ${formatSpikes()}` : '');
   }
+}
+
+/**
+ * Hitch hunting: single-frame render-cost spikes are exactly what the EMA
+ * governor smooths away, so a phone user can feel a stall yet see a healthy
+ * average. Keep the worst recent spikes with their sim context so an
+ * intermittent takeoff stall can be pinned to a phase instead of guesswork.
+ */
+const spikeLog: Array<{ ms: number; ctx: string }> = [];
+
+function recordFrameSpike(ms: number): void {
+  if (ms < 22) return;
+  const ctx = `${race.phase}/${boats[0]?.state.flightPhase ?? '?'}/s${loop.stepsLastFrame}`;
+  const existing = spikeLog.find((entry) => entry.ctx === ctx);
+  if (existing) {
+    existing.ms = Math.max(existing.ms, Math.round(ms));
+    return;
+  }
+  spikeLog.push({ ms: Math.round(ms), ctx });
+  if (spikeLog.length > 6) spikeLog.sort((a, b) => b.ms - a.ms).length = 6;
+}
+
+function formatSpikes(): string {
+  return [...spikeLog].sort((a, b) => b.ms - a.ms)
+    .slice(0, 3)
+    .map((entry) => `${entry.ms}ms@${entry.ctx}`)
+    .join(' ');
 }
 
 /** ?debug=perf: tiny on-device readout so a phone browser can report its real

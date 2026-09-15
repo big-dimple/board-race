@@ -9,13 +9,50 @@ const TEAM_SPEAKER: RadioSpeaker = { kind: 'team', name: 'TEAM', color: 0x55e7ff
 export type TowerSide = 'solo' | 'left' | 'right';
 
 const COLLISION_LINES: Record<DriverMood, string> = {
-  '沉稳': '这一下算你狠。稳住，下一段见。',
-  '骄傲': '这条线我先拿了。',
-  '愤怒': '这才叫抢线。别松油。',
-  '专注': '接触确认。下个弯再算。',
-  '兴奋': '这一下够重。再来一次？',
-  '冷酷': '接触而已。线路没丢。',
+  '沉稳': '这一下接触不轻。你先稳住，这账下一段再算。',
+  '骄傲': '看见没，这条线归我。刚才那下碰撞，长点记性。',
+  '愤怒': '碰撞是吧？好，别松油，马上原样还你！',
+  '专注': '接触确认，船头没飘。下个弯再跟他算。',
+  '兴奋': '哈哈，这一撞够劲！再来一次试试？',
+  '冷酷': '碰撞而已。我的线路一寸没丢。',
 };
+
+const GO_LINES = (name: string): string[] => [
+  `${name}，绿灯亮了！航线清空，先把首飞拿下。`,
+  `走！${name}，整条线都是你的，首飞在等你。`,
+  `${name}，出发！漂过黄线再松手，首飞稳稳入账。`,
+  `车队电台：${name} 已放行。别恋战水面，先飞一次再说。`,
+];
+
+const OVERTAKE_LINES = (name: string): string[] => [
+  `超过 ${name} 了！内线锁死，别给他尾流机会。`,
+  `${name} 已经过去了，干净利落！出弯继续保持。`,
+  `内线得手——${name} 现在只能看你的尾流。`,
+];
+
+const LOST_LINES = (name: string): string[] => [
+  `${name} 超到前面了……别急，差距还在一击范围。`,
+  `位置被 ${name} 拿走了。稳住节奏，下个弯收回来。`,
+  `让 ${name} 先得意一阵，下个弯我们把位置拿回来。`,
+];
+
+const FLIGHT_THREE_LINES = (best: number): string[] => [
+  `三飞认证！勋章到手，BEST ${best}。`,
+  `三飞完成，漂亮！远海档案开局，下一局冲优秀。`,
+  `认证通过！${best} 飞记录入账，继续抢线别松劲。`,
+];
+
+const FLIGHT_SEVEN_LINES: string[] = [
+  '七飞认证！终点站已经为你开门！',
+  '七飞全满贯！回港冲线，加冕时刻到了！',
+  '难以置信的一局——七飞达成，终点站见！',
+];
+
+const TECHNIQUE_TIP_LINES: string[] = [
+  '弯急别硬拧，先空刹把速度咬下来，再打方向。',
+  '记住：进急弯先空刹减速，船头听话了再转。',
+  '急弯前的秘诀就一句——先空刹，后转向。',
+];
 
 export class RaceTower {
   readonly root: HTMLDivElement;
@@ -34,6 +71,10 @@ export class RaceTower {
   private collisionIndex = 0;
   private collisionLinesShown = 0;
   private lastCollisionLineAt = -Infinity;
+  // Cross-run counters: the GO/tip key dedups within a run, so these pick a
+  // fresh line each new run instead of replaying the first one forever.
+  private goIndex = 0;
+  private tipIndex = 0;
   private raceTime = 0;
   private renderedRevision = -1;
   /** Which human this tower stands for; null falls back to the first player. */
@@ -151,18 +192,18 @@ export class RaceTower {
   }
 
   announceGo(playerName: string): void {
+    const messages = GO_LINES(playerName);
+    const index = this.goIndex++ % messages.length;
     this.enqueue({
       key: 'go', speaker: TEAM_SPEAKER,
-      message: `${playerName}，线路开放。先拿首飞。`,
+      message: messages[index],
       priority: 'tactical', duration: 3.0, ttl: 8,
     });
   }
 
   announceBattle(event: RaceBattleEvent): void {
     const name = event.opponents[0]?.name ?? '对手';
-    const messages = event.kind === 'overtake'
-      ? [`超过 ${name}。内线锁住。`, `${name} 在尾流里，出弯别给机会。`]
-      : [`${name} 超到前面了。差距还在一击范围。`, `盯住 ${name}。下个弯收回来。`];
+    const messages = event.kind === 'overtake' ? OVERTAKE_LINES(name) : LOST_LINES(name);
     const index = this.battleIndex++ % messages.length;
     this.enqueue({
       key: `battle-${event.kind}-${index}`, speaker: TEAM_SPEAKER,
@@ -172,9 +213,7 @@ export class RaceTower {
 
   announceFlight(flights: number, best: number): void {
     if (flights !== 3 && flights < 7) return;
-    const messages = flights === 3
-      ? [`三飞认证。远海档案开局，BEST ${best}。`, '勋章已入账。下一段，继续抢线。']
-      : ['七飞认证。终点站，为你开门。'];
+    const messages = flights === 3 ? FLIGHT_THREE_LINES(best) : FLIGHT_SEVEN_LINES;
     const index = this.flightIndex++ % messages.length;
     this.enqueue({
       key: `flight-${flights}-${index}`, speaker: TEAM_SPEAKER,
@@ -184,11 +223,12 @@ export class RaceTower {
 
   announceTechniqueTip(): boolean {
     const sol = driverProfile('sol');
+    const message = TECHNIQUE_TIP_LINES[this.tipIndex++ % TECHNIQUE_TIP_LINES.length];
     return this.enqueue({
       key: 'gemini-opening-airbrake-tip',
       speaker: driverSpeaker(sol),
       meta: `${sol.callsign} // 插一句`,
-      message: '弯急别硬拧，先空刹再转。',
+      message,
       emphasis: '先空刹',
       presentation: 'broadcast',
       priority: 'tactical',

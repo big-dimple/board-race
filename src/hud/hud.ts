@@ -56,6 +56,8 @@ interface ImpactNotice {
   duration: number;
   priority: number;
   lane?: 'left' | 'center' | 'right';
+  /** Route-clear flight number; mobile keeps only the 1/2/3/7 milestones. */
+  flight?: number;
 }
 
 /** One independent impact card: its own DOM, its own timer and its own queue. */
@@ -68,7 +70,20 @@ interface ImpactSlot {
   timer: number;
   priority: number;
   active: ImpactNotice | null;
+  /** Mobile pacing: seconds until the next non-critical card may activate. */
+  cooldown: number;
 }
+
+/**
+ * Mobile hint austerity. Phone screens are small and every popup taxes the
+ * thumb zones, so whole low-value families stay silent on touch devices and
+ * the rest may not flash for a split second before another scenario replaces
+ * them. Desktop keeps the full play-by-play.
+ */
+const MOBILE_SUPPRESSED_KINDS = new Set(['gate', 'flight-pass']);
+const MOBILE_CRITICAL_PRIORITY = 85; // final-ready / excellent / seventh route-clear
+const MOBILE_MIN_HOLD_S = 0.85; // non-critical card must stay readable this long
+const MOBILE_IMPACT_GAP_S = 1.2; // pause between two non-critical cards
 
 /** Palette hex int → canvas/CSS color string. */
 const css = (hexInt: number): string => '#' + hexInt.toString(16).padStart(6, '0');
@@ -467,6 +482,7 @@ export class HUD {
         timer: 0,
         priority: -1,
         active: null,
+        cooldown: 0,
       });
     }
 
@@ -812,6 +828,7 @@ export class HUD {
         if (flightNumber === 1) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 1,
             kicker: '阶段通关 · 1/3 飞',
             title: '✨ 首飞顺利达成',
             detail: '稳住重心准备下一门',
@@ -823,6 +840,7 @@ export class HUD {
         } else if (flightNumber === 2) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 2,
             kicker: '阶段通关 · 2/3 飞',
             title: '✨ 连破双关 · 状态拉满',
             detail: '准备迎接第 3 飞定级大关',
@@ -834,6 +852,7 @@ export class HUD {
         } else if (flightNumber === 3) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 3,
             kicker: '三飞达成 · 猛男合格',
             title: '🏆 男人勋章已入账！',
             detail: '无限挑战开启 · 冲刺进阶航线',
@@ -845,6 +864,7 @@ export class HUD {
         } else if (flightNumber === 4) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 4,
             kicker: '进阶航段 · 4 飞达成',
             title: '🌊 右切大弯心 ➔ 迎战第 5 飞',
             detail: '水面高速切弯 · 对准前天天轨',
@@ -856,6 +876,7 @@ export class HUD {
         } else if (flightNumber === 5) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 5,
             kicker: '极限航段 · 5 飞达成',
             title: '🔥 大回旋发卡弯完美征服！',
             detail: '天轨回旋绝技 · 保持节奏迎战第 6 飞',
@@ -867,6 +888,7 @@ export class HUD {
         } else if (flightNumber === 6) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 6,
             kicker: '远海巅峰 · 6 飞达成',
             title: '⚡ 决胜前夕 ➔ 迎战终点天门',
             detail: '全速冲刺 · 最后一飞冲向终点站',
@@ -878,6 +900,7 @@ export class HUD {
         } else if (flightNumber >= 7) {
           this.enqueueImpact({
             kind: 'route-clear',
+            flight: 7,
             kicker: '七飞登顶 · 猛男至尊',
             title: '👑 七飞全满贯达成！',
             detail: '回港冲线 · 迎接终点站加冕',
@@ -942,7 +965,11 @@ export class HUD {
     const st = player.state;
     this.hudTime += dt;
     this.updateDriverPower(dt, race, player, _all);
-    this.updateFinalTarget(race.phase === 'racing');
+    // Guidance status allocates a fresh snapshot per call; both the final
+    // target marker and the launch-judgment logic below must read the same
+    // frame's snapshot instead of each requesting their own.
+    const routeGuidance = this.course.guidanceStatus();
+    this.updateFinalTarget(race.phase === 'racing', routeGuidance);
     if (this.activeCoach) this.positionCoach(this.activeCoach.focus);
 
     // The caller supplies the camera/controls focus. In a dual race this can
@@ -1076,7 +1103,6 @@ export class HUD {
       this.lastFlightPips = flightPips;
       for (let i = 0; i < FLIGHT_PIPS; i++) this.flightPipEls[i].classList.toggle('on', i < flightPips);
     }
-    const routeGuidance = this.course.guidanceStatus();
     // Launch-window judgment: countdown to the no-launch portal line while
     // armed on the water, plus orphan/doomed feedback for a takeoff that
     // cannot latch. Teaching surfaces only — the course owns the verdicts.
@@ -1087,7 +1113,12 @@ export class HUD {
       this.setLaunchJudgment(2, '⚠️ 这一飞无法过门 · 落水后回到白雾重新起飞');
     } else if (orphanNow && flightActiveNow) {
       this.setLaunchJudgment(1, '未接入白雾航道 · 飞回雾道内');
-    } else if (!flightActiveNow && race.phase === 'racing' && routeGuidance.launchDeadlineM >= 0) {
+    } else if (!flightActiveNow && race.phase === 'racing' && routeGuidance.launchDeadlineM >= 0 &&
+        this.controlDevice !== 'mobile') {
+      // Touch play hides the deadline countdown: the banner shares its slot
+      // with surface/corridor warnings and flips between scenarios, which
+      // reads as harassment on a small screen. The doom verdict at the press
+      // edge and the in-air orphan cue still fire on every device.
       const deadlineM = routeGuidance.launchDeadlineM;
       this.setLaunchJudgment(
         deadlineM <= 30 ? 2 : 1,
@@ -1950,6 +1981,7 @@ export class HUD {
       slot.timer = 0;
       slot.priority = -1;
       slot.active = null;
+      slot.cooldown = 0;
       slot.el.classList.remove('on');
     }
   }
@@ -2244,6 +2276,13 @@ export class HUD {
 
   private enqueueImpact(notice: ImpactNotice): void {
     const slot = this.slotForLane(notice.lane);
+    const mobile = this.controlDevice === 'mobile';
+    // Mobile austerity: whole low-value families stay silent, and only the
+    // 1/2/3/7 route-clear milestones celebrate. Desktop keeps the full feed.
+    if (mobile && MOBILE_SUPPRESSED_KINDS.has(notice.kind)) return;
+    if (mobile && notice.kind === 'route-clear' &&
+        notice.flight !== undefined && notice.flight !== 1 && notice.flight !== 2 &&
+        notice.flight !== 3 && notice.flight !== 7) return;
     // Deduplication check: if identical notice is already active, just refresh duration
     if (slot.active && (slot.active.title === notice.title && slot.active.detail === notice.detail)) {
       slot.timer = Math.max(slot.timer, notice.duration);
@@ -2253,6 +2292,20 @@ export class HUD {
     const existingIndex = slot.queue.findIndex((q) => q.title === notice.title && q.detail === notice.detail);
     if (existingIndex !== -1) {
       slot.queue.splice(existingIndex, 1);
+    }
+
+    // A non-critical card inside its minimum readable hold cannot be evicted
+    // by another non-critical notice: it queues instead, so a phone screen
+    // never flashes a card for half a second before the next scenario
+    // replaces it. Critical notices (final-ready, excellent, seventh clear)
+    // keep their immediate preempt path.
+    if (mobile && slot.active && slot.timer > 0 &&
+        notice.priority < MOBILE_CRITICAL_PRIORITY && slot.active.priority < MOBILE_CRITICAL_PRIORITY &&
+        slot.timer > slot.active.duration - MOBILE_MIN_HOLD_S) {
+      slot.queue.push(notice);
+      slot.queue.sort((a, b) => b.priority - a.priority);
+      if (slot.queue.length > 2) slot.queue.length = 2;
+      return;
     }
 
     if (slot.timer <= 0 || notice.priority >= slot.priority) {
@@ -2271,6 +2324,9 @@ export class HUD {
     slot.timer = notice.duration;
     slot.priority = notice.priority;
     slot.active = notice;
+    if (this.controlDevice === 'mobile' && notice.priority < MOBILE_CRITICAL_PRIORITY) {
+      slot.cooldown = MOBILE_IMPACT_GAP_S;
+    }
     slot.el.dataset.kind = notice.kind;
     slot.el.dataset.lane = notice.lane ?? 'center';
     slot.el.style.setProperty('--impact', css(notice.color));
@@ -2290,19 +2346,25 @@ export class HUD {
         slot.timer = 0;
         slot.priority = -1;
         slot.active = null;
+        slot.cooldown = 0;
         slot.el.classList.remove('on');
         continue;
       }
-      if (slot.timer <= 0) continue;
-      slot.timer -= dt;
-      if (slot.timer > 0) continue;
-      slot.el.classList.remove('on');
-      const next = slot.queue.shift();
-      if (next) this.activateImpact(slot, next);
-      else {
+      if (slot.cooldown > 0) slot.cooldown = Math.max(0, slot.cooldown - dt);
+      if (slot.timer > 0) {
+        slot.timer -= dt;
+        if (slot.timer > 0) continue;
+        slot.el.classList.remove('on');
         slot.priority = -1;
         slot.active = null;
       }
+      // Mobile pacing: after a non-critical card, breathe before the next one
+      // so back-to-back popups cannot churn. Critical notices never wait.
+      if (slot.queue.length === 0) continue;
+      const next = slot.queue[0];
+      if (this.controlDevice === 'mobile' && slot.cooldown > 0 && next.priority < MOBILE_CRITICAL_PRIORITY) continue;
+      slot.queue.shift();
+      this.activateImpact(slot, next);
     }
   }
 
@@ -2472,8 +2534,7 @@ export class HUD {
     return MAP_SIZE / 2 + (x - this.mapCx) * this.mapScale;
   }
 
-  private updateFinalTarget(racing: boolean): void {
-    const guidance = this.course.guidanceStatus();
+  private updateFinalTarget(racing: boolean, guidance: ReturnType<ICourse['guidanceStatus']>): void {
     if (!racing || !guidance.finalActive) {
       this.finalTargetEl.classList.remove('on');
       return;
