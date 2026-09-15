@@ -2167,6 +2167,10 @@ function beginFinalePresentation(): void {
     honors.award('finale.captain', racerId, HONOR_DEFINITIONS['finale.captain'].value, race.raceTime);
   }
   course.triggerFinaleCelebration();
+  // The next round is the night round: compile the searchlight materials
+  // inside this multi-second presentation so the day/night flip never pays
+  // the shader-compile burst on the water.
+  lighthouse.warmup(stage.renderer);
   finale.show(result, '猛男勋章 / 继续');
   finaleElapsed = 0;
   finalePresentation = true;
@@ -2960,7 +2964,9 @@ function step(dt: number, _t: number, present: boolean): void {
       }
     } else if (!harnessEndlessMode && flights > 0 && flights % course.flightRoutes.length === 0 && race.armFinale()) {
       course.armFinalStation();
-      hud.showFinalReady(passLane);
+      // No center-screen celebration here: the radio already announces the
+      // seventh flight and the medal/finale ceremony owns the celebration
+      // beat once the portal is crossed.
       tower.announceFlight(flights, pass.bestFlights);
       pipeline.pulse('finish', 0.55);
       trackGameEvent('final_station_armed', { run: currentRun, flights, elapsed: race.raceTime });
@@ -3070,11 +3076,15 @@ function step(dt: number, _t: number, present: boolean): void {
   }
   const turnWarning = course.flightTurnWarning(focusBoat.id);
 
+  // One guidance snapshot per fixed step: the status object allocates, and
+  // the coach, primer and mobile action state below must all read the same
+  // frame's values anyway.
+  const stepGuidance = course.guidanceStatus();
   const controls = activeCoachControls();
   coachPresentation = drivingCoach.update(dt, {
     state: playerState,
     input: HARNESS && harnessPlayerInput ? harnessPlayerInput : playerInput,
-    launchCueActive: course.guidanceStatus().actionCue === 'launch',
+    launchCueActive: stepGuidance.actionCue === 'launch',
     turnWarning,
     presentationBlocked: hud.coachPresentationBlocked() || turnWarning,
   }, controls);
@@ -3082,7 +3092,7 @@ function step(dt: number, _t: number, present: boolean): void {
   pcPrimerPresentation = pcControlPrimer.update(dt, {
     state: playerState,
     racing: race.phase === 'racing',
-    launchCueActive: course.guidanceStatus().actionCue === 'launch',
+    launchCueActive: stepGuidance.actionCue === 'launch',
     keyboardActive: activeInputDevice === 'keyboard',
     presentationBlocked: hud.coachPresentationBlocked() || turnWarning || coachPresentation !== null,
   });

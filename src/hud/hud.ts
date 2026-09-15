@@ -182,7 +182,7 @@ export class HUD {
   private readonly flightPromptEn: HTMLDivElement;
   private readonly flightPromptCn: HTMLDivElement;
   private readonly flightPromptRule: HTMLDivElement;
-  private flightPromptMode: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' | 'doomed' = 'hidden';
+  private flightPromptMode: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' = 'hidden';
   private flightPromptDevice: 'keyboard' | 'gamepad' | 'mobile' = 'keyboard';
   private controlDevice: CoachInputDevice = 'keyboard';
   private controlLabels = { steer: 'A / D', drift: 'SHIFT', flight: 'SPACE' };
@@ -341,8 +341,6 @@ export class HUD {
   private corridorStage = 0;
   private launchJudgmentStage = 0;
   private launchJudgmentText = '';
-  private flightPromptDoomed = false;
-  private lastFlightDoomed = false;
   private lastCountdown = -1;
   private cdVisible = false;
   private goTimer = 0;
@@ -713,7 +711,11 @@ export class HUD {
   }
 
   updateMissilePip(telemetry: SinglePlayerMissileTelemetry): void {
-    if (!telemetry.active || !telemetry.targetedPlayer || telemetry.state === 'idle') {
+    const pipActive = Boolean(telemetry.active && telemetry.targetedPlayer && telemetry.state !== 'idle');
+    // The pip owns the top-right corner while it is on: the near-boat power
+    // rail and the flight prompt must not stack on top of the launch video.
+    this.root.classList.toggle('missile-pip-on', pipActive);
+    if (!pipActive) {
       this.missilePipEl.classList.remove('on', 'evade-alert', 'deflected', 'hit');
       return;
     }
@@ -742,6 +744,7 @@ export class HUD {
 
   resetMissilePip(): void {
     this.missilePipEl.classList.remove('on', 'evade-alert', 'deflected', 'hit');
+    this.root.classList.remove('missile-pip-on');
   }
 
   /** Spool, extension, gate, and route-clear edges for one seat's own card slot. */
@@ -897,19 +900,10 @@ export class HUD {
             priority: 70,
             lane,
           });
-        } else if (flightNumber >= 7) {
-          this.enqueueImpact({
-            kind: 'route-clear',
-            flight: 7,
-            kicker: '七飞登顶 · 猛男至尊',
-            title: '👑 七飞全满贯达成！',
-            detail: '回港冲线 · 迎接终点站加冕',
-            color: PALETTE.sunFlare,
-            duration: 2.2,
-            priority: 85,
-            lane,
-          });
         }
+        // The seventh route and the Final arm deliberately show no celebration
+        // card: the medal/finale ceremony and the radio already own that beat,
+        // and back-to-back center-screen celebrations read as noise.
       }
     }
     this.seatFlightRouteState[seat] = st.flightRouteState;
@@ -1117,8 +1111,8 @@ export class HUD {
         this.controlDevice !== 'mobile') {
       // Touch play hides the deadline countdown: the banner shares its slot
       // with surface/corridor warnings and flips between scenarios, which
-      // reads as harassment on a small screen. The doom verdict at the press
-      // edge and the in-air orphan cue still fire on every device.
+      // reads as harassment on a small screen. The doom verdict itself rides
+      // the banner above on every device — no extra card.
       const deadlineM = routeGuidance.launchDeadlineM;
       this.setLaunchJudgment(
         deadlineM <= 30 ? 2 : 1,
@@ -1126,19 +1120,6 @@ export class HUD {
       );
     } else {
       this.setLaunchJudgment(0, '');
-    }
-    if (doomedNow !== this.lastFlightDoomed) {
-      this.lastFlightDoomed = doomedNow;
-      if (doomedNow && race.phase === 'racing') {
-        // Same one-shot card family as the launch/extend window: the wasted
-        // press must read as a rule, not as a broken button.
-        this.flightPromptDoomed = true;
-        this.flightPromptHitTimer = 2.4;
-        this.flightAlertTimer = 0.32;
-        this.flightPrompt.classList.remove('acquired');
-        void this.flightPrompt.offsetWidth;
-        this.flightPrompt.classList.add('acquired');
-      }
     }
     if (st.flightCharges !== this.lastFlightCharges) {
       this.lastFlightCharges = st.flightCharges;
@@ -1170,17 +1151,12 @@ export class HUD {
     if (race.phase === 'racing' && newPromptToken && !this.shownFlightPromptTokens.has(newPromptToken)) {
       this.shownFlightPromptTokens.add(newPromptToken);
       this.flightPromptSpent = newPromptToken === spentPromptToken && spentPromptToken !== '';
-      // A fresh action window (launch/extend) outranks the doomed takeoff card:
-      // the doom notice already had its beat at the press edge.
-      this.flightPromptDoomed = false;
       this.flightPromptHitTimer = this.flightPromptSpent ? 1.6 : 2.15;
       this.flightPrompt.classList.remove('acquired');
       void this.flightPrompt.offsetWidth;
       this.flightPrompt.classList.add('acquired');
     }
-    const availablePrompt: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' | 'doomed' = this.flightPromptDoomed
-      ? 'doomed'
-      : this.flightPromptSpent
+    const availablePrompt: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' = this.flightPromptSpent
       ? 'spent'
       : extendPromptUseful && st.flightExtensionReady
       ? 'extend'
@@ -1189,7 +1165,7 @@ export class HUD {
       : noChargeLaunch
       ? 'no-charge'
       : 'hidden';
-    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' | 'doomed' = inLaunchZone
+    const promptMode: 'hidden' | 'launch' | 'extend' | 'spent' | 'no-charge' = inLaunchZone
       ? availablePrompt
       : this.flightPromptHitTimer > 0 ? availablePrompt : 'hidden';
     const promptDevice = this.controlDevice;
@@ -1199,15 +1175,9 @@ export class HUD {
       this.flightPrompt.classList.toggle('on', promptMode !== 'hidden');
       this.flightPrompt.classList.toggle('extend', promptMode === 'extend');
       this.flightPrompt.classList.toggle('spent', promptMode === 'spent');
-      this.flightPrompt.classList.toggle('doomed', promptMode === 'doomed');
       this.flightPrompt.classList.toggle('no-charge', promptMode === 'no-charge');
       const key = promptDevice === 'mobile' ? (promptMode === 'launch' ? '飞' : promptMode === 'no-charge' ? '!' : '续') : this.controlLabels.flight;
-      if (promptMode === 'doomed') {
-        this.flightPromptKey.textContent = '!';
-        this.flightPromptEn.textContent = 'OFF-CORRIDOR LAUNCH';
-        this.flightPromptCn.textContent = '⚠️ 偏离起飞区 · 本飞无法过门';
-        this.flightPromptRule.textContent = '须在白雾航道上方起飞 · 水面漂过光门即判负';
-      } else if (promptMode === 'spent') {
+      if (promptMode === 'spent') {
         this.flightPromptKey.textContent = key;
         this.flightPromptEn.textContent = 'AIR CHARGE SPENT';
         this.flightPromptCn.textContent = '本飞续航已用完';
@@ -1236,7 +1206,6 @@ export class HUD {
       if (this.flightPromptHitTimer <= 0) {
         this.flightPrompt.classList.remove('acquired');
         this.flightPromptSpent = false;
-        this.flightPromptDoomed = false;
       }
     }
     if (flightActive !== this.lastFlightActive) {
@@ -1494,14 +1463,6 @@ export class HUD {
     this.medalNext.classList.remove('on');
     this.finalTargetEl.classList.remove('on');
     this.medalCanvas.clear();
-  }
-
-  showFinalReady(lane: 'left' | 'center' | 'right' = 'center'): void {
-    const brake = this.controlDevice === 'mobile' ? '按住「刹」回港刹车' : `按住 ${this.controlLabels.drift} 回港刹车`;
-    this.enqueueImpact({
-      kind: 'final-ready', kicker: '七飞大满贯达成', title: '七飞完成 · 航线解除', detail: `${brake} · 穿过金色终点`,
-      color: PALETTE.sunFlare, duration: 2.6, priority: 96, lane,
-    });
   }
 
   showReady(mobile: boolean, nextRun: boolean): void {

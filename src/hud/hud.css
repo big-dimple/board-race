@@ -565,16 +565,6 @@
   border-color: #ffaa33;
 }
 
-.hud-flight-prompt.doomed {
-  --prompt-color: #ff5544;
-  box-shadow: 0 0 0 3px var(--ink), 8px 8px 0 var(--ink), 0 0 28px rgba(255, 85, 68, 0.35);
-}
-.hud-flight-prompt.doomed .hud-keycap {
-  color: #ff5544;
-  border-color: #ff5544;
-  animation: none;
-}
-
 /* Decorative chrome must stay INSIDE the card: anything poking out (negative
    inset rings, outscaled flashes) inflates scrollWidth/scrollHeight and trips
    the desktop prompt fit contract. The acquire flash plays on the inner bar;
@@ -3618,6 +3608,11 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   opacity: 1;
   transform: translateY(0) scale(1);
 }
+
+/* While the launch pip owns the top-right corner, no other card may stack
+   on it: the near-boat power rail and the flight prompt step aside. */
+.hud.missile-pip-on .hud-driver-power { opacity: 0; }
+.hud.missile-pip-on .hud-flight-prompt.on { opacity: 0; }
 
 .hud-missile-pip-header {
   display: flex;

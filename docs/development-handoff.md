@@ -4,49 +4,44 @@
 
 ## 当前工作包（本提交）
 
-- 目标：移动端体验修复包——HUD 提示瘦身、电台人味化、起飞瞬时卡顿定位、
-  高光回放特写模糊。
-- 移动端起飞前"光门死线"倒数横幅删除（`hud.ts` `launchDeadlineM` 分支加
-  `controlDevice !== 'mobile'` 门控）：它与偏离航线/航道警告共用 `wrongWayEl`
-  槽位互相跳变，用户视为骚扰。doomed 起跳沿提示卡与空中 orphan 横幅保留
-  （危险信息不删）。桌面不变。
-- 移动端通知瘦身（`hud.ts` `enqueueImpact`）：`gate`/`flight-pass` 整族静默，
-  `route-clear` 只保留 1/2/3/7 飞里程碑（新增 `ImpactNotice.flight` 字段）；
-  反跳变：非 critical 卡最短驻留 0.85s、驻留期内只排队不抢占，非 critical 之间
-  1.2s 全局冷却；critical（priority ≥ 85：final-ready/excellent/第七飞）保留
-  立即抢占。
-- 电台文案池化（`raceTower.ts`）：GO/超车/被超/三飞/七飞/空刹技巧各 3–4 条
-  轮换文案，碰撞台词按 mood 重写且保留「接触/碰撞」关键词（碰撞专项正则断言）。
-  结构（key/speaker/priority/duration/sessionKey）不变。
-- 起飞卡顿：审计结论是雾廊 shader 在 countdown 期已随 `course.update` 渲染
-  编译（`group.visible=true` 从倒计时开始），不是起飞现场编译；故不做预热的
-  假修复。实际交付：`?debug=perf` 浮层新增 >22ms 帧峰值日志（带
-  race phase/flightPhase/steps 上下文，最差三条），EMA 抹平的单帧毛刺由此可
-  定位；HUD 每帧重复调用 `guidanceStatus()` 的两处合并为同一快照。
-- 回放模糊：移动端 performance 档只渲染 1.5–2.0× CSS，回放特写被放大发虚。
-  `Stage.setPresentationRatioOverride(min(devicePixelRatio,3))` 在回放期按原生
-  密度渲染并暂停 governor；`completeHighlightVideo()` 与 `resetRace()` 两条
-  出口清除恢复。
-- Owner：`src/hud/hud.ts`、`src/hud/raceTower.ts`、`src/core/stage.ts`、
-  `src/main.ts`、llmwiki、README、本文件。
+- 目标：第二轮移动端体验修复——删三张骚扰卡、导弹发射画面右上角
+  独占、夜晚材质预热移位、热路径分配收敛。
+- 删卡（全端，用户裁决）：
+  - doomed「⚠️ 偏离起飞区 · 本飞无法过门」提示卡删除，判负信息只走
+    共享警示横幅（doomed 横幅保留）+ 电源面板 flight-alert；
+    `flightPromptDoomed`/`lastFlightDoomed` 状态与 `.doomed` CSS 一并清除。
+  - 第七飞 route-clear「👑 七飞全满贯达成！」卡删除。
+  - Final arm「七飞完成 · 航线解除」卡删除（`showFinalReady` 移除）；
+    庆祝 beat 由电台七飞认证与勋章/终点仪式接管。
+  - 起飞 spool 提示卡按用户澄清保留。
+- 导弹 pip 独占右上角：激活时根级加 `missile-pip-on`，艇边仪表
+  （hud-driver-power）与起飞提示卡（hud-flight-prompt）CSS 让位，
+  任何卡片不再与发射画面重叠。性能审计结论：发射画面已是高性价比
+  形态——插画 360×160 canvas 只画一次、点火为纯 CSS 合成器动画、
+  锁定锥预分配预热、爆炸池预热，无逐帧重绘，不需要假视频替代。
+- 夜晚卡顿：灯塔搜索光束组等夜晚专属材质预热从开局移到终点演出
+  （`beginFinalePresentation`）——夜晚只经 `startNextRaceRound` 到来，
+  演出数秒停顿吸收编译 burst；开局不再承担。
+- 热路径分配：`course.guidanceStatus()` 在每个 fixed step 最多调用一次
+  （coach/primer 共用快照），HUD 内每帧一次；`?debug=perf` 帧峰值探针
+  保留作后续定位手段。
+- Owner：`src/hud/hud.ts`、`src/hud/hud.css`、`src/main.ts`、
+  `src/water/lighthouse.ts`、llmwiki、README、本文件。
 
 ## 验证与证据
 
-- `npm run build` 通过。
-- 其余验证见下（本文件随提交同步更新状态）。
+- `npm run build` 通过；`verify:smoke`（桌面 + 844x390）与
+  `verify:collision` 通过；桌面/移动截图目检通过。
 
 ## 遗留风险
 
-- 偶发卡顿根因需用户实机 `?debug=perf` 峰值日志确认：若 peaks 集中在
-  `racing/spool`（起飞）渲染峰，再针对性降首飞绘制负载；若分散则是系统/
-  GC 层面。当前无任何证据指向具体渲染峰值，不做猜测性"优化"。
-- `verify:smoke` 的 radio 布局断言在广播卡动画相位采样，本包验证期间出现
-  一次瞬时不稳定后连续两次通过（harness 注释已知固定时钟采样敏感），属
-  既有敏感度，非本包引入。
-- iOS 双击缩放抑制与漂移持有兜底（上个工作包）仍待 iPhone 12 实机复核。
+- 偶发卡顿若仍出现：`?debug=perf` 峰值日志（race phase / flightPhase /
+  steps 上下文）是最直接的定位手段；当前已消掉夜晚编译 burst 与部分
+  每步分配，剩余嫌疑是 governor 热漂移换挡重建（有长冷却防振荡合同约束，
+  不动）与系统层 GC。
+- iOS 双击缩放抑制与漂移持有兜底（更早工作包）仍待 iPhone 12 实机复核。
 
 ## 唯一下一步
 
-`verify:smoke` / `verify:collision` / 移动截图通过后发布
-（jiepi-clear → stage → `npm run release:checked`），随后用户实机复核：
-移动端提示密度、电台新文案、回放特写锐度、`?debug=perf` 峰值日志。
+用户实机复核：三张卡确实不再弹出、导弹发射时右上角无重叠、进夜晚轮
+无卡顿；有问题带 `?debug=perf` 浮层最差三条反馈。

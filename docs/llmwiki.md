@@ -95,8 +95,8 @@
   **移动端不倒数死线**：小屏上该横幅与偏离航线/航道警告共用同一槽位互相跳变，
   被视为骚扰，doomed 起跳沿提示卡与空中 orphan 横幅各端保留）；空中 route idle
   时分档提示：span 可达但横向出雾为 orphan「飞回雾道内」（soft），
-  飞过 span、航程够不到 span 或偏出硬边界为 doomed「这一飞无法过门」（hard，起跳沿
-  触发一次性提示卡 + 电源面板 flight-alert）。早飞可达性按巡航速度规划（floor 22 m/s），
+  飞过 span、航程够不到 span 或偏出硬边界为 doomed「这一飞无法过门」（hard，只走
+  共享警示横幅 + 电源面板 flight-alert，不弹提示卡）。早飞可达性按巡航速度规划（floor 22 m/s），
   不用起跳瞬间的水面速度，避免把正常早飞误报成 doomed。合格船（`flightsCleared >= 7`）
   不再产生任何起飞判负提示。
 
@@ -249,8 +249,9 @@
   说明。提示卡按 `drivingCoach.mastery` 静默——`launched` / `extendedFlight` 掌握后对应提示
   不再出现。空中续航用完后再次按起飞键会弹出同卡片的 spent 形态，明示“每飞限续 1 次”，
   不能让玩家读成按键失灵。
-- 比赛短通知按 `data-kind` 分别避让中央动作区：起飞、过门、路线完成和优秀锁定留在船体、车手、
-  门与紧急航线上方，`flight-pass` 保持桌面右上且紧凑移动端隐藏；禁止用全局偏移统一搬动。
+- 比赛短通知按 `data-kind` 分别避让中央动作区：起飞、路线完成（1/2/3 飞里程碑）
+  和优秀锁定留在船体、车手、门与紧急航线上方；`gate` 过门卡与 `flight-pass`
+  已删除（原 `flight-pass` 桌面右上紧凑形态随之取消）；禁止用全局偏移统一搬动。
 - 语义冲击的两侧受光条带由 HUD CSS 所有；横屏粗指针端只使用更细条带，桌面宽度及颜色、数量、
   覆盖、透明度、动画和触发节奏保持不变。后处理 polar wind streak 与 air-brake bands 是独立效果。
   夜间由 `PostPipeline.setNightBlend` 写入 `uNight`：风速线增益约减半并转冷银蓝，白天行为不变。
@@ -264,8 +265,15 @@
   航段达成）整族静默，`route-clear` 只保留第 1/2/3/7 飞里程碑——过门与进阶信息
   仍由 `route-clear`、FLIGHT 计数与电台承担；桌面全量不变。反跳变：移动端非
   critical 卡（priority < 85）最短驻留 0.85s，驻留期内高优先卡只排队不抢占，
-  critical（final-ready / excellent / 第七飞 route-clear）保留立即抢占；非
+  critical 卡（priority ≥ 85，现仅 excellent 锁定）保留立即抢占；非
   critical 卡之间再加 1.2s 全局冷却。任何过滤不得删除危险信息。
+- 以下庆祝/判负提示卡全端删除（用户裁决，信息由横幅或电台承担）：doomed 起跳
+  「偏离起飞区」提示卡（doomed 判负只走共享警示横幅）、第七飞 route-clear
+  「七飞全满贯」卡、Final arm 的「七飞完成 · 航线解除」卡——庆祝beat由电台
+  与勋章/终点仪式接管，避免连续中央庆祝卡。起飞 spool 提示卡保留。
+- 导弹 pip 激活期间独占右上角：艇边仪表（hud-driver-power）与起飞提示卡
+  （hud-flight-prompt）必须让位（根级 `missile-pip-on`），任何卡片不得与
+  发射画面重叠。
 - 电台文案池化：GO / 超车 / 被超 / 三飞 / 七飞 / 空刹技巧各持多条人味文案按序轮换，
   碰撞台词按车手 mood 保留「接触 / 碰撞」关键词（碰撞专项诊断用正则断言）；轮换
   只改文案，dedup key、speaker、priority、duration 与 sessionKey 结构不变。
@@ -360,7 +368,8 @@
   间隔——120Hz 屏上间隔恒为 ~8ms 会虚假判优，把分辨率和帧率同时顶满造成发热；呈现帧率与 60Hz
   fixed-step 对齐封顶，没有跑 sim step 的 rAF tick 不重绘（高刷屏约 60fps 呈现，画面逐帧不变），
   升降档带长冷却防抖档，任何一次换挡都会重建整套 render target。短时效果池（如爆炸池）必须在开局
-  离屏预热材质，不许首次使用时当场编译 shader。
+  离屏预热材质，不许首次使用时当场编译 shader；夜晚专属材质（灯塔搜索光束组）则在终点演出
+  （finale presentation）内预热——夜晚只经由下一轮到来，演出本身的数秒停顿吸收编译开销。
 - 视觉质量由桌面与 `844x390` 截图和人工评审决定。draw call、活跃实例、像素和帧时只证明
   资源/性能，不证明“好看”；也不使用 shader 字符串或固定像素差作为审美门禁。
 

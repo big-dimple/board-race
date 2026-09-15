@@ -578,8 +578,32 @@ export class LighthouseLandmark {
     activeLighthouses.add(this);
   }
 
-  setTimeOfDay(tod: TimeOfDay, blend?: number): void {
-    const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
+  /**
+   * Compile every night-only material (searchlight beam layers, lantern core,
+   * sea spot, starburst flare) before the first race. The day/night flip can
+   * land mid-race; without this the first night renders these programs lazily
+   * and the compile burst hitches the frame.
+   */
+  warmup(renderer: THREE.WebGLRenderer): void {
+    const scene = new THREE.Scene();
+    const preview = this.object.clone(true);
+    preview.traverse((child) => { child.visible = true; child.frustumCulled = false; });
+    scene.add(preview);
+    const target = new THREE.WebGLRenderTarget(32, 32);
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0, 6, 16);
+    camera.lookAt(0, 0, 0);
+    const previous = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+    } finally {
+      renderer.setRenderTarget(previous);
+      target.dispose();
+    }
+  }
+
+  setTimeOfDay(tod: TimeOfDay, blend?: number): void {    const b = blend !== undefined ? blend : tod === 'night' ? 1.0 : 0.0;
     this._blend = Math.max(0, Math.min(1, b));
 
     const isNightActive = this._blend > 0.001;
