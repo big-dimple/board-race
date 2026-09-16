@@ -135,8 +135,9 @@
 }
 
 .mobile-action-zones [data-mobile-action="flight"] {
-  left: 0;
-  --control-face-y: 39%;
+  left: 2%;
+  width: 47%;
+  --control-face-y: 35%;
 }
 
 .mobile-action-zones [data-mobile-action="drift"] {
@@ -265,6 +266,7 @@
 }
 
 .mobile-action-zones [data-mobile-action="flight"] span {
+  left: 88%;
   width: clamp(70px, 20vh, 84px);
   height: clamp(70px, 20vh, 84px);
   font-size: .86em;
