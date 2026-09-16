@@ -1,49 +1,35 @@
 # Board Race 开发交接
 
-状态：本工作包已验证并推送，待用户实机复核与天空截图评审。
+状态：天空回退包已验证，待提交推送后用户实机复核。
 
 ## 当前工作包（本提交）
 
-- 目标：第四轮体验修复——飞弹告警精简、首弹竖向新手引导、电台排行榜
-  中文化与美术、偶发卡顿归因加强、白天天空去 AI 味。
-- 飞弹告警字多：pip cue 改为短句（锁定「大事不妙」、被炸「稳住不要慌」、
-  逼近「🎯 飞弹来袭」）；锁定/命中通知卡同步精简（`updateMissilePip`、
-  `singlePlayerMissiles` 通知文案）。状态行与诱爆庆祝文案不动。
-- 首弹竖向引导：新增 `coach.knowledge.missileThreat` 持久位（schema 安全，
-  旧档默认 false）；飞弹系统新增 `onPlayerTargeted` 回调，main.ts 里置位 +
-  `records.saveCoach` + `hud.showMissileTutor()`。HUD 最右缘竖排
-  「飞弹专打第一名 / 入弯漂移 · 凌空可诱爆」，随 pip 生命周期出现/退场，
-  每档只播一次，solo only。smoke 的 solo-missile 用例新增可见性断言。
-- 电台排行榜：`W.H.L // LIVE`→`排名实况`，TEAM 喇叭→`车队`/`电`，
-  gap 标签 `GRID/LEADER/FIN`→`排位/领跑/完赛`；新增领跑行高亮
-  （rowCache 增 isLeader，10Hz 变更门控内）；头部 LIVE 红点、行/卡
-  底色层次微调。尺寸与双打半屏定位不变。
-- 卡顿归因：`Loop` 新增 `simMsLastFrame`；`?debug=perf` 峰值 ctx 扩展
-  （sim 耗时 / 调速器 pr 换挡 / shader prog+ 编译），sim≥22ms 单独记
-  simcatchup；overlay 增显 sim 行。boot 预热 6 张车手立绘解码。
-- 天空去 AI 味：palette 白天三段降青提灰；天穹 shader 加静态卷云丝
-  （cell hash，无 fwidth，零每帧开销）+ 微抖动去条带；云贴图调扁调碎、
-  近云透明度略降、sprite 更横。夜晚路径与日月星辰合同不动。
-- Owner：`src/hud/hud.ts`、`src/hud/hud.css`、`src/hud/raceTower.ts`、
-  `src/hud/raceTower.css`、`src/game/singlePlayerMissiles.ts`、
-  `src/game/drivingCoach.ts`、`src/core/loop.ts`、`src/core/stage.ts`（未改）、
-  `src/main.ts`、`src/core/palette.ts`、`src/cel/sky.ts`、
-  `harness/screenshot.mjs`、llmwiki、本文件。
+- 目标：回退 32afa5f 中「白天天空去 AI 味」全部天空改动。
+- 起因：用户实机评审否决该方向（灰化三段渐变 + 卷云丝 + 微抖动读成画蛇添足），
+  按 art-direction「一项可见原型 → 用户确认 → 再扩展」规则整体回退，
+  恢复用户此前接受的亮青天空。
+- 回退内容（`src/core/palette.ts`、`src/cel/sky.ts` 恢复至 32afa5f^ 原状）：
+  - 白天三段色恢复 0x2e6df6 / 0x43b6ff / 0xaef4ff（撤销降青提灰）；
+  - 删除天穹 shader 的静态卷云丝块与微抖动块；
+  - 云贴图密度/碎度与 sprite 纵横比恢复原值。
+- 不受影响：32afa5f 其余内容（飞弹告警精简、首弹竖向引导、电台排行榜
+  中文化与领跑高亮、卡顿 sim/换挡/shader 归因加强）保持不动；
+  夜晚路径与日月星辰本来就没动，回退也不涉及。
+- Owner：`src/core/palette.ts`、`src/cel/sky.ts`、本文件。
 
 ## 验证与证据
 
-- `npm run build` 通过；`verify:smoke`、`verify:team` 结果见提交前记录。
-- 截图证据（桌面 + 844x390）：天空白天/夜晚、飞弹锁定、命中、首弹引导、
-  电台排行榜新样式。
+- `npm run build` 通过；`verify:smoke` 桌面 + 844x390 通过。
+- 截图证据（`shots/sky-revert/`，桌面 + 844x390）：`ready`/`start`
+  亮青天空恢复，无卷云丝、无灰化雾带。
 
 ## 遗留风险
 
-- 偶发卡顿：本轮只做归因加强，未根除。用户实机复现时开 `?debug=perf`，
+- 偶发卡顿：仍只做归因加强未根除。用户实机复现时开 `?debug=perf`，
   把浮层最差三条（ms@ctx）截图发回即可定位（sim / pr 换挡 / prog+）。
-- 天空属美术主观项：按 art-direction 出一版截图等用户确认，方向确认前
-  不继续加码。
 
 ## 唯一下一步
 
-用户实机复核：飞弹新文案、首弹竖向引导、电台中文排版、卡顿频率；
-确认天空截图方向后再排下一项美术原型。
+用户实机复核：天空是否恢复顺眼；顺带复核 32afa5f 其余改动（飞弹新文案、
+首弹竖向引导、电台中文排版、卡顿频率）。天空美术不再按「去 AI 味」方向加码，
+若用户主动提新方向，仍按 art-direction 先出一版截图原型等确认。

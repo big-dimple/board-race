@@ -141,27 +141,6 @@ void main() {
   colDay = mix(colDay, vec3(1.0, 0.93, 0.78), warmWash * 0.38);
 
   // ---------------------------------------------------------------
-  // HIGH CIRRUS — static stretched streaks so the gradient never reads
-  // as a naked synthetic ramp. Cell hash only; no per-frame cost.
-  // ---------------------------------------------------------------
-  float cirBand = smoothstep(0.05, 0.20, h) * (1.0 - smoothstep(0.50, 0.80, h));
-  if (cirBand > 0.001) {
-    float caz = atan(dir.z, dir.x);
-    vec2 cuv = vec2(caz * 2.6, h * 16.0);
-    vec2 cid = floor(cuv);
-    vec2 cf = fract(cuv);
-    float crnd = starHash(cid);
-    if (crnd > 0.74) {
-      vec2 cpos = starHash2(cid + 3.7) * 0.5 + 0.25;
-      vec2 cd = cf - cpos;
-      cd.x *= 0.30; // squash azimuthally → wispy horizontal streaks
-      float cfall = 1.0 - smoothstep(0.0, 0.46, length(cd));
-      float wisp = 0.55 + 0.45 * sin(caz * 9.0 + crnd * 41.0 + h * 34.0);
-      colDay += vec3(0.98, 0.99, 1.0) * (cfall * cfall * wisp * 0.11 * cirBand);
-    }
-  }
-
-  // ---------------------------------------------------------------
   // NIGHT SKY GRADIENT
   // ---------------------------------------------------------------
   vec3 colNight = uNightHorizon;
@@ -265,10 +244,6 @@ void main() {
     col += (moonCol + starAccum) * uNightBlend;
   }
 
-  // Micro-dither kills the smooth-gradient banding that reads as AI slop.
-  float dith = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-  col += vec3((dith - 0.5) * (1.6 / 255.0));
-
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -328,9 +303,9 @@ function makeCloudTextureFromDensity(
         shape += Math.exp(-(dx * dx + dy * dy) * 2.25) * weight;
       }
       const base = Math.exp(-Math.pow((v - (far ? 0.69 : 0.70)) / (far ? 0.17 : 0.2), 2));
-      shape = Math.min(1, shape * (far ? 0.66 : 0.78) + base * (far ? 0.08 : 0.1));
+      shape = Math.min(1, shape * (far ? 0.7 : 0.82) + base * (far ? 0.14 : 0.18));
       const detail = cloudFbm(u * (far ? 7.0 : 9.0), v * (far ? 4.0 : 5.4));
-      const density = Math.max(0, Math.min(1, (shape + (detail - 0.5) * (far ? 0.22 : 0.34) - 0.22) * 1.55));
+      const density = Math.max(0, Math.min(1, (shape + (detail - 0.5) * (far ? 0.18 : 0.28) - 0.22) * 1.55));
       const edge = Math.min(1, shape * 1.8);
       const alpha = Math.round(density * edge * alphaScale * 255);
       const underside = Math.max(0, Math.min(1, (v - (far ? 0.55 : 0.5)) * 2.4));
@@ -350,18 +325,18 @@ function makeCloudTextureFromDensity(
 
 function makeCloudTexture(): THREE.CanvasTexture {
   return makeCloudTextureFromDensity(256, 160, [
-    [0.1, 0.6, 0.22, 0.15, 0.55], [0.28, 0.5, 0.24, 0.18, 0.8],
-    [0.48, 0.42, 0.26, 0.2, 0.92], [0.68, 0.48, 0.24, 0.18, 0.82],
-    [0.88, 0.6, 0.2, 0.14, 0.52], [0.42, 0.74, 0.46, 0.11, 0.3],
-  ], 0.78, false);
+    [0.12, 0.64, 0.19, 0.27, 0.62], [0.29, 0.47, 0.2, 0.34, 0.88],
+    [0.48, 0.38, 0.22, 0.39, 0.96], [0.68, 0.46, 0.21, 0.36, 0.84],
+    [0.86, 0.63, 0.19, 0.27, 0.6], [0.42, 0.76, 0.5, 0.18, 0.35],
+  ], 0.84, false);
 }
 
 function makeRemoteCloudTexture(): THREE.CanvasTexture {
   return makeCloudTextureFromDensity(512, 220, [
-    [0.08, 0.62, 0.24, 0.15, 0.26], [0.3, 0.53, 0.28, 0.19, 0.4],
-    [0.52, 0.46, 0.32, 0.21, 0.52], [0.74, 0.56, 0.28, 0.17, 0.42],
-    [0.94, 0.66, 0.22, 0.14, 0.24], [0.57, 0.8, 0.6, 0.12, 0.2],
-  ], 0.44, true);
+    [0.1, 0.64, 0.22, 0.22, 0.28], [0.3, 0.53, 0.27, 0.28, 0.42],
+    [0.52, 0.45, 0.3, 0.31, 0.54], [0.74, 0.55, 0.26, 0.26, 0.44],
+    [0.94, 0.66, 0.2, 0.22, 0.25], [0.57, 0.78, 0.58, 0.16, 0.22],
+  ], 0.5, true);
 }
 
 // ------------------------------------------------------------------ Sky ----
@@ -454,7 +429,7 @@ export class Sky {
       this.cOmega[i] = dir * (far ? 0.0018 : 0.0042) * (0.7 + hash(i, 7) * 0.6);
 
       const sx = far ? 780 + hash(i, 8) * 360 : 300 + hash(i, 9) * 170;
-      sprite.scale.set(sx, sx * (far ? 0.27 : 0.46), 1);
+      sprite.scale.set(sx, sx * (far ? 0.34 : 0.58), 1);
       sprite.rotation.z = (hash(i, 10) - 0.5) * (far ? 0.12 : 0.06);
       this.sprites.push(sprite);
       group.add(sprite);

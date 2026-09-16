@@ -11,11 +11,10 @@ export const PALETTE = {
   ink: 0x14122b,
   inkCss: '#14122b',
 
-  // Sky — midday azure with warm horizon haze. Deliberately de-cyaned:
-  // the raw aqua gradient read as a synthetic "AI gradient" in review.
-  skyZenith: 0x2b5fd6,
-  skyMid: 0x5098dc,
-  skyHorizon: 0xc4dde9,
+  // Sky
+  skyZenith: 0x2e6df6,
+  skyMid: 0x43b6ff,
+  skyHorizon: 0xaef4ff,
   sunCore: 0xfff3b0,
   sunFlare: 0xffd23f,
   cloudShade: 0xb8e0f5,
