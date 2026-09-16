@@ -311,6 +311,8 @@ export class HUD {
   private readonly missilePipDist: HTMLSpanElement;
   private readonly missilePipSlot: HTMLDivElement;
   private readonly missilePipCue: HTMLDivElement;
+  private readonly missileTutorEl: HTMLDivElement;
+  private missileTutorRequested = false;
 
   // change-detection state (no per-frame DOM string churn)
   private lastSpeed = -1;
@@ -708,7 +710,20 @@ export class HUD {
     h('div', 'hud-missile-pip-corner-tr', this.missilePipSlot);
     h('div', 'hud-missile-pip-corner-bl', this.missilePipSlot);
     h('div', 'hud-missile-pip-corner-br', this.missilePipSlot);
-    this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '⚡ 立即入弯漂移 · 浪花诱爆！');
+    this.missilePipCue = h('div', 'hud-missile-pip-cue', this.missilePipEl, '🎯 飞弹来袭');
+    // First-missile tutor: far-right vertical ribbon (solo, one per profile).
+    // Per-glyph horizontal spans instead of writing-mode: identical metrics
+    // on every device and in headless screenshots.
+    this.missileTutorEl = h('div', 'hud-missile-tutor', this.root);
+    const tutorMain = h('span', 'hud-missile-tutor-main', this.missileTutorEl);
+    for (const glyph of '飞弹专打第一名') h('span', 'hud-missile-tutor-glyph', tutorMain, glyph);
+    const tutorSub = h('span', 'hud-missile-tutor-sub', this.missileTutorEl);
+    for (const glyph of '入弯漂移·凌空可诱爆') h('span', 'hud-missile-tutor-glyph', tutorSub, glyph);
+  }
+
+  /** One-shot per profile: explain the leader-only missile rule on first launch. */
+  showMissileTutor(): void {
+    this.missileTutorRequested = true;
   }
 
   updateMissilePip(telemetry: SinglePlayerMissileTelemetry): void {
@@ -716,6 +731,7 @@ export class HUD {
     // The pip owns the top-right corner while it is on: the near-boat power
     // rail and the flight prompt must not stack on top of the launch video.
     this.root.classList.toggle('missile-pip-on', pipActive);
+    this.missileTutorEl.classList.toggle('on', pipActive && this.missileTutorRequested);
     if (!pipActive) {
       this.missilePipEl.classList.remove('on', 'evade-alert', 'deflected', 'hit');
       return;
@@ -732,19 +748,20 @@ export class HUD {
     } else if (telemetry.state === 'hit') {
       this.missilePipEl.classList.remove('evade-alert', 'deflected');
       this.missilePipEl.classList.add('hit');
-      this.missilePipCue.textContent = '⚠️ 受到水浪冲击 · 保持操舵！';
+      this.missilePipCue.textContent = '稳住不要慌';
     } else if (telemetry.isEvadeWindow) {
       this.missilePipEl.classList.add('evade-alert');
       this.missilePipEl.classList.remove('deflected', 'hit');
-      this.missilePipCue.textContent = '⚡ 立即入弯漂移 · 浪花诱爆！';
+      this.missilePipCue.textContent = '大事不妙';
     } else {
       this.missilePipEl.classList.remove('evade-alert', 'deflected', 'hit');
-      this.missilePipCue.textContent = '🎯 飞弹逼近中 · 准备进弯漂移';
+      this.missilePipCue.textContent = '🎯 飞弹来袭';
     }
   }
 
   resetMissilePip(): void {
     this.missilePipEl.classList.remove('on', 'evade-alert', 'deflected', 'hit');
+    this.missileTutorEl.classList.remove('on');
     this.root.classList.remove('missile-pip-on');
   }
 

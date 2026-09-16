@@ -237,6 +237,8 @@
   继续同一次呈现和剩余阅读时间，不能重跑入场或叠多个 timer。
 - 只有尚未掌握 `drivingCoach.progress.mastery.airBrakedInTurn` 的玩家会收到 Gemini 空刹技巧，
   且一次页面会话中最多真正显示一次；retry 或新回合不重播，掌握后 fresh GO 不再入队。
+- 首次有飞弹瞄准本档玩家时，屏幕最右缘竖向提示「飞弹专打第一名 · 入弯漂移/凌空可诱爆」；
+  见识标记持久化在 `coach.knowledge.missileThreat`，每个存档档案只播一次，retry/新回合不重播。
   移动广播使用头像与右侧等宽平衡轨，让 copy / body 几何中心对齐整张卡片；正文允许自然换行、
   不溢出，并避开中央航线和全部触控热区。
 - 艇边飞行库存和计时轨不能盖住车手。桌面根据车手投影选择相反一侧；横屏手机使用固定
@@ -391,7 +393,8 @@ npm run verify:team
 `--out <directory>`。
 
 实机瞬时卡顿用 `?debug=perf` 浮层排查：除 governor 的 EMA 均值外，它记录超过 22ms
-的渲染帧峰值及当时上下文（race phase / flightPhase / catch-up 步数），浮层显示最差三
+的渲染帧峰值及当时上下文（race phase / flightPhase / catch-up 步数 / sim 耗时 /
+调速器 pr 换挡 / shader 编译 prog+），sim 自身 ≥22ms 也会以 simcatchup 记一条；浮层显示最差三
 条；EMA 会抹平单帧毛刺，峰值日志才能定位"偶尔卡一下"。
 
 `verify:team` 现在覆盖主分支单人 / 双打目录：左右入座、角色互斥、六艇（两名玩家加四名 AI）、

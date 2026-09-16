@@ -24,6 +24,8 @@ export class Loop {
   simTime = 0;
   /** How many fixed steps the most recent rAF tick ran. */
   stepsLastFrame = 0;
+  /** Milliseconds spent inside fixed steps on the most recent rAF tick. */
+  simMsLastFrame = 0;
   private accumulator = 0;
   private lastNow = 0;
   private rafId = 0;
@@ -50,12 +52,14 @@ export class Loop {
       this.accumulator += frameMs / 1000;
       const planned = Math.min(MAX_STEPS, Math.floor(this.accumulator / SIM_DT));
       let steps = 0;
+      const simStart = performance.now();
       while (this.accumulator >= SIM_DT && steps < MAX_STEPS) {
         this.step(SIM_DT, this.simTime, steps + 1 === planned);
         this.simTime += SIM_DT;
         this.accumulator -= SIM_DT;
         steps++;
       }
+      this.simMsLastFrame = performance.now() - simStart;
       if (steps === MAX_STEPS) this.accumulator = 0;
       this.stepsLastFrame = steps;
       // The sim is 60 Hz fixed-step, so a tick that ran no step has nothing new

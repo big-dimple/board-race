@@ -28,6 +28,8 @@ export interface CoachKnowledge {
   inventory: boolean;
   flightGauge: boolean;
   extension: boolean;
+  /** The first-missile vertical hint has played for this profile. */
+  missileThreat: boolean;
 }
 
 export interface DrivingCoachProgress {
@@ -84,6 +86,7 @@ export function freshCoachProgress(status: CoachStatus = 'dormant', automaticEli
       inventory: false,
       flightGauge: false,
       extension: false,
+      missileThreat: false,
     },
   };
 }

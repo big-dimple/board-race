@@ -48,6 +48,7 @@ import {
   driverProfile,
   loadSelectedDriver,
   saveSelectedDriver,
+  RACER_DEFS,
 } from './game/racers';
 import { RecordsStore } from './game/records';
 import {
@@ -243,6 +244,14 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
     }
   },
   (x, z) => missileBlasts.spawn(x, waterHeight(x, z, worldTime), z),
+  () => {
+    // First missile ever aimed at this profile: persist the seen-flag and
+    // pop the far-right vertical tutor explaining the leader-only rule.
+    if (records.data.coach.knowledge.missileThreat) return;
+    records.data.coach.knowledge.missileThreat = true;
+    records.saveCoach(records.data.coach);
+    hud.showMissileTutor();
+  },
 );
 stage.scene.add(singlePlayerMissiles.object);
 singlePlayerMissiles.warmup(stage.renderer);
@@ -313,6 +322,13 @@ const hud = new HUD(
 );
 const mixer = new MixerControls(app, audio);
 const tower = new RaceTower(hudLayer);
+// Decode the driver portraits during boot so the first radio notice never
+// pays image decode on the racing hot path.
+for (const def of RACER_DEFS) {
+  const img = new Image();
+  img.src = def.portraitUrl;
+  void img.decode?.().catch(() => {});
+}
 // Split play gives each seat its own tower, its own standings highlight and
 // its own radio slot. The second tower stays hidden in solo play.
 const towerRight = new RaceTower(hudLayer, 'right');
@@ -3285,6 +3301,7 @@ const renderDrawingSize = new THREE.Vector2();
 
 function render(): void {
   const renderStart = performance.now();
+  const progsBefore = perfOverlayEl ? stage.renderer.info.programs?.length ?? 0 : 0;
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
   sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
@@ -3315,13 +3332,21 @@ function render(): void {
   // count scales the governor thresholds; without it both halves would be
   // shaved soft as if the device were slow.
   const frameMs = performance.now() - renderStart;
+  const prFrom = perfOverlayEl ? Number(stage.stats().pixelRatio) : 0;
   stage.updatePerf(frameMs, splitFrame ? 2 : 1);
-  recordFrameSpike(frameMs);
+  recordFrameSpike(frameMs, perfOverlayEl
+    ? {
+        simMs: loop.simMsLastFrame,
+        prFrom,
+        prTo: Number(stage.stats().pixelRatio),
+        progs: (stage.renderer.info.programs?.length ?? 0) - progsBefore,
+      }
+    : undefined);
   if (perfOverlayEl) {
     const stats = stage.stats();
     const fps = 1000 / Math.max(1, Number(stats.frameMs));
     perfOverlayEl.textContent =
-      `${fps.toFixed(0)}fps ${Number(stats.frameMs).toFixed(1)}ms · steps ${loop.stepsLastFrame} · ` +
+      `${fps.toFixed(0)}fps ${Number(stats.frameMs).toFixed(1)}ms · sim ${loop.simMsLastFrame.toFixed(1)}ms · steps ${loop.stepsLastFrame} · ` +
       `pr ${Number(stats.pixelRatio).toFixed(2)} · ${stats.quality} · calls ${stats.calls} · ` +
       `tris ${(Number(stats.triangles) / 1000).toFixed(0)}k` +
       (spikeLog.length ? ` · spikes ${formatSpikes()}` : '');
@@ -3336,15 +3361,33 @@ function render(): void {
  */
 const spikeLog: Array<{ ms: number; ctx: string }> = [];
 
-function recordFrameSpike(ms: number): void {
-  if (ms < 22) return;
-  const ctx = `${race.phase}/${boats[0]?.state.flightPhase ?? '?'}/s${loop.stepsLastFrame}`;
+interface SpikeMeta {
+  simMs: number;
+  prFrom: number;
+  prTo: number;
+  progs: number;
+}
+
+function recordFrameSpike(ms: number, meta?: SpikeMeta): void {
+  // A catch-up burst can stall the game even when the render itself is cheap.
+  if (ms < 22 && !(meta && meta.simMs >= 22)) return;
+  const base = `${race.phase}/${boats[0]?.state.flightPhase ?? '?'}/s${loop.stepsLastFrame}`;
+  pushSpike(Math.round(ms), base + (meta && meta.simMs >= 12 ? ` sim${Math.round(meta.simMs)}` : ''));
+  if (!meta) return;
+  if (meta.simMs >= 22) pushSpike(Math.round(meta.simMs), `${base} simcatchup`);
+  if (meta.prTo !== meta.prFrom) {
+    pushSpike(Math.round(ms), `${base} pr${meta.prFrom.toFixed(2)}>${meta.prTo.toFixed(2)}`);
+  }
+  if (meta.progs > 0) pushSpike(Math.round(ms), `${base} prog+${meta.progs}`);
+}
+
+function pushSpike(ms: number, ctx: string): void {
   const existing = spikeLog.find((entry) => entry.ctx === ctx);
   if (existing) {
-    existing.ms = Math.max(existing.ms, Math.round(ms));
+    existing.ms = Math.max(existing.ms, ms);
     return;
   }
-  spikeLog.push({ ms: Math.round(ms), ctx });
+  spikeLog.push({ ms, ctx });
   if (spikeLog.length > 6) spikeLog.sort((a, b) => b.ms - a.ms).length = 6;
 }
 

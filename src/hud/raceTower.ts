@@ -3,7 +3,7 @@ import { driverProfile, type DriverMood, type DriverProfile } from '../game/race
 import { RadioDirector, type RadioNotice, type RadioSpeaker } from '../game/radioDirector';
 import './raceTower.css';
 
-const TEAM_SPEAKER: RadioSpeaker = { kind: 'team', name: 'TEAM', color: 0x55e7ff, icon: 'W' };
+const TEAM_SPEAKER: RadioSpeaker = { kind: 'team', name: '车队', color: 0x55e7ff, icon: '电' };
 
 /** `solo` spans the whole screen; `left`/`right` keep the tower inside one half. */
 export type TowerSide = 'solo' | 'left' | 'right';
@@ -65,7 +65,7 @@ export class RaceTower {
   private readonly radioDirector = new RadioDirector();
   private definitions: readonly RacerDefinition[] = [];
   private readonly rows = new Map<number, HTMLDivElement>();
-  private readonly rowCache = new Map<number, { order: number; isPlayer: boolean; nearPlayer: boolean; placeText: string; gapText: string }>();
+  private readonly rowCache = new Map<number, { order: number; isPlayer: boolean; nearPlayer: boolean; isLeader: boolean; placeText: string; gapText: string }>();
   private accumulator = 0;
   private battleIndex = 0;
   private flightIndex = 0;
@@ -98,7 +98,7 @@ export class RaceTower {
   constructor(parent: HTMLElement, side: TowerSide = 'solo') {
     this.root = node('div', 'race-tower', parent);
     this.root.dataset.side = side;
-    node('div', 'race-tower-head', this.root, 'W.H.L // LIVE');
+    node('div', 'race-tower-head', this.root, '排名实况');
     this.list = node('div', 'race-tower-list', this.root);
     this.radio = node('div', 'race-radio', this.root);
     const avatar = node('div', 'race-radio-avatar', this.radio);
@@ -130,7 +130,7 @@ export class RaceTower {
       img.style.objectPosition = driverProfile(def.profileId).portraitPosition;
       row.appendChild(img);
       node('span', 'race-tower-name', row, def.name);
-      node('span', 'race-tower-gap', row, 'GRID');
+      node('span', 'race-tower-gap', row, '排位');
       row.style.setProperty('--racer-color', `#${def.color.toString(16).padStart(6, '0')}`);
       this.rows.set(def.id, row);
     }
@@ -184,13 +184,15 @@ export class RaceTower {
       const cache = this.rowCache.get(racer.id);
       const isPlayer = racer.isPlayer;
       const nearPlayer = !!player && Math.abs(racer.place - player.place) <= 1;
+      const isLeader = i === 0 && !racer.finished;
       const placeText = String(racer.place).padStart(2, '0');
-      const gapText = racer.finished ? 'FIN' : i === 0 ? 'LEADER' : `-${Math.max(0, order[i - 1].progress - racer.progress).toFixed(1)}m`;
+      const gapText = racer.finished ? '完赛' : i === 0 ? '领跑' : `-${Math.max(0, order[i - 1].progress - racer.progress).toFixed(1)}m`;
       if (!cache) {
-        this.rowCache.set(racer.id, { order: racer.place, isPlayer, nearPlayer, placeText, gapText });
+        this.rowCache.set(racer.id, { order: racer.place, isPlayer, nearPlayer, isLeader, placeText, gapText });
         row.style.order = String(racer.place);
         row.classList.toggle('player', isPlayer);
         row.classList.toggle('near-player', nearPlayer);
+        row.classList.toggle('leader', isLeader);
         const place = row.querySelector<HTMLElement>('.race-tower-place');
         if (place) place.textContent = placeText;
         const gap = row.querySelector<HTMLElement>('.race-tower-gap');
@@ -208,6 +210,10 @@ export class RaceTower {
       if (cache.nearPlayer !== nearPlayer) {
         cache.nearPlayer = nearPlayer;
         row.classList.toggle('near-player', nearPlayer);
+      }
+      if (cache.isLeader !== isLeader) {
+        cache.isLeader = isLeader;
+        row.classList.toggle('leader', isLeader);
       }
       if (cache.placeText !== placeText) {
         cache.placeText = placeText;
@@ -328,7 +334,7 @@ export class RaceTower {
       this.radioPortrait.src = speaker.portraitUrl!;
       this.radioPortrait.style.objectPosition = speaker.portraitPosition ?? '50% 20%';
     } else {
-      this.radioMark.textContent = speaker.icon ?? 'W';
+      this.radioMark.textContent = speaker.icon ?? '电';
     }
     this.radio.setAttribute('aria-label', `${speaker.name}：${notice.message}`);
   }

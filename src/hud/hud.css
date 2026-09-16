@@ -3612,3 +3612,54 @@ body:has(.hud-medal-ceremony.on) .hud-radio,
   .hud-missile-pip-dist { font-size: 11px; }
   .hud-missile-pip-cue { font-size: 11px; line-height: 1.35; padding: 4px; }
 }
+
+/* First-missile tutor: far-right vertical ribbon. Sits below the pip on
+   short phones and never intercepts touch (the right thumb keeps its zone).
+   Glyphs are stacked as horizontal spans — no reliance on vertical font
+   metrics, so it renders identically on every device. */
+.hud-missile-tutor {
+  position: absolute;
+  top: 38%;
+  right: max(8px, env(safe-area-inset-right));
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 7px;
+  align-items: flex-start;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease-out;
+  z-index: 69;
+}
+.hud-missile-tutor.on { opacity: 1; }
+.hud-missile-tutor-main,
+.hud-missile-tutor-sub { display: flex; flex-direction: column; align-items: center; }
+.hud-missile-tutor-main {
+  gap: 3px;
+  padding: 11px 5px;
+  background: rgba(6, 12, 28, 0.88);
+  border: 1.5px solid rgba(255, 83, 110, 0.6);
+  border-right: 3px solid #ff3355;
+  border-radius: 8px;
+  color: #fff;
+  font: 900 14px/1.05 system-ui, sans-serif;
+  text-shadow: 0 0 10px rgba(255, 83, 110, 0.65);
+}
+.hud-missile-tutor-sub {
+  gap: 2px;
+  margin-top: 10px;
+  padding: 9px 4px;
+  background: rgba(6, 12, 28, 0.72);
+  border: 1px solid rgba(255, 208, 0, 0.45);
+  border-radius: 8px;
+  color: #ffd000;
+  font: 800 10.5px/1.05 system-ui, sans-serif;
+}
+.hud-missile-tutor-glyph { display: block; }
+@media (max-height: 520px) {
+  /* Phones: start the ribbon just under the missile pip so the two never
+     stack, and stop above the right-thumb drift/flight buttons. */
+  .hud-missile-tutor { top: 148px; right: 6px; gap: 5px; transform: none; }
+  .hud-missile-tutor-main { font-size: 12px; padding: 9px 4px; }
+  .hud-missile-tutor-sub { font-size: 9.5px; padding: 7px 3px; margin-top: 8px; }
+}

@@ -146,6 +146,8 @@ export class SinglePlayerMissilesSystem {
   private hudNotice: (msg: string, title: string) => void;
   private onMissileAudio: (kind: MissileAudioKind, x?: number, z?: number) => void;
   private readonly onBlast: ((x: number, z: number) => void) | null;
+  /** Fired once the launch targets the player; drives the first-missile tutor. */
+  private readonly onPlayerTargeted: (() => void) | null;
   private readonly fallbackCamera = new THREE.PerspectiveCamera();
   private readonly direction = new THREE.Vector3();
   private readonly up = new THREE.Vector3(0, 1, 0);
@@ -192,6 +194,7 @@ export class SinglePlayerMissilesSystem {
     hudNotice: (msg: string, title: string) => void,
     onMissileAudio: (kind: MissileAudioKind, x?: number, z?: number) => void,
     onBlast: ((x: number, z: number) => void) | null = null,
+    onPlayerTargeted: (() => void) | null = null,
   ) {
     this.object = new THREE.Group();
     this.object.name = 'sp-missile-system';
@@ -199,6 +202,7 @@ export class SinglePlayerMissilesSystem {
     this.hudNotice = hudNotice;
     this.onMissileAudio = onMissileAudio;
     this.onBlast = onBlast;
+    this.onPlayerTargeted = onPlayerTargeted;
 
     const mesh = buildDominatorModel();
     mesh.visible = false;
@@ -355,6 +359,7 @@ export class SinglePlayerMissilesSystem {
     // Only broadcast player HUD notice if the player is targeted!
     if (m.isPlayer) {
       this.hudNotice('你暂居第一，灯塔启动赛事领跑挑战；入弯漂移或凌空走位可诱爆飞弹', '赛事领跑挑战 · 飞弹来袭');
+      this.onPlayerTargeted?.();
     }
   }
 
@@ -392,7 +397,7 @@ export class SinglePlayerMissilesSystem {
       m.locked = true;
       m.tacticalReticle.setVisible(true);
       if (m.isPlayer) {
-        this.hudNotice('飞弹已锁定：观察来袭方向，准备漂移诱爆', '飞弹锁定');
+        this.hudNotice('大事不妙！入弯漂移 · 浪花诱爆', '飞弹锁定');
         this.onMissileAudio('lock');
       }
     }
@@ -537,7 +542,7 @@ export class SinglePlayerMissilesSystem {
         hitTarget.applyScudHit(0, 0, 14.0);
         this.onBlast?.(hitX, hitZ);
         this.onMissileAudio('impact', hitX, hitZ);
-        if (m.isPlayer) this.hudNotice('受到水浪冲击 · 保持操舵！', '⚠️ 飞弹冲击警报');
+        if (m.isPlayer) this.hudNotice('受到水浪冲击 · 保持操舵！', '稳住不要慌');
         m.state = 'hit';
       }
       m.dismissTimer = 1.1;

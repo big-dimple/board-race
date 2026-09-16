@@ -884,6 +884,7 @@ async function verifyMode(browser, mobile) {
   assert.equal(lock.mapped, 0, `${label}: solo lock recreated the billboard texture`);
   await page.waitForTimeout(300);
   assert.ok(await page.locator('.hud-missile-pip.on').isVisible(), `${label}: launch cue missing`);
+  assert.ok(await page.locator('.hud-missile-tutor.on').isVisible(), `${label}: first-missile tutor hint missing`);
   if (mobile) assert.equal(await page.locator('.mobile-mode').isVisible(), false,
     `${label}: steering switch covers the launch cue during racing`);
   const launchArt = await page.locator('.hud-missile-art').evaluate((canvas) => {
@@ -894,6 +895,8 @@ async function verifyMode(browser, mobile) {
   await stage(page, 'ready');
   assert.equal(await page.locator('.hud-missile-pip').evaluate((el) => el.classList.contains('on')), false,
     `${label}: missile cue survives reset`);
+  assert.equal(await page.locator('.hud-missile-tutor').evaluate((el) => el.classList.contains('on')), false,
+    `${label}: first-missile tutor survives reset`);
   await context.close();
 }
 
