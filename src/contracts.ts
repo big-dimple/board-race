@@ -215,6 +215,14 @@ export interface FlightRouteDefinition {
   gateUs: readonly number[];
   nodes: readonly FlightRouteNode[];
   corridorHalfWidth: number;
+  /**
+   * Extra corridor half-width at the entrance mouth, fading linearly to zero at
+   * `corridorEntranceFlareToU`. Only lateral-throw routes need it: it gives a
+   * wide swing-in entry room to latch without loosening the rest of the lane.
+   */
+  corridorEntranceFlareM?: number;
+  /** Route u where the entrance flare has faded to zero. */
+  corridorEntranceFlareToU?: number;
   gateHalfWidth: number;
   /** Explicit horizontal pass limit. Kept separate so visuals and rules never drift. */
   passHalfWidth: number;

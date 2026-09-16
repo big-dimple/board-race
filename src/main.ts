@@ -3996,6 +3996,47 @@ function runCollisionCase(name: string): Record<string, number | string | boolea
     };
   }
 
+  if (name === 'route5-entrance-flare' || name === 'route5-entrance-limit') {
+    const def = course.flightRoutes[4];
+    const mouth = new THREE.Vector3();
+    const tangent = new THREE.Vector3();
+    course.routePointAt(def.id, def.entryU, mouth);
+    course.routeTangentAt(def.id, def.entryU, tangent).normalize();
+    // The lane dives toward -lateral right after the mouth, so the swing-in
+    // outside is the +lateral side.
+    const outside = new THREE.Vector3(tangent.z, 0, -tangent.x);
+    const offset = name === 'route5-entrance-flare' ? 12 : 20;
+    const hold = mouth.clone().addScaledVector(outside, offset);
+    const heading = Math.atan2(tangent.x, tangent.z);
+    a.setCollisionTestMotion(hold.x, hold.z, heading, 0, 0, hold.y);
+    a.state.flightsCleared = 4;
+    a.state.flightRouteCursor = 4;
+    a.state.flightPhase = 'cruise';
+    a.state.flightClearance = 5;
+    a.beginFlightRouteAttempt(4, 4, def.targetSpeed);
+    let failedAt = -1;
+    for (let step = 0; step < 180; step++) {
+      a.setCollisionTestMotion(hold.x, hold.z, heading, 0, 0, hold.y);
+      a.state.flightPhase = 'cruise';
+      a.state.flightClearance = 5;
+      course.updateFlightRoute(1 / 60, boats);
+      if (a.state.flightRouteState === 'failed' && failedAt < 0) failedAt = step;
+    }
+    return {
+      name,
+      configuredFlareM: def.corridorEntranceFlareM ?? 0,
+      configuredFlareToU: def.corridorEntranceFlareToU ?? 0,
+      corridorHalfWidth: def.corridorHalfWidth,
+      passHalfWidth: def.passHalfWidth,
+      gateHalfWidth: def.gateHalfWidth,
+      requestedOffset: offset,
+      routeState: a.state.flightRouteState,
+      reason: a.state.flightRouteFailReason,
+      failedAtStep: failedAt,
+      finite: allFinite(),
+    };
+  }
+
   if (name === 'pair-matrix') {
     let pairCount = 0;
     let hitPairs = 0;

@@ -351,6 +351,12 @@ export const FLIGHT_ROUTES: readonly FlightRouteDefinition[] = [
     // 5.775m scoring portal. At full vector air-brake the lower approach speed
     // otherwise lets a correct late correction trip the corridor first.
     corridorHalfWidth: 7,
+    // The mouth sits on the surface spline while the lane dives right, so a
+    // wide outside swing-in used to start corridor danger the moment it
+    // crossed the span. Flare the mouth to 15m half-width, fading out at the
+    // lateral apex — the mid-lane and portal funnel stay exactly as tuned.
+    corridorEntranceFlareM: 8,
+    corridorEntranceFlareToU: 0.66,
     gateHalfWidth: 5.5,
     passHalfWidth: 5.775,
     targetSpeed: 48,
@@ -591,6 +597,20 @@ function flightLaunchCueU(def: FlightRouteDefinition): number {
 /** Normalize route-space effects against the authored flight corridor. */
 function flightVisualT(def: FlightRouteDefinition, u: number): number {
   return THREE.MathUtils.clamp((u - def.entryU) / Math.max(1e-6, def.exitU - def.entryU), 0, 1);
+}
+
+/**
+ * Effective corridor half-width at a route u: the authored lane plus the
+ * entrance flare. Off-corridor depth, the hard-out boundary, the time limit
+ * and the storm wind all measure against this one curve, so widening the
+ * mouth never drifts from what pushes and fails the hull.
+ */
+function flightCorridorHalfWidthAt(def: FlightRouteDefinition, u: number): number {
+  const flareM = def.corridorEntranceFlareM;
+  const toU = def.corridorEntranceFlareToU;
+  if (!flareM || !toU || toU <= def.entryU) return def.corridorHalfWidth;
+  const f = THREE.MathUtils.clamp((u - def.entryU) / (toU - def.entryU), 0, 1);
+  return def.corridorHalfWidth + flareM * (1 - f);
 }
 
 // -------------------------------------------------------------- grid ----
@@ -2326,6 +2346,7 @@ export class Course implements ICourse {
     surfaceU: number,
     surfaceDistM: number,
     routeDistM: number,
+    routeU: number,
     out: { deadlineM: number; orphan: number; doomed: number },
   ): void {
     out.deadlineM = -1;
@@ -2355,9 +2376,10 @@ export class Course implements ICourse {
       return;
     }
     if (surfaceU >= spanStartU) {
-      if (routeDistM > def.corridorHalfWidth) {
+      const effHalfWidth = flightCorridorHalfWidthAt(def, routeU);
+      if (routeDistM > effHalfWidth) {
         out.orphan = 1; // steerable: get back inside the mist before splashdown
-        if (routeDistM > def.corridorHalfWidth + FLIGHT_CORRIDOR_HARD_OUT_M) out.doomed = 1;
+        if (routeDistM > effHalfWidth + FLIGHT_CORRIDOR_HARD_OUT_M) out.doomed = 1;
       }
       return;
     }
@@ -2517,7 +2539,7 @@ export class Course implements ICourse {
       nearestOnFlight(runtime, pos.x, pos.z);
       const near = runtime.near;
       if (id === this.guidanceBoatId) {
-        this.computeLaunchJudgment(st, def, surfaceU, _routeSample.distance, near.distance, _launchJudgment);
+        this.computeLaunchJudgment(st, def, surfaceU, _routeSample.distance, near.distance, near.u, _launchJudgment);
         this.playerLaunchDeadlineM = _launchJudgment.deadlineM;
         this.playerFlightOrphan = _launchJudgment.orphan;
         this.playerFlightDoomed = _launchJudgment.doomed;
@@ -2615,7 +2637,7 @@ export class Course implements ICourse {
       const insideAttemptSpan = surfaceU >= def.entryU - FLIGHT_ATTEMPT_EARLY_U && surfaceU <= def.exitU + 0.006;
       const crossedChallengeEntry = surfaceU >= def.entryU - 0.001;
       if (flightActive && st.flightRouteState === 'idle' && insideAttemptSpan &&
-          (near.distance <= def.corridorHalfWidth || crossedChallengeEntry)) {
+          (near.distance <= flightCorridorHalfWidthAt(def, near.u) || crossedChallengeEntry)) {
         boat.beginFlightRouteAttempt(routeIndex, st.flightRouteCursor, def.targetSpeed, def.nodes[1].height);
         this.flightDebug[id] = 'active';
         this.flightLatched[id] = routeIndex;
@@ -2764,7 +2786,7 @@ export class Course implements ICourse {
           // 危险边缘 → 越界失控 → FAIL: depth past the mist edge and time
           // spent outside both raise danger, and the storm wind keeps
           // pushing the hull away while it is above zero.
-          const overshoot = near.distance - def.corridorHalfWidth;
+          const overshoot = near.distance - flightCorridorHalfWidthAt(def, near.u);
           const outside = overshoot > 0;
           const offT = outside
             ? (this.flightOffCorridorT[id] ?? 0) + dt
@@ -2978,7 +3000,7 @@ export class Course implements ICourse {
     const flightActive = state.flightActive;
     if (visual && def) {
       nearestOnFlight(visual.runtime, st.position.x, st.position.z);
-      this.computeLaunchJudgment(st, def, state.surfaceU, surfaceDistM, visual.runtime.near.distance, _launchJudgment);
+      this.computeLaunchJudgment(st, def, state.surfaceU, surfaceDistM, visual.runtime.near.distance, visual.runtime.near.u, _launchJudgment);
       state.launchDeadlineM = _launchJudgment.deadlineM;
       state.flightOrphan = _launchJudgment.orphan;
       state.flightDoomed = _launchJudgment.doomed;
@@ -3095,7 +3117,7 @@ export class Course implements ICourse {
         state.actionTargetU = Math.min(activeTurn.toU, near.u + 0.008);
         state.actionMarkerCount = activeTurn === counterTurn ? 2 : 3;
       }
-      const overshoot = near.distance - def!.corridorHalfWidth;
+      const overshoot = near.distance - flightCorridorHalfWidthAt(def!, near.u);
       const offT = this.flightOffCorridorT[boat.id] ?? 0;
       const danger = overshoot > 0
         ? Math.max(overshoot / FLIGHT_CORRIDOR_HARD_OUT_M, offT / FLIGHT_CORRIDOR_TIME_LIMIT_S)

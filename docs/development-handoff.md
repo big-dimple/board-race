@@ -1,35 +1,43 @@
 # Board Race 开发交接
 
-状态：天空回退包已验证，待提交推送后用户实机复核。
+状态：第五飞入口扩边包已验证，待提交推送后用户实机复核。
 
 ## 当前工作包（本提交）
 
-- 目标：回退 32afa5f 中「白天天空去 AI 味」全部天空改动。
-- 起因：用户实机评审否决该方向（灰化三段渐变 + 卷云丝 + 微抖动读成画蛇添足），
-  按 art-direction「一项可见原型 → 用户确认 → 再扩展」规则整体回退，
-  恢复用户此前接受的亮青天空。
-- 回退内容（`src/core/palette.ts`、`src/cel/sky.ts` 恢复至 32afa5f^ 原状）：
-  - 白天三段色恢复 0x2e6df6 / 0x43b6ff / 0xaef4ff（撤销降青提灰）；
-  - 删除天穹 shader 的静态卷云丝块与微抖动块；
-  - 云贴图密度/碎度与 sprite 纵横比恢复原值。
-- 不受影响：32afa5f 其余内容（飞弹告警精简、首弹竖向引导、电台排行榜
-  中文化与领跑高亮、卡顿 sim/换挡/shader 归因加强）保持不动；
-  夜晚路径与日月星辰本来就没动，回退也不涉及。
-- Owner：`src/core/palette.ts`、`src/cel/sky.ts`、本文件。
+- 目标：放宽第五飞（flight-5）空道入口左侧（弯外）的判负尺度，让外围绕入
+  进入口成为合法航线，同时不松动整条空道与门前漏斗。
+- 起因：用户实机反馈——入口左侧稍微超出即判负，但玩家明明可以从外部绕一下
+  进入口。实测 geometry：中心线在 mouth 后飞快右抛（u=0.645 已偏右 12m），
+  沿主线自然直线飞 44m 即 instant fail；mouth 左侧 22m 触硬边界、>7m 停留
+  1.8s 判负，绕入弧线根本来不及完成。
+- 方案：按航路配置的入口扩边（方案 A，未采纳整条 corridorHalfWidth 加宽的方案 B）。
+  - `src/contracts.ts`：`FlightRouteDefinition` 新增可选
+    `corridorEntranceFlareM` / `corridorEntranceFlareToU`。
+  - `src/game/course.ts`：新增 `flightCorridorHalfWidthAt(def, u)` helper
+    （线性淡出）；flight-5 配置 `+8m → 0.66`（mouth 有效半宽 15m，0.66 在
+    横向峰值 0.661、counterTurn 0.672、门 0.69875 之前）；四处判定消费
+    （危险模型 / 尝试 latch / `computeLaunchJudgment` / 右席镜像），
+    判定、物理、表现仍共用同一条危险曲线；视觉 ribbon 不动。
+  - 数值效果：mouth 15m 内零危险，立即判负边界 21→29m；直线不转弯仍
+    ~46-48m 判负（纪律保留）；门 5.775/5.5、corridor 7 全部不变。
+- Owner：`src/contracts.ts`、`src/game/course.ts`、`src/main.ts`、
+  `harness/collision.mjs`、`docs/llmwiki.md`、本文件。
 
 ## 验证与证据
 
-- `npm run build` 通过；`verify:smoke` 桌面 + 844x390 通过。
-- 截图证据（`shots/sky-revert/`，桌面 + 844x390）：`ready`/`start`
-  亮青天空恢复，无卷云丝、无灰化雾带。
+- `npm run build` 通过；`verify:smoke` 桌面 + 844x390 通过；`verify:team` 通过。
+- `verify:collision` 通过，新增两个确定性用例：
+  - `route5-entrance-flare`：mouth 左侧 12m 巡航保持 3s——保持 `active` 无判负；
+  - `route5-entrance-limit`：mouth 左侧 20m 同保持——第 109 步（≈1.82s）按
+    `corridor` 判负，证明边界与 1.8s 尺度仍在。
 
 ## 遗留风险
 
-- 偶发卡顿：仍只做归因加强未根除。用户实机复现时开 `?debug=perf`，
-  把浮层最差三条（ms@ctx）截图发回即可定位（sim / pr 换挡 / prog+）。
+- 无（本包只碰入口段判定；其它六飞与全局硬边界/时长常量未动）。
 
 ## 唯一下一步
 
-用户实机复核：天空是否恢复顺眼；顺带复核 32afa5f 其余改动（飞弹新文案、
-首弹竖向引导、电台中文排版、卡顿频率）。天空美术不再按「去 AI 味」方向加码，
-若用户主动提新方向，仍按 art-direction 先出一版截图原型等确认。
+用户实机复核：第五飞从弯外大角度绕入入口是否不再被快速判负；顺带确认入口
+放宽后中段与穿门手感没有变松。若入口空间仍嫌不足，优先微调
+`corridorEntranceFlareM`（当前 8）与淡出位置 `corridorEntranceFlareToU`
+（当前 0.66），不要动全局常量。

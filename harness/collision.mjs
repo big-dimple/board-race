@@ -170,6 +170,27 @@ try {
   assert.equal(route4Outside.gates, 0);
   assert.ok(['gate_left', 'gate_right'].includes(route4Outside.reason));
 
+  const route5Flare = await run('route5-entrance-flare');
+  assert.equal(route5Flare.finite, true);
+  assert.equal(route5Flare.passHalfWidth, 5.775, 'route 5 scoring portal must stay exactly 5.775m');
+  assert.equal(route5Flare.gateHalfWidth, 5.5, 'route 5 visual portal must stay exactly 5.5m');
+  assert.equal(route5Flare.corridorHalfWidth, 7, 'route 5 mid-lane corridor must stay exactly 7m');
+  assert.ok(route5Flare.configuredFlareM > 0 && route5Flare.configuredFlareToU > 0,
+    `route 5 must keep an authored entrance flare: ${JSON.stringify(route5Flare)}`);
+  assert.equal(route5Flare.routeState, 'active',
+    `12m outside the route 5 mouth must ride the flare without failing: ${JSON.stringify(route5Flare)}`);
+  assert.equal(route5Flare.failedAtStep, -1,
+    `a 3s hold inside the flared mouth must never trip the corridor: ${JSON.stringify(route5Flare)}`);
+
+  const route5Limit = await run('route5-entrance-limit');
+  assert.equal(route5Limit.finite, true);
+  assert.equal(route5Limit.routeState, 'failed',
+    `20m outside the route 5 mouth must still fail: ${JSON.stringify(route5Limit)}`);
+  assert.equal(route5Limit.reason, 'corridor',
+    `the entrance limit must fail as corridor, not as a gate miss: ${JSON.stringify(route5Limit)}`);
+  assert.ok(route5Limit.failedAtStep > 0,
+    'the entrance limit hold must record the step it failed at');
+
   const checkpointIsolation = await run('checkpoint-isolation');
   assert.equal(checkpointIsolation.finite, true);
   assert.ok(checkpointIsolation.signedBefore < 0 && checkpointIsolation.signedAfter > 0,
@@ -208,6 +229,8 @@ try {
     flightIsolation,
     route4Inside,
     route4Outside,
+    route5Flare,
+    route5Limit,
     checkpointIsolation,
     gantry,
   }, null, 2));
