@@ -813,6 +813,110 @@
   100% { opacity: 0.72; scale: 0.86; }
 }
 
+/* ---- 身残志坚 grit beat (spared pillar contact) --------------------------- */
+
+/* Subset (four glyphs) of Ma Shan Zheng 马善政毛笔, SIL OFL — the grit beat
+   typeface. Tiny enough to inline, so the brush look costs no extra request
+   and works on devices without a system KaiTi (Android in particular). */
+@font-face {
+  font-family: 'GritBrush';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/grit-brush.woff2') format('woff2');
+  unicode-range: U+575a, U+5fd7, U+6b8b, U+8eab;
+}
+
+.hud-grit {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-grit.on {
+  visibility: visible;
+  animation: hud-grit-life 2.9s linear both;
+}
+
+.hud-grit-cluster {
+  position: absolute;
+  display: flex;
+  gap: 10px;
+  transform: skew(-6deg);
+}
+
+/* Left pair rides the race-tower / radio column, tucked just under the radio
+   card so the copy stays readable; the right pair hangs above the flight
+   side (the 飞 key cluster on touch, the boat-side instrument on desktop).
+   The centre racing sightline stays clear. */
+.hud-grit-left { left: max(22px, 2.6vw); top: 38%; }
+.hud-grit-right {
+  left: calc(100% - max(22px, 2.6vw));
+  top: 30%;
+  transform: translateX(-100%) skew(-6deg);
+}
+
+.hud-grit-char {
+  --rot: 0deg;
+  display: block;
+  font-family: 'GritBrush', 'Kaiti SC', 'STKaiti', 'KaiTi', 'STXingkai', 'Arial Black',
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-style: normal;
+  font-weight: 900;
+  font-size: clamp(40px, 6.2vh, 68px);
+  line-height: 1;
+  color: #ffd23f;
+  -webkit-text-stroke: 2.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 4px 4px 0 var(--ink), 0 0 22px rgba(255, 210, 63, 0.35);
+  opacity: 0;
+}
+
+.hud-grit.on .hud-grit-char {
+  animation: hud-grit-pop 0.5s cubic-bezier(0.12, 1.5, 0.25, 1) both;
+}
+.hud-grit-left .hud-grit-char:nth-child(1) { --rot: -6deg; animation-delay: 0s; }
+.hud-grit-left .hud-grit-char:nth-child(2) { --rot: 5deg; animation-delay: 0.16s; }
+.hud-grit-right .hud-grit-char:nth-child(1) { --rot: -5deg; animation-delay: 0.32s; }
+.hud-grit-right .hud-grit-char:nth-child(2) { --rot: 6deg; animation-delay: 0.48s; }
+
+/* Duo: scope both pairs into the affected seat's half of the screen. */
+.hud-grit[data-side='left'] .hud-grit-left { left: 2%; }
+.hud-grit[data-side='left'] .hud-grit-right { left: 48%; transform: translateX(-100%) skew(-6deg); }
+.hud-grit[data-side='right'] .hud-grit-left { left: 52%; }
+.hud-grit[data-side='right'] .hud-grit-right { left: 98%; transform: translateX(-100%) skew(-6deg); }
+
+/* Results, medal ceremony and post-race layers own the screen. */
+.hud.results-on .hud-grit,
+body:has(.hud-medal-ceremony.on) .hud-grit,
+body:has(.finale-overlay.on) .hud-grit,
+body:has(.highlight-video-overlay.on) .hud-grit { display: none; }
+
+@keyframes hud-grit-pop {
+  0% { opacity: 0; transform: scale(2.6) rotate(var(--rot)); }
+  55% { opacity: 1; transform: scale(0.9) rotate(var(--rot)); }
+  78% { transform: scale(1.07) rotate(var(--rot)); }
+  100% { opacity: 1; transform: scale(1) rotate(var(--rot)); }
+}
+
+@keyframes hud-grit-life {
+  0%, 82% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-grit.on { animation: none; opacity: 1; }
+  .hud-grit.on .hud-grit-char { animation: none; opacity: 1; }
+}
+
+@media (max-width: 900px), (max-height: 520px) {
+  .hud-grit-left { left: max(8px, env(safe-area-inset-left)); top: 60%; }
+  .hud-grit-right { left: calc(100% - max(8px, env(safe-area-inset-right))); top: 37%; }
+  .hud-grit-char { font-size: clamp(34px, 11vh, 44px); }
+}
+
 /* ---- flight turn callout ----------------------------------------------------- */
 
 .hud-turn-warning {

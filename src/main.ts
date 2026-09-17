@@ -2827,8 +2827,24 @@ function step(dt: number, _t: number, present: boolean): void {
       const state = boats[i].state;
       const routeState = state.flightRouteState;
       if (duoMode && i < 2 && routeState === 'failed' && state.flightPhase === 'surface') {
-        if (state.flightFailure) eliminateDuoSeat(i, state.flightFailure);
+        if (state.flightFailure?.spared) {
+          // 顺势不判负: a spared pillar contact costs the attempt, never the
+          // seat — recover like an AI boat and let the seat re-try next lap.
+          boats[i].recoverFailedFlightRoute();
+        } else if (state.flightFailure) {
+          eliminateDuoSeat(i, state.flightFailure);
+        }
         routeLifecycleStates[i] = state.flightRouteState;
+        harnessPrevRouteStates[i] = boats[i].state.flightRouteState;
+        continue;
+      }
+      if (i === 0 && !duoMode && routeState === 'failed' &&
+          state.flightFailure?.spared && state.flightPhase === 'surface' &&
+          !(HARNESS && harnessKeepFlightMissRunning)) {
+        // Spared single-player contact: splashdown settles the attempt; the
+        // run continues and the route becomes re-attemptable.
+        boats[i].recoverFailedFlightRoute();
+        routeLifecycleStates[i] = boats[i].state.flightRouteState;
         harnessPrevRouteStates[i] = boats[i].state.flightRouteState;
         continue;
       }
@@ -2856,7 +2872,12 @@ function step(dt: number, _t: number, present: boolean): void {
       if (routeState === routeLifecycleStates[i]) continue;
       routeLifecycleStates[i] = routeState;
       if (routeState === 'failed') {
-        if (i === 0 && !duoMode && !(HARNESS && harnessKeepFlightMissRunning)) {
+        if (state.flightFailure?.spared && isHumanRacer(i)) {
+          // 顺势不判负: the attempt is lost, the run is not. The comedic
+          // grit beat carries the feedback instead of the defeat flow.
+          hud.showGritBeat(duoMode ? (i === 0 ? 'left' : 'right') : null);
+          audio.pillarBrush();
+        } else if (i === 0 && !duoMode && !(HARNESS && harnessKeepFlightMissRunning)) {
           if (state.flightFailure) race.defeatFlight(state.flightFailure);
         }
       } else if (routeState === 'passed') {
@@ -5772,6 +5793,68 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === "racing", 8);
       stageHarnessGateFailure();
       break;
+    case "grit-pillar": {
+      // Spared pillar contact: a light clip on the first gate costs the
+      // attempt but not the run — the 身残志坚 beat pops while the hull
+      // rebounds and limps on. Stops mid-beat for the evidence shot.
+      advanceUntil(() => race.phase === "racing", 8);
+      beginHarnessRouteFlight(0, 1);
+      advanceUntil(() => boats[0].state.flightRouteState === "active", 3, 1 / 60);
+      advanceUntil(() => boats[0].state.flightPhase === "cruise", 3, 1 / 60);
+      // Attempt latched and cruising: servo the predicted gate-plane lateral to
+      // the pillar ring (just outside the 6.825m portal) so the hull clip is
+      // light — contact band is a thin sliver, arrival speed does the rest.
+      const gateU = course.flightRoutes[0].gateUs[0];
+      let prevDist = 0;
+      let latVel = 0;
+      let guard = 0;
+      while (boats[0].state.flightRouteState === "active" && guard++ < 600) {
+        course.sample(boats[0].state.position, harnessPilotSample, "flight-1");
+        const dist = harnessPilotSample.distance;
+        const instantVel = (dist - prevDist) * 60;
+        latVel = latVel * 0.6 + instantVel * 0.4;
+        prevDist = dist;
+        const speed = Math.max(12, Math.abs(boats[0].state.speed));
+        const timeToGate = Math.max(0, (gateU - harnessPilotSample.u) * course.length / speed);
+        const predicted = dist + latVel * timeToGate;
+        const steerCmd = (7.25 - predicted) * 0.5 - latVel * 0.1;
+        setHarnessInput({ steer: Math.max(-0.8, Math.min(0.8, steerCmd)) });
+        loop.advance(1 / 60);
+      }
+      setHarnessInput(null);
+      if (boats[0].state.flightRouteState !== "failed") {
+        throw new Error(
+          `grit-pillar never contacted the gate pillar: route=${boats[0].state.flightRouteState} ` +
+          `phase=${boats[0].state.flightPhase} dist=${harnessPilotSample.distance.toFixed(2)} ` +
+          `u=${harnessPilotSample.u.toFixed(4)} debug=${course.flightDebugStatus(0)}`,
+        );
+      }
+      if (!boats[0].state.flightFailure?.spared) {
+        const f = boats[0].state.flightFailure;
+        throw new Error(
+          `grit-pillar contact was not spared: ${course.flightDebugStatus(0)} ` +
+          `lat=${f?.lateralOffsetM?.toFixed(2)} limit=${f?.lateralLimitM?.toFixed(2)}`,
+        );
+      }
+      console.log(`grit-pillar: ${course.flightDebugStatus(0)}`);
+      loop.advance(0.45);
+      // The beat fired on the hit frame, but CSS animations run on wall clock
+      // while the synchronous advance above burns real headless render time.
+      // Re-fire and freeze the settled pop state so the still captures all
+      // four characters (same staging trick as freezeFlightExtensionImpact).
+      hud.showGritBeat(null);
+      const gritLayer = document.querySelector<HTMLElement>('.hud-grit');
+      gritLayer?.style.setProperty('animation', 'none');
+      gritLayer?.style.setProperty('opacity', '1');
+      gritLayer?.style.setProperty('visibility', 'visible');
+      for (const el of document.querySelectorAll<HTMLElement>('.hud-grit-char')) {
+        el.style.setProperty('animation', 'none');
+        el.style.setProperty('opacity', '1');
+        const rot = getComputedStyle(el).getPropertyValue('--rot').trim();
+        if (rot) el.style.setProperty('transform', `rotate(${rot})`);
+      }
+      break;
+    }
     case "corridor-storm":
     case "corridor-storm-deep": {
       // Steer out of the mist corridor and hold until the storm reaches the

@@ -167,6 +167,13 @@ export interface FlightFailureSnapshot {
   /** Distance from the authored flight/surface guide, depending on reason. */
   corridorDistanceM: number | null;
   clearanceM: number;
+  /**
+   * Pillar contact that physics resolves on its own: inner pillar of the
+   * authored turn, or a rebound that cannot carry the hull out of the mist
+   * corridor. The route attempt is lost but the racer is not eliminated;
+   * the run continues with the comedic grit beat.
+   */
+  spared?: boolean;
 }
 
 export interface FlightRouteNode {

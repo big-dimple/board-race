@@ -686,6 +686,13 @@ const _routeSample: CourseSample = {
   routeId: 'surface',
 };
 const _recoveryVelocity = new THREE.Vector2();
+const _pillarVelocity = new THREE.Vector2();
+const _pillarTangentA = new THREE.Vector3();
+const _pillarTangentB = new THREE.Vector3();
+/** Corridors bending less than ~1° across the gate window count as straight. */
+const GATE_BEND_INNER_MIN_RAD = 0.018;
+/** Rebound horizon for the "cannot fly out of the corridor" spare check. */
+const GATE_PILLAR_PROJECTION_S = 0.5;
 const _launchPacketForward = new THREE.Vector3(0, 0, 1);
 const _launchPacketDirection = new THREE.Vector3();
 const _launchJudgment = { deadlineM: -1, orphan: 0, doomed: 0 };
@@ -2310,6 +2317,7 @@ export class Course implements ICourse {
     lateralOffsetM: number | null = null,
     lateralLimitM: number | null = null,
     corridorDistanceM: number | null = null,
+    spared = false,
   ): void {
     const gatesPassed = boat.state.flightGateProgress;
     const routeLevelFailure = reason === 'no_launch' || reason === 'corridor' ||
@@ -2330,7 +2338,31 @@ export class Course implements ICourse {
       lateralLimitM,
       corridorDistanceM,
       clearanceM: boat.state.flightClearance,
+      spared: spared || undefined,
     });
+  }
+
+  /**
+   * Which side of a gate portal the corridor bend faces at `gateU`: -1 when the
+   * bend opens toward the left pillar, 1 toward the right pillar, 0 when the
+   * approach is locally straight. Pure corridor geometry — the bend-inside
+   * pillar is the one a light clip knocks the hull back off of, toward the
+   * lane centre, which is why brushing it can ride on instead of ejecting.
+   */
+  private gateBendInnerSide(runtime: FlightRouteRuntime, gateU: number): number {
+    const windowU = 0.004;
+    runtimeTangentAt(runtime, THREE.MathUtils.clamp(gateU - windowU, 0, 1), _pillarTangentA);
+    runtimeTangentAt(runtime, THREE.MathUtils.clamp(gateU + windowU, 0, 1), _pillarTangentB);
+    const aHeading = Math.atan2(_pillarTangentA.x, _pillarTangentA.z);
+    const bHeading = Math.atan2(_pillarTangentB.x, _pillarTangentB.z);
+    let delta = bHeading - aHeading;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    // Heading grows toward gate-right along the spline: a positive delta means
+    // the corridor swings right, so the bend-inside pillar is the right one.
+    if (delta > GATE_BEND_INNER_MIN_RAD) return 1;
+    if (delta < -GATE_BEND_INNER_MIN_RAD) return -1;
+    return 0;
   }
 
   /**
@@ -2696,8 +2728,23 @@ export class Course implements ICourse {
             boat.applyCollisionResponse(rebX * 0.55, rebZ * 0.55, rebX * bounceSpeed, rebZ * bounceSpeed);
 
             const reason = hitLeft ? 'gate_left' : 'gate_right';
-            this.flightDebug[id] = `pillar-hit:f${routeIndex + 1}:${reason}`;
-            this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, latDist, lateralLimit);
+            // 顺势不判负: a light contact rides on when it hits the bend-inside
+            // pillar or when the rebound cannot carry the hull out of the mist
+            // corridor. Only a true ejection stays an elimination.
+            const innerSide = this.gateBendInnerSide(runtime, gate.u);
+            const innerHit = hitLeft ? innerSide < 0 : innerSide > 0;
+            let staysInside = false;
+            if (!innerHit) {
+              boat.collisionVelocity(_pillarVelocity);
+              const lateralSpeed =
+                _pillarVelocity.x * gate.right.x + _pillarVelocity.y * gate.right.z;
+              const projectedLat = Math.abs(latDist + lateralSpeed * GATE_PILLAR_PROJECTION_S);
+              staysInside = projectedLat <=
+                flightCorridorHalfWidthAt(def, near.u) + FLIGHT_CORRIDOR_HARD_OUT_M;
+            }
+            const spared = innerHit || staysInside;
+            this.flightDebug[id] = `pillar-hit:f${routeIndex + 1}:${reason}${spared ? ':spared' : ''}`;
+            this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, latDist, lateralLimit, null, spared);
             if (id === this.guidanceBoatId) {
               this.flightWarn = 0.8;
               this.flightWarnRoute = routeIndex;

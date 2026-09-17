@@ -904,6 +904,40 @@ export class GameAudio {
     this.blip(190, c.currentTime, 0.24, 0.18, 'square');
   }
 
+  /**
+   * Spared pillar contact (身残志坚): a springy boing over a low bonk — the
+   * hull is battered, the run limps on. Comedic, never defeat-flavored.
+   */
+  pillarBrush(): void {
+    const c = this.ctx;
+    if (!c || !this.eventBus) return;
+    if (this.activeOneShots + 5 >= this.maxOneShots) return;
+    if (c.currentTime - this.lastFailureAt < 0.18) return;
+    this.lastFailureAt = c.currentTime;
+    const t0 = c.currentTime;
+
+    // Coil wobble: pitch dives, springs back, and sags again.
+    const boing = c.createOscillator();
+    boing.type = 'triangle';
+    boing.frequency.setValueAtTime(280, t0);
+    boing.frequency.exponentialRampToValueAtTime(118, t0 + 0.07);
+    boing.frequency.exponentialRampToValueAtTime(208, t0 + 0.16);
+    boing.frequency.exponentialRampToValueAtTime(88, t0 + 0.3);
+    const boingGain = c.createGain();
+    boingGain.gain.setValueAtTime(0, t0);
+    boingGain.gain.linearRampToValueAtTime(0.32, t0 + 0.012);
+    boingGain.gain.setValueAtTime(0.28, t0 + 0.2);
+    boingGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.42);
+    boing.connect(boingGain);
+    boingGain.connect(this.eventBus);
+    this.trackOneShot(boing, [boingGain], t0, t0 + 0.46);
+
+    this.impactBurst(120, 46, 0.5, 0.18);
+    this.blip(520, t0 + 0.05, 0.09, 0.12, 'sine');
+    this.blip(336, t0 + 0.16, 0.12, 0.1, 'sine');
+    this.duckMusic(0.8, 0.12);
+  }
+
   raceBattle(kind: 'overtake' | 'lost', count: number, newPlace: number): void {
     const c = this.ctx;
     if (!c) return;

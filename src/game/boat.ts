@@ -2280,8 +2280,11 @@ export class Boat implements IBoat {
       const descentAt = this.flightDescendAt();
       this.flightElapsed = Math.max(this.flightElapsed, descentAt);
     }
-    // Comedic bouncy pinball rebound on gate pillar collision
-    if (failure.reason === 'gate_left' || failure.reason === 'gate_right' || failure.reason === 'gate') {
+    // Comedic bouncy pinball rebound on gate pillar collision. A spared
+    // contact (bend-inside pillar / rebound stays inside the corridor) rides
+    // on with the raw momentum bounce instead — no reversal, no elimination.
+    if (!failure.spared &&
+        (failure.reason === 'gate_left' || failure.reason === 'gate_right' || failure.reason === 'gate')) {
       const lateralDir = failure.reason === 'gate_left' ? 1 : -1;
       const heading = this.heading;
       const sideX = Math.cos(heading) * lateralDir * 7.5;

@@ -46,6 +46,8 @@ const FLIGHT_PIPS = 5;
 const TOAST_LIFE = 1.4; // matches the hud-toast keyframe duration
 const FINAL_LAP_FLASH = 3.0; // seconds the FINAL LAP banner stays up
 const GO_LINGER = 1.35;
+/** 身残志坚 beat: 4 staggered pops, a readable hold, then a quick fade. */
+const GRIT_BEAT_MS = 2900;
 
 interface ImpactNotice {
   kind: string;
@@ -211,6 +213,8 @@ export class HUD {
   // Overtakes are competition-critical and never share the generic queue.
   private readonly battleEl: HTMLDivElement;
   private readonly battleLabel: HTMLDivElement;
+  private readonly gritEl: HTMLDivElement;
+  private gritTimer = 0;
   private readonly battleFrom: HTMLSpanElement;
   private readonly battleTo: HTMLSpanElement;
   private readonly battleOpponent: HTMLDivElement;
@@ -518,6 +522,20 @@ export class HUD {
     this.battleTo = h('span', 'hud-battle-to', battlePlaces) as unknown as HTMLSpanElement;
     this.battleOpponent = h('div', 'hud-battle-opponent hud-inked', battleCopy);
     this.battleStreak = h('div', 'hud-battle-streak hud-inked', battleCopy);
+
+    // 身残志坚 grit beat: a spared pillar contact pops the four characters
+    // one by one — left pair rides the radio slot, right pair sits above the
+    // flight side, so the centre racing sightline stays clear.
+    this.gritEl = h('div', 'hud-grit', this.root);
+    this.gritEl.setAttribute('role', 'status');
+    this.gritEl.setAttribute('aria-live', 'polite');
+    this.gritEl.setAttribute('aria-label', '身残志坚');
+    const gritLeft = h('div', 'hud-grit-cluster hud-grit-left', this.gritEl);
+    h('span', 'hud-grit-char', gritLeft, '身');
+    h('span', 'hud-grit-char', gritLeft, '残');
+    const gritRight = h('div', 'hud-grit-cluster hud-grit-right', this.gritEl);
+    h('span', 'hud-grit-char', gritRight, '志');
+    h('span', 'hud-grit-char', gritRight, '坚');
 
     this.flightPrompt = h('div', 'hud-flight-prompt', this.root);
     this.flightPromptKey = h('div', 'hud-keycap', this.flightPrompt, 'SPACE');
@@ -1410,6 +1428,22 @@ export class HUD {
       void this.posNum.offsetWidth;
       this.posNum.classList.add('battle-lost');
     }
+  }
+
+  /**
+   * 顺势不判负 comedic beat: the four characters of 身残志坚 pop one by one.
+   * `side` scopes the pair into a duo half-screen; solo spans the full HUD.
+   */
+  showGritBeat(side: 'left' | 'right' | null): void {
+    if (side) this.gritEl.dataset.side = side;
+    else this.gritEl.removeAttribute('data-side');
+    window.clearTimeout(this.gritTimer);
+    this.gritEl.classList.remove('on');
+    void this.gritEl.offsetWidth;
+    this.gritEl.classList.add('on');
+    this.gritTimer = window.setTimeout(() => {
+      this.gritEl.classList.remove('on');
+    }, GRIT_BEAT_MS);
   }
 
   setBestFlights(best: number, current: number): void {
