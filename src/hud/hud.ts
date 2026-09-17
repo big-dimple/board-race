@@ -46,8 +46,8 @@ const FLIGHT_PIPS = 5;
 const TOAST_LIFE = 1.4; // matches the hud-toast keyframe duration
 const FINAL_LAP_FLASH = 3.0; // seconds the FINAL LAP banner stays up
 const GO_LINGER = 1.35;
-/** 身残志坚 beat: 4 staggered pops, a readable hold, then a quick fade. */
-const GRIT_BEAT_MS = 2900;
+/** 身残志坚 beat: 4 staggered slams into a movie-title hold, then a quick fade. */
+const GRIT_BEAT_MS = 3400;
 
 interface ImpactNotice {
   kind: string;
@@ -523,19 +523,22 @@ export class HUD {
     this.battleOpponent = h('div', 'hud-battle-opponent hud-inked', battleCopy);
     this.battleStreak = h('div', 'hud-battle-streak hud-inked', battleCopy);
 
-    // 身残志坚 grit beat: a spared pillar contact pops the four characters
-    // one by one — left pair rides the radio slot, right pair sits above the
-    // flight side, so the centre racing sightline stays clear.
+    // 身残志坚 grit beat: a spared pillar contact drops the four brush
+    // characters as a center-screen movie title — translucent ink band,
+    // staggered slams, kicker and vermillion seal — while the racing
+    // sightline stays readable through the semi-transparent band.
     this.gritEl = h('div', 'hud-grit', this.root);
     this.gritEl.setAttribute('role', 'status');
     this.gritEl.setAttribute('aria-live', 'polite');
     this.gritEl.setAttribute('aria-label', '身残志坚');
-    const gritLeft = h('div', 'hud-grit-cluster hud-grit-left', this.gritEl);
-    h('span', 'hud-grit-char', gritLeft, '身');
-    h('span', 'hud-grit-char', gritLeft, '残');
-    const gritRight = h('div', 'hud-grit-cluster hud-grit-right', this.gritEl);
-    h('span', 'hud-grit-char', gritRight, '志');
-    h('span', 'hud-grit-char', gritRight, '坚');
+    const gritCard = h('div', 'hud-grit-card', this.gritEl);
+    h('div', 'hud-grit-kicker', gritCard, '撞柱 · 大难不死');
+    const gritRow = h('div', 'hud-grit-cluster', gritCard);
+    h('span', 'hud-grit-char', gritRow, '身');
+    h('span', 'hud-grit-char', gritRow, '残');
+    h('span', 'hud-grit-char', gritRow, '志');
+    h('span', 'hud-grit-char', gritRow, '坚');
+    h('div', 'hud-grit-seal', gritCard, '命硬');
 
     this.flightPrompt = h('div', 'hud-flight-prompt', this.root);
     this.flightPromptKey = h('div', 'hud-keycap', this.flightPrompt, 'SPACE');
@@ -1431,8 +1434,9 @@ export class HUD {
   }
 
   /**
-   * 顺势不判负 comedic beat: the four characters of 身残志坚 pop one by one.
-   * `side` scopes the pair into a duo half-screen; solo spans the full HUD.
+   * 顺势不判负 comedic beat: the four characters of 身残志坚 slam in one by
+   * one as a center-screen movie title. `side` re-centres the card on a duo
+   * seat's half-screen; solo centres on the full HUD.
    */
   showGritBeat(side: 'left' | 'right' | null): void {
     if (side) this.gritEl.dataset.side = side;

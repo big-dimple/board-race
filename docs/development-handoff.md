@@ -1,46 +1,37 @@
 # Board Race 开发交接
 
-状态：撞柱顺势不判负 + 「身残志坚」字幕包已验证（build / smoke / collision / audio /
-team 全绿 + 桌面/844x390 截图自审通过），待提交推送后用户实机复核。
+状态：「身残志坚」中央电影字幕卡重做完成（build / smoke 全绿，桌面 + 844x390 截图
+自审通过），待提交推送后用户实机复核。
 
 ## 当前工作包（本提交）
 
-- 目标：空中撞真实门柱时，内柱接触或反弹出不了白雾航道的接触不判负——损失本次飞行
-  尝试、船顺势翻滚落地继续比赛，打出「身残志坚」逐字喜剧字幕；深撞被弹出航道才维持
-  原淘汰流程。
-- 判定（`src/game/course.ts` 柱体接触分支）：`gateBendInnerSide` 用门位局部弯曲方向
-  （±0.004u 窗口切线转角，阈值 0.018rad）定内柱；反弹后速度横向投影 0.5s 不超出
-  航道半宽 + 硬边界（14m）记「出不了赛道」；任一成立 → `FlightFailureSnapshot.spared`。
-  门框横穿失守分支不放宽（「错失光门」语义不变）。
-- 行为：`boat.applyFlightRouteMiss` 对 spared 跳过弹球倒摔（保留动量反弹+翻滚+减速
-  +强制下降）；`main.ts` 对人类席跳过 `defeatFlight`/`eliminateDuoSeat`，触发
-  `hud.showGritBeat(side)` + `audio.pillarBrush()`，落水后走 AI 同款
-  `recoverFailedFlightRoute` 下一圈重试。真实判负路径零改动。
-- 表现：`hud-grit` 逐字 pop（stagger 0.16s，总 2.9s，太阳黄 + 墨描边硬投影）；
-  字体 = 自托管 Ma Shan Zheng 4 字形子集（`src/assets/fonts/grit-brush.woff2`，
-  随 CSS 内联）+ 系统楷体栈回落；桌面身残在电台卡下方、志坚在右侧仪表上方，移动端
-  身残在电台卡下列、志坚在「飞」键上方，双打 `data-side` 半屏归位；
-  结果层/勋章/复盘/finale/高光抑制，reduced-motion 静态同显。
-- Owner：`src/contracts.ts`、`src/game/course.ts`、`src/game/boat.ts`、`src/main.ts`、
-  `src/hud/hud.ts`、`src/hud/hud.css`、`src/audio/audio.ts`、`docs/*`。
+- 目标：用户实机裁决上一版边角黄字「身残志坚」为 5 毛特效（黄色丑、字体弱、位置没
+  气势），重做为中心式电影字幕卡：大字、墨色、半透明底衬、逐字砸出气势。
+- 表现（`src/hud/hud.css` / `src/hud/hud.ts`）：
+  - 布局：整卡（底衬 + kicker + 四字 + 印章）屏幕中轴约 33% 高度带，警示横幅之下、
+    船体投影之上；双打 `data-side` 把整卡归到该席半屏中轴（left 25% / right 75%）。
+  - 底衬：横向羽化墨带渐变，峰值约 0.5 不透明度——竞速视线穿透（用户点名接受半透明）。
+  - 字色：废弃 `#ffd23f`；宣纸米白纵向渐变（#faf3dd→#d9c48d）+ 米白柔晕
+    drop-shadow，毛笔子集字形不变。
+  - 动画：`hud-grit-slam` scale 3.4→0.9→1.08→1，stagger 0.14s；kicker 0.7s 淡入；
+    印章 1.2s 弹跳入；`GRIT_BEAT_MS` 2900→3400。
+  - 构图：kicker「撞柱 · 大难不死」+ 右下朱红「命硬」印章。
+  - harness 定格改 `.settled` 类（`.hud-grit.settled *` 全件落定），静帧确定性不依赖
+    墙钟。
+- 非改动：判定 / 物理 / 音频（`pillarBrush()`）/ 触发点（`main.ts:2878`）零改动。
+- Owner：`src/hud/hud.css`、`src/hud/hud.ts`、`src/main.ts`（harness 定格）、`docs/*`。
 
 ## 验证与证据
 
-- `npm run build` 通过；`verify:smoke`（桌面+移动）、`verify:collision`、
-  `verify:audio`、`verify:team` 全绿。
-- 截图证据：`shots/grit-beat/grit-pillar.png`（桌面）、
-  `shots/grit-beat/grit-pillar-mobile.png`（844x390）、
-  `shots/grit-beat/font-compare.png`（毛笔子集 vs 黑体对照）。
-- 场景 `case 'grit-pillar'`：预测舵控把门平面横向伺服到柱环（7.25m），确定性轻擦内沿
-  → 断言 `spared`；末尾重放 beat 并冻结定格（同 freezeFlightExtensionImpact 手法）。
+- `npm run build`、`verify:smoke`（桌面 + 844x390）全绿。
+- 截图证据：`shots/grit-beat-v2/`（桌面 + 移动，待拍）。
 
 ## 遗留风险
 
-- 真实淘汰路径（深撞弹出航道）无自动化用例断言淘汰本身，依赖原 smoke 合成快照路径
-  与人工试玩复核。
-- 字幕动态（逐字节奏）静帧只能验证排版，节奏以实机观感为准。
+- 逐字节奏（重砸 + stagger）静帧只能验证排版，气势以实机观感为准；
+  若仍不达标，下一步是换字重（更大字号 / 换展示字）而非再调动画。
 
 ## 唯一下一步
 
-用户实机复核：飞行中轻擦门柱是否稳定触发「身残志坚」且不淘汰；深撞是否仍淘汰；
-字幕位置在实机上是否顺眼（尤其移动端不遮触控）。
+用户实机复核：撞柱大难不死时中央字幕卡的气势、可读性、是否遮竞速视线
+（尤其移动端）；确认后走常规发布。

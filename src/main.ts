@@ -5840,19 +5840,13 @@ function scenario(name: string): void {
       loop.advance(0.45);
       // The beat fired on the hit frame, but CSS animations run on wall clock
       // while the synchronous advance above burns real headless render time.
-      // Re-fire and freeze the settled pop state so the still captures all
-      // four characters (same staging trick as freezeFlightExtensionImpact).
+      // Re-fire so the still captures all four characters (same staging trick
+      // as freezeFlightExtensionImpact).
       hud.showGritBeat(null);
-      const gritLayer = document.querySelector<HTMLElement>('.hud-grit');
-      gritLayer?.style.setProperty('animation', 'none');
-      gritLayer?.style.setProperty('opacity', '1');
-      gritLayer?.style.setProperty('visibility', 'visible');
-      for (const el of document.querySelectorAll<HTMLElement>('.hud-grit-char')) {
-        el.style.setProperty('animation', 'none');
-        el.style.setProperty('opacity', '1');
-        const rot = getComputedStyle(el).getPropertyValue('--rot').trim();
-        if (rot) el.style.setProperty('transform', `rotate(${rot})`);
-      }
+      // The `.settled` class pins every card piece (band, kicker, chars,
+      // seal) at its final pose, so the still is deterministic regardless
+      // of how much wall clock the synchronous advance burned.
+      document.querySelector('.hud-grit')?.classList.add('settled');
       break;
     }
     case "corridor-storm":
