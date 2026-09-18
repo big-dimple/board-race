@@ -405,6 +405,23 @@ async function verifyMode(browser, mobile) {
     assert.equal(blast.activeAfterLifetime, 0,
       `${label}: detonations did not retire to zero active blasts: ${JSON.stringify(blast)}`);
 
+    // A freeze must be classifiable after the fact: browser-side gap, shader
+    // compile (prog+), texture upload (tex+), governor shift (pr) and sim
+    // catch-up all journal with their tag; healthy frames stay silent.
+    const stalls = await page.evaluate(() => window.__harness.stallJournalCase());
+    assert.equal(stalls.healthyJournaled, false,
+      `${label}: a healthy frame landed in the stall journal: ${JSON.stringify(stalls)}`);
+    assert.ok(stalls.journaled >= 5 && stalls.journaled <= stalls.ringCapacity,
+      `${label}: stall journal ring misbehaved: ${JSON.stringify(stalls)}`);
+    const tags = stalls.classified.map((entry) => entry.ctx).join(' | ');
+    assert.ok(tags.includes('prog+2'), `${label}: shader-compile stall lost its prog tag: ${tags}`);
+    assert.ok(tags.includes('tex+1'), `${label}: texture-upload stall lost its tex tag: ${tags}`);
+    assert.ok(tags.includes('pr1.50>1.15'), `${label}: governor-shift stall lost its pr tag: ${tags}`);
+    assert.ok(tags.includes('simcatchup'), `${label}: sim catch-up stall lost its tag: ${tags}`);
+    const browserSide = stalls.classified.find((entry) => entry.gap === 210);
+    assert.ok(browserSide && browserSide.render === 9 && browserSide.other === 197,
+      `${label}: browser-side stall misaccounted: ${JSON.stringify(browserSide)}`);
+
     const offCourse = await page.evaluate(() => window.__harness.offCourseRecoveryCase());
     assert.ok(offCourse.distanceM > offCourse.hardEdgeM,
       `${label}: off-course case did not cross the surface hard edge: ${JSON.stringify(offCourse)}`);

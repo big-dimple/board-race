@@ -26,6 +26,10 @@ export class Loop {
   stepsLastFrame = 0;
   /** Milliseconds spent inside fixed steps on the most recent rAF tick. */
   simMsLastFrame = 0;
+  /** Raw rAF-to-rAF gap of the most recent tick, before the hidden-tab clamp.
+   *  The stall journal needs the unclamped value: a >250 ms freeze is exactly
+   *  what a phone user feels, and the accumulator clamp would erase it. */
+  gapLastFrame = 0;
   private accumulator = 0;
   private lastNow = 0;
   private rafId = 0;
@@ -46,7 +50,9 @@ export class Loop {
     const tick = (now: number) => {
       if (!this.running) return;
       this.rafId = requestAnimationFrame(tick);
-      let frameMs = now - this.lastNow;
+      const gapMs = now - this.lastNow;
+      this.gapLastFrame = gapMs;
+      let frameMs = gapMs;
       this.lastNow = now;
       if (frameMs > 250) frameMs = 250; // tab was hidden — don't lurch
       this.accumulator += frameMs / 1000;

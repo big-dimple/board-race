@@ -603,6 +603,30 @@ export class HonorTargetSystem {
     }
   }
 
+  /** Upload every burst sprite program/texture before the first race, not on the first pickup. */
+  warmup(renderer: THREE.WebGLRenderer): void {
+    const scene = new THREE.Scene();
+    const preview = new THREE.Group();
+    for (const burst of this.coinBursts) {
+      const clone = burst.root.clone(true);
+      clone.traverse((child) => { child.visible = true; child.frustumCulled = false; });
+      preview.add(clone);
+    }
+    scene.add(preview);
+    const target = new THREE.WebGLRenderTarget(32, 32);
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0, 6, 16);
+    camera.lookAt(0, 0, 0);
+    const previous = renderer.getRenderTarget();
+    try {
+      renderer.setRenderTarget(target);
+      renderer.render(scene, camera);
+    } finally {
+      renderer.setRenderTarget(previous);
+      target.dispose();
+    }
+  }
+
   private applyCoinBurst(slot: CoinBurstSlot): void {
     slot.ringMaterial.opacity = 0.95;
     slot.flashMaterial.opacity = 1;

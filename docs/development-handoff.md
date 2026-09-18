@@ -1,50 +1,58 @@
 # Board Race 开发交接
 
-状态：撞柱撞击物理恢复 + spared 收紧 + 「身残志坚」底部字幕卡 v3 完成
-（build / smoke / collision 全绿，桌面 + 844x390 截图自审通过），已提交推送，
-待用户实机复核。
+状态：偶发 0.2s 卡顿现场捕获工具（stall journal）+ 金币爆发池预热补齐完成
+（build / smoke 全绿，桌面 + 844x390 通过，浮层实渲染已验证），待提交，
+待用户实机回传 stall 数据后做针对性修复。
 
-## 当前工作包（本提交）
+## 当前工作包
 
-- 目标（用户 2026-09-18 实机裁决两轮）：
-  1. 撞柱的翻滚撞飞物理不许阉割——上一版 spared 只有软反弹，撞击感全丢；
-  2. 撞柱"全部不判负"是 bug——大难不死必须回到低概率；
-  3. 字幕卡中央仍挡视线 → 挪正下方；「撞柱」两字要炸裂；印章别压「坚」。
-- 物理（`src/game/boat.ts`、`src/game/course.ts`）：
-  - 所有真实柱体接触恢复翻滚 + 上抛 + 水花：spared 轻档（vy 6.5、
-    tumbleSpin 1.0s、yaw 侧踢 1.4、24 粒水花，不反转速度），深撞维持原
-    弹球倒摔（vy 9.5、1.25s、速度反转 + 侧弹）+ 淘汰。
-  - spared 收紧：`innerHit || (staysInside && bounceSpeed <= SPARED_MAX_BOUNCE_SPEED=24)`。
-    门洞进近 42-50 m/s、反弹 0.72x（30-36），普通撞击回淘汰；内柱轻擦与
-    真弱反弹才大难不死。
-  - `Boat.tumbleSpinRemaining` getter（harness 断言用）；
-    `Course.debugGateBendInnerSide()`（harness 瞄准用）。
-- 表现（`src/hud/hud.css`、`src/hud/hud.ts`）：
-  - 字幕卡挪底部中央：桌面 bottom 10%（FLIGHT/BANK 条之上），移动端 26%
-    且 max-width 40vw 不遮触控簇；双打仍按席半屏中轴。
-  - kicker 重构：朱红渐变毛笔「撞柱」主字（毛笔子集扩为 6 字形，含撞柱）
-    + 米白「大难不死」副题；「命硬」印章改为题字行 flex 尾项（不再压坚）。
-  - 炸裂加强：逐字重砸配 ::after 墨爆闪光（animation-delay: inherit 同步），
-    整卡 hud-grit-shake 冲击震颤（jolt 对齐四次砸落）。
-- harness（`src/main.ts` grit-pillar 场景）：自动选第一条门在弯上的航线，
-  微扰探向符号 + 双速率伺服（全偏转逼近 + 细伺服保持接触缝）瞄准内柱环；
-  断言 spared + `tumbleSpinRemaining > 0`（翻滚撞击回归锁死）。
-- Owner：`src/game/boat.ts`、`src/game/course.ts`、`src/hud/hud.css`、
-  `src/hud/hud.ts`、`src/main.ts`、`src/assets/fonts/grit-brush.woff2`、`docs/*`。
+- 目标（用户 2026-09-18 实机裁决）：1+15 旗舰机整局随机 0.2s 卡顿，不固定场景；
+  上一版修复未解决；`?debug=perf` 旧浮层只能看最差 3 条瞬时峰值，用户感觉卡再
+  截图已过期，抓不到。本轮先把"卡顿瞬间"变成事后可回溯的数据，并按数据修。
+- 诊断工具（`src/core/loop.ts`、`src/main.ts`）：
+  - loop 记录未 clamp 的原始 rAF 间隔 `gapLastFrame`。
+  - `spikeLog` 替换为 24 槽常开 stall journal：原始间隔 ≥60ms / 渲染 ≥22ms /
+    sim ≥22ms 记一条；每条含 race 时刻、gap/render/sim/other 四项耗时、
+    phase/flightPhase/步数及来源标（`prog+N` 着色器编译、`tex+N` 贴图上传、
+    `pr a>b` 调速器换挡、`simcatchup`、hidden、`ctxlost/ctxrestored`）。
+  - 浮层改为一行 EMA 摘要 + 最近 6 条 stall（最新在底），每 6 帧刷新；
+    事后截图可回溯。console.warn 同步输出；`window.__boardRaceStalls()`
+    供桌面远程调试取 JSON。
+  - 新增 `webglcontextlost/restored` 监听（preventDefault 保留恢复 attempt），
+    事件写入 journal——Android GPU 压力下丢上下文是秒级冻结的经典嫌疑。
+- 预热审计 + 加固（`src/game/honors.ts`、`src/main.ts`）：
+  - 审计结论：爆炸池/单人导弹（含 tacticalReticle 子树）/灯塔夜航均已有
+    warmup；鸭子气球、荣誉目标组开局即在场景内；**金币爆发池（每槽 20 个
+    SpriteMaterial + 3 张共享 canvas 贴图）无 warmup，首次拾取金币才编译上传**
+    ——正是"比赛中途任何位置随机卡"的候选，已按爆炸池同款模式补
+    `HonorTargetSystem.warmup()` 并在 boot 调用。
+  - 已知早发项（不修）：spray 液滴/落水体积着色器在首次落水才编译，发生在
+    局初数秒；duo 互动池仅双打路径。
+- harness（`harness/screenshot.mjs`、`src/main.ts`）：新增 `stallJournalCase`
+  注入合成帧断言分类正确（browser-side/prog+/tex+/pr/simcatchup）且健康帧不入 journal，
+  挂进 `verify:smoke` 桌面分支。
+- Owner：`src/core/loop.ts`、`src/main.ts`、`src/game/honors.ts`、
+  `harness/screenshot.mjs`、`docs/llmwiki.md`、本文。
 
 ## 验证与证据
 
-- `npm run build`、`verify:smoke`（桌面 + 844x390）、`verify:collision` 全绿。
-- 截图证据：`shots/grit-beat-v3/grit-pillar.png`（桌面，翻滚落水 + 底部字幕卡）、
-  `shots/grit-beat-v3/grit-pillar-mobile.png`（844x390，柱后视角，字幕卡不遮键位）。
+- `npm run build`、`npm run verify:smoke`（桌面 + 844x390）全绿
+  （首次 mobile tilt 校准步超时一次，重跑通过，属既有偶发）。
+- 桌面 headless 实渲染验证（playwright + system Chrome + swiftshader）：
+  journal 五条合成 stall 分类正确；真实环境还自抓到首帧编译突发
+  （render 1350ms + prog+35 tex+28）与一条 1.55s 浏览器侧停顿
+  （gap1550/r8/o1538）——旧工具对后者完全不可见。
+- 无像素/玩法/输入/物理改动 → 不需要截图评审与 collision/audio 专项。
 
 ## 遗留风险
 
-- 深撞淘汰路径无自动化用例断言淘汰本身（沿用手工/旧 smoke 路径）。
-- 撞柱「猛 vs 弱」的实感分界（24 m/s 阈）以实机为准，必要时只调该常量。
-- 字幕卡底部布局在极端宽高比实机上的观感未实测。
+- 真凶未定：journal 只能把 stall 归因到 编译/上传/调速器/追帧/浏览器侧 五类，
+  若回传数据显示 `other` 占主导，需再细分（DOM/音频/输入）。
+- spray 首落水火候、duo 互动池预热缺口已知但按"数据驱动"暂不动。
+- journal 常开仅 stall 时写入固定槽位，常态零成本；console.warn 只在 stall 时产生。
 
 ## 唯一下一步
 
-用户实机复核：猛撞是否回淘汰+撞飞翻滚；内柱轻擦是否大难不死+字幕卡气势；
-底部字幕是否不挡视线与按键；移动端观感。
+用户实机复核：带 `?debug=perf` 正常玩几局，卡顿后（不用抢拍）把浮层上的
+`[stall]` 行截图回传；按 `prog+/tex+/pr/simcatchup/other/ctxlost` 分类锁定真凶后
+出针对性修复。

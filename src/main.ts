@@ -137,6 +137,19 @@ const app = document.getElementById('app')!;
 const stage = new Stage(app, resolveQualityMode(params.get('quality'), MOBILE_DEVICE));
 const prePass = new PrePass(4, 4);
 
+// A lost WebGL context (phone GPU/memory pressure) freezes the game for
+// seconds and leaves no other trace, so it goes into the stall journal like
+// any other freeze. preventDefault keeps the browser's automatic restore
+// attempt alive; Three re-compiles programs lazily afterwards, which the
+// journal surfaces as a prog+ cluster.
+stage.renderer.domElement.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  pushContextStall('ctxlost');
+});
+stage.renderer.domElement.addEventListener('webglcontextrestored', () => {
+  pushContextStall('ctxrestored');
+});
+
 const sky = new Sky();
 stage.scene.add(sky.object);
 
@@ -219,6 +232,9 @@ const duoInteractions = new DuoInteractionController();
 const missileBlasts = new MissileBlastPool();
 stage.scene.add(missileBlasts.object);
 missileBlasts.warmup(stage.renderer);
+// Coin pickups happen in mid-course sectors minutes into a race; compiling
+// the burst sprites there reads as a random freeze, so warm the pool at boot.
+honorTargets.warmup(stage.renderer);
 const singlePlayerMissiles = new SinglePlayerMissilesSystem(
   course,
   (msg, title) => hud.showTransientNotice(msg, title),
@@ -3322,7 +3338,8 @@ const renderDrawingSize = new THREE.Vector2();
 
 function render(): void {
   const renderStart = performance.now();
-  const progsBefore = perfOverlayEl ? stage.renderer.info.programs?.length ?? 0 : 0;
+  const progsBefore = stage.renderer.info.programs?.length ?? 0;
+  const texsBefore = stage.renderer.info.memory.textures;
   stage.renderer.info.reset(); // autoReset is off: gather whole-frame stats
   sky.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
   ocean.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
@@ -3353,75 +3370,131 @@ function render(): void {
   // count scales the governor thresholds; without it both halves would be
   // shaved soft as if the device were slow.
   const frameMs = performance.now() - renderStart;
-  const prFrom = perfOverlayEl ? Number(stage.stats().pixelRatio) : 0;
+  const prFrom = Number(stage.stats().pixelRatio);
   stage.updatePerf(frameMs, splitFrame ? 2 : 1);
-  recordFrameSpike(frameMs, perfOverlayEl
-    ? {
-        simMs: loop.simMsLastFrame,
-        prFrom,
-        prTo: Number(stage.stats().pixelRatio),
-        progs: (stage.renderer.info.programs?.length ?? 0) - progsBefore,
-      }
-    : undefined);
-  if (perfOverlayEl) {
+  recordFrameSpike(frameMs, {
+    simMs: loop.simMsLastFrame,
+    prFrom,
+    prTo: Number(stage.stats().pixelRatio),
+    progs: (stage.renderer.info.programs?.length ?? 0) - progsBefore,
+    texs: stage.renderer.info.memory.textures - texsBefore,
+  });
+  perfOverlayTick++;
+  if (perfOverlayEl && perfOverlayTick % 6 === 0) {
     const stats = stage.stats();
     const fps = 1000 / Math.max(1, Number(stats.frameMs));
-    perfOverlayEl.textContent =
-      `${fps.toFixed(0)}fps ${Number(stats.frameMs).toFixed(1)}ms · sim ${loop.simMsLastFrame.toFixed(1)}ms · steps ${loop.stepsLastFrame} · ` +
-      `pr ${Number(stats.pixelRatio).toFixed(2)} · ${stats.quality} · calls ${stats.calls} · ` +
-      `tris ${(Number(stats.triangles) / 1000).toFixed(0)}k` +
-      (spikeLog.length ? ` · spikes ${formatSpikes()}` : '');
+    const lines = [
+      `${fps.toFixed(0)}fps ${Number(stats.frameMs).toFixed(1)}ms · gap ${loop.gapLastFrame.toFixed(0)} · ` +
+        `sim ${loop.simMsLastFrame.toFixed(1)}ms · steps ${loop.stepsLastFrame} · ` +
+        `pr ${Number(stats.pixelRatio).toFixed(2)} · ${stats.quality} · calls ${stats.calls} · ` +
+        `tris ${(Number(stats.triangles) / 1000).toFixed(0)}k`,
+    ];
+    for (const rec of stallList().slice(-6)) {
+      const parts = [`gap${rec.gap}`];
+      if (rec.render > 0) parts.push(`r${rec.render}`);
+      if (rec.sim > 0) parts.push(`s${rec.sim}`);
+      if (rec.other > 0) parts.push(`o${rec.other}`);
+      lines.push(`${rec.t} ${parts.join('/')} ${rec.ctx}`);
+    }
+    perfOverlayEl.textContent = lines.join('\n');
   }
 }
 
 /**
- * Hitch hunting: single-frame render-cost spikes are exactly what the EMA
- * governor smooths away, so a phone user can feel a stall yet see a healthy
- * average. Keep the worst recent spikes with their sim context so an
- * intermittent takeoff stall can be pinned to a phase instead of guesswork.
+ * Hitch hunting: the old spike log only saw render() internals, so a stall
+ * happening BETWEEN rAF callbacks (GC, compositor, driver, input dispatch)
+ * was invisible — exactly the "EMA healthy but the game randomly freezes for
+ * ~0.2 s" report a phone user makes. The journal accounts the whole tick:
+ * raw rAF gap vs measured sim + render cost, tagged with the likely source
+ * (shader compile prog+, texture upload tex+, governor shift pr, sim
+ * catch-up, or no tag = browser-side "other"). It stays on in every build —
+ * it only writes on a stall and reuses fixed slots, so steady-state cost is
+ * zero — and the ?debug=perf overlay renders the newest entries in time
+ * order, readable from a screenshot taken minutes after the freeze.
  */
-const spikeLog: Array<{ ms: number; ctx: string }> = [];
+const STALL_RING_SIZE = 24;
+
+interface StallRecord {
+  t: string;
+  gap: number;
+  render: number;
+  sim: number;
+  other: number;
+  ctx: string;
+}
+
+const stallRing: StallRecord[] = Array.from({ length: STALL_RING_SIZE },
+  () => ({ t: '', gap: 0, render: 0, sim: 0, other: 0, ctx: '' }));
+let stallHead = 0;
+let stallCount = 0;
+
+function stallClock(): string {
+  const seconds = Math.max(0, race.raceTime);
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds - minutes * 60;
+  return `${minutes}:${rest.toFixed(0).padStart(2, '0')}`;
+}
+
+function pushStall(gapMs: number, renderMs: number, simMs: number, ctx: string): void {
+  const rec = stallRing[stallHead];
+  stallHead = (stallHead + 1) % STALL_RING_SIZE;
+  stallCount = Math.min(stallCount + 1, STALL_RING_SIZE);
+  rec.t = stallClock();
+  rec.gap = Math.round(gapMs);
+  rec.render = Math.round(renderMs);
+  rec.sim = Math.round(simMs);
+  rec.other = Math.max(0, Math.round(gapMs - renderMs - simMs));
+  rec.ctx = ctx;
+  console.warn(`[stall] ${rec.t} gap=${rec.gap} render=${rec.render} sim=${rec.sim} other=${rec.other} ${rec.ctx}`);
+}
+
+/** Newest-last view of the ring; the perf overlay and dumps read this. */
+function stallList(): StallRecord[] {
+  const out: StallRecord[] = [];
+  for (let i = 0; i < stallCount; i++) {
+    out.push(stallRing[(stallHead - stallCount + i + STALL_RING_SIZE) % STALL_RING_SIZE]);
+  }
+  return out;
+}
+
+/** WebGL context loss is a seconds-long freeze and surfaces nowhere else. */
+function pushContextStall(kind: 'ctxlost' | 'ctxrestored'): void {
+  pushStall(kind === 'ctxlost' ? 250 : 0, 0, 0,
+    `${kind} ${race.phase}/${boats[0]?.state.flightPhase ?? '?'}`);
+}
 
 interface SpikeMeta {
   simMs: number;
   prFrom: number;
   prTo: number;
   progs: number;
+  texs: number;
 }
 
-function recordFrameSpike(ms: number, meta?: SpikeMeta): void {
-  // A catch-up burst can stall the game even when the render itself is cheap.
-  if (ms < 22 && !(meta && meta.simMs >= 22)) return;
+function recordFrameSpike(renderMs: number, meta: SpikeMeta): void {
+  const gapMs = loop.gapLastFrame;
+  // A catch-up burst can stall the game even when the render itself is cheap,
+  // and a raw-gap stall can hide entirely outside render(). ~3.6 frames of
+  // unaccounted gap is where a phone user starts feeling a freeze.
+  if (renderMs < 22 && meta.simMs < 22 && gapMs < 60) return;
   const base = `${race.phase}/${boats[0]?.state.flightPhase ?? '?'}/s${loop.stepsLastFrame}`;
-  pushSpike(Math.round(ms), base + (meta && meta.simMs >= 12 ? ` sim${Math.round(meta.simMs)}` : ''));
-  if (!meta) return;
-  if (meta.simMs >= 22) pushSpike(Math.round(meta.simMs), `${base} simcatchup`);
-  if (meta.prTo !== meta.prFrom) {
-    pushSpike(Math.round(ms), `${base} pr${meta.prFrom.toFixed(2)}>${meta.prTo.toFixed(2)}`);
-  }
-  if (meta.progs > 0) pushSpike(Math.round(ms), `${base} prog+${meta.progs}`);
+  const tags: string[] = [];
+  if (meta.simMs >= 22) tags.push('simcatchup');
+  if (meta.progs > 0) tags.push(`prog+${meta.progs}`);
+  if (meta.texs > 0) tags.push(`tex+${meta.texs}`);
+  if (meta.prTo !== meta.prFrom) tags.push(`pr${meta.prFrom.toFixed(2)}>${meta.prTo.toFixed(2)}`);
+  if (document.hidden) tags.push('hidden');
+  pushStall(gapMs, renderMs, meta.simMs, tags.length ? `${base} ${tags.join(' ')}` : base);
 }
 
-function pushSpike(ms: number, ctx: string): void {
-  const existing = spikeLog.find((entry) => entry.ctx === ctx);
-  if (existing) {
-    existing.ms = Math.max(existing.ms, ms);
-    return;
-  }
-  spikeLog.push({ ms, ctx });
-  if (spikeLog.length > 6) spikeLog.sort((a, b) => b.ms - a.ms).length = 6;
-}
-
-function formatSpikes(): string {
-  return [...spikeLog].sort((a, b) => b.ms - a.ms)
-    .slice(0, 3)
-    .map((entry) => `${entry.ms}ms@${entry.ctx}`)
-    .join(' ');
-}
+(window as unknown as { __boardRaceStalls?: () => unknown }).__boardRaceStalls = () =>
+  stallList().map((rec) => ({ ...rec }));
 
 /** ?debug=perf: tiny on-device readout so a phone browser can report its real
  *  frame time, governor ratio and step count without remote devtools. */
 const perfOverlayEl = params.get('debug') === 'perf' ? createPerfOverlay() : null;
+/** Overlay text refreshes every 6th frame; EMA precision is unaffected. */
+let perfOverlayTick = 0;
 
 function createPerfOverlay(): HTMLDivElement {
   const el = document.createElement('div');
@@ -3651,6 +3724,7 @@ interface Harness {
   duoDriverPowerCase(): Record<string, unknown>;
   qualityGovernorCase(): Record<string, unknown>;
   missileBlastCase(): Record<string, unknown>;
+  stallJournalCase(): Record<string, unknown>;
   duoEliminate(id: 0 | 1): void;
   timeOfDayState(): { timeOfDay: TimeOfDay; blend: number; round: number };
   setTimeOfDay(tod: TimeOfDay): void;
@@ -6474,6 +6548,46 @@ function runQualityGovernorCase(): Record<string, unknown> {
 }
 
 /**
+ * The stall journal must classify a freeze by where the time went: a
+ * browser-side gap (cheap render/sim), a shader compile (render + prog
+ * growth), a texture upload (render + tex growth), a governor shift (pr tag)
+ * or sim catch-up. Healthy frames must not journal at all, and the ring
+ * returns entries oldest-first so the overlay can append newest-last.
+ */
+function runStallJournalCase(): Record<string, unknown> {
+  const meta = { prFrom: 1.5, prTo: 1.5, progs: 0, texs: 0 };
+  const savedGap = loop.gapLastFrame;
+  // Browser-side stall: huge raw gap, cheap render and sim.
+  loop.gapLastFrame = 210;
+  recordFrameSpike(9, { ...meta, simMs: 4 });
+  // Shader-compile stall: render spike with program-count growth.
+  loop.gapLastFrame = 180;
+  recordFrameSpike(140, { ...meta, simMs: 6, progs: 2 });
+  // Texture-upload stall: render spike with texture-count growth.
+  loop.gapLastFrame = 120;
+  recordFrameSpike(95, { ...meta, simMs: 5, texs: 1 });
+  // Governor shift stall: the pixelRatio tag must appear.
+  loop.gapLastFrame = 90;
+  recordFrameSpike(70, { prFrom: 1.5, prTo: 1.15, progs: 0, texs: 0, simMs: 5 });
+  // Sim catch-up: cheap render, sim dominates.
+  loop.gapLastFrame = 80;
+  recordFrameSpike(12, { ...meta, simMs: 55 });
+  // Healthy frame: no journal entry.
+  loop.gapLastFrame = 16;
+  recordFrameSpike(10, { ...meta, simMs: 5 });
+  loop.gapLastFrame = savedGap;
+  const entries = stallList();
+  return {
+    ringCapacity: STALL_RING_SIZE,
+    journaled: entries.length,
+    classified: entries.map((rec) => ({
+      gap: rec.gap, render: rec.render, sim: rec.sim, other: rec.other, ctx: rec.ctx,
+    })),
+    healthyJournaled: entries.some((rec) => rec.gap === 16),
+  };
+}
+
+/**
  * A dodged missile must detonate visibly: spawning marks one active blast and
  * a full lifetime later the pool returns to zero active instances.
  */
@@ -6617,6 +6731,7 @@ if (HARNESS) {
     duoNoticeCase: runDuoNoticeCase,
     duoDriverPowerCase: runDuoDriverPowerCase,
     qualityGovernorCase: runQualityGovernorCase,
+    stallJournalCase: runStallJournalCase,
     missileBlastCase: runMissileBlastCase,
     duoEliminate: harnessDuoEliminate,
     timeOfDayState: () => ({

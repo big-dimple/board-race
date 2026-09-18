@@ -413,10 +413,16 @@ npm run verify:team
 撞柱文案的关键布局。截图使用 `npm run shot -- <scenario...>`；可加 `--mobile` 和
 `--out <directory>`。
 
-实机瞬时卡顿用 `?debug=perf` 浮层排查：除 governor 的 EMA 均值外，它记录超过 22ms
-的渲染帧峰值及当时上下文（race phase / flightPhase / catch-up 步数 / sim 耗时 /
-调速器 pr 换挡 / shader 编译 prog+），sim 自身 ≥22ms 也会以 simcatchup 记一条；浮层显示最差三
-条；EMA 会抹平单帧毛刺，峰值日志才能定位"偶尔卡一下"。
+实机瞬时卡顿用 `?debug=perf` 浮层排查：首行是 governor EMA 均值与当前 gap/sim/pr，
+下方按时间序（最新在底）列出最近 stall 记录——卡顿后过几分钟截图仍能回溯，不用抢拍。
+stall journal 常开于所有构建：原始 rAF 间隔 ≥60ms、渲染 ≥22ms 或 sim ≥22ms 记一条，
+字段含 race 时刻、gap/render/sim/other 四项耗时分解与 phase/flightPhase/步数，并按来源打标：
+shader 编译 `prog+N`、贴图上传 `tex+N`、调速器换挡 `pr a>b`、追帧 `simcatchup`、页面隐藏
+`hidden`、WebGL 上下文丢失/恢复 `ctxlost/ctxrestored`；无法归因的耗时归浏览器侧 `other`。
+桌面远程调试可用 `window.__boardRaceStalls()` 取全量 JSON。EMA 会抹平单帧毛刺，
+journal 的四项分解才能区分"偶尔卡一下"是编译/上传/调速器/追帧还是浏览器侧。
+金币爆发池等开局不可见的效果池必须同爆炸池一样在 boot 离屏 `warmup()` 一帧，
+不许把首次编译/上传留到比赛中途。
 
 `verify:team` 现在覆盖主分支单人 / 双打目录：左右入座、角色互斥、六艇（两名玩家加四名 AI）、
 键盘和双标准手柄、左摇杆斜向同时转弯 / 推进、RT/LT 不参与移动、淘汰后的幸存者接管、支援 / 浪花互动、
