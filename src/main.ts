@@ -5794,30 +5794,60 @@ function scenario(name: string): void {
       stageHarnessGateFailure();
       break;
     case "grit-pillar": {
-      // Spared pillar contact: a light clip on the first gate costs the
-      // attempt but not the run — the 身残志坚 beat pops while the hull
-      // rebounds and limps on. Stops mid-beat for the evidence shot.
+      // Spared pillar contact: a light clip on a bend-INSIDE gate pillar costs
+      // the attempt but not the run — the hull still tumbles and splashes
+      // down, the 身残志坚 beat drops, and the boat limps on. (Fast outer hits
+      // are eliminations again; the inner-pillar clip is the authored spared
+      // case.) Stops mid-beat for the evidence shot.
       advanceUntil(() => race.phase === "racing", 8);
-      beginHarnessRouteFlight(0, 1);
+      let routeCursor = -1;
+      let innerSide = 0;
+      for (let r = 0; r < course.flightRoutes.length; r++) {
+        const side = course.debugGateBendInnerSide(r, 0);
+        if (side !== 0) { routeCursor = r; innerSide = side; break; }
+      }
+      if (routeCursor < 0) throw new Error("grit-pillar: no flight gate sits on a bend");
+      const routeIndex = routeCursor % course.flightRoutes.length;
+      beginHarnessRouteFlight(routeCursor, 1);
       advanceUntil(() => boats[0].state.flightRouteState === "active", 3, 1 / 60);
       advanceUntil(() => boats[0].state.flightPhase === "cruise", 3, 1 / 60);
-      // Attempt latched and cruising: servo the predicted gate-plane lateral to
-      // the pillar ring (just outside the 6.825m portal) so the hull clip is
-      // light — contact band is a thin sliver, arrival speed does the rest.
-      const gateU = course.flightRoutes[0].gateUs[0];
-      let prevDist = 0;
+      // Attempt latched and cruising: nudge the stick briefly to learn the
+      // steer→lateral sign (varies with the corridor frame), then servo the
+      // gate-plane lateral onto the bend-inside pillar ring (just outside the
+      // passHalfWidth portal) so the hull clip is light — contact band is a
+      // thin sliver. The launch geometry already leaves the hull a couple of
+      // metres to the bend side, so the nudge stays gentle.
+      const gateU = course.flightRoutes[routeIndex].gateUs[0];
+      const pillarTarget = innerSide * 7.45;
+      const probeDist = () => {
+        course.sample(boats[0].state.position, harnessPilotSample, "flight-1");
+        return harnessPilotSample.distance;
+      };
+      const d0 = probeDist();
+      setHarnessInput({ steer: 0.2 });
+      loop.advance(0.2);
+      setHarnessInput(null);
+      const steerSign = probeDist() - d0 >= 0 ? 1 : -1;
+      const trace = [`probe d0=${d0.toFixed(2)} d1=${probeDist().toFixed(2)} sign=${steerSign} u=${harnessPilotSample.u.toFixed(4)}`];
+      let prevDist = probeDist();
       let latVel = 0;
       let guard = 0;
       while (boats[0].state.flightRouteState === "active" && guard++ < 600) {
-        course.sample(boats[0].state.position, harnessPilotSample, "flight-1");
-        const dist = harnessPilotSample.distance;
+        const dist = probeDist();
         const instantVel = (dist - prevDist) * 60;
         latVel = latVel * 0.6 + instantVel * 0.4;
         prevDist = dist;
         const speed = Math.max(12, Math.abs(boats[0].state.speed));
         const timeToGate = Math.max(0, (gateU - harnessPilotSample.u) * course.length / speed);
         const predicted = dist + latVel * timeToGate;
-        const steerCmd = (7.25 - predicted) * 0.5 - latVel * 0.1;
+        const err = pillarTarget - predicted;
+        // Dual-rate: full deflection until the pillar ring is nearly reached
+        // (proportional-only easing settles inside the open portal and passes
+        // the gate instead), then fine servo to hold the contact sliver.
+        const steerCmd = Math.abs(err) > 0.9
+          ? steerSign * Math.sign(err) * 0.8
+          : steerSign * (err * 0.9 - latVel * 0.15);
+        if (guard % 20 === 0) trace.push(`t${(guard / 60).toFixed(2)} dist=${dist.toFixed(2)} pred=${predicted.toFixed(2)} cmd=${steerCmd.toFixed(2)} u=${harnessPilotSample.u.toFixed(4)}`);
         setHarnessInput({ steer: Math.max(-0.8, Math.min(0.8, steerCmd)) });
         loop.advance(1 / 60);
       }
@@ -5826,17 +5856,24 @@ function scenario(name: string): void {
         throw new Error(
           `grit-pillar never contacted the gate pillar: route=${boats[0].state.flightRouteState} ` +
           `phase=${boats[0].state.flightPhase} dist=${harnessPilotSample.distance.toFixed(2)} ` +
-          `u=${harnessPilotSample.u.toFixed(4)} debug=${course.flightDebugStatus(0)}`,
+          `u=${harnessPilotSample.u.toFixed(4)} debug=${course.flightDebugStatus(0)}\n${trace.join("\n")}`,
         );
       }
       if (!boats[0].state.flightFailure?.spared) {
         const f = boats[0].state.flightFailure;
         throw new Error(
           `grit-pillar contact was not spared: ${course.flightDebugStatus(0)} ` +
-          `lat=${f?.lateralOffsetM?.toFixed(2)} limit=${f?.lateralLimitM?.toFixed(2)}`,
+          `lat=${f?.lateralOffsetM?.toFixed(2)} limit=${f?.lateralLimitM?.toFixed(2)} ` +
+          `route=${routeIndex} innerSide=${course.debugGateBendInnerSide(routeIndex, 0)} target=${pillarTarget}`,
         );
       }
-      console.log(`grit-pillar: ${course.flightDebugStatus(0)}`);
+      // The spared path owes the full impact read: tumble + pop must be live.
+      if (boats[0].tumbleSpinRemaining <= 0) {
+        throw new Error(
+          `grit-pillar spared contact lost its tumble impact: tumble=${boats[0].tumbleSpinRemaining.toFixed(2)}`,
+        );
+      }
+      console.log(`grit-pillar: ${course.flightDebugStatus(0)} tumble=${boats[0].tumbleSpinRemaining.toFixed(2)}s`);
       loop.advance(0.45);
       // The beat fired on the hit frame, but CSS animations run on wall clock
       // while the synchronous advance above burns real headless render time.

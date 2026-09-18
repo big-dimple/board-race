@@ -2281,8 +2281,9 @@ export class Boat implements IBoat {
       this.flightElapsed = Math.max(this.flightElapsed, descentAt);
     }
     // Comedic bouncy pinball rebound on gate pillar collision. A spared
-    // contact (bend-inside pillar / rebound stays inside the corridor) rides
-    // on with the raw momentum bounce instead — no reversal, no elimination.
+    // contact (bend-inside pillar / weak rebound staying inside the corridor)
+    // rides on with the raw momentum bounce instead — no reversal, no
+    // elimination.
     if (!failure.spared &&
         (failure.reason === 'gate_left' || failure.reason === 'gate_right' || failure.reason === 'gate')) {
       const lateralDir = failure.reason === 'gate_left' ? 1 : -1;
@@ -2297,8 +2298,24 @@ export class Boat implements IBoat {
       this.yawRate = lateralDir * 3.6;
       this.spray.burst(this.object.position, 28, 12.0);
     }
+    // 顺势不判负 forgives the elimination, not the crash: a spared hull
+    // still tumbles, pops and splashes down from the pillar hit.
+    if (failure.spared &&
+        (failure.reason === 'gate_left' || failure.reason === 'gate_right')) {
+      const lateralDir = failure.reason === 'gate_left' ? 1 : -1;
+      this.vy = Math.max(this.vy, 6.5);
+      this.tumbleSpinTimer = 1.0;
+      this.tumbleSpinTotal = 1.0;
+      this.yawRate = clamp(this.yawRate + lateralDir * 1.4, -2.4, 2.4);
+      this.spray.burst(this.object.position, 24, 11.0);
+    }
     st.flightExtensionReady = false;
     st.flightRouteMiss = true;
+  }
+
+  /** Harness/debug: seconds of tumble impact remaining (pillar/scud hits). */
+  get tumbleSpinRemaining(): number {
+    return this.tumbleSpinTimer;
   }
 
   setCorridorDistress(level: number, pushX: number, pushZ: number): void {

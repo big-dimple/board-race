@@ -815,16 +815,17 @@
 
 /* ---- 身残志坚 grit beat (spared pillar contact) --------------------------- */
 
-/* Subset (four glyphs) of Ma Shan Zheng 马善政毛笔, SIL OFL — the grit beat
-   typeface. Tiny enough to inline, so the brush look costs no extra request
-   and works on devices without a system KaiTi (Android in particular). */
+/* Subset (six glyphs: 身残志坚撞柱) of Ma Shan Zheng 马善政毛笔, SIL OFL —
+   the grit beat typeface, kicker included. Tiny enough to inline, so the
+   brush look costs no extra request and works on devices without a system
+   KaiTi (Android in particular). */
 @font-face {
   font-family: 'GritBrush';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url('../assets/fonts/grit-brush.woff2') format('woff2');
-  unicode-range: U+575a, U+5fd7, U+6b8b, U+8eab;
+  unicode-range: U+575a, U+5fd7, U+649e, U+67f1, U+6b8b, U+8eab;
 }
 
 .hud-grit {
@@ -840,21 +841,21 @@
   animation: hud-grit-life 3.4s linear both;
 }
 
-/* Center-screen movie-title card (user call 2026-09-17): a translucent ink
-   band feathers behind the four brush characters, so the title reads like a
-   film's opening card while the racing sightline stays visible through the
-   semi-transparent band. Sits below the warning-banner slot and above the
-   boat's screen space. */
+/* Bottom-centre movie-title card (user calls 2026-09-17/18): a translucent
+   ink band feathers behind the title, anchored low over the water — below
+   the boat's screen space, above the FLIGHT/BANK strip (desktop) and the
+   touch clusters (mobile, where the band is width-capped so it never dims
+   a control). */
 .hud-grit-card {
   position: absolute;
   left: 50%;
-  top: 33%;
-  transform: translate(-50%, -50%);
+  bottom: 10%;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.1vh;
-  padding: 1.5vh 5vw 2vh;
+  gap: 0.9vh;
+  padding: 1.3vh 5vw 1.7vh;
   background: linear-gradient(
     to bottom,
     rgba(14, 11, 7, 0) 0%,
@@ -866,40 +867,72 @@
 }
 
 .hud-grit.on .hud-grit-card {
-  animation: hud-grit-card-in 0.45s ease-out both;
+  animation:
+    hud-grit-card-in 0.45s ease-out both,
+    hud-grit-shake 1.3s linear 0.1s both;
 }
 
+/* Kicker: the impact words 撞柱 carry the vermillion blast (now real brush
+   glyphs in the subset); 大难不死 trails as the quiet cream caption. */
 .hud-grit-kicker {
-  font-family: 'GritBrush', 'Kaiti SC', 'STKaiti', 'KaiTi', 'STXingkai', 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
-  font-style: normal;
-  font-weight: 400;
-  font-size: clamp(15px, 2.5vh, 23px);
-  letter-spacing: 0.55em;
-  padding-left: 0.55em;
-  color: #f2e7c9;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: baseline;
+  gap: clamp(10px, 1.6vw, 22px);
   opacity: 0;
 }
 
 .hud-grit.on .hud-grit-kicker {
-  animation: hud-grit-kicker-in 0.55s ease-out 0.7s both;
+  animation: hud-grit-kicker-in 0.5s ease-out 0.12s both;
+}
+
+.hud-grit-kicker-main {
+  font-family: 'GritBrush', 'Kaiti SC', 'STKaiti', 'KaiTi', 'STXingkai', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  font-style: normal;
+  font-weight: 900;
+  font-size: clamp(26px, 4.6vh, 44px);
+  line-height: 1;
+  letter-spacing: 0.16em;
+  padding-left: 0.16em;
+  background: linear-gradient(180deg, #e8543e 6%, #c93a2b 55%, #96251d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter:
+    drop-shadow(0 0 10px rgba(216, 64, 47, 0.5))
+    drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+
+.hud-grit-kicker-sub {
+  font-family: 'GritBrush', 'Kaiti SC', 'STKaiti', 'KaiTi', 'STXingkai', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: clamp(13px, 2.1vh, 20px);
+  letter-spacing: 0.5em;
+  padding-left: 0.5em;
+  color: #f2e7c9;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
 }
 
 .hud-grit-cluster {
   display: flex;
+  align-items: flex-end;
   gap: clamp(12px, 2.4vw, 28px);
 }
 
 .hud-grit-char {
   --rot: 0deg;
+  position: relative;
+  z-index: 0;
   display: block;
   font-family: 'GritBrush', 'Kaiti SC', 'STKaiti', 'KaiTi', 'STXingkai', 'Arial Black',
     'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-style: normal;
   font-weight: 900;
-  font-size: clamp(54px, 11.8vh, 110px);
-  line-height: 1.1;
+  font-size: clamp(60px, 12.5vh, 118px);
+  line-height: 1.08;
   background: linear-gradient(180deg, #faf3dd 8%, #f0e2ba 52%, #d9c48d 96%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -912,30 +945,52 @@
   opacity: 0;
 }
 
+/* Ink-burst flash that pops behind each character as it slams home. */
+.hud-grit-char::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  z-index: -1;
+  background: radial-gradient(
+    circle,
+    rgba(252, 244, 220, 0.9) 0%,
+    rgba(240, 226, 186, 0.3) 38%,
+    rgba(240, 226, 186, 0) 62%
+  );
+  opacity: 0;
+  transform: scale(0.3);
+  pointer-events: none;
+}
+
 .hud-grit.on .hud-grit-char {
   animation: hud-grit-slam 0.62s cubic-bezier(0.16, 1.3, 0.3, 1) both;
 }
-.hud-grit-cluster .hud-grit-char:nth-child(1) { --rot: -5deg; animation-delay: 0.05s; }
-.hud-grit-cluster .hud-grit-char:nth-child(2) { --rot: 4deg; animation-delay: 0.19s; }
-.hud-grit-cluster .hud-grit-char:nth-child(3) { --rot: -4deg; animation-delay: 0.33s; }
-.hud-grit-cluster .hud-grit-char:nth-child(4) { --rot: 6deg; animation-delay: 0.47s; }
+.hud-grit.on .hud-grit-char::after {
+  animation: hud-grit-burst 0.55s ease-out both;
+  animation-delay: inherit;
+}
+.hud-grit-cluster .hud-grit-char:nth-child(1) { --rot: -5deg; animation-delay: 0.3s; }
+.hud-grit-cluster .hud-grit-char:nth-child(2) { --rot: 4deg; animation-delay: 0.44s; }
+.hud-grit-cluster .hud-grit-char:nth-child(3) { --rot: -4deg; animation-delay: 0.58s; }
+.hud-grit-cluster .hud-grit-char:nth-child(4) { --rot: 6deg; animation-delay: 0.72s; }
 
-/* Vermillion seal stamp, lower-right of the title — the classic poster
-   composition. The seal glyphs are outside the 4-glyph brush subset, so
-   they render through the same Kaiti stack as the kicker. */
+/* Vermillion seal stamp riding after the title row — a flex sibling of the
+   four characters, so it can never overlap 坚 again. The seal glyphs are
+   outside the brush subset and render through the same Kaiti stack. */
 .hud-grit-seal {
-  position: absolute;
-  right: clamp(6px, 2.6vw, 28px);
-  bottom: 4px;
+  flex: none;
+  align-self: flex-end;
+  margin-left: clamp(2px, 0.6vw, 10px);
+  margin-bottom: 2px;
   display: grid;
   place-items: center;
-  width: clamp(32px, 4.8vh, 46px);
-  height: clamp(32px, 4.8vh, 46px);
+  width: clamp(30px, 4.6vh, 44px);
+  height: clamp(30px, 4.6vh, 44px);
   font-family: 'GritBrush', 'Kaiti SC', 'STKaiti', 'KaiTi', 'PingFang SC', 'Microsoft YaHei',
     sans-serif;
   font-style: normal;
   font-weight: 400;
-  font-size: clamp(13px, 2vh, 19px);
+  font-size: clamp(12px, 1.9vh, 18px);
   line-height: 1.1;
   text-align: center;
   color: #f6ecd7;
@@ -947,7 +1002,7 @@
 }
 
 .hud-grit.on .hud-grit-seal {
-  animation: hud-grit-seal-in 0.42s cubic-bezier(0.12, 1.5, 0.25, 1) 1.2s both;
+  animation: hud-grit-seal-in 0.42s cubic-bezier(0.12, 1.5, 0.25, 1) 1.35s both;
 }
 
 /* Harness freeze: settle every piece at its final pose so the evidence shot
@@ -961,9 +1016,10 @@
   opacity: 1;
   visibility: visible;
 }
-.hud-grit.settled .hud-grit-card { transform: translate(-50%, -50%); }
+.hud-grit.settled .hud-grit-card { transform: translateX(-50%); }
 .hud-grit.settled .hud-grit-kicker { transform: none; }
 .hud-grit.settled .hud-grit-char { transform: rotate(var(--rot)); }
+.hud-grit.settled .hud-grit-char::after { animation: none; opacity: 0; }
 .hud-grit.settled .hud-grit-seal { transform: rotate(6deg); }
 
 /* Duo: the whole card re-centres on the affected seat's half of the screen. */
@@ -977,12 +1033,12 @@ body:has(.finale-overlay.on) .hud-grit,
 body:has(.highlight-video-overlay.on) .hud-grit { display: none; }
 
 @keyframes hud-grit-card-in {
-  0% { opacity: 0; transform: translate(-50%, -46%); }
-  100% { opacity: 1; transform: translate(-50%, -50%); }
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 @keyframes hud-grit-kicker-in {
-  0% { opacity: 0; transform: translateY(10px); }
+  0% { opacity: 0; transform: translateY(8px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
@@ -991,6 +1047,33 @@ body:has(.highlight-video-overlay.on) .hud-grit { display: none; }
   52% { opacity: 1; transform: scale(0.9) rotate(var(--rot)); }
   76% { transform: scale(1.08) rotate(var(--rot)); }
   100% { opacity: 1; transform: scale(1) rotate(var(--rot)); }
+}
+
+/* Impact flash behind each slam: hidden until the glyph lands (~52% of the
+   slam), blooms, then dissipates. */
+@keyframes hud-grit-burst {
+  0%, 52% { opacity: 0; transform: scale(0.3); }
+  66% { opacity: 0.95; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+
+/* Weight-thud shakes synced to the four slam impacts (char delay + ~0.32s
+   impact; the jolts land at 41/54/64/74% of this 1.3s timeline). */
+@keyframes hud-grit-shake {
+  0%, 38% { transform: translateX(-50%) translateY(0); }
+  41% { transform: translateX(-50%) translateY(-5px); }
+  44% { transform: translateX(-50%) translateY(2px); }
+  47% { transform: translateX(-50%) translateY(-0.5px); }
+  50%, 51% { transform: translateX(-50%) translateY(0); }
+  54% { transform: translateX(-50%) translateY(-4px); }
+  57% { transform: translateX(-50%) translateY(1.6px); }
+  60% { transform: translateX(-50%) translateY(0); }
+  64% { transform: translateX(-50%) translateY(-3px); }
+  67% { transform: translateX(-50%) translateY(1.2px); }
+  70% { transform: translateX(-50%) translateY(0); }
+  74% { transform: translateX(-50%) translateY(-2px); }
+  77% { transform: translateX(-50%) translateY(1px); }
+  80%, 100% { transform: translateX(-50%) translateY(0); }
 }
 
 @keyframes hud-grit-seal-in {
@@ -1010,15 +1093,18 @@ body:has(.highlight-video-overlay.on) .hud-grit { display: none; }
   .hud-grit.on .hud-grit-kicker,
   .hud-grit.on .hud-grit-char,
   .hud-grit.on .hud-grit-seal { animation: none; opacity: 1; }
-  .hud-grit.on .hud-grit-card { transform: translate(-50%, -50%); }
+  .hud-grit.on .hud-grit-card { transform: translateX(-50%); }
   .hud-grit.on .hud-grit-char { transform: rotate(var(--rot)); }
+  .hud-grit.on .hud-grit-char::after { animation: none; opacity: 0; }
   .hud-grit.on .hud-grit-seal { transform: rotate(6deg); }
 }
 
 @media (max-width: 900px), (max-height: 520px) {
-  .hud-grit-card { top: 31%; gap: 0.7vh; padding: 1vh 4vw 1.4vh; }
-  .hud-grit-char { font-size: clamp(38px, 9.5vh, 62px); }
-  .hud-grit-kicker { font-size: clamp(12px, 2.2vh, 17px); }
+  .hud-grit-card { bottom: 26%; max-width: 40vw; gap: 0.6vh; padding: 0.9vh 3vw 1.2vh; }
+  .hud-grit-char { font-size: clamp(38px, 10vh, 64px); }
+  .hud-grit-kicker-main { font-size: clamp(22px, 5vh, 32px); }
+  .hud-grit-kicker-sub { font-size: clamp(11px, 2.1vh, 15px); }
+  .hud-grit-seal { width: clamp(26px, 4.2vh, 36px); height: clamp(26px, 4.2vh, 36px); font-size: clamp(11px, 1.8vh, 15px); }
 }
 
 /* ---- flight turn callout ----------------------------------------------------- */

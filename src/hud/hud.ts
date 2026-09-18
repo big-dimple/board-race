@@ -524,21 +524,23 @@ export class HUD {
     this.battleStreak = h('div', 'hud-battle-streak hud-inked', battleCopy);
 
     // 身残志坚 grit beat: a spared pillar contact drops the four brush
-    // characters as a center-screen movie title — translucent ink band,
-    // staggered slams, kicker and vermillion seal — while the racing
-    // sightline stays readable through the semi-transparent band.
+    // characters as a bottom-centre movie title — translucent ink band,
+    // staggered slams with impact bursts and thud shakes, a vermillion
+    // 撞柱 kicker and the 命硬 seal riding after the title row.
     this.gritEl = h('div', 'hud-grit', this.root);
     this.gritEl.setAttribute('role', 'status');
     this.gritEl.setAttribute('aria-live', 'polite');
     this.gritEl.setAttribute('aria-label', '身残志坚');
     const gritCard = h('div', 'hud-grit-card', this.gritEl);
-    h('div', 'hud-grit-kicker', gritCard, '撞柱 · 大难不死');
+    const gritKicker = h('div', 'hud-grit-kicker', gritCard);
+    h('b', 'hud-grit-kicker-main', gritKicker, '撞柱');
+    h('span', 'hud-grit-kicker-sub', gritKicker, '大难不死');
     const gritRow = h('div', 'hud-grit-cluster', gritCard);
     h('span', 'hud-grit-char', gritRow, '身');
     h('span', 'hud-grit-char', gritRow, '残');
     h('span', 'hud-grit-char', gritRow, '志');
     h('span', 'hud-grit-char', gritRow, '坚');
-    h('div', 'hud-grit-seal', gritCard, '命硬');
+    h('div', 'hud-grit-seal', gritRow, '命硬');
 
     this.flightPrompt = h('div', 'hud-flight-prompt', this.root);
     this.flightPromptKey = h('div', 'hud-keycap', this.flightPrompt, 'SPACE');

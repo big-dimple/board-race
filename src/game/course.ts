@@ -693,6 +693,10 @@ const _pillarTangentB = new THREE.Vector3();
 const GATE_BEND_INNER_MIN_RAD = 0.018;
 /** Rebound horizon for the "cannot fly out of the corridor" spare check. */
 const GATE_PILLAR_PROJECTION_S = 0.5;
+/** A pillar clip is spared only when its rebound is genuinely weak. Gate
+ *  approaches run 42-50 m/s (rebound = 0.72x speed), so ordinary hits stay
+ *  eliminations — 大难不死 remains the rare outcome, not the default. */
+const SPARED_MAX_BOUNCE_SPEED = 24;
 const _launchPacketForward = new THREE.Vector3(0, 0, 1);
 const _launchPacketDirection = new THREE.Vector3();
 const _launchJudgment = { deadlineM: -1, orphan: 0, doomed: 0 };
@@ -2365,6 +2369,14 @@ export class Course implements ICourse {
     return 0;
   }
 
+  /** Harness/debug: bend-inner side (-1/0/1) of a flight gate's portal. */
+  debugGateBendInnerSide(routeIndex: number, gateIndex: number): number {
+    const visual = this.flightVisuals[routeIndex];
+    const gate = visual?.gates[gateIndex];
+    if (!visual?.runtime || !gate) return 0;
+    return this.gateBendInnerSide(visual.runtime, gate.u);
+  }
+
   /**
    * Launch-window judgment for HUD teaching surfaces. Purely observational:
    * it never gates input, physics, or route ownership. `surfaceDistM` is the
@@ -2742,7 +2754,7 @@ export class Course implements ICourse {
               staysInside = projectedLat <=
                 flightCorridorHalfWidthAt(def, near.u) + FLIGHT_CORRIDOR_HARD_OUT_M;
             }
-            const spared = innerHit || staysInside;
+            const spared = innerHit || (staysInside && bounceSpeed <= SPARED_MAX_BOUNCE_SPEED);
             this.flightDebug[id] = `pillar-hit:f${routeIndex + 1}:${reason}${spared ? ':spared' : ''}`;
             this.failFlight(boat, visual, reason, gate.u, gateIndex + 1, latDist, lateralLimit, null, spared);
             if (id === this.guidanceBoatId) {
