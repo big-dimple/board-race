@@ -42,13 +42,19 @@
   journal 五条合成 stall 分类正确；真实环境还自抓到首帧编译突发
   （render 1350ms + prog+35 tex+28）与一条 1.55s 浏览器侧停顿
   （gap1550/r8/o1538）——旧工具对后者完全不可见。
+- headless soak 三局真实比赛（race-straight/race-flight/race-straight，
+  AI 全程跑漂移/飞行/撞标/金币/导弹管线，honorTargetCase 强制触发金币命中）：
+  **全程 0 条 prog+/tex+ stall** —— 金币爆发池 warmup 生效，单人管线无漏网
+  编译/上传；soak 中的大额 `other` 条目是批量步进的测量伪影（一次 evaluate
+  阻塞数秒），真机 rAF 驱动不会产生，不代表设备行为。
 - 无像素/玩法/输入/物理改动 → 不需要截图评审与 collision/audio 专项。
 
 ## 遗留风险
 
 - 真凶未定：journal 只能把 stall 归因到 编译/上传/调速器/追帧/浏览器侧 五类，
-  若回传数据显示 `other` 占主导，需再细分（DOM/音频/输入）。
-- spray 首落水火候、duo 互动池预热缺口已知但按"数据驱动"暂不动。
+  若回传数据显示 `other` 占主导，需再细分（DOM/音频/输入）。headless soak 无法复现
+  真机 GC/热节流/调度抖动，这部分只能实机数据驱动。
+- duo 互动池（duoInteraction）预热缺口仍在（仅双打路径，用户当前单人不受影响）。
 - journal 常开仅 stall 时写入固定槽位，常态零成本；console.warn 只在 stall 时产生。
 
 ## 唯一下一步
