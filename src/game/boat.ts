@@ -1514,7 +1514,10 @@ export class Boat implements IBoat {
     // Process the trigger after drift payout so releasing Shift and pressing Space
     // on the same simulation frame is a valid combo.
     if (input.flightTrigger) {
-      if (st.flightCharges > 0 && st.flightPhase === 'surface') {
+      // Water contact ends the flight even while the descent controller keeps
+      // ownership until its authored end time: re-launching from the surface
+      // must count as a fresh flight, never as the once-per-flight extension.
+      if (st.flightCharges > 0 && (st.flightPhase === 'surface' || this.flightWaterContact)) {
         st.flightCharges--;
         st.flightPhase = 'spool';
         st.flightRouteState = 'idle';
@@ -2531,6 +2534,7 @@ export class Boat implements IBoat {
     const st = this.state;
     return st.flightCharges > 0 &&
       !st.flightExtensionUsed &&
+      !this.flightWaterContact &&
       (st.flightPhase === 'cruise' || st.flightPhase === 'descending') &&
       st.flightRouteState !== 'passed' &&
       st.flightRouteState !== 'failed';

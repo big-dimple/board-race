@@ -30,6 +30,7 @@ export class DriverSelect {
   private readonly previousLabel: HTMLElement;
   private readonly nextLabel: HTMLElement;
   private readonly startButton: HTMLButtonElement;
+  private readonly fullscreenButton: HTMLButtonElement;
   private readonly cards = new Map<string, HTMLButtonElement>();
   private readonly dots = new Map<string, HTMLButtonElement>();
   private selectedProfile: DriverProfile;
@@ -56,6 +57,7 @@ export class DriverSelect {
     onStart: () => void,
     private readonly onFirstInteraction?: () => void,
     private readonly onCoachToggle: () => void = () => {},
+    private readonly onFullscreenRequest: () => void = () => {},
   ) {
     this.selectedProfile = driverProfile(initialId);
     this.radarDisplayValues = handlingValues(this.selectedProfile);
@@ -66,8 +68,9 @@ export class DriverSelect {
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
     this.root.setAttribute('aria-label', '选择成年竞速选手');
-    // Selection clicks only warm audio. GO owns the first fullscreen request;
-    // selector taps must not trigger Chrome's native exit hint before GO.
+    // Selection clicks only warm audio. GO (or the explicit fullscreen
+    // button) owns fullscreen requests; plain selector taps must not trigger
+    // Chrome's native exit hint before the player asks for fullscreen.
     this.root.addEventListener('click', (event) => {
       const target = event.target;
       if (target instanceof Element && target.closest('.driver-select-go')) return;
@@ -213,6 +216,11 @@ export class DriverSelect {
     this.coachButton.addEventListener('click', () => {
       this.kickstartGuide.show();
     });
+    this.fullscreenButton = element('button', 'driver-select-fullscreen', footer, '⛶ 全屏体验');
+    this.fullscreenButton.type = 'button';
+    this.fullscreenButton.setAttribute('aria-label', '进入浏览器全屏，获得完整横屏体验');
+    this.fullscreenButton.hidden = true;
+    this.fullscreenButton.addEventListener('click', () => this.onFullscreenRequest());
     this.startButton = element('button', 'driver-select-go', footer, 'GO · 签约出发');
     this.startButton.type = 'button';
     this.startButton.addEventListener('click', () => {
@@ -302,6 +310,10 @@ export class DriverSelect {
     return this.selectedProfile.id;
   }
 
+  setFullscreenAvailable(available: boolean): void {
+    this.fullscreenButton.hidden = !available;
+  }
+
   setLaunchPending(pending: boolean): void {
     this.root.classList.toggle('launch-pending', pending);
     this.root.setAttribute('aria-busy', String(pending));
@@ -310,6 +322,7 @@ export class DriverSelect {
     this.previousButton.disabled = pending;
     this.nextButton.disabled = pending;
     this.coachButton.disabled = pending;
+    this.fullscreenButton.disabled = pending;
     for (const button of this.cards.values()) button.disabled = pending;
     for (const button of this.dots.values()) button.disabled = pending;
   }
@@ -548,7 +561,7 @@ export class DriverSelect {
     ctx.lineJoin = 'round';
     for (let ring = 1; ring <= 4; ring++) {
       polygon(ctx, cx, cy, radius * ring / 4, labels.length);
-      ctx.strokeStyle = ring === 4 ? 'rgba(244,254,255,.55)' : 'rgba(244,254,255,.16)';
+      ctx.strokeStyle = ring === 4 ? 'rgba(244,254,255,.8)' : 'rgba(244,254,255,.30)';
       ctx.lineWidth = ring === 4 ? 3 : 1;
       ctx.stroke();
     }
@@ -557,7 +570,7 @@ export class DriverSelect {
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
-      ctx.strokeStyle = 'rgba(244,254,255,.18)';
+      ctx.strokeStyle = 'rgba(244,254,255,.32)';
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.fillStyle = '#f4feff';
@@ -583,11 +596,14 @@ export class DriverSelect {
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.closePath();
-    ctx.fillStyle = `${hex(profile.color)}77`;
+    ctx.fillStyle = `${hex(profile.color)}A6`;
     ctx.strokeStyle = hex(profile.color);
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 6;
+    ctx.shadowColor = hex(profile.color);
+    ctx.shadowBlur = 14;
     ctx.fill();
     ctx.stroke();
+    ctx.shadowBlur = 0;
   }
 }
 
@@ -632,7 +648,7 @@ function drawDesktopRadar(
   ctx.lineJoin = 'round';
   for (let ring = 1; ring <= 4; ring++) {
     polygon(ctx, cx, cy, radius * ring / 4, labels.length);
-    ctx.strokeStyle = ring === 4 ? 'rgba(244,254,255,.55)' : 'rgba(244,254,255,.16)';
+    ctx.strokeStyle = ring === 4 ? 'rgba(244,254,255,.8)' : 'rgba(244,254,255,.30)';
     ctx.lineWidth = ring === 4 ? 3 : 1;
     ctx.stroke();
   }
@@ -641,7 +657,7 @@ function drawDesktopRadar(
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
-    ctx.strokeStyle = 'rgba(244,254,255,.18)';
+    ctx.strokeStyle = 'rgba(244,254,255,.32)';
     ctx.lineWidth = 1;
     ctx.stroke();
   }
@@ -655,11 +671,14 @@ function drawDesktopRadar(
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
   ctx.closePath();
-  ctx.fillStyle = `${hex(profile.color)}77`;
+  ctx.fillStyle = `${hex(profile.color)}A6`;
   ctx.strokeStyle = hex(profile.color);
-  ctx.lineWidth = 5;
+  ctx.lineWidth = 6;
+  ctx.shadowColor = hex(profile.color);
+  ctx.shadowBlur = 14;
   ctx.fill();
   ctx.stroke();
+  ctx.shadowBlur = 0;
 
   const labelBounds = labels.map((label, index) => {
     const width = labelWidths[index];

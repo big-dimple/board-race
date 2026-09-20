@@ -180,6 +180,24 @@
 .driver-coach-advanced[open] summary { margin-bottom:2px; }
 .driver-coach-toggle { min-height:40px; margin-top:14px; padding:0 16px; border:2px solid var(--driver-color); border-radius:4px; color:#f4feff; background:#101b38; font:900 13px/1 system-ui,sans-serif; cursor:pointer; }
 .driver-select-go { position:relative; min-width:180px; min-height:46px; padding:0 22px; border:1px solid var(--driver-color); border-left-width:5px; border-radius:2px; color:#f4feff; background:#101b38; box-shadow:0 0 20px rgba(85,231,255,.16); font:italic 900 17px/1 'Arial Black',Impact,sans-serif; cursor:pointer; }
+.driver-select-fullscreen {
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  min-height:46px;
+  margin-right:12px;
+  padding:0 16px;
+  border:2px solid rgba(244,254,255,.4);
+  border-radius:2px;
+  color:#f4feff;
+  background:rgba(8,13,42,.55);
+  font:800 13px/1 system-ui,sans-serif;
+  cursor:pointer;
+}
+.driver-select-fullscreen:hover { border-color:rgba(244,254,255,.78); background:rgba(16,27,56,.75); }
+.driver-select-fullscreen:focus-visible { outline:3px solid #fff; outline-offset:3px; }
+.driver-select-fullscreen[hidden] { display:none; }
+.driver-select-fullscreen:disabled { opacity:.55; cursor:default; }
 .driver-select-go::after { content:'›'; margin-left:12px; color:var(--driver-color); font-style:normal; }
 .driver-select-go:hover { background:#16294b; box-shadow:0 0 26px rgba(85,231,255,.28); }
 .driver-select-go:focus-visible { outline:3px solid #fff; outline-offset:3px; }
@@ -395,6 +413,7 @@
   .driver-dot.selected { width:24px; }
   .driver-select-footer { width:100%; justify-content:center; }
   .driver-select-go { position:static; min-width:158px; min-height:40px; padding:0 15px; font-size:14px; }
+  .driver-select-fullscreen { min-height:40px; margin-right:8px; padding:0 10px; font-size:11px; }
   .driver-coach-button { right:calc(50% + 92px); width:34px; height:34px; font-size:17px; }
   .driver-coach-panel { bottom:max(54px,calc(env(safe-area-inset-bottom) + 48px)); width:min(460px,calc(100% - 110px)); padding:10px 12px; }
   .driver-coach-head { font-size:12px; }
@@ -577,9 +596,9 @@
     max-height:none;
     padding:6px 8px;
     border:0;
-    border-top:2px solid rgba(244,254,255,.22);
-    border-left:2px solid rgba(244,254,255,.22);
-    background:rgba(8,13,42,.4);
+    border-top:2px solid rgba(244,254,255,.4);
+    border-left:2px solid rgba(244,254,255,.4);
+    background:rgba(8,13,42,.66);
   }
   .driver-radar-title { font-size:9px; }
   .driver-radar-note { font-size:7px; }
@@ -610,6 +629,7 @@
   .driver-meta { font-size:10px; }
   .driver-trait { font-size:6.5px; }
   .driver-select-go { min-height:35px; }
+  .driver-select-fullscreen { min-height:35px; margin-right:6px; padding:0 8px; font-size:10px; }
 }
 
 /* The standing image is a supporting echo only. The selected driver remains

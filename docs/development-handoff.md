@@ -1,64 +1,64 @@
 # Board Race 开发交接
 
-状态：偶发 0.2s 卡顿现场捕获工具（stall journal）+ 金币爆发池预热补齐完成
-（build / smoke 全绿，桌面 + 844x390 通过，浮层实渲染已验证），待提交，
-待用户实机回传 stall 数据后做针对性修复。
+状态：落水后再飞误算续飞修复 + 竖屏提示强化（含微信小字）+ 雷达对比度与 READY
+全屏引导按钮完成（build / smoke 桌面+844x390 / collision / audio 全绿），待提交。
 
 ## 当前工作包
 
-- 目标（用户 2026-09-18 实机裁决）：1+15 旗舰机整局随机 0.2s 卡顿，不固定场景；
-  上一版修复未解决；`?debug=perf` 旧浮层只能看最差 3 条瞬时峰值，用户感觉卡再
-  截图已过期，抓不到。本轮先把"卡顿瞬间"变成事后可回溯的数据，并按数据修。
-- 诊断工具（`src/core/loop.ts`、`src/main.ts`）：
-  - loop 记录未 clamp 的原始 rAF 间隔 `gapLastFrame`。
-  - `spikeLog` 替换为 24 槽常开 stall journal：原始间隔 ≥60ms / 渲染 ≥22ms /
-    sim ≥22ms 记一条；每条含 race 时刻、gap/render/sim/other 四项耗时、
-    phase/flightPhase/步数及来源标（`prog+N` 着色器编译、`tex+N` 贴图上传、
-    `pr a>b` 调速器换挡、`simcatchup`、hidden、`ctxlost/ctxrestored`）。
-  - 浮层改为一行 EMA 摘要 + 最近 6 条 stall（最新在底），每 6 帧刷新；
-    事后截图可回溯。console.warn 同步输出；`window.__boardRaceStalls()`
-    供桌面远程调试取 JSON。
-  - 新增 `webglcontextlost/restored` 监听（preventDefault 保留恢复 attempt），
-    事件写入 journal——Android GPU 压力下丢上下文是秒级冻结的经典嫌疑。
-- 预热审计 + 加固（`src/game/honors.ts`、`src/main.ts`）：
-  - 审计结论：爆炸池/单人导弹（含 tacticalReticle 子树）/灯塔夜航均已有
-    warmup；鸭子气球、荣誉目标组开局即在场景内；**金币爆发池（每槽 20 个
-    SpriteMaterial + 3 张共享 canvas 贴图）无 warmup，首次拾取金币才编译上传**
-    ——正是"比赛中途任何位置随机卡"的候选，已按爆炸池同款模式补
-    `HonorTargetSystem.warmup()` 并在 boot 调用。
-  - 已知早发项（不修）：spray 液滴/落水体积着色器在首次落水才编译，发生在
-    局初数秒；duo 互动池仅双打路径。
-- harness（`harness/screenshot.mjs`、`src/main.ts`）：新增 `stallJournalCase`
-  注入合成帧断言分类正确（browser-side/prog+/tex+/pr/simcatchup）且健康帧不入 journal，
-  挂进 `verify:smoke` 桌面分支。
-- Owner：`src/core/loop.ts`、`src/main.ts`、`src/game/honors.ts`、
-  `harness/screenshot.mjs`、`docs/llmwiki.md`、本文。
+- 目标（用户 2026-09-21 裁决）：
+  1. 已经掉水面后马上再飞被按续飞计算 —— 修掉；
+  2. 手机首次打开竖屏提示不明显，用户不知道只能横屏，需小字提示微信浏览器不支持横屏；
+  3. 首次打开雷达图菱形基本看不见；用户提议做按钮引导点击全屏。
+- 根因：`boat.ts` `updateFlight` 下降段触水后 `flightPhase` 保持 `'descending'`
+  直到 `flightElapsed >= total`；该窗口内 `canExtendFlight()` 为真，起飞键落入
+  续航分支（扣一格 + `flightExtended` + 「续航 +2.4 秒」表现）。
+- 已完成：
+  - `src/game/boat.ts`：触水后起飞键走 fresh-flight 分支
+    （`flightPhase === 'surface' || flightWaterContact`）；
+    `canExtendFlight()` 追加 `!flightWaterContact` 纵深防御。未触发时下降段
+    仍按原计划跑到 total，速度/动量不清。
+  - `src/main.ts` + `harness/screenshot.mjs`：新增 `water-contact-reflight`
+    场景（真实触水帧 landImpulse 捕获 → 窗口内再按飞 → 断言 spool +
+    未用续航 + 恰扣 1 格），挂进 verify:smoke 双端。负向验证：stash 修复后
+    场景报 "relaunch phase cruise"，证明断言有牙。
+  - 竖屏提示（`mobileControls.ts/css`）：主标题改「本游戏仅支持横屏」，
+    副行「请旋转手机，横屏后开始游戏」，新增微信小字
+    「点右上角 ··· → 在浏览器打开」；手机图标加横屏摇摆引导动画
+    （reduced-motion 下静止横置）。
+  - 雷达（`driverSelect.ts/css`）：双绘制路径网格/轴线/菱形统一提对比
+    （外环 .8、内环 .30、轴 .32、填充 A6、描边 6px + 队色柔辉光）；
+    移动端背板 .4→.66。桌面与 844x390 截图确认菱形清晰。
+  - READY 全屏按钮（`immersiveMode.ts` 新增 `requestFromReadyGesture()` +
+    `onReadyAvailability`；`driverSelect.ts` footer 「⛶ 全屏体验」；
+    main.ts 接线）：真实 click 手势请求 fullscreen，未获得/不支持/已全屏时
+    自隐。iPhone/微信不支持保持浏览器托管形态，不伪造全屏。
+- Owner：`src/game/boat.ts`、`src/main.ts`、`harness/screenshot.mjs`、
+  `src/core/immersiveMode.ts`、`src/core/mobileControls.ts/css`、
+  `src/hud/driverSelect.ts/css`、`docs/llmwiki.md`、本文。
+- 合同同步（llmwiki）：Fullscreen 来源增加 READY 全屏按钮（含自隐条款）；
+  「漂移、库存与飞行」补触水后再飞 = 新一飞。
 
 ## 验证与证据
 
-- `npm run build`、`npm run verify:smoke`（桌面 + 844x390）全绿
-  （首次 mobile tilt 校准步超时一次，重跑通过，属既有偶发）。
-- 桌面 headless 实渲染验证（playwright + system Chrome + swiftshader）：
-  journal 五条合成 stall 分类正确；真实环境还自抓到首帧编译突发
-  （render 1350ms + prog+35 tex+28）与一条 1.55s 浏览器侧停顿
-  （gap1550/r8/o1538）——旧工具对后者完全不可见。
-- headless soak 三局真实比赛（race-straight/race-flight/race-straight，
-  AI 全程跑漂移/飞行/撞标/金币/导弹管线，honorTargetCase 强制触发金币命中）：
-  **全程 0 条 prog+/tex+ stall** —— 金币爆发池 warmup 生效，单人管线无漏网
-  编译/上传；soak 中的大额 `other` 条目是批量步进的测量伪影（一次 evaluate
-  阻塞数秒），真机 rAF 驱动不会产生，不代表设备行为。
-- 无像素/玩法/输入/物理改动 → 不需要截图评审与 collision/audio 专项。
+- `npm run build` ✅；`npm run verify:smoke` 桌面 + 844x390 双绿
+  （含新增 water-contact-reflight 断言；首轮 mobile tilt 校准步超时一次，
+  重跑通过，属既有偶发）。
+- `npm run verify:collision` ✅、`npm run verify:audio` ✅。
+- 截图自审：`shots/radar-review/ready.png`（桌面雷达 + 全屏按钮）、
+  `ready-mobile.png`（844x390 雷达背板）、
+  `shots/portrait-review/portrait-prompt.png`（390x844 竖屏提示，微信小字在列）。
+  移动 READY 截图中全屏按钮隐藏属正确行为：该流程已先行 GO 进入全屏。
+- 续飞既有 smoke 断言（flight-extension-spool / spent）保持绿色，真续航未误伤。
 
 ## 遗留风险
 
-- 真凶未定：journal 只能把 stall 归因到 编译/上传/调速器/追帧/浏览器侧 五类，
-  若回传数据显示 `other` 占主导，需再细分（DOM/音频/输入）。headless soak 无法复现
-  真机 GC/热节流/调度抖动，这部分只能实机数据驱动。
-- duo 互动池（duoInteraction）预热缺口仍在（仅双打路径，用户当前单人不受影响）。
-- journal 常开仅 stall 时写入固定槽位，常态零成本；console.warn 只在 stall 时产生。
+- 过门后 passed-recovery 窗口内立即再接新一飞，course 的 certifiedHandoff
+  可能走 timeout 后备路径（视觉分支回收稍晚），与"落地瞬间再起飞"序列同源，
+  当前 smoke 未见异常。
+- 微信内 requestFullscreen 被拒后 READY 按钮保持自隐（与移动端无恢复按钮的
+  既有形态一致）；微信用户靠竖屏小字引导到系统浏览器获得全屏。
 
 ## 唯一下一步
 
-用户实机复核：带 `?debug=perf` 正常玩几局，卡顿后（不用抢拍）把浮层上的
-`[stall]` 行截图回传；按 `prog+/tex+/pr/simcatchup/other/ctxlost` 分类锁定真凶后
-出针对性修复。
+提交并推送（jiepi-clear 预检 + release:checked）；用户实机复核竖屏提示文案、
+雷达观感与全屏按钮在真机浏览器/微信内的显隐。

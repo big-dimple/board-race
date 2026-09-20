@@ -387,7 +387,9 @@ const driverSelect = new DriverSelect(
     audio.startReadyMusic();
   },
   toggleDrivingCoach,
+  () => immersive.requestFromReadyGesture(),
 );
+immersive.onReadyAvailability((available) => driverSelect.setFullscreenAvailable(available));
 const openingShowcase = new OpeningShowcase(hudLayer, stage.camera, stage.renderer.domElement, boats, roster);
 const finale = new FinaleOverlay(
   hudLayer,
@@ -5863,6 +5865,49 @@ function scenario(name: string): void {
         throw new Error("flight-extension-spool never exposed the real extension window");
       }
       break;
+    case "water-contact-reflight": {
+      // Regression: after the hull has touched water, a new flight trigger must
+      // start a FRESH flight. The descent controller keeps flightPhase
+      // 'descending' for a few frames after contact, and that window used to
+      // satisfy canExtendFlight(), burning the once-per-flight extension.
+      advanceUntil(() => race.phase === "racing", 8);
+      course.resetFlightChallenge();
+      placePack(0.5);
+      // Qualify every racer so free flight outside the attempt spans never
+      // latches a route attempt or eats a no_launch failure.
+      for (const boat of boats) {
+        boat.state.flightsCleared = course.flightRoutes.length;
+        boat.state.flightRouteCursor = course.flightRoutes.length;
+        boat.state.flightRouteIndex = -1;
+        boat.state.flightRouteState = "idle";
+      }
+      boats[0].state.flightCharges = 2;
+      setHarnessInput({ throttle: 1 });
+      advanceUntil(() => boats[0].state.speed >= 18, 6, 1 / 60);
+      tapHarnessFlight(1);
+      advanceUntil(() => boats[0].state.flightPhase === "cruise", 3, 1 / 60);
+      advanceUntil(() => boats[0].state.landImpulse > 0, 8, 1 / 60);
+      if (boats[0].state.landImpulse <= 0) {
+        throw new Error("water-contact-reflight: the flight never reported water contact");
+      }
+      if (boats[0].state.flightPhase !== "descending") {
+        throw new Error(`water-contact-reflight: contact landed on ${boats[0].state.flightPhase}, not the owned descent window`);
+      }
+      const chargesBeforeRelaunch = boats[0].state.flightCharges;
+      tapHarnessFlight(1);
+      const relaunched = boats[0].state;
+      if (relaunched.flightPhase !== "spool") {
+        throw new Error(`water-contact-reflight: relaunch phase ${relaunched.flightPhase}, expected a fresh spool`);
+      }
+      if (relaunched.flightExtensionUsed || relaunched.flightExtended) {
+        throw new Error("water-contact-reflight: relaunch after water contact consumed the once-per-flight extension");
+      }
+      if (chargesBeforeRelaunch - relaunched.flightCharges !== 1) {
+        throw new Error(`water-contact-reflight: relaunch consumed ${chargesBeforeRelaunch - relaunched.flightCharges} charges, expected 1`);
+      }
+      setHarnessInput(null);
+      break;
+    }
     case "gate-copy":
       advanceUntil(() => race.phase === "racing", 8);
       stageHarnessGateFailure();

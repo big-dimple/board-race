@@ -8,7 +8,7 @@ export type FullscreenOutcome =
   | 'entered'
   | 'exited'
   | 'rejected';
-export type FullscreenRequestSource = 'none' | 'go' | 'control' | 'capture-return' | 'restore';
+export type FullscreenRequestSource = 'none' | 'go' | 'control' | 'capture-return' | 'restore' | 'ready';
 type ImmersivePhase = 'ready' | 'active' | 'presentation';
 const CHROME_GO_BUFFER_S = 2.8;
 
@@ -35,6 +35,7 @@ export class ImmersiveModeController {
   private goBufferRemaining = 0;
   private goAccepted = false;
   private readonly chromiumFamily: boolean;
+  private readyAvailabilityListener: ((available: boolean) => void) | null = null;
 
   constructor(parent: HTMLElement, mobile: boolean) {
     this.mobile = mobile;
@@ -79,6 +80,22 @@ export class ImmersiveModeController {
     this.goAccepted = false;
     this.goBufferRemaining = 0;
     this.request('go');
+  }
+
+  /** READY-screen "fullscreen" button: a real user gesture, same as GO. */
+  requestFromReadyGesture(): void {
+    this.request('ready');
+  }
+
+  /**
+   * Subscribe to READY-entry availability. Fires immediately with the current
+   * value and again on every fullscreen/standalone state change. The READY
+   * button only shows while fullscreen is unattained, unsupported states are
+   * left to the browser-managed form.
+   */
+  onReadyAvailability(listener: (available: boolean) => void): void {
+    this.readyAvailabilityListener = listener;
+    listener(this.readyEntryAvailable());
   }
 
   /** Advance the browser-owned fullscreen notice buffer on the fixed step. */
@@ -232,10 +249,20 @@ export class ImmersiveModeController {
     }
   }
 
+  private readyEntryAvailable(): boolean {
+    return !this.isStandaloneDisplay() &&
+      !document.fullscreenElement &&
+      typeof document.documentElement.requestFullscreen === 'function' &&
+      this.fullscreenOutcomeValue !== 'unsupported' &&
+      this.fullscreenOutcomeValue !== 'rejected' &&
+      this.fullscreenOutcomeValue !== 'pending';
+  }
+
   private syncUi(): void {
     const recoverable = !this.mobile && this.goAttempted && this.phase === 'active' &&
       !this.dismissedForPhase && (this.fullscreenOutcomeValue === 'rejected' || this.fullscreenOutcomeValue === 'exited');
     this.root.hidden = !recoverable;
     this.root.dataset.outcome = this.fullscreenOutcomeValue;
+    this.readyAvailabilityListener?.(this.readyEntryAvailable());
   }
 }

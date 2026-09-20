@@ -868,6 +868,10 @@ async function verifyMode(browser, mobile) {
     `${label}: spent flight prompt is hidden or overflows: ${JSON.stringify(spent)}`);
   assert.match(spent?.rule ?? '', /每飞限续\s*1\s*次/, `${label}: spent flight prompt lost the once-per-flight rule`);
 
+  // Relaunching from the water must start a fresh flight, never the extension:
+  // the scenario itself asserts the post-tap state and throws on regression.
+  await stage(page, 'water-contact-reflight', 60);
+
   await stage(page, 'gate-copy', 80);
   const gateCopy = await page.evaluate(() => ({
     heading: document.querySelector('.hud-results-place')?.textContent?.trim() ?? '',

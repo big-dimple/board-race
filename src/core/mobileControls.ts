@@ -116,9 +116,12 @@ export class MobileControls {
     root.dataset.activation = 'idle';
     root.innerHTML = `
       <div class="mobile-orientation" role="alert" aria-live="assertive">
-        <div class="mobile-rotate-icon" aria-hidden="true">↻</div>
-        <strong>请旋转至横屏</strong>
-        <span>本游戏仅支持横屏</span>
+        <div class="mobile-rotate-icon" aria-hidden="true">
+          <span class="mobile-rotate-phone"></span><span class="mobile-rotate-arrow">↻</span>
+        </div>
+        <strong>本游戏仅支持横屏</strong>
+        <span class="mobile-orientation-lead">请旋转手机，横屏后开始游戏</span>
+        <small>微信等内置浏览器若无法横屏：点右上角「···」→「在浏览器打开」</small>
       </div>
       <button class="mobile-start" type="button">开始游戏</button>
       <button class="mobile-mode" type="button" aria-label="当前触控转向，点击切换体感转向">转向 · 触控</button>
@@ -440,7 +443,7 @@ export class MobileControls {
     angle: number;
     landscape: boolean;
     fullscreenRequests: number;
-    fullscreenRequestSource: 'none' | 'go' | 'control' | 'capture-return' | 'restore';
+    fullscreenRequestSource: 'none' | 'go' | 'control' | 'capture-return' | 'restore' | 'ready';
     fullscreenGoGestures: number;
     fullscreenOutcome: import('./immersiveMode').FullscreenOutcome;
     fullscreenFailures: number;
