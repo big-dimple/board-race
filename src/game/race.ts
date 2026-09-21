@@ -133,6 +133,7 @@ export class Race implements RaceView {
   private resynced: boolean[] = [];
   private previousWorld: THREE.Vector3[] = [];
   private finalContender: boolean[] = [];
+  private lastTrackDt = 1 / 60; // dt of the most recent track(); corrections carry no dt
   private battleDisplayPlace = RACER_DEFS[0].startPlace;
   private overtakeStreak = 0;
   private lastOvertakeAt = -Infinity;
@@ -471,6 +472,7 @@ export class Race implements RaceView {
   }
 
   update(dt: number): void {
+    this.lastTrackDt = dt;
     if (this.phase === 'countdown' || this.phase === 'resume-countdown') {
       const resuming = this.phase === 'resume-countdown';
       if (this.pendingTick > 0) {
@@ -532,6 +534,22 @@ export class Race implements RaceView {
         this.course.sample(boat.state.position, _sample, route);
       }
       this.prevU[id] = _sample.u;
+      // Contacts resolve after the per-step portal sweep in the main loop, so
+      // a correction that carried an armed contender across the plane used to
+      // re-base the tracked segment onto the far side and erase the crossing
+      // for good (boat beyond the line, portal armed, no finale). Re-run the
+      // same swept test on the corrected segment; the step cap still rejects
+      // teleport-scale moves, and sub-frame finish time reuses the last dt.
+      if (this.finalStationArmed && this.hasFinalQualification(id)) {
+        const racer = this.racers[id];
+        if (!racer.finished && !racer.eliminated) {
+          const st = boat.state;
+          const airborne = st.flightPhase !== 'surface' || st.flightRouteState !== 'idle' ||
+            st.airborne || st.position.y > 0.5;
+          const crossing = this.course.crossFinalStation(this.previousWorld[id], st.position, airborne);
+          if (crossing >= 0) this.finishAtFinal(racer, crossing, this.lastTrackDt);
+        }
+      }
       this.previousWorld[id].copy(boat.state.position);
     }
   }

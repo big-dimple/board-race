@@ -3696,6 +3696,7 @@ interface Harness {
   radioTechniqueCase(): Record<string, unknown>;
   offCourseRecoveryCase(): Record<string, unknown>;
   finalEligibilityCase(): Record<string, unknown>;
+  finalCorrectionCrossingCase(): Record<string, unknown>;
   postSetRankCase(): Record<string, unknown>;
   finaleHonorSequenceCase(leaveVisible?: boolean, testAutoContinue?: boolean): Record<string, unknown>;
   finaleAutoFlowCase(): Record<string, unknown>;
@@ -4596,6 +4597,97 @@ function runFinalEligibilityCase(): Record<string, unknown> {
     };
   } finally {
     // Leave the browser harness in a clean READY state for the next scenario.
+    resetRace();
+  }
+}
+
+/**
+ * A collision correction that carries an armed, qualified boat across the
+ * Final portal must still finish the run. Corrections apply after the normal
+ * per-step portal sweep (main loop resolves contacts after race.update) and
+ * used to re-base the tracked segment onto the far side of the plane, erasing
+ * the crossing: the boat sat beyond the line with the portal armed and no
+ * finale. The same sweep now re-runs on the corrected segment, keeping the
+ * step cap so teleport-scale jumps still never finish.
+ */
+function runFinalCorrectionCrossingCase(): Record<string, unknown> {
+  const dt = 1 / 60;
+  const routeCount = Math.max(1, course.flightRoutes.length);
+  const center = course.pointAt(0, new THREE.Vector3());
+  const forward = course.tangentAt(0, new THREE.Vector3()).normalize();
+
+  const stageSubRun = (): void => {
+    resetRace();
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    for (let id = 0; id < boats.length; id++) {
+      // Teleport first: it wipes flight progress state, so staged qualification
+      // is written afterwards (same discipline as the eligibility case).
+      placeHarnessBoat(id, 0.5 - id * 0.01);
+      const state = boats[id].state;
+      state.flightPhase = 'surface';
+      state.airborne = false;
+      state.flightRouteState = 'idle';
+      state.flightRouteIndex = -1;
+      state.flightRouteCursor = id === 0 ? routeCount : 0;
+      state.flightsCleared = id === 0 ? routeCount : 0;
+      state.flightGateProgress = 0;
+      state.flightRouteFailReason = 'none';
+      state.flightFailure = null;
+    }
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    race.racers[0].progress = course.length;
+    if (!race.armFinale()) {
+      throw new Error(`unable to arm Final correction crossing case: phase=${race.phase} ` +
+        `cleared=${boats[0].state.flightsCleared} finished=${race.racers[0].finished} ` +
+        `eliminated=${race.racers[0].eliminated}`);
+    }
+    course.armFinalStation();
+  };
+
+  // Park the qualified boat `planeM` before the portal plane, dead in the
+  // water, and re-base both trackers so the tracked segment starts there.
+  const parkBeforePortal = (planeM: number): void => {
+    const point = center.clone().addScaledVector(forward, planeM);
+    boats[0].setCollisionTestMotion(point.x, point.z, Math.atan2(forward.x, forward.z), 0, 0);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+  };
+
+  const runSubRun = (correctionM: number | null): Record<string, unknown> => {
+    stageSubRun();
+    parkBeforePortal(-0.3);
+    if (correctionM === null) {
+      // Teleport-scale jump straight to the far side (recovery-class move):
+      // must stay under the swept-step cap and never finish.
+      const farPoint = center.clone().addScaledVector(forward, 6.0);
+      boats[0].setCollisionTestMotion(farPoint.x, farPoint.z, Math.atan2(forward.x, forward.z), 0, 0);
+    } else {
+      // Gantry-pillar-class positional correction (same entry point gameplay
+      // uses); clamped to 0.4m by the boat itself.
+      boats[0].applyCollisionResponse(forward.x * correctionM, forward.z * correctionM, 0, 0);
+    }
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    const finishedAfterCorrection = race.racers[0].finished;
+    race.update(dt);
+    return { finishedAfterCorrection, phase: race.phase };
+  };
+
+  try {
+    const crossing = runSubRun(0.4);
+    const short = runSubRun(0.1);
+    const teleport = runSubRun(null);
+    return {
+      crossingFinished: crossing.finishedAfterCorrection,
+      crossingPhase: crossing.phase,
+      shortFinished: short.finishedAfterCorrection,
+      shortPhase: short.phase,
+      teleportFinished: teleport.finishedAfterCorrection,
+      teleportPhase: teleport.phase,
+    };
+  } finally {
     resetRace();
   }
 }
@@ -6670,6 +6762,7 @@ if (HARNESS) {
     radioTechniqueCase: runRadioTechniqueCase,
     offCourseRecoveryCase: runOffCourseRecoveryCase,
     finalEligibilityCase: runFinalEligibilityCase,
+    finalCorrectionCrossingCase: runFinalCorrectionCrossingCase,
     postSetRankCase: runPostSetRankCase,
     finaleHonorSequenceCase: runFinaleHonorSequenceCase,
     finaleAutoFlowCase: runFinaleAutoFlowCase,

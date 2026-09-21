@@ -1,51 +1,42 @@
 # Board Race 开发交接
 
-状态：READY 全屏引导按钮强化完成（build ✅、smoke 桌面 + 844x390 双绿），待提交。
+状态：Final 终点线「碰撞修正吞掉跨越」修复完成（build + smoke 双端 + collision 全绿），
+待提交。
 
 ## 当前工作包
 
-- 目标（用户 2026-09-21 裁决）：READY 页全屏按钮「做大一点、放右下角、点了
-  就不用出现」；手机版原按钮太小看不清，且首屏被状态栏/地址栏压缩，第一步
-  观感不友好。
+- 目标（用户 2026-09-21 报告）：小概率出现已过终点站（Final portal）但没有激活通关
+  画面、无任何效果的情况。
+- 根因：主循环单步顺序为 船体物理 → `race.update` 的 swept 平面跨越测试 → 艇艇/门柱
+  碰撞位置修正 → `syncCollisionCorrections` 重定追踪。跨越测试之后的位置修正会把已资格
+  船推过终点平面，随后 `previousWorld` 被覆写到远侧，跨越永久丢失——船停在对侧、portal
+  仍 armed、finale 永不触发。
 - 已完成：
-  - `src/core/immersiveMode.ts`：新增 `readyEntryConsumed` 锁存——任何来源
-    （READY 按钮/GO/控制手势）真实进入过一次全屏后，READY 按钮本会话不再
-    出现；`readyEntryAvailable()` 加锁存条件，`onReadyAvailability` 文档同步。
-    GO 每局仍走 `requestGo()` 真实手势请求全屏，按钮消失不构成全屏死角。
-  - `src/hud/driverSelect.ts`：按钮移出 footer 挂到选角层 root，双行结构
-    （队色 ⛶ 图标 + 「全屏体验」主标 + 「隐藏地址栏更沉浸」小字），
-    aria-label 说明用途。
-  - `src/hud/driverSelect.css`：桌面锚 overlay 右下角（z-index 8，安全区
-    aware），2.8s 呼吸光引导动画（`driver-fs-call`，reduced-motion 静止）；
-    coarse 横屏端页脚带垫高 66px、按钮落在带内（root 锚定，参照物是
-    overlay 不是 footer），featured 选手信息零遮挡；≤340px 矮屏页脚 52px +
-    紧凑按钮 44px。
-- Owner：`src/core/immersiveMode.ts`、`src/hud/driverSelect.ts/css`、
-  `docs/llmwiki.md`、本文。
-- 合同同步（llmwiki）：READY 全屏按钮形态/位置/「成功进入过一次后本会话
-  自隐」条款已写入 Fullscreen 合同。
+  - `src/game/race.ts`：`update()` 记录 `lastTrackDt`；
+    `syncCollisionCorrections()` 覆写 `previousWorld` 之前，对 armed+qualified+未
+    finished/eliminated 的船用同一 `crossFinalStation` swept 合同（步长上限/横向半宽
+    不变）补测修正线段，命中即 `finishAtFinal`。
+  - `src/main.ts`：新增确定性用例 `runFinalCorrectionCrossingCase`（修正越线必 finish、
+    未越线修正不 finish、>4m 传送跳越线仍不 finish 三向断言），挂入 `__harness`。
+  - `harness/screenshot.mjs`：verify:smoke 桌面+移动双端接入新断言。
+  - `docs/llmwiki.md`：「失败与 Final」补跨越判定覆盖碰撞修正步的稳定合同。
+- Owner：`src/game/race.ts`、`src/main.ts`、`harness/screenshot.mjs`、`docs/llmwiki.md`、本文。
 
 ## 验证与证据
 
-- `npm run build` ✅。
-- 一次性探针（已删除，未入库）：移动 844x390 下断言——GO 前按钮可见且
-  `hidden:false`（rect 660,320,172x62，右缘 832=844-12、落在页脚带内）；
-  点按钮后 `outcome:"entered"` 且按钮自隐；`document.exitFullscreen()` 后
-  `outcome:"exited"` 按钮仍隐藏（锁存生效）。
-- 截图自审：`shots/fs-review/ready.png`（桌面右下角大按钮）、
-  `shots/fs-review/ready-mobile-fs-button.png`（移动：按钮醒目、选手
-  优势/短板与雷达完整无遮挡）、`ready-mobile-fs-entered.png`（进入全屏后
-  按钮消失）。
-- `npm run verify:smoke` ✅ 桌面 + 844x390 双绿（`smoke contract: OK`）。
+- 修复前新用例红灯复现：`{"crossingFinished":false,"crossingPhase":"racing",...}`
+  （修正推过门线后未结算）。
+- 修复后 `desktop-1440x900 final correction crossing: corrected=true short=false teleport=false`。
+- `npm run build` ✅；`npm run verify:smoke` ✅（`smoke contract: OK`，桌面+844x390）；
+  `npm run verify:collision` ✅。未放宽任何阈值。
 
 ## 遗留风险
 
-- 桌面 1366px 临界宽度下按钮右缘与雷达背板右缘间距极小（1440 截图无交叠）；
-  真机窄窗 + 已连接手柄时状态文案可能与按钮邻近，未实测。
-- iOS 真机 Safari 无 requestFullscreen → 按钮走「unsupported/idle 不可获得」
-  路径保持隐藏，与此前形态一致（竖屏小字引导到系统浏览器）。
+- 用例以 0.4m 门柱级修正模拟；真实艇艇挤碰的组合更多，但几何合同相同，行为可推。
+- portal 半宽 7.15m 窄于格子带（±7.5m）/门楼开口（±8.5m）的观感差未改动（能量柱
+  即门宽，视觉=判定）；若玩家反馈「从柱外过线没反应」，再议是否扩宽。
 
 ## 唯一下一步
 
 jiepi-clear 预检 + 暂存已审文件 + `npm run release:checked` 提交推送；
-用户实机复核移动首屏按钮观感与全屏进入/退出后的显隐。
+用户实机复核终点冲线结算稳定性。

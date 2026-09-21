@@ -450,6 +450,22 @@ async function verifyMode(browser, mobile) {
     console.log(`desktop final eligibility: qualified=${finalEligibility.qualifiedFinishedIds.join(',')} ` +
       `underqualified=${finalEligibility.unqualifiedFinishedIds.length} order=${finalEligibility.finishOrder.join(',')}`);
 
+    const finalCorrection = await page.evaluate(() => window.__harness.finalCorrectionCrossingCase());
+    assert.equal(finalCorrection.crossingFinished, true,
+      `${label}: a collision correction across the Final portal did not finish the armed run: ${JSON.stringify(finalCorrection)}`);
+    assert.equal(finalCorrection.crossingPhase, 'finished',
+      `${label}: the corrected Final crossing did not build the finale result: ${JSON.stringify(finalCorrection)}`);
+    assert.equal(finalCorrection.shortFinished, false,
+      `${label}: a correction short of the Final portal finished the run: ${JSON.stringify(finalCorrection)}`);
+    assert.equal(finalCorrection.shortPhase, 'racing',
+      `${label}: a correction short of the Final portal changed the race phase: ${JSON.stringify(finalCorrection)}`);
+    assert.equal(finalCorrection.teleportFinished, false,
+      `${label}: a teleport-scale jump across Final finished the run: ${JSON.stringify(finalCorrection)}`);
+    assert.equal(finalCorrection.teleportPhase, 'racing',
+      `${label}: a teleport-scale jump across Final changed the race phase: ${JSON.stringify(finalCorrection)}`);
+    console.log(`${label} final correction crossing: corrected=${finalCorrection.crossingFinished} ` +
+      `short=${finalCorrection.shortFinished} teleport=${finalCorrection.teleportFinished}`);
+
     const postSetRank = await page.evaluate(() => window.__harness.postSetRankCase());
     assert.ok(postSetRank.progressAfterDriving > postSetRank.progressAtArming,
       `${label}: armed player stopped banking race distance: ${JSON.stringify(postSetRank)}`);
