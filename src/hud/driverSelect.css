@@ -181,23 +181,48 @@
 .driver-coach-toggle { min-height:40px; margin-top:14px; padding:0 16px; border:2px solid var(--driver-color); border-radius:4px; color:#f4feff; background:#101b38; font:900 13px/1 system-ui,sans-serif; cursor:pointer; }
 .driver-select-go { position:relative; min-width:180px; min-height:46px; padding:0 22px; border:1px solid var(--driver-color); border-left-width:5px; border-radius:2px; color:#f4feff; background:#101b38; box-shadow:0 0 20px rgba(85,231,255,.16); font:italic 900 17px/1 'Arial Black',Impact,sans-serif; cursor:pointer; }
 .driver-select-fullscreen {
-  display:inline-flex;
+  position:absolute;
+  right:max(18px,env(safe-area-inset-right));
+  bottom:max(16px,env(safe-area-inset-bottom));
+  z-index:8;
+  display:flex;
   align-items:center;
-  gap:6px;
-  min-height:46px;
-  margin-right:12px;
-  padding:0 16px;
-  border:2px solid rgba(244,254,255,.4);
-  border-radius:2px;
+  gap:12px;
+  min-height:60px;
+  padding:10px 20px 10px 14px;
+  border:2px solid rgba(244,254,255,.58);
+  border-radius:8px;
   color:#f4feff;
-  background:rgba(8,13,42,.55);
-  font:800 13px/1 system-ui,sans-serif;
+  background:rgba(8,13,42,.88);
+  box-shadow:0 0 0 1px rgba(244,254,255,.08),0 0 24px rgba(85,231,255,.22),4px 4px 0 #14122b;
+  font-family:system-ui,sans-serif;
   cursor:pointer;
+  animation:driver-fs-call 2.8s ease-in-out infinite;
 }
-.driver-select-fullscreen:hover { border-color:rgba(244,254,255,.78); background:rgba(16,27,56,.75); }
+.driver-select-fullscreen-icon {
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:38px;
+  flex:none;
+  border:2px solid color-mix(in srgb,var(--driver-color) 72%,transparent);
+  border-radius:6px;
+  background:color-mix(in srgb,var(--driver-color) 16%,transparent);
+  color:var(--driver-color);
+  font:900 22px/1 system-ui,sans-serif;
+}
+.driver-select-fullscreen-text { display:flex; flex-direction:column; align-items:flex-start; gap:3px; }
+.driver-select-fullscreen-text b { font:900 17px/1.05 system-ui,sans-serif; }
+.driver-select-fullscreen-text small { font:750 10.5px/1.2 system-ui,sans-serif; color:rgba(244,254,255,.62); }
+@keyframes driver-fs-call {
+  0%,100% { box-shadow:0 0 0 1px rgba(244,254,255,.08),0 0 22px rgba(85,231,255,.20),4px 4px 0 #14122b; }
+  50% { box-shadow:0 0 0 1px rgba(244,254,255,.22),0 0 40px rgba(85,231,255,.46),4px 4px 0 #14122b; }
+}
+.driver-select-fullscreen:hover { border-color:rgba(244,254,255,.85); background:rgba(16,27,56,.94); }
+.driver-select-fullscreen:active { transform:scale(.96); }
 .driver-select-fullscreen:focus-visible { outline:3px solid #fff; outline-offset:3px; }
 .driver-select-fullscreen[hidden] { display:none; }
-.driver-select-fullscreen:disabled { opacity:.55; cursor:default; }
+.driver-select-fullscreen:disabled { opacity:.55; cursor:default; animation:none; }
 .driver-select-go::after { content:'›'; margin-left:12px; color:var(--driver-color); font-style:normal; }
 .driver-select-go:hover { background:#16294b; box-shadow:0 0 26px rgba(85,231,255,.28); }
 .driver-select-go:focus-visible { outline:3px solid #fff; outline-offset:3px; }
@@ -413,7 +438,6 @@
   .driver-dot.selected { width:24px; }
   .driver-select-footer { width:100%; justify-content:center; }
   .driver-select-go { position:static; min-width:158px; min-height:40px; padding:0 15px; font-size:14px; }
-  .driver-select-fullscreen { min-height:40px; margin-right:8px; padding:0 10px; font-size:11px; }
   .driver-coach-button { right:calc(50% + 92px); width:34px; height:34px; font-size:17px; }
   .driver-coach-panel { bottom:max(54px,calc(env(safe-area-inset-bottom) + 48px)); width:min(460px,calc(100% - 110px)); padding:10px 12px; }
   .driver-coach-head { font-size:12px; }
@@ -614,11 +638,23 @@
   .driver-meta { margin-top:4px; font-size:12px; }
   .driver-quote { display:none; }
   .driver-trait { margin-top:3px; padding:3px 4px; font-size:7px; }
-  .driver-select-footer { min-height:40px; }
+  /* The fullscreen invitation rides in the footer band on phones: a taller
+     row keeps the featured driver's identity column fully clear. The button
+     stays anchored to the overlay root, parked inside that grown band. */
+  .driver-select-footer { min-height:66px; }
+  .driver-select-fullscreen {
+    right:max(12px,env(safe-area-inset-right));
+    bottom:max(8px,env(safe-area-inset-bottom));
+    min-height:56px;
+    padding:8px 18px 8px 12px;
+  }
+  .driver-select-fullscreen-icon { width:38px; height:38px; font-size:22px; }
+  .driver-select-fullscreen-text b { font-size:17px; }
+  .driver-select-fullscreen-text small { font-size:10.5px; }
 }
 
 @media (pointer:coarse) and (orientation:landscape) and (max-height:340px) {
-  .driver-select { grid-template-rows:auto minmax(0,1fr) 37px; }
+  .driver-select { grid-template-rows:auto minmax(0,1fr) 52px; }
   .driver-featured { width:min(calc(100% - 154px),650px); }
   .driver-switch-control { width:68px; height:68px; grid-template-rows:38px auto; }
   .driver-switch-previous { right:calc(100% + 7px); }
@@ -629,7 +665,11 @@
   .driver-meta { font-size:10px; }
   .driver-trait { font-size:6.5px; }
   .driver-select-go { min-height:35px; }
-  .driver-select-fullscreen { min-height:35px; margin-right:6px; padding:0 8px; font-size:10px; }
+  .driver-select-footer { min-height:0; }
+  .driver-select-fullscreen { min-height:44px; padding:5px 12px 5px 9px; gap:8px; bottom:max(5px,env(safe-area-inset-bottom)); }
+  .driver-select-fullscreen-icon { width:28px; height:28px; font-size:16px; }
+  .driver-select-fullscreen-text b { font-size:13.5px; }
+  .driver-select-fullscreen-text small { font-size:8px; }
 }
 
 /* The standing image is a supporting echo only. The selected driver remains
@@ -669,4 +709,5 @@
   .driver-select.switching .driver-card.selected { animation:none; }
   .driver-portrait-incoming { opacity:0 !important; transform:none !important; clip-path:none !important; }
   .driver-select.switching .driver-mobile-backdrop { animation:none; }
+  .driver-select-fullscreen { animation:none; }
 }

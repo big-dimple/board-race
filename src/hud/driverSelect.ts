@@ -216,11 +216,6 @@ export class DriverSelect {
     this.coachButton.addEventListener('click', () => {
       this.kickstartGuide.show();
     });
-    this.fullscreenButton = element('button', 'driver-select-fullscreen', footer, '⛶ 全屏体验');
-    this.fullscreenButton.type = 'button';
-    this.fullscreenButton.setAttribute('aria-label', '进入浏览器全屏，获得完整横屏体验');
-    this.fullscreenButton.hidden = true;
-    this.fullscreenButton.addEventListener('click', () => this.onFullscreenRequest());
     this.startButton = element('button', 'driver-select-go', footer, 'GO · 签约出发');
     this.startButton.type = 'button';
     this.startButton.addEventListener('click', () => {
@@ -259,6 +254,18 @@ export class DriverSelect {
       this.coachPanel.classList.remove('on');
       this.coachButton.setAttribute('aria-expanded', 'false');
     });
+    // Bottom-right floating entry, owned by the overlay rather than the footer
+    // row: on phones it must read as a first-run invitation, not a footer chip.
+    this.fullscreenButton = element('button', 'driver-select-fullscreen', this.root);
+    this.fullscreenButton.type = 'button';
+    this.fullscreenButton.setAttribute('aria-label', '进入浏览器全屏，隐藏地址栏获得完整横屏体验');
+    this.fullscreenButton.hidden = true;
+    const fullscreenIcon = element('span', 'driver-select-fullscreen-icon', this.fullscreenButton, '⛶');
+    fullscreenIcon.setAttribute('aria-hidden', 'true');
+    const fullscreenText = element('span', 'driver-select-fullscreen-text', this.fullscreenButton);
+    element('b', '', fullscreenText, '全屏体验');
+    element('small', '', fullscreenText, '隐藏地址栏更沉浸');
+    this.fullscreenButton.addEventListener('click', () => this.onFullscreenRequest());
     window.addEventListener('resize', () => {
       if (!this.root.classList.contains('on')) return;
       this.drawRadar(this.selectedProfile, this.radarDisplayValues);

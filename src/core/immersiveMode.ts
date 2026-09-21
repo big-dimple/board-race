@@ -34,6 +34,8 @@ export class ImmersiveModeController {
   private fullscreenFailuresValue = 0;
   private goBufferRemaining = 0;
   private goAccepted = false;
+  /** Once fullscreen was actually entered, the READY button never nags again. */
+  private readyEntryConsumed = false;
   private readonly chromiumFamily: boolean;
   private readyAvailabilityListener: ((available: boolean) => void) | null = null;
 
@@ -91,7 +93,9 @@ export class ImmersiveModeController {
    * Subscribe to READY-entry availability. Fires immediately with the current
    * value and again on every fullscreen/standalone state change. The READY
    * button only shows while fullscreen is unattained, unsupported states are
-   * left to the browser-managed form.
+   * left to the browser-managed form, and after fullscreen was actually
+   * entered once the button stays hidden for the session (GO still requests
+   * fullscreen from its own gesture every run).
    */
   onReadyAvailability(listener: (available: boolean) => void): void {
     this.readyAvailabilityListener = listener;
@@ -184,6 +188,7 @@ export class ImmersiveModeController {
     request.then(() => {
       this.wasActive = true;
       this.fullscreenOutcomeValue = 'entered';
+      this.readyEntryConsumed = true;
       this.goAccepted = true;
       this.goBufferRemaining = source === 'go' && this.chromiumFamily ? CHROME_GO_BUFFER_S : 0;
       this.dismissedForPhase = false;
@@ -218,6 +223,7 @@ export class ImmersiveModeController {
     if (document.fullscreenElement) {
       this.wasActive = true;
       this.fullscreenOutcomeValue = 'entered';
+      this.readyEntryConsumed = true;
       this.goAccepted = true;
       this.goBufferRemaining = this.chromiumFamily ? CHROME_GO_BUFFER_S : 0;
       this.dismissedForPhase = false;
@@ -250,7 +256,8 @@ export class ImmersiveModeController {
   }
 
   private readyEntryAvailable(): boolean {
-    return !this.isStandaloneDisplay() &&
+    return !this.readyEntryConsumed &&
+      !this.isStandaloneDisplay() &&
       !document.fullscreenElement &&
       typeof document.documentElement.requestFullscreen === 'function' &&
       this.fullscreenOutcomeValue !== 'unsupported' &&
