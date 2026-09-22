@@ -11,6 +11,8 @@ export type FullscreenOutcome =
 export type FullscreenRequestSource = 'none' | 'go' | 'control' | 'capture-return' | 'restore' | 'ready';
 type ImmersivePhase = 'ready' | 'active' | 'presentation';
 const CHROME_GO_BUFFER_S = 2.8;
+/** A fullscreen request that never settles must not soft-lock the start. */
+const FULLSCREEN_PENDING_TIMEOUT_MS = 5000;
 
 /**
  * Owns browser fullscreen separately from touch input. A fullscreen request
@@ -34,6 +36,7 @@ export class ImmersiveModeController {
   private fullscreenFailuresValue = 0;
   private goBufferRemaining = 0;
   private goAccepted = false;
+  private requestPendingAt = 0;
   /** Once fullscreen was actually entered, the READY button never nags again. */
   private readyEntryConsumed = false;
   private readonly chromiumFamily: boolean;
@@ -105,6 +108,13 @@ export class ImmersiveModeController {
   /** Advance the browser-owned fullscreen notice buffer on the fixed step. */
   update(dt: number): void {
     this.goBufferRemaining = Math.max(0, this.goBufferRemaining - Math.max(0, dt));
+    // Some desktop browsers open the fullscreen transition UI without ever
+    // settling the request promise. GO must not wait forever on that: time the
+    // request out into the honest `rejected` state so the countdown can start
+    // windowed and the recovery affordance offers a later re-request.
+    if (this.requestPending && performance.now() - this.requestPendingAt > FULLSCREEN_PENDING_TIMEOUT_MS) {
+      this.rejectRequest();
+    }
   }
 
   /** True when a queued GO may safely enter the authored countdown. */
@@ -178,6 +188,7 @@ export class ImmersiveModeController {
     this.fullscreenRequestSourceValue = source;
     this.fullscreenOutcomeValue = 'pending';
     this.requestPending = true;
+    this.requestPendingAt = performance.now();
     let request: Promise<void>;
     try {
       request = requestFullscreen.call(document.documentElement, { navigationUI: 'hide' });

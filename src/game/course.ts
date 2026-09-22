@@ -93,6 +93,8 @@ const FLIGHT_ENVELOPE_TOTAL_S = 6.52;
 const FINAL_PORTAL_HALF_WIDTH_M = 7.15;
 const FINAL_PORTAL_AIR_HALF_WIDTH_M = 12.0;
 const FINAL_PORTAL_MAX_STEP_M = 4;
+/** A continuous boat may settle a missed crossing only within this past-plane window. */
+const FINAL_PORTAL_MISSED_MAX_M = 6;
 
 // ---------------------------------------------------- arc-length table ----
 
@@ -2156,6 +2158,30 @@ export class Course implements ICourse {
     const lateral = crossX * this.finalPortalRight.x + crossZ * this.finalPortalRight.z;
     const allowedHalfWidth = isAirborne ? FINAL_PORTAL_AIR_HALF_WIDTH_M : FINAL_PORTAL_HALF_WIDTH_M;
     return Math.abs(lateral) <= allowedHalfWidth ? crossingT : -1;
+  }
+
+  /**
+   * Finish seatbelt: an armed, qualified contender that ends up continuously
+   * just beyond the portal plane inside the gate must have passed through the
+   * plane (the step cap still rejects teleport-scale arrivals, and the race
+   * grid sits behind the line, so no legitimate spawn lands there). Settle it
+   * instead of stranding the run — returns true only for that narrow case.
+   */
+  finalPortalBeyondGate(previous: THREE.Vector3, current: THREE.Vector3, isAirborne = false): boolean {
+    const dx = current.x - previous.x;
+    const dz = current.z - previous.z;
+    const stepSq = dx * dx + dz * dz;
+    if (stepSq <= 1e-8 || stepSq > FINAL_PORTAL_MAX_STEP_M * FINAL_PORTAL_MAX_STEP_M) return false;
+    const prevPlane = (previous.x - this.finalPortalCenter.x) * this.finalPortalForward.x +
+      (previous.z - this.finalPortalCenter.z) * this.finalPortalForward.z;
+    const curPlane = (current.x - this.finalPortalCenter.x) * this.finalPortalForward.x +
+      (current.z - this.finalPortalCenter.z) * this.finalPortalForward.z;
+    if (prevPlane <= 0 || curPlane <= 0 || prevPlane > FINAL_PORTAL_MISSED_MAX_M) return false;
+    const crossX = current.x - this.finalPortalCenter.x;
+    const crossZ = current.z - this.finalPortalCenter.z;
+    const lateral = crossX * this.finalPortalRight.x + crossZ * this.finalPortalRight.z;
+    const allowedHalfWidth = isAirborne ? FINAL_PORTAL_AIR_HALF_WIDTH_M : FINAL_PORTAL_HALF_WIDTH_M;
+    return Math.abs(lateral) <= allowedHalfWidth;
   }
 
   triggerFinaleCelebration(): void {

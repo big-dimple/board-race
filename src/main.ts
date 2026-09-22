@@ -127,7 +127,10 @@ const HARNESS = import.meta.env.DEV && params.has('harness');
 const DESKTOP_DRIVER_STAGE = window.matchMedia('(pointer: fine) and (min-width: 1366px) and (min-height: 768px)');
 const MOBILE_DEVICE = params.has('mobile') || navigator.maxTouchPoints > 0 ||
   window.matchMedia('(pointer: coarse)').matches;
-const harnessEndlessMode = HARNESS;
+// Harness scenarios default to endless racing so long evidence runs never
+// freeze on an AI-earned finale; `harnessFinalArm=1` opts back into the real
+// arming path so full-pipeline finale soaks can run headless.
+const harnessEndlessMode = HARNESS && !params.has('harnessFinalArm');
 const timeOfDayManager = new TimeOfDayManager(params.get('tod'));
 type AppMode = 'front-door' | 'independent' | 'duo' | 'team-play';
 let appMode: AppMode = 'front-door';
@@ -3697,6 +3700,7 @@ interface Harness {
   offCourseRecoveryCase(): Record<string, unknown>;
   finalEligibilityCase(): Record<string, unknown>;
   finalCorrectionCrossingCase(): Record<string, unknown>;
+  finalMissedCrossingCase(): Record<string, unknown>;
   postSetRankCase(): Record<string, unknown>;
   finaleHonorSequenceCase(leaveVisible?: boolean, testAutoContinue?: boolean): Record<string, unknown>;
   finaleAutoFlowCase(): Record<string, unknown>;
@@ -4686,6 +4690,77 @@ function runFinalCorrectionCrossingCase(): Record<string, unknown> {
       shortPhase: short.phase,
       teleportFinished: teleport.finishedAfterCorrection,
       teleportPhase: teleport.phase,
+    };
+  } finally {
+    resetRace();
+  }
+}
+
+/**
+ * Seatbelt for a sweep miss: an armed, qualified boat that is continuously
+ * just beyond the portal plane inside the gate necessarily passed through it.
+ * near:   parked 1.5m past the plane, stepped 0.5m deeper — must finish.
+ * teleport: 20m jump — teleport-class, must stay unfinished.
+ * wide:   past the plane but 20m to the side — outside the gate, unfinished.
+ */
+function runFinalMissedCrossingCase(): Record<string, unknown> {
+  const dt = 1 / 60;
+  const routeCount = Math.max(1, course.flightRoutes.length);
+  const center = course.pointAt(0, new THREE.Vector3());
+  const forward = course.tangentAt(0, new THREE.Vector3()).normalize();
+  const right = new THREE.Vector3(forward.z, 0, -forward.x).normalize();
+
+  const stageSubRun = (): void => {
+    resetRace();
+    startFreshCountdown();
+    advanceUntil(() => race.phase === 'racing', 8);
+    for (let id = 0; id < boats.length; id++) {
+      placeHarnessBoat(id, 0.5 - id * 0.01);
+      const state = boats[id].state;
+      state.flightPhase = 'surface';
+      state.airborne = false;
+      state.flightRouteState = 'idle';
+      state.flightRouteIndex = -1;
+      state.flightRouteCursor = id === 0 ? routeCount : 0;
+      state.flightsCleared = id === 0 ? routeCount : 0;
+      state.flightGateProgress = 0;
+      state.flightRouteFailReason = 'none';
+      state.flightFailure = null;
+    }
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+    race.racers[0].progress = course.length;
+    if (!race.armFinale()) throw new Error('unable to arm Final missed-crossing case');
+    course.armFinalStation();
+  };
+
+  const parkBeyond = (planeM: number, lateralM: number): void => {
+    const point = center.clone().addScaledVector(forward, planeM).addScaledVector(right, lateralM);
+    boats[0].setCollisionTestMotion(point.x, point.z, Math.atan2(forward.x, forward.z), 0, 0);
+    course.syncFlightTrackingAfterCollisions(boats);
+    race.syncCollisionCorrections();
+  };
+
+  const runSubRun = (targetPlaneM: number, lateralM: number): Record<string, unknown> => {
+    stageSubRun();
+    parkBeyond(1.5, lateralM);
+    const target = center.clone().addScaledVector(forward, targetPlaneM).addScaledVector(right, lateralM);
+    boats[0].setCollisionTestMotion(target.x, target.z, Math.atan2(forward.x, forward.z), 0, 0);
+    race.update(dt);
+    return { finished: race.racers[0].finished, phase: race.phase };
+  };
+
+  try {
+    const near = runSubRun(2.0, 0);
+    const teleport = runSubRun(21.5, 0);
+    const wide = runSubRun(2.0, 20);
+    return {
+      nearFinished: near.finished,
+      nearPhase: near.phase,
+      teleportFinished: teleport.finished,
+      teleportPhase: teleport.phase,
+      wideFinished: wide.finished,
+      widePhase: wide.phase,
     };
   } finally {
     resetRace();
@@ -6763,6 +6838,7 @@ if (HARNESS) {
     offCourseRecoveryCase: runOffCourseRecoveryCase,
     finalEligibilityCase: runFinalEligibilityCase,
     finalCorrectionCrossingCase: runFinalCorrectionCrossingCase,
+    finalMissedCrossingCase: runFinalMissedCrossingCase,
     postSetRankCase: runPostSetRankCase,
     finaleHonorSequenceCase: runFinaleHonorSequenceCase,
     finaleAutoFlowCase: runFinaleAutoFlowCase,

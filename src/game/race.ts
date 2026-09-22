@@ -595,6 +595,14 @@ export class Race implements RaceView {
         !r.finished && !r.eliminated
         ? this.course.crossFinalStation(previousPosition, boat.state.position, isAirborne)
         : -1;
+      // Seatbelt for a sweep that somehow missed an earned pass-through (e.g.
+      // the contender was carried past the plane in the same window that armed
+      // the portal). The geometry proof lives in Course: both endpoints
+      // continuously just beyond the plane inside the gate cannot happen
+      // without having crossed it, and the step cap still rejects teleports.
+      const finalSeatbelt = finalCrossing < 0 && !resyncOnly && this.finalStationArmed &&
+        this.hasFinalQualification(id) && !r.finished && !r.eliminated &&
+        this.course.finalPortalBeyondGate(previousPosition, boat.state.position, isAirborne);
       previousPosition.copy(boat.state.position);
       // Completing a whole authored set is an earned standing, not a momentary
       // arithmetic state. Latch it: the portal test below is only true at a set
@@ -613,6 +621,10 @@ export class Race implements RaceView {
       }
       if (this.finalStationArmed && finalCrossing >= 0) {
         this.finishAtFinal(r, finalCrossing, dt);
+      } else if (finalSeatbelt) {
+        // Loudly flag the upstream sweep miss so logs show the seatbelt fired.
+        console.warn(`[race] Final portal seatbelt: qualified contender ${id} beyond the plane without a crossing (t=${this.raceTime.toFixed(2)}s)`);
+        this.finishAtFinal(r, 1, dt);
       }
       if (this.prevRoute[id] !== _sample.routeId) {
         // Flight and surface share canonical u, but their nearest projections

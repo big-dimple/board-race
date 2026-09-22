@@ -266,6 +266,9 @@ export class DriverSelect {
     element('b', '', fullscreenText, '全屏体验');
     element('small', '', fullscreenText, '隐藏地址栏更沉浸');
     this.fullscreenButton.addEventListener('click', () => this.onFullscreenRequest());
+    // Non-interactive proof that a GO click queued the start; the READY chrome
+    // hides for the opening showcase, so this pill carries the wait feedback.
+    element('div', 'driver-launch-status', this.root, '即将出发…');
     window.addEventListener('resize', () => {
       if (!this.root.classList.contains('on')) return;
       this.drawRadar(this.selectedProfile, this.radarDisplayValues);

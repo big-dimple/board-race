@@ -466,6 +466,18 @@ async function verifyMode(browser, mobile) {
     console.log(`${label} final correction crossing: corrected=${finalCorrection.crossingFinished} ` +
       `short=${finalCorrection.shortFinished} teleport=${finalCorrection.teleportFinished}`);
 
+    const missedCrossing = await page.evaluate(() => window.__harness.finalMissedCrossingCase());
+    assert.equal(missedCrossing.nearFinished, true,
+      `${label}: a continuous qualified contender just beyond the Final portal was not settled: ${JSON.stringify(missedCrossing)}`);
+    assert.equal(missedCrossing.nearPhase, 'finished',
+      `${label}: the missed Final crossing seatbelt did not build the finale result: ${JSON.stringify(missedCrossing)}`);
+    assert.equal(missedCrossing.teleportFinished, false,
+      `${label}: a teleport-scale landing beyond Final finished the run: ${JSON.stringify(missedCrossing)}`);
+    assert.equal(missedCrossing.wideFinished, false,
+      `${label}: a boat beyond Final but outside the gate finished the run: ${JSON.stringify(missedCrossing)}`);
+    console.log(`${label} final missed crossing: near=${missedCrossing.nearFinished} ` +
+      `teleport=${missedCrossing.teleportFinished} wide=${missedCrossing.wideFinished}`);
+
     const postSetRank = await page.evaluate(() => window.__harness.postSetRankCase());
     assert.ok(postSetRank.progressAfterDriving > postSetRank.progressAtArming,
       `${label}: armed player stopped banking race distance: ${JSON.stringify(postSetRank)}`);

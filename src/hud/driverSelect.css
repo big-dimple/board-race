@@ -711,3 +711,29 @@
   .driver-select.switching .driver-mobile-backdrop { animation:none; }
   .driver-select-fullscreen { animation:none; }
 }
+
+/* Clicked GO but the countdown has not fired yet (fullscreen transition +
+   authored opening). The READY chrome hides for the showcase, so this small
+   non-interactive pill is the only proof the start is queued — it must stay
+   visible above the launch-pending hiding rule until the countdown owns the
+   screen. */
+.driver-launch-status {
+  position:absolute;
+  left:50%;
+  bottom:max(10px, env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  z-index:9;
+  padding:8px 18px;
+  border:1px solid rgba(244,254,255,.34);
+  border-radius:999px;
+  color:#f4feff;
+  background:rgba(8,13,42,.82);
+  box-shadow:0 0 18px rgba(85,231,255,.14);
+  font:800 12px/1 system-ui, sans-serif;
+  letter-spacing:.05em;
+  opacity:0;
+  pointer-events:none;
+  visibility:hidden;
+  transition:opacity .18s ease-out;
+}
+.driver-select.launch-pending .driver-launch-status { opacity:1; visibility:visible; }
