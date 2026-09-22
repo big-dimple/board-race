@@ -1,6 +1,6 @@
 # Board Race 开发交接
 
-状态：终点漏扫兜底 + GO 启动体验修复完成（build + smoke 双端 + collision + team 全绿），待提交。
+状态：终点漏扫兜底 + GO 启动体验修复完成并已推送（7526d8f，build + smoke 双端 + collision + team 全绿）。
 
 ## 当前工作包
 
@@ -50,5 +50,5 @@
 
 ## 唯一下一步
 
-jiepi-clear 预检 + 暂存已审文件 + `npm run release:checked` 提交推送；
-用户实机硬刷新后复核终点冲线与 GO 启动反馈。
+用户实机硬刷新后复核终点冲线与 GO 启动反馈；若再遇「过门无反应」，取浏览器 console
+的 `[race] Final portal seatbelt` warn。
