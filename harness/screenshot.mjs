@@ -191,6 +191,13 @@ async function verifyMode(browser, mobile) {
   assert.deepEqual(await page.locator('.opening-driver-echo.female .opening-driver-echo-badge').allTextContents(),
     ['女将', '女将'], `${label}: female opening labels are not explicit`);
 
+  const todSeed = await page.evaluate(() => window.__harness.todSeedProbe());
+  assert.equal(todSeed.opening, 'day', `${label}: harness opening round must stay day-seeded for deterministic captures`);
+  assert.deepEqual(
+    [todSeed.h5, todSeed.h6, todSeed.h12, todSeed.h18, todSeed.h23],
+    ['night', 'day', 'day', 'night', 'night'],
+    `${label}: local-clock seed window drifted from 18:00-05:59 night: ${JSON.stringify(todSeed)}`);
+
   if (mobile) {
     // Zoom suppression belongs to active landscape racing only: on the driver
     // selector, two quick taps on a game control must stay browser-owned.

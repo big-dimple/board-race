@@ -26,7 +26,7 @@ import { GamepadInput } from './core/gamepadInput';
 import { Haptics } from './core/haptics';
 import { MobileControls } from './core/mobileControls';
 import { ImmersiveModeController } from './core/immersiveMode';
-import { TimeOfDayManager, type TimeOfDay } from './core/timeOfDay';
+import { localTimeSeed, TimeOfDayManager, type TimeOfDay } from './core/timeOfDay';
 import { NIGHT_PALETTE } from './core/nightPalette';
 import { Ocean } from './water/ocean';
 import { LighthouseLandmark } from './water/lighthouse';
@@ -131,7 +131,10 @@ const MOBILE_DEVICE = params.has('mobile') || navigator.maxTouchPoints > 0 ||
 // freeze on an AI-earned finale; `harnessFinalArm=1` opts back into the real
 // arming path so full-pipeline finale soaks can run headless.
 const harnessEndlessMode = HARNESS && !params.has('harnessFinalArm');
-const timeOfDayManager = new TimeOfDayManager(params.get('tod'));
+// The opening round follows the player's local clock (night = 18:00–05:59);
+// harness runs stay on a fixed day seed so screenshots never depend on the
+// host clock. `?tod=day|night` overrides both.
+const timeOfDayManager = new TimeOfDayManager(params.get('tod'), HARNESS ? 'day' : localTimeSeed());
 type AppMode = 'front-door' | 'independent' | 'duo' | 'team-play';
 let appMode: AppMode = 'front-door';
 
@@ -274,6 +277,10 @@ const singlePlayerMissiles = new SinglePlayerMissilesSystem(
 );
 stage.scene.add(singlePlayerMissiles.object);
 singlePlayerMissiles.warmup(stage.renderer);
+// A night-seeded opening round (local clock or ?tod=night) lights the
+// lighthouse beams in the very first race, so their materials cannot wait
+// for the finale presentation to compile.
+if (timeOfDayManager.current === 'night') lighthouse.warmup(stage.renderer);
 stage.scene.add(duoInteractions.object);
 const honors = new HonorLedger(boats.length);
 
@@ -2198,9 +2205,10 @@ function beginFinalePresentation(): void {
     honors.award('finale.captain', racerId, HONOR_DEFINITIONS['finale.captain'].value, race.raceTime);
   }
   course.triggerFinaleCelebration();
-  // The next round is the night round: compile the searchlight materials
-  // inside this multi-second presentation so the day/night flip never pays
-  // the shader-compile burst on the water.
+  // A day-seeded run meets its first night on the next round: compile the
+  // searchlight materials inside this multi-second presentation so the
+  // day/night flip never pays the shader-compile burst on the water. (A
+  // night-seeded opening round already warmed them at boot.)
   lighthouse.warmup(stage.renderer);
   finale.show(result, '猛男勋章 / 继续');
   finaleElapsed = 0;
@@ -3735,6 +3743,7 @@ interface Harness {
   duoEliminate(id: 0 | 1): void;
   timeOfDayState(): { timeOfDay: TimeOfDay; blend: number; round: number };
   setTimeOfDay(tod: TimeOfDay): void;
+  todSeedProbe(): { opening: TimeOfDay; h5: TimeOfDay; h6: TimeOfDay; h12: TimeOfDay; h18: TimeOfDay; h23: TimeOfDay };
 }
 
 let harnessUsePlayerInput = false;
@@ -5914,6 +5923,19 @@ function scenario(name: string): void {
       advanceUntil(() => race.phase === "racing", 8);
       loop.advance(2.2);
       break;
+    case "night-start":
+      // The opening round as a local-evening player sees it: same staging as
+      // "start" under the night override (the seeded night path renders the
+      // identical scene; only the seed source differs).
+      timeOfDayManager.setOverride('night', true);
+      sky.setTimeOfDay('night', 1.0);
+      ocean.setTimeOfDay('night', 1.0);
+      course.setTimeOfDay('night', 1.0);
+      honorTargets.setTimeOfDay('night', 1.0);
+      lighthouse.setTimeOfDay('night', 1.0);
+      advanceUntil(() => race.phase === "racing", 8);
+      loop.advance(2.2);
+      break;
     case "medal-ceremony":
       advanceUntil(() => race.phase === "racing", 8);
       startMedalCeremony("ordinary", 3, 3);
@@ -6961,6 +6983,16 @@ if (HARNESS) {
       honorTargets.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
       lighthouse.setTimeOfDay(timeOfDayManager.current, timeOfDayManager.blend);
     },
+    todSeedProbe: () => ({
+      // The harness forces a day seed, so the opening round must read day
+      // regardless of the host clock; the seed window itself is pinned here.
+      opening: timeOfDayManager.current,
+      h5: localTimeSeed(new Date(2026, 0, 1, 5)),
+      h6: localTimeSeed(new Date(2026, 0, 1, 6)),
+      h12: localTimeSeed(new Date(2026, 0, 1, 12)),
+      h18: localTimeSeed(new Date(2026, 0, 1, 18)),
+      h23: localTimeSeed(new Date(2026, 0, 1, 23)),
+    }),
   };
   (window as unknown as { __harness: Harness }).__harness = harness;
 } else {

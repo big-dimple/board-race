@@ -2,32 +2,36 @@
  * timeOfDay.ts — core day/night cycle state and transition manager.
  *
  * Rules:
- *  - Round 0: Day ('day', blend = 0)
- *  - Round 1: Night ('night', blend = 1)
- *  - Alternating: round % 2 === 1 ? 'night' : 'day'
- *  - Supports URL override ?tod=day | ?tod=night
+ *  - Round 0 (opening round) is seeded by the player's local wall clock:
+ *    18:00–05:59 local starts at night, otherwise day (see localTimeSeed).
+ *  - Later rounds keep alternating from that seed: (round + parity) % 2.
+ *  - Supports URL override ?tod=day | ?tod=night (wins over the seed).
+ *  - Harness/screenshot runs pass an explicit 'day' seed so captures stay
+ *    deterministic regardless of the host clock.
  *  - Smooth transition blend in [0..1] with zero-allocation update loop.
  */
 
 export type TimeOfDay = 'day' | 'night';
 
-export interface TimeOfDayState {
-  timeOfDay: TimeOfDay;
-  blend: number; // 0 = day, 1 = night
-  round: number;
+/** Opening-round seed from the local wall clock: night runs 18:00–05:59. */
+export function localTimeSeed(date: Date = new Date()): TimeOfDay {
+  const hour = date.getHours();
+  return hour >= 18 || hour < 6 ? 'night' : 'day';
 }
 
 export class TimeOfDayManager {
   private _round = 0;
   private _override: TimeOfDay | null = null;
+  private _parity = 0; // 0 = round 0 is day, 1 = round 0 is night
   private _blend = 0.0; // 0.0 = day, 1.0 = night
   private _targetBlend = 0.0;
   private _transitionSpeed = 2.5; // full transition in ~0.4s or instantaneous
 
-  constructor(initialOverride?: TimeOfDay | string | null) {
+  constructor(initialOverride?: TimeOfDay | string | null, seed?: TimeOfDay | null) {
     if (initialOverride === 'day' || initialOverride === 'night') {
       this._override = initialOverride;
     }
+    this._parity = seed === 'night' ? 1 : 0;
     this._recomputeTarget(true);
   }
 
@@ -37,20 +41,12 @@ export class TimeOfDayManager {
 
   get current(): TimeOfDay {
     if (this._override) return this._override;
-    return this._round % 2 === 1 ? 'night' : 'day';
-  }
-
-  get isNight(): boolean {
-    return this.current === 'night';
+    return (this._round + this._parity) % 2 === 1 ? 'night' : 'day';
   }
 
   /** Current interpolated blend factor: 0.0 = full day, 1.0 = full night */
   get blend(): number {
     return this._blend;
-  }
-
-  get override(): TimeOfDay | null {
-    return this._override;
   }
 
   setOverride(tod: TimeOfDay | null, instant = false): void {
